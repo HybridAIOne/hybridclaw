@@ -28,6 +28,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
     ),
   ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
+  expect(labels).toContain('/approve always [approval_id]');
+  expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
@@ -86,9 +88,7 @@ test('root entries with subcommands include arg hints in labels', () => {
 
   // Commands with string options show formatted option suffixes.
   const configEntry = rootEntries.find((entry) => entry.id === 'config');
-  expect(configEntry?.label).toBe(
-    '/config [check|reload|set] [key] [value]',
-  );
+  expect(configEntry?.label).toBe('/config [check|reload|set] [key] [value]');
 
   // Commands with no options or subcommands have plain labels.
   const statusEntry = rootEntries.find((entry) => entry.id === 'status');

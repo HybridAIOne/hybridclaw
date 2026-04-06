@@ -229,6 +229,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
 import {
   ensureBootstrapFiles,
@@ -3931,7 +3932,10 @@ export function getGatewayHistory(
   const history = page.history
     .filter((message) => {
       if (message.role !== 'assistant') return true;
-      return !isSilentReply(message.content);
+      return (
+        !isSilentReply(message.content) &&
+        !isApprovalHistoryMessage(message.content)
+      );
     })
     .map((message) => {
       if (message.role !== 'assistant') return message;

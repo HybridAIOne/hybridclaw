@@ -293,6 +293,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
       reason: redactSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
+      allowAll: parsed.allowAll === true,
       expiresAt:
         typeof parsed.expiresAt === 'number' &&
         Number.isFinite(parsed.expiresAt)

@@ -76,7 +76,10 @@ import {
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -141,6 +144,10 @@ import type {
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
+import {
+  handleOpenAICompatibleChatCompletions,
+  handleOpenAICompatibleModelList,
+} from './openai-compatible.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -1578,6 +1585,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'approval',
       ...approval,
+      summary: formatGatewayChatApprovalSummary(approval),
     });
   };
 
@@ -3075,6 +3083,52 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname.startsWith('/v1/')) {
+      if (!hasApiAuth(req, url)) {
+        sendJson(res, 401, {
+          error: {
+            message:
+              'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+            type: 'authentication_error',
+            param: null,
+            code: null,
+          },
+        });
+        return;
+      }
+
+      void (async () => {
+        if (pathname === '/v1/models' && method === 'GET') {
+          await handleOpenAICompatibleModelList(res);
+          return;
+        }
+        if (pathname === '/v1/chat/completions' && method === 'POST') {
+          await handleOpenAICompatibleChatCompletions(req, res);
+          return;
+        }
+        sendJson(res, 404, {
+          error: {
+            message: 'Not Found',
+            type: 'invalid_request_error',
+            param: null,
+            code: null,
+          },
+        });
+      })().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err }, 'OpenAI-compatible API request failed');
+        sendJson(res, 500, {
+          error: {
+            message,
+            type: 'server_error',
+            param: null,
+            code: null,
+          },
+        });
+      });
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
@@ -3139,7 +3193,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       gatewayReady = true;
     },
     broadcastShutdown(): void {
-      const shutdownMessage: AdminTerminalServerMessage = { type: 'shutdown', restartExpectedMs: 1500 };
+      const shutdownMessage: AdminTerminalServerMessage = {
+        type: 'shutdown',
+        restartExpectedMs: 1500,
+      };
       const shutdownPayload = JSON.stringify(shutdownMessage);
       terminalManager.broadcastShutdown(shutdownMessage);
       for (const sseRes of activeSseResponses) {

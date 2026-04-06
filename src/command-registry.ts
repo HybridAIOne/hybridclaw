@@ -86,8 +86,10 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
 const APPROVAL_ACTION_CHOICES = [
   { name: 'view', value: 'view' },
   { name: 'yes', value: 'yes' },
+  { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
+  { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
 
@@ -456,6 +458,13 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Approve the pending request once',
         },
         {
+          id: 'approve.always',
+          label: '/approve always [approval_id]',
+          insertText: '/approve always',
+          description:
+            'Approve the pending request for the rest of the conversation',
+        },
+        {
           id: 'approve.session',
           label: '/approve session [approval_id]',
           insertText: '/approve session',
@@ -468,6 +477,13 @@ function buildSlashCommandCatalogDefinitions(
           insertText: '/approve agent',
           description:
             'Approve the pending request for the current agent workspace',
+        },
+        {
+          id: 'approve.all',
+          label: '/approve all [approval_id]',
+          insertText: '/approve all',
+          description:
+            'Approve the pending request for the workspace allowlist',
         },
         {
           id: 'approve.no',
