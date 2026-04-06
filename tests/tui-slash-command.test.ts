@@ -222,13 +222,7 @@ test('maps Discord-style slash commands to gateway command args', () => {
       '-m',
       'swebench.harness.run_evaluation',
     ]),
-  ).toEqual([
-    'eval',
-    'run',
-    'python',
-    '-m',
-    'swebench.harness.run_evaluation',
-  ]);
+  ).toEqual(['eval', 'run', 'python', '-m', 'swebench.harness.run_evaluation']);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {

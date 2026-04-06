@@ -59,7 +59,9 @@ function installTau2Layout(dataDir: string): void {
   const installDir = path.join(dataDir, 'evals', 'tau2-bench');
   fs.mkdirSync(path.join(installDir, '.git'), { recursive: true });
   if (process.platform === 'win32') {
-    fs.mkdirSync(path.join(installDir, '.venv', 'Scripts'), { recursive: true });
+    fs.mkdirSync(path.join(installDir, '.venv', 'Scripts'), {
+      recursive: true,
+    });
     fs.writeFileSync(path.join(installDir, '.venv', 'Scripts', 'tau2.exe'), '');
     fs.writeFileSync(
       path.join(installDir, '.venv', 'Scripts', 'python.exe'),
@@ -94,7 +96,9 @@ test('returns suite recipes without exposing tokens', async () => {
   expect(result.text).toContain(
     'HYBRIDCLAW_EVAL_MODEL=openai-codex/gpt-5.4__hc_eval=agent=charly',
   );
-  expect(result.text).toContain('Agent setup: current agent workspace (charly)');
+  expect(result.text).toContain(
+    'Agent setup: current agent workspace (charly)',
+  );
   expect(result.text).toContain(
     'Session state: fresh transient OpenAI-compatible session per request',
   );
@@ -102,7 +106,9 @@ test('returns suite recipes without exposing tokens', async () => {
 });
 
 test('starts detached eval runs with injected OpenAI-compatible env', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   spawnMock.mockReturnValue({
     pid: 4321,
     unref: vi.fn(),
@@ -179,11 +185,15 @@ test('shows managed tau2 usage', async () => {
   }
   expect(result.title).toBe('tau2');
   expect(result.text).toContain('/eval tau2 setup');
-  expect(result.text).toContain('/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10');
+  expect(result.text).toContain(
+    '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+  );
 });
 
 test('starts detached tau2 setup', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   spawnMock.mockReturnValue({
     pid: 6789,
     unref: vi.fn(),
@@ -220,11 +230,13 @@ test('starts detached tau2 setup', async () => {
     'uv venv --seed --clear --managed-python --python 3.12 .venv',
   );
   expect(shellArgs[1]).toContain('uv pip install --python');
-  expect(shellArgs[1]).toContain(".venv/bin/python' -c \"import tau2.cli\"");
+  expect(shellArgs[1]).toContain('.venv/bin/python\' -c "import tau2.cli"');
 });
 
 test('starts detached swebench setup', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   spawnMock.mockReturnValue({
     pid: 6791,
     unref: vi.fn(),
@@ -262,7 +274,9 @@ test('starts detached swebench setup', async () => {
 });
 
 test('starts detached terminal-bench setup', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   spawnMock.mockReturnValue({
     pid: 6792,
@@ -306,7 +320,9 @@ test('starts detached terminal-bench setup', async () => {
 });
 
 test('runs managed terminal-bench with HybridClaw Harbor agent defaults', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -334,25 +350,34 @@ test('runs managed terminal-bench with HybridClaw Harbor agent defaults', async 
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Terminal-Bench 2.0 Run Started');
-  expect(result.text).toContain('Command: terminal-bench-2.0 run --num-tasks 10');
+  expect(result.text).toContain(
+    'Command: terminal-bench-2.0 run --num-tasks 10',
+  );
   expect(result.text).toContain(
     'Use `/eval terminal-bench-2.0 status` and `/eval terminal-bench-2.0 results` to follow this run.',
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain(path.join('terminal-bench-2.0', '.venv', 'bin', 'harbor'));
+  expect(shellArgs[1]).toContain(
+    path.join('terminal-bench-2.0', '.venv', 'bin', 'harbor'),
+  );
   expect(shellArgs[1]).toContain('run -l 10 -d terminal-bench@2.0 -n 1');
   expect(shellArgs[1]).toContain(
     '--agent-import-path hybridclaw_harbor_agent:HybridClawHarborAgent',
   );
   expect(shellArgs[1]).toContain('-m "$HYBRIDCLAW_EVAL_MODEL"');
-  expect(fs.readFileSync(path.join(installDir, 'hybridclaw_harbor_agent.py'), 'utf-8')).toContain(
-    'HYBRIDCLAW_EVAL_MODEL',
-  );
+  expect(
+    fs.readFileSync(
+      path.join(installDir, 'hybridclaw_harbor_agent.py'),
+      'utf-8',
+    ),
+  ).toContain('HYBRIDCLAW_EVAL_MODEL');
 });
 
 test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent leaves headroom', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -382,7 +407,9 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
 });
 
 test('reserves one slot from configured terminal-bench concurrency defaults', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -413,7 +440,9 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
 });
 
 test('preserves explicit terminal-bench concurrency override', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -430,7 +459,14 @@ test('preserves explicit terminal-bench concurrency override', async () => {
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'run', '--num-tasks', '10', '--n-concurrent', '2'],
+    args: [
+      'terminal-bench-2.0',
+      'run',
+      '--num-tasks',
+      '10',
+      '--n-concurrent',
+      '2',
+    ],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -445,7 +481,9 @@ test('preserves explicit terminal-bench concurrency override', async () => {
 });
 
 test('reports fast tau2 setup failures inline with the reason', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   spawnMock.mockImplementation((_command, _args, options) => {
     const stderrFd = (options as { stdio: [string, number, number] }).stdio[2];
     fs.writeSync(
@@ -476,11 +514,13 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('tau2 Setup Failed');
-  expect(result.text).toContain("requires a different Python");
+  expect(result.text).toContain('requires a different Python');
 });
 
 test('reports managed suite install state and latest setup status', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'gaia');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -537,7 +577,9 @@ test('reports managed suite install state and latest setup status', async () => 
 });
 
 test('reports managed suite latest run in status output', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
@@ -590,12 +632,20 @@ test('reports managed suite latest run in status output', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest run: eval-terminal-bench-run (exited)');
-  expect(result.text).toContain('Command: terminal-bench-2.0 run --num-tasks 10');
+  expect(result.text).toContain(
+    'Command: terminal-bench-2.0 run --num-tasks 10',
+  );
 });
 
 test('shows generic managed suite setup logs in results', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
-  const runDir = path.join(dataDir, 'evals', 'eval-terminal-bench-setup-abc123');
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-setup-abc123',
+  );
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, 'stdout.log'), 'installed harbor\n');
   fs.writeFileSync(path.join(runDir, 'stderr.log'), 'docker check pending\n');
@@ -647,8 +697,14 @@ test('shows generic managed suite setup logs in results', async () => {
 });
 
 test('shows managed suite run logs in results when a run exists', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
-  const runDir = path.join(dataDir, 'evals', 'eval-terminal-bench-run-results-abc123');
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-run-results-abc123',
+  );
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, 'stdout.log'), 'harbor summary line\n');
   fs.writeFileSync(path.join(runDir, 'stderr.log'), 'docker warning\n');
@@ -696,17 +752,30 @@ test('shows managed suite run logs in results when a run exists', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Operation: run');
-  expect(result.text).toContain('Command: terminal-bench-2.0 run --num-tasks 10');
+  expect(result.text).toContain(
+    'Command: terminal-bench-2.0 run --num-tasks 10',
+  );
   expect(result.text).toContain('harbor summary line');
   expect(result.text).toContain('docker warning');
 });
 
 test('requires tau2 setup before tau2 run', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -719,7 +788,9 @@ test('requires tau2 setup before tau2 run', async () => {
 });
 
 test('reports tau2 setup as still running before install completes', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const runDir = path.join(dataDir, 'evals', 'eval-setup-run-abc123');
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(
@@ -758,7 +829,16 @@ test('reports tau2 setup as still running before install completes', async () =>
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -769,11 +849,15 @@ test('reports tau2 setup as still running before install completes', async () =>
   expect(result.kind).toBe('error');
   expect(result.title).toBe('tau2 Setup Running');
   expect(result.text).toContain('tau2 setup is still running.');
-  expect(result.text).toContain('Use `/eval tau2 results` to inspect the setup logs.');
+  expect(result.text).toContain(
+    'Use `/eval tau2 results` to inspect the setup logs.',
+  );
 });
 
 test('runs managed tau2 with default llms when installed', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   spawnMock.mockReturnValue({
     pid: 6789,
@@ -784,7 +868,16 @@ test('runs managed tau2 with default llms when installed', async () => {
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -811,7 +904,9 @@ test('runs managed tau2 with default llms when installed', async () => {
 });
 
 test('queues an initial tau2 progress bar for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   spawnMock.mockReturnValue({
     pid: 6791,
@@ -832,7 +927,16 @@ test('queues an initial tau2 progress bar for tui sessions', async () => {
   initDatabase({ quiet: true });
 
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     channelId: 'tui',
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
@@ -852,7 +956,9 @@ test('queues an initial tau2 progress bar for tui sessions', async () => {
 });
 
 test('queues a tau2 setup completion notification for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
@@ -864,9 +970,14 @@ test('queues a tau2 setup completion notification for tui sessions', async () =>
     pid: 7001,
     unref: vi.fn(),
     off: vi.fn(),
-    on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
-      if (event === 'exit') exitHandlers.push(handler);
-    }),
+    on: vi.fn(
+      (
+        event: string,
+        handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+      ) => {
+        if (event === 'exit') exitHandlers.push(handler);
+      },
+    ),
   });
 
   const { initDatabase, claimQueuedProactiveMessages } = await import(
@@ -893,11 +1004,17 @@ test('queues a tau2 setup completion notification for tui sessions', async () =>
   }
 
   const messages = claimQueuedProactiveMessages('tui', 10);
-  expect(messages.some((message) => message.text.includes('tau2 setup completed successfully.\n\nRun ID:'))).toBe(true);
+  expect(
+    messages.some((message) =>
+      message.text.includes('tau2 setup completed successfully.\n\nRun ID:'),
+    ),
+  ).toBe(true);
 });
 
 test('queues a tau2 setup failure notification for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
@@ -907,14 +1024,22 @@ test('queues a tau2 setup failure notification for tui sessions', async () => {
   > = [];
   spawnMock.mockImplementation((_command, _args, options) => {
     const stderrFd = (options as { stdio: [string, number, number] }).stdio[2];
-    fs.writeSync(stderrFd, "ERROR: Package 'tau2' requires a different Python\n");
+    fs.writeSync(
+      stderrFd,
+      "ERROR: Package 'tau2' requires a different Python\n",
+    );
     return {
       pid: 7002,
       unref: vi.fn(),
       off: vi.fn(),
-      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
-        if (event === 'exit') exitHandlers.push(handler);
-      }),
+      on: vi.fn(
+        (
+          event: string,
+          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+        ) => {
+          if (event === 'exit') exitHandlers.push(handler);
+        },
+      ),
     };
   });
 
@@ -942,13 +1067,23 @@ test('queues a tau2 setup failure notification for tui sessions', async () => {
   }
 
   const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(messages.some((message) => message.text.includes('tau2 setup failed.'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('tau2 setup failed.\n\nRun ID:'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Reason: ERROR: Package'))).toBe(true);
+  expect(
+    messages.some((message) => message.text.includes('tau2 setup failed.')),
+  ).toBe(true);
+  expect(
+    messages.some((message) =>
+      message.text.includes('tau2 setup failed.\n\nRun ID:'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) => message.text.includes('Reason: ERROR: Package')),
+  ).toBe(true);
 });
 
 test('queues a tau2 run completion notification without a duplicate generic finished message', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
   process.env.HOME = homeDir;
@@ -967,9 +1102,14 @@ test('queues a tau2 run completion notification without a duplicate generic fini
       pid: 7003,
       unref: vi.fn(),
       off: vi.fn(),
-      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
-        if (event === 'exit') exitHandlers.push(handler);
-      }),
+      on: vi.fn(
+        (
+          event: string,
+          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+        ) => {
+          if (event === 'exit') exitHandlers.push(handler);
+        },
+      ),
     };
   });
 
@@ -981,7 +1121,16 @@ test('queues a tau2 run completion notification without a duplicate generic fini
   initDatabase({ quiet: true });
 
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     channelId: 'tui',
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
@@ -997,15 +1146,33 @@ test('queues a tau2 run completion notification without a duplicate generic fini
   }
 
   const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(messages.some((message) => message.text.includes('tau2 run completed.\n\nRun ID:'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Success: 6/10 (0.600 reward pass)'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('DB match: 3/10 (30.0%)'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Conversations: 10 normal stop'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Eval finished'))).toBe(false);
+  expect(
+    messages.some((message) =>
+      message.text.includes('tau2 run completed.\n\nRun ID:'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) =>
+      message.text.includes('Success: 6/10 (0.600 reward pass)'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) => message.text.includes('DB match: 3/10 (30.0%)')),
+  ).toBe(true);
+  expect(
+    messages.some((message) =>
+      message.text.includes('Conversations: 10 normal stop'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) => message.text.includes('Eval finished')),
+  ).toBe(false);
 });
 
 test('queues a tau2 run failure notification with the reason', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
   process.env.HOME = homeDir;
@@ -1021,9 +1188,14 @@ test('queues a tau2 run failure notification with the reason', async () => {
       pid: 7004,
       unref: vi.fn(),
       off: vi.fn(),
-      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
-        if (event === 'exit') exitHandlers.push(handler);
-      }),
+      on: vi.fn(
+        (
+          event: string,
+          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+        ) => {
+          if (event === 'exit') exitHandlers.push(handler);
+        },
+      ),
     };
   });
 
@@ -1035,7 +1207,16 @@ test('queues a tau2 run failure notification with the reason', async () => {
   initDatabase({ quiet: true });
 
   const result = await handleEvalCommand({
-    args: ['tau2', 'run', '--domain', 'telecom', '--num-trials', '1', '--num-tasks', '10'],
+    args: [
+      'tau2',
+      'run',
+      '--domain',
+      'telecom',
+      '--num-trials',
+      '1',
+      '--num-tasks',
+      '10',
+    ],
     channelId: 'tui',
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
@@ -1051,13 +1232,25 @@ test('queues a tau2 run failure notification with the reason', async () => {
   }
 
   const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(messages.some((message) => message.text.includes('tau2 run failed.\n\nRun ID:'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Reason: ERROR: telecom credentials missing'))).toBe(true);
-  expect(messages.some((message) => message.text.includes('Eval finished'))).toBe(false);
+  expect(
+    messages.some((message) =>
+      message.text.includes('tau2 run failed.\n\nRun ID:'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) =>
+      message.text.includes('Reason: ERROR: telecom credentials missing'),
+    ),
+  ).toBe(true);
+  expect(
+    messages.some((message) => message.text.includes('Eval finished')),
+  ).toBe(false);
 });
 
 test('preserves explicit tau2 llm flags', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   spawnMock.mockReturnValue({
     pid: 6790,
@@ -1098,7 +1291,9 @@ test('preserves explicit tau2 llm flags', async () => {
 });
 
 test('reports tau2 install and latest run status', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   const runDir = path.join(dataDir, 'evals', 'eval-test-run-abc123');
   fs.mkdirSync(runDir, { recursive: true });
@@ -1162,7 +1357,9 @@ test('reports tau2 install and latest run status', async () => {
 });
 
 test('reports tau2 success metric in status output for completed runs', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   installTau2Layout(dataDir);
   const runDir = path.join(dataDir, 'evals', 'eval-status-summary-abc123');
   fs.mkdirSync(runDir, { recursive: true });
@@ -1231,14 +1428,19 @@ test('reports tau2 success metric in status output for completed runs', async ()
 });
 
 test('reports tau2 setup failure reason in status output', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const runDir = path.join(dataDir, 'evals', 'eval-setup-failed-abc123');
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(
     path.join(runDir, 'stderr.log'),
     "ERROR: Package 'tau2' requires a different Python: 3.14.3 not in '<3.14,>=3.12'\n",
   );
-  fs.writeFileSync(path.join(runDir, 'stdout.log'), 'Preparing editable metadata\n');
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    'Preparing editable metadata\n',
+  );
   fs.writeFileSync(
     path.join(runDir, 'run.json'),
     JSON.stringify(
@@ -1289,7 +1491,9 @@ test('reports tau2 setup failure reason in status output', async () => {
 });
 
 test('stops the latest running tau2 process', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const runDir = path.join(dataDir, 'evals', 'eval-stop-run-abc123');
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(
@@ -1341,7 +1545,9 @@ test('stops the latest running tau2 process', async () => {
 });
 
 test('shows latest tau2 results from log tails', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const runDir = path.join(dataDir, 'evals', 'eval-results-run-abc123');
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(
@@ -1434,7 +1640,9 @@ test('shows latest tau2 results from log tails', async () => {
 });
 
 test('shows setup logs in tau2 results when no run exists yet', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-'));
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
   const runDir = path.join(dataDir, 'evals', 'eval-setup-results-abc123');
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, 'stdout.log'), 'cloning repo\n');
