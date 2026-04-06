@@ -28,6 +28,9 @@ config.local.json
 *.db-shm
 *.db-wal
 
+# Internal workplans
+docs/development/workplan-*.md
+
 # Claude Code
 .claude/
 
