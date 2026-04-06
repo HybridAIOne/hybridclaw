@@ -11,24 +11,10 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/static/favicon-96x96.png" />
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
-    <script>
-      (() => {
-        const storageKey = 'hybridclaw-theme';
-        const storedTheme = window.localStorage.getItem(storageKey);
-        const preferredTheme =
-          storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system'
-            ? storedTheme
-            : 'system';
-        const resolvedTheme =
-          preferredTheme === 'system'
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
-            : preferredTheme;
-        const root = window.document.documentElement;
-        root.dataset.theme = resolvedTheme;
-        root.style.colorScheme = resolvedTheme;
-      })();
+    <script type="module">
+      import { bootstrapTheme } from '/src/theme-bootstrap.ts';
+
+      bootstrapTheme();
     </script>
   </head>
   <body>

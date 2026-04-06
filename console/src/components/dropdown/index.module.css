@@ -45,7 +45,7 @@
   background: var(--panel-muted);
 }
 
-.item.active {
+.item[data-active='true'] {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-foreground);
 }

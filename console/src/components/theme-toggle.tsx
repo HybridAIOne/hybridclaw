@@ -78,7 +78,8 @@ export function ThemeToggle() {
         {options.map((option) => (
           <DropdownItem
             key={option.value}
-            className={`theme-toggle-option ${theme === option.value ? 'active' : ''}`}
+            className="theme-toggle-option"
+            active={theme === option.value}
             onSelect={() => setTheme(option.value)}
           >
             <ThemeIcon theme={option.value} />

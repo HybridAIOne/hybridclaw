@@ -2,11 +2,10 @@ import {
   type ButtonHTMLAttributes,
   createContext,
   type ReactNode,
-  type RefObject,
   useCallback,
   useContext,
   useEffect,
-  useRef,
+  useId,
   useState,
 } from 'react';
 import styles from './index.module.css';
@@ -15,9 +14,11 @@ type DropdownContextValue = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenToggle: () => void;
-  triggerRef: RefObject<HTMLElement | null>;
+  triggerElement: HTMLButtonElement | null;
+  contentElement: HTMLDivElement | null;
+  setTriggerElement: (element: HTMLButtonElement | null) => void;
+  setContentElement: (element: HTMLDivElement | null) => void;
   contentId: string;
-  triggerId: string;
 } | null;
 
 const DropdownContext = createContext<DropdownContextValue>(null);
@@ -26,10 +27,6 @@ function useDropdownContext(name: string) {
   const ctx = useContext(DropdownContext);
   if (!ctx) throw new Error(`${name} components must be used within Dropdown`);
   return ctx;
-}
-
-function useId() {
-  return useRef(`dropdown-${Math.random().toString(36).slice(2, 9)}`).current;
 }
 
 interface DropdownProps {
@@ -46,9 +43,13 @@ export function Dropdown({
   onOpenChange,
 }: DropdownProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const triggerRef = useRef<HTMLElement | null>(null);
+  const [triggerElement, setTriggerElement] = useState<HTMLButtonElement | null>(
+    null,
+  );
+  const [contentElement, setContentElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   const contentId = useId();
-  const triggerId = useId();
 
   const isControlled = openProp !== undefined;
   const currentOpen = isControlled ? openProp : open;
@@ -71,9 +72,11 @@ export function Dropdown({
         open: currentOpen,
         onOpenChange: handleOpenChange,
         onOpenToggle: handleOpenToggle,
-        triggerRef,
+        triggerElement,
+        contentElement,
+        setTriggerElement,
+        setContentElement,
         contentId,
-        triggerId,
       }}
     >
       {children}
@@ -96,20 +99,23 @@ export function DropdownTrigger({
   'aria-label': ariaLabel,
   title,
 }: DropdownTriggerProps) {
-  const { open, onOpenChange, onOpenToggle, triggerRef, contentId, triggerId } =
-    useDropdownContext('DropdownTrigger');
+  const {
+    open,
+    onOpenChange,
+    onOpenToggle,
+    setTriggerElement,
+    contentId,
+  } = useDropdownContext('DropdownTrigger');
 
   const classNames = [styles.trigger, className].filter(Boolean).join(' ');
 
   return (
     <button
-      ref={triggerRef as RefObject<HTMLButtonElement>}
+      ref={setTriggerElement}
       type="button"
-      id={triggerId}
       className={classNames}
-      aria-haspopup="menu"
       aria-expanded={open}
-      aria-controls={open ? contentId : undefined}
+      aria-controls={contentId}
       aria-label={ariaLabel}
       title={title}
       data-state={open ? 'open' : 'closed'}
@@ -139,21 +145,22 @@ export function DropdownContent({
   align = 'start',
   sideOffset = 4,
 }: DropdownContentProps) {
-  const { open, onOpenChange, triggerRef, contentId, triggerId } =
-    useDropdownContext('DropdownContent');
-  const contentRef = useRef<HTMLDivElement>(null);
+  const {
+    open,
+    onOpenChange,
+    triggerElement,
+    contentElement,
+    setContentElement,
+    contentId,
+  } = useDropdownContext('DropdownContent');
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    if (!open || !triggerRef.current || !contentRef.current) return;
+    if (!open || !triggerElement || !contentElement) return;
 
     const updatePosition = () => {
-      const trigger = triggerRef.current;
-      const content = contentRef.current;
-      if (!trigger || !content) return;
-
-      const triggerRect = trigger.getBoundingClientRect();
-      const contentRect = content.getBoundingClientRect();
+      const triggerRect = triggerElement.getBoundingClientRect();
+      const contentRect = contentElement.getBoundingClientRect();
 
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
@@ -187,22 +194,29 @@ export function DropdownContent({
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open, align, sideOffset, triggerRef]);
+  }, [open, align, sideOffset, triggerElement, contentElement]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !triggerElement || !contentElement) return;
+
+    const focusFirstItem = window.setTimeout(() => {
+      const firstItem = contentElement.querySelector<HTMLElement>(
+        'button:not(:disabled)',
+      );
+      firstItem?.focus();
+    }, 0);
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (triggerRef.current?.contains(target)) return;
-      if (contentRef.current?.contains(target)) return;
+      if (triggerElement.contains(target)) return;
+      if (contentElement.contains(target)) return;
       onOpenChange(false);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onOpenChange(false);
-        triggerRef.current?.focus();
+        triggerElement.focus();
       }
     };
 
@@ -210,10 +224,11 @@ export function DropdownContent({
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      window.clearTimeout(focusFirstItem);
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, onOpenChange, triggerRef]);
+  }, [open, onOpenChange, triggerElement, contentElement]);
 
   if (!open) return null;
 
@@ -221,10 +236,8 @@ export function DropdownContent({
 
   return (
     <div
-      ref={contentRef}
+      ref={setContentElement}
       id={contentId}
-      role="menu"
-      aria-labelledby={triggerId}
       className={classNames}
       style={{
         left: position.x,
@@ -239,12 +252,14 @@ export function DropdownContent({
 interface DropdownItemProps {
   children: ReactNode;
   className?: string;
+  active?: boolean;
   onSelect?: () => void;
 }
 
 export function DropdownItem({
   children,
   className = '',
+  active = false,
   onSelect,
 }: DropdownItemProps) {
   const { onOpenChange } = useDropdownContext('DropdownItem');
@@ -254,8 +269,8 @@ export function DropdownItem({
   return (
     <button
       type="button"
-      role="menuitem"
       className={classNames}
+      data-active={active ? 'true' : 'false'}
       onClick={() => {
         onSelect?.();
         onOpenChange(false);

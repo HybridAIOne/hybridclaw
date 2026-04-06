@@ -50,7 +50,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
   });
 
   it('closes dropdown when item is clicked', async () => {
@@ -69,9 +69,9 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
 
-    const item = screen.getByRole('menuitem');
+    const item = screen.getByRole('button', { name: 'Item 1' });
     fireEvent.click(item);
 
     expect(handleSelect).toHaveBeenCalled();
@@ -95,7 +95,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
 
     fireEvent.mouseDown(document.body);
     await flushTimers();
@@ -117,7 +117,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     await flushTimers();
@@ -153,8 +153,9 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const menu = screen.getByRole('menu');
-    expect(menu.className).toContain('custom-content');
+    expect(screen.getByText('Item 1').parentElement?.className).toContain(
+      'custom-content',
+    );
   });
 
   it('applies custom className to items', async () => {
@@ -171,7 +172,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const item = screen.getByRole('menuitem');
+    const item = screen.getByRole('button', { name: 'Item 1' });
     expect(item.className).toContain('custom-item');
   });
 
@@ -189,7 +190,7 @@ describe('Dropdown', () => {
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
   });
 
   it('opens on enter key', async () => {
@@ -206,7 +207,7 @@ describe('Dropdown', () => {
     fireEvent.keyDown(trigger, { key: 'Enter' });
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
   });
 
   it('opens on space key', async () => {
@@ -223,7 +224,7 @@ describe('Dropdown', () => {
     fireEvent.keyDown(trigger, { key: ' ' });
     await flushTimers();
 
-    expect(screen.getByRole('menu')).toBeDefined();
+    expect(screen.getByText('Item 1')).toBeDefined();
   });
 
   it('has correct aria attributes on trigger', async () => {
@@ -237,7 +238,7 @@ describe('Dropdown', () => {
     );
 
     const trigger = screen.getByRole('button');
-    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    expect(trigger.getAttribute('aria-controls')).toBeTruthy();
     expect(trigger.getAttribute('data-state')).toBe('closed');
 
     fireEvent.click(trigger);
@@ -263,7 +264,9 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const items = screen.getAllByRole('menuitem');
+    const items = screen.getAllByRole('button').filter((element) =>
+      /^Item /.test(element.textContent || ''),
+    );
     expect(items).toHaveLength(3);
   });
 
@@ -277,6 +280,6 @@ describe('Dropdown', () => {
       </Dropdown>,
     );
 
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByText('Item 1')).toBeNull();
   });
 });
