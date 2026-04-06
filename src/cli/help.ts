@@ -1,3 +1,4 @@
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 
@@ -54,7 +55,7 @@ By default, \`hybridclaw tui\` starts a fresh local CLI session.
 
 Interactive slash commands inside TUI:
   /agent [list|switch|create|model]
-  /approve [view|yes|session|agent|no] [approval_id]
+  ${APPROVE_COMMAND_USAGE}
   /audit [sessionId]
   /auth status <provider>
   /bot [info|list|set <id|name>|clear]

@@ -1,5 +1,10 @@
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
+  APPROVAL_SCOPE_MODES,
+  APPROVE_TEXT_CHANNEL_USAGE,
+  type ApprovalScopeMode,
+} from '../approval-commands.js';
+import {
   buildResponseText,
   formatError,
   formatInfo,
@@ -26,6 +31,10 @@ import {
 } from './pending-approvals.js';
 
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+
+function isApprovalScopeMode(value: string): value is ApprovalScopeMode {
+  return APPROVAL_SCOPE_MODES.includes(value as ApprovalScopeMode);
+}
 
 export interface HandledTextChannelApprovalResult {
   handled: true;
@@ -81,17 +90,27 @@ function buildApprovalUserMessage(params: {
   if (action === 'yes' || action === '1') {
     return withApprovalId('yes');
   }
-  if (action === 'session' || action === '2') {
-    return approvalId ? `yes ${approvalId} for session` : 'yes for session';
-  }
-  if (action === 'agent' || action === '3') {
-    return approvalId ? `yes ${approvalId} for agent` : 'yes for agent';
+  if (
+    (isApprovalScopeMode(action) && action !== 'once') ||
+    action === '2' ||
+    action === '3' ||
+    action === '4'
+  ) {
+    const mode =
+      action === '2'
+        ? 'session'
+        : action === '3'
+          ? 'agent'
+          : action === '4'
+            ? 'all'
+            : action;
+    return approvalId ? `yes ${approvalId} for ${mode}` : `yes for ${mode}`;
   }
   if (
     action === 'no' ||
     action === 'deny' ||
     action === 'skip' ||
-    action === '4'
+    action === '5'
   ) {
     return withApprovalId('no');
   }
@@ -171,7 +190,7 @@ export async function handleTextChannelApprovalCommand(params: {
     return {
       handled: true,
       sessionId,
-      text: 'Usage: `/approve action:view|yes|session|agent|no [approval_id]`',
+      text: `Usage: ${APPROVE_TEXT_CHANNEL_USAGE}`,
       artifacts: [],
     };
   }

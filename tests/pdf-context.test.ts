@@ -110,6 +110,41 @@ describe('injectPdfContextMessages', () => {
     );
   });
 
+  test('reuses cached PDF context for "yes for all" approval replay turns', async () => {
+    const workspaceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'hybridclaw-pdf-approval-all-'),
+    );
+    const pdfPath = path.join(workspaceRoot, 'receipt.pdf');
+    await createPdf(pdfPath, 'Allowlist replay summary');
+
+    await injectPdfContextMessages({
+      sessionId: 'session-approval-replay-all',
+      workspaceRoot,
+      messages: [
+        {
+          role: 'user',
+          content: 'Extract the fields from "./receipt.pdf".',
+        },
+      ],
+    });
+
+    const replayMessages = await injectPdfContextMessages({
+      sessionId: 'session-approval-replay-all',
+      workspaceRoot,
+      messages: [
+        {
+          role: 'user',
+          content: 'yes for all',
+        },
+      ],
+    });
+
+    expect(replayMessages).toHaveLength(2);
+    expect(latestSystemMessage(replayMessages)?.content).toContain(
+      'Allowlist replay summary',
+    );
+  });
+
   test('allows explicit absolute PDF paths in host mode', async () => {
     setSandboxModeOverride('host');
 
