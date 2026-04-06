@@ -14,7 +14,12 @@ hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=co
 hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
+hybridclaw gateway <command...>
+hybridclaw gateway compact
+hybridclaw gateway reset [yes|no]
 hybridclaw tui
+hybridclaw tui --resume <sessionId>
+hybridclaw --resume <sessionId>
 hybridclaw onboarding
 hybridclaw doctor [--fix|--json|<component>]
 hybridclaw config
@@ -26,7 +31,17 @@ hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
 hybridclaw gateway concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
+hybridclaw update [status|--check] [--yes]
+hybridclaw help
 ```
+
+`hybridclaw gateway <command...>` forwards a command to a running gateway, for
+example `sessions` or `bot info`.
+`gateway compact` archives older session history into memory while preserving a
+recent active tail, and `gateway reset [yes|no]` clears history plus the
+current workspace after confirmation.
+`hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
+reopen an earlier TUI session by canonical session id.
 
 ## Auth And Providers
 
@@ -35,8 +50,19 @@ hybridclaw auth login [provider] ...
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
+hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
+hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw help auth
+hybridclaw help openrouter
+hybridclaw help mistral
+hybridclaw help huggingface
 ```
+
+`auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
+`huggingface`, `local`, and `msteams`.
+Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
+`hybridclaw local ...` still work, but `auth` is the primary surface.
 
 ## Channel Setup
 
@@ -70,6 +96,9 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
+For archive flags such as `--description`, `--author`, skill/plugin bundling,
+and GitHub install sources, see
+[Agent Packages](../extensibility/agent-packages.md).
 
 ## Migration
 
@@ -106,6 +135,7 @@ hybridclaw plugin disable <plugin-id>
 hybridclaw plugin install <path|npm-spec>
 hybridclaw plugin reinstall <path|npm-spec>
 hybridclaw plugin uninstall <plugin-id>
+hybridclaw update [status|--check] [--yes]
 hybridclaw audit recent
 hybridclaw audit approvals [n] [--denied]
 hybridclaw audit search <query>
@@ -116,6 +146,45 @@ hybridclaw audit instructions [--sync]
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`update` checks for a newer installed release and can upgrade a global npm
+install; source checkouts receive git-based update instructions instead.
+
+## Discord And Session Commands
+
+Discord supports `!claw` plus slash-command equivalents for the same core
+actions. Common examples:
+
+```text
+!claw <message>
+/agent
+/agent list
+/agent switch <id>
+/agent create <id> [--model <model>]
+/agent model [name]
+!claw bot set <id>
+!claw model set <name>
+!claw model clear
+!claw model info
+!claw rag on
+!claw compact
+/reset
+!claw clear
+!claw audit recent [n]
+!claw audit verify [sessionId]
+!claw audit search <query>
+!claw audit approvals [n] [--denied]
+!claw usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+!claw export session [sessionId]
+!claw export trace [sessionId|all]
+!claw mcp list
+!claw mcp add <name> <json>
+!claw schedule add "<cron>" <prompt>
+!claw schedule add at "<ISO time>" <prompt>
+!claw schedule add every <ms> <prompt>
+```
+
+`/agent`, `/model`, `/reset`, `/mcp`, and related slash commands route through
+the same gateway command surface used by TUI and web chat.
 
 ## In Session
 
@@ -125,11 +194,25 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
   alongside the existing runtime commands
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
-  `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/skill import`,
-  `/skill learn`, and related slash commands
+  `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,
+  `/skill import`, `/skill learn`, `/schedule`, `/status`, and related slash
+  commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
-- Discord supports `!claw` plus slash command equivalents for the same core
-  actions
+- TUI `/skill config` opens the interactive skill availability checklist
+- `/status` shows both the current session and current agent
+- `/compact` runs session compaction, and `/reset` runs the confirmed
+  workspace reset flow
+- `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
+  servers
+- `/auth status hybridai` shows local HybridAI auth and config state
+- Typing `/` in the TUI opens the slash-command menu with inline filtering and
+  help aliases
+- The TUI startup banner summarizes the active model, sandbox, gateway,
+  provider, and chatbot context before the first prompt
+- pressing `Up` or `Down` on an empty prompt recalls earlier prompts
+- press `Ctrl-C` or `Ctrl-D` twice within five seconds to exit the TUI
+- on exit, HybridClaw prints token/file/tool totals and a ready-to-run
+  `hybridclaw tui --resume <sessionId>` command for that session
 
 Example secret flow:
 
@@ -140,7 +223,3 @@ Example secret flow:
 
 With that route in place, the model can use `http_request` to call matching
 URLs without seeing the plaintext API key.
-
-For the full command inventory, keep
-[README.md](https://github.com/HybridAIOne/hybridclaw/blob/main/README.md)
-open alongside this page.

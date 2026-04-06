@@ -13,18 +13,25 @@ hybridclaw auth login hybridai --browser
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
 hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
+hybridclaw auth status codex
 hybridclaw auth status openrouter
+hybridclaw auth status mistral
 hybridclaw auth status huggingface
 hybridclaw auth status local
+hybridclaw auth status msteams
 hybridclaw auth logout hybridai
+hybridclaw auth logout codex
 hybridclaw auth logout openrouter
+hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
 hybridclaw auth logout local
+hybridclaw auth logout msteams
 hybridclaw auth whatsapp reset
 ```
 
@@ -32,12 +39,15 @@ hybridclaw auth whatsapp reset
 
 - `hybridclaw auth login` without a provider runs the standard onboarding flow.
 - `hybridclaw auth login hybridai` prefers browser login on local GUI machines
-  and falls back to a manual flow on headless shells.
+  and falls back to a manual flow on headless shells. `--import` copies the
+  current `HYBRIDAI_API_KEY` from your shell into the encrypted secret store,
+  and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
-- `hybridclaw auth login openrouter` and `hybridclaw auth login huggingface`
-  can take `--api-key`, otherwise they fall back to `OPENROUTER_API_KEY` or
-  `HF_TOKEN`, or prompt interactively.
+- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`, and
+  `hybridclaw auth login huggingface` can take `--api-key`, otherwise they fall
+  back to `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, or `HF_TOKEN`, or prompt
+  interactively.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
   vLLM in `~/.hybridclaw/config.json`.
 - The local backend model id is optional. If omitted, HybridClaw enables the
@@ -45,19 +55,32 @@ hybridclaw auth whatsapp reset
 - Interactive onboarding can skip remote provider auth entirely when you plan
   to use a local backend instead.
 - `hybridclaw auth login msteams` enables Microsoft Teams and stores the app
-  secret for later gateway startup.
+  secret for later gateway startup. It can prompt for the app id, app
+  password, and optional tenant id.
 - `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,
   where the active API key came from, the masked key, the active config file,
-  the configured base URL, and the default model.
+  the configured base URL, and the default model without printing the
+  credentials file path.
+- `hybridclaw auth logout local` disables configured local backends and clears
+  any saved vLLM API key.
+- `hybridclaw auth logout msteams` clears the stored Teams app password and
+  disables the Teams integration in config.
+- `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without
+  starting a new pairing session.
 - Local TUI and web sessions can store additional named secrets with
   `/secret set <NAME> <VALUE>` and bind them to outbound API calls with
   `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`.
+- Only one running HybridClaw process should own
+  `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows
+  duplicate linked devices or reconnect drift, stop the extra process, run
+  `hybridclaw auth whatsapp reset`, then pair again with
+  `hybridclaw channels whatsapp setup`.
 
 ## Where Credentials Live
 
-- `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Hugging Face,
-  Discord, email, Teams, related runtime secrets, and named `/secret set`
-  values in encrypted form
+- `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Mistral,
+  Hugging Face, Discord, email, Teams, BlueBubbles iMessage, related runtime
+  secrets, and named `/secret set` values in encrypted form
 - `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
   `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
   runtime secrets
@@ -76,6 +99,14 @@ Current built-in SecretRef surfaces include:
 Use `{ "source": "store", "id": "SECRET_NAME" }`,
 `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand in those
 fields.
+
+Legacy aliases are still supported, for example:
+
+```bash
+hybridclaw hybridai login --browser
+hybridclaw codex status
+hybridclaw local configure ollama llama3.2
+```
 
 Legacy aliases such as `hybridclaw codex status` and
 `hybridclaw local configure ...` still work, but the `auth` namespace is the
