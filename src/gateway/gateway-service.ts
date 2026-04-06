@@ -3555,7 +3555,7 @@ export function createGatewayAdminSkill(input: {
     frontmatterLines.push('  hybridclaw:');
     frontmatterLines.push('    tags:');
     for (const tag of tags) {
-      frontmatterLines.push(`      - ${tag}`);
+      frontmatterLines.push(`      - ${JSON.stringify(String(tag))}`);
     }
   }
   frontmatterLines.push('---');
@@ -3569,7 +3569,9 @@ export function createGatewayAdminSkill(input: {
   const files = Array.isArray(input.files) ? input.files : [];
   for (const file of files) {
     const filePath = String(file.path || '').trim();
-    if (!filePath) continue;
+    if (!filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)) {
+      continue;
+    }
     const resolved = path.resolve(skillDir, filePath);
     if (!resolved.startsWith(skillDir + path.sep)) {
       throw new GatewayRequestError(
