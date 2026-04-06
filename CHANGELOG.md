@@ -2,6 +2,51 @@
 
 ## [Coming up]
 
+## [0.11.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.11.0)
+
+### Added
+
+- **OpenAI-compatible gateway API**: Added loopback-scoped `/v1/models` and
+  `/v1/chat/completions` endpoints so local tools can talk to HybridClaw
+  through an OpenAI-compatible surface with streaming responses and usage
+  reporting.
+- **Workspace approval allowlist controls**: Added a workspace-scoped approval
+  allowlist plus `/approve always` handling so operators can persist trusted
+  approvals more deliberately across chat, TUI, and gateway flows.
+- **Dark-mode console and richer web controls**: Added console dark mode, a
+  reusable dropdown component, extracted icon set, and slash-command
+  suggestions in the web chat UI for faster local operator workflows.
+- **Channel setup how-to documentation**: Added step-by-step channel setup
+  guides for Discord, email, WhatsApp, iMessage, and Microsoft Teams in the
+  maintainer docs.
+- **Release publishing automation**: Added npm publish-on-release automation
+  and switched trusted publishing over to npm OIDC for release workflows.
+
+### Changed
+
+- **Gateway lifecycle behavior**: Improved gateway start, restart, and
+  container replacement flow so runtime refreshes are cleaner, container swap
+  logging is less noisy, and packaged installs prefer public runtime image
+  pulls.
+- **Approval and web chat UX**: Tightened approval wording, aliases, and
+  replay handling while improving mobile chat layout, approval interactions,
+  ordered-list rendering, and keyboard accessibility in the web surfaces.
+- **ClawHub and operator docs surfaces**: Added `CLAWHUB_API_BASE_URL`
+  overrides for skill imports, refreshed docs and setup guidance, and aligned
+  console dark-theme styling with the public documentation shell.
+
+### Fixed
+
+- **Gateway startup and update guidance**: Fixed startup diagnostics, provider
+  auth/model guidance, and post-update restart reminders so operators get more
+  accurate local recovery steps.
+- **Browser and host runtime cleanup**: Fixed browser daemon shutdown handling
+  and host-browser runtime availability so cleanup failures are treated as
+  best-effort instead of breaking the session.
+- **Runtime config and health edge cases**: Fixed config revision
+  synchronization, gateway health payload regressions, favicon fallbacks, and
+  skill import retries under HTTP 429/503 responses.
+
 ## [0.10.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.10.0)
 
 ### Added

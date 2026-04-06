@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.10.0</div>
+    <div class="section-label">Latest Release • v0.11.0</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.10.0 adds encrypted runtime secrets, secret-backed authenticated API calls, OpenClaw and Hermes Agent migration commands, and expanded local-model setup.</p>
+    <p class="section-desc">HybridClaw v0.11.0 adds an OpenAI-compatible local gateway API, approval allowlists, a dark-mode admin console, channel setup guides, and release automation.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f512;</div>
-      <h3>Encrypted runtime secrets</h3>
-      <p>Runtime credentials now live in an encrypted <code>~/.hybridclaw/credentials.json</code> store with separate master-key sourcing via <code>HYBRIDCLAW_MASTER_KEY</code>, <code>/run/secrets/hybridclaw_master_key</code>, or a local owner-only fallback key.</p>
+      <div class="feature-icon">&#x1f4ac;</div>
+      <h3>OpenAI-compatible gateway API</h3>
+      <p>Loopback-scoped <code>/v1/models</code> and <code>/v1/chat/completions</code> endpoints let local tools and editors talk to HybridClaw through an OpenAI-compatible surface with streaming replies and usage reporting.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f310;</div>
-      <h3>Secret-backed API auth</h3>
-      <p><code>/secret set</code>, <code>/secret route add</code>, SecretRefs, and the gateway-side <code>http_request</code> path let the agent call authenticated APIs without exposing plaintext tokens in prompts, tool arguments, or persisted audit payloads.</p>
+      <div class="feature-icon">&#x2705;</div>
+      <h3>Approval allowlists</h3>
+      <p>Workspace approval allowlists and the <code>/approve always</code> alias make it easier to persist trust decisions across local chat, TUI, and gateway approval flows without weakening the default approval model.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Agent-home migration</h3>
-      <p><code>hybridclaw migrate openclaw</code> and <code>hybridclaw migrate hermes</code> can preview or import compatible workspace files, config values, model settings, and optional secrets into a target HybridClaw agent.</p>
+      <div class="feature-icon">&#x1f319;</div>
+      <h3>Dark-mode console</h3>
+      <p>The embedded admin console now supports dark mode, improved dropdown controls, and cleaner iconography, while the web chat UI adds slash-command suggestions and better mobile behavior.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Local-only onboarding</h3>
-      <p>Interactive onboarding can skip remote-provider auth when you plan to run only on local models, and <code>hybridclaw auth login local &lt;backend&gt; [model-id]</code> now works even when you want to choose the model later.</p>
+      <div class="feature-icon">&#x1f4da;</div>
+      <h3>Channel setup guides</h3>
+      <p>The maintainer docs now include explicit setup walkthroughs for Discord, email, WhatsApp, iMessage, and Microsoft Teams, including slash-command equivalents and restart guidance.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;</div>
-      <h3><code>llama.cpp</code> backend</h3>
-      <p><code>llamacpp</code> is now a first-class local provider across config, discovery, doctor checks, model pickers, and runtime routing, alongside Ollama, LM Studio, and vLLM.</p>
+      <div class="feature-icon">&#x1f680;</div>
+      <h3>Release automation</h3>
+      <p>Release workflows now publish npm packages through OIDC trusted publishing, with tighter handling for pre-release dist-tags, packaged runtime images, and public install paths.</p>
     </div>
   </div>
 </section>

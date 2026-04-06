@@ -9,10 +9,73 @@
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
-<img width="540" height="511" alt="image" src="docs/hero.png" />
+<img width="540" height="511" alt="HybridClaw - One AI brain across every channel" src="docs/hero.png" />
 
-Personal AI assistant for Discord, Microsoft Teams, iMessage, WhatsApp, email,
-web, and terminal, powered by [HybridAI](https://hybridai.one).
+**One AI brain across every channel.**
+Discord → Teams → WhatsApp → iMessage → Email → Web → Terminal.  
+Same memory, same skills, same intelligence — fully local, encrypted, and GDPR-compliant powered by [HybridAI](https://hybridai.one).
+
+> “Finally an assistant that actually follows you everywhere — without having to explain everything again every time.”
+
+## 🚀 Quick Start (2 minutes)
+
+```bash
+# 1. Global installation
+npm install -g @hybridaione/hybridclaw
+
+# 2. Onboarding (sets up LLM, channels, secrets, everything)
+hybridclaw onboarding
+
+# 3. Start using it
+hybridclaw gateway      # Start the backend
+hybridclaw tui          # Terminal interface (optional)
+```
+
+After that open:
+
+Web Chat: http://127.0.0.1:9090/chat
+Admin Console: http://127.0.0.1:9090/admin
+Agent Dashboard: http://127.0.0.1:9090/agents
+
+Requirement: Node.js 22 (Docker recommended for sandbox)
+
+Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
+operator and maintainer manual lives under
+[docs/development/README.md](./docs/development/README.md).
+
+## Coming from OpenClaw or Hermes?
+
+```bash
+# Migration in under 2 minutes — preview first
+hybridclaw migrate openclaw --preview
+hybridclaw migrate openclaw          # real migration
+```
+
+All skills, memory, config and secrets are transferred. Zero data loss.
+
+## See it in Action
+
+Once the gateway is running, open HybridClaw locally:
+
+- Web Chat: `http://127.0.0.1:9090/chat`
+- Admin Console: `http://127.0.0.1:9090/admin`
+- Agent Dashboard: `http://127.0.0.1:9090/agents`
+
+## Why HybridClaw instead of OpenClaw, Hermes Agent, LangChain, or n8n?
+
+| Feature | HybridClaw | OpenClaw | Hermes Agent | LangChain | n8n |
+| --- | --- | --- | --- | --- | --- |
+| **One brain across channels** | ✅ Native (Discord, Teams, WhatsApp, iMessage, Email, Web, Terminal) | ✅ 20+ channels | ✅ 7 channels | ❌ Framework only | ⚠️ Via workflows (not native) |
+| **Shared memory & context** | ✅ Persistent across all channels | ✅ Memory-wiki + embeddings | ✅ Self-improving + Honcho model | ✅ (you build it) | ✅ RAG / vector DBs |
+| **Local LLM support** | ✅ Deep integration (Ollama, LM Studio, llama.cpp, vLLM) | ✅ Multiple providers | ✅ Ollama native | ✅ Excellent | ✅ Ollama + others |
+| **Encrypted secrets + SecretRefs** | ✅ Full encrypted store + gateway injection | Partial | Partial | ❌ Manual | Partial |
+| **GDPR / Enterprise-ready** | ✅ Audit trails, sandbox, approvals, config versioning | Limited | Limited | ❌ No | ✅ Strong (workflows) |
+| **Portable `.claw` agent packages** | ✅ Snapshot + backup + install | ❌ | ❌ | ❌ | ❌ |
+| **1-command migration** | ✅ From OpenClaw & Hermes | — | — | — | — |
+| **Multiple UIs** | ✅ TUI + Web Chat + Admin Console + Agent Dashboard | ✅ TUI + WebChat + Control UI | ✅ Full TUI only | ❌ None | ✅ Visual workflow builder |
+| **Self-improving / adaptive skills** | ✅ Adaptive skill loop + health | ✅ ClawHub skills | ✅ Strongest learning loop | ✅ (you code it) | ✅ Via AI nodes |
+| **No-code workflow building** | ✅ CLI + skills + kanban | ⚠️ Skills + ClawHub | ⚠️ Skills Hub | ❌ Code-first | ✅ Best-in-class no-code |
+| **Setup & onboarding** | ✅ `npm install -g` + `onboarding` (2 min) | ✅ Onboard CLI | ✅ One-line curl install | ❌ Requires coding | ✅ Visual + templates |
 
 HybridClaw keeps one assistant brain across team chat, inbox, browser, and
 document workflows with shared memory, approvals, scheduling, and bundled
@@ -45,25 +108,6 @@ config changes auditable and reversible.
 For turn-level debugging, gateway start/restart can also persist best-effort
 redacted prompts, responses, and tool payloads with `--log-requests`.
 
-## Install from npm
-
-```bash
-npm install -g @hybridaione/hybridclaw
-hybridclaw onboarding
-```
-
-Prerequisites: Node.js 22. Docker is recommended when you want the default
-container sandbox. The published install bootstraps the packaged container
-runtime dependencies during `npm install -g`.
-The current release tag is
-[v0.10.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.10.0).
-This release adds encrypted runtime secrets, secret-backed authenticated API
-calls, OpenClaw and Hermes Agent migration commands, and expanded local-model
-setup with `llama.cpp` and local-only onboarding paths.
-Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
-operator and maintainer manual lives under
-[docs/development/README.md](./docs/development/README.md).
-
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -81,55 +125,6 @@ operator and maintainer manual lives under
   chatbot context before the first prompt
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
-
-## Quick start
-
-```bash
-# Install dependencies
-npm install
-
-# Run onboarding (also auto-runs on first `gateway`/`tui` start if required runtime setup is missing)
-hybridclaw onboarding
-
-# Onboarding flow:
-# 1) explicitly accept TRUST_MODEL.md (required)
-# 2) choose HybridAI auth or a local-only setup
-# 3) for HybridAI, create/login in the browser and paste the API key back into the CLI
-# 4) for local-only setups, skip remote auth and configure Ollama, LM Studio, llama.cpp, or vLLM
-# 5) choose the default bot/model and persist config + encrypted secrets under ~/.hybridclaw/
-
-# Start gateway backend (default)
-hybridclaw gateway
-
-# Or run gateway in foreground in this terminal
-hybridclaw gateway start --foreground
-
-# For stdio MCP servers that rely on host tools like `docker` or `npx`
-hybridclaw gateway start --foreground --sandbox=host
-
-# If msteams.enabled=true and MSTEAMS_APP_PASSWORD is configured, gateway auto-connects to Microsoft Teams.
-# If DISCORD_TOKEN is set, gateway auto-connects to Discord.
-# If imessage.enabled=true, gateway auto-connects to iMessage using the configured backend.
-# If email.enabled=true and EMAIL_PASSWORD is configured, gateway auto-connects to Email.
-# If linked WhatsApp auth exists, gateway auto-connects to WhatsApp.
-
-# Start terminal adapter (optional, in a second terminal)
-hybridclaw tui
-
-# Web chat UI (built into gateway)
-# open http://127.0.0.1:9090/chat
-
-# Agent and session dashboard
-# open http://127.0.0.1:9090/agents
-
-# Embedded admin console
-# open http://127.0.0.1:9090/admin
-# Browser terminal page
-# open http://127.0.0.1:9090/admin/terminal
-# Includes Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config
-# If WEB_API_TOKEN is unset, localhost access opens without a login prompt
-# If WEB_API_TOKEN is set, /chat, /agents, and /admin all prompt for the same token
-```
 
 ## Authentication
 
