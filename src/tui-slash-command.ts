@@ -83,7 +83,7 @@ export function mapTuiApproveSlashToMessage(
   if (!approvalId) return { kind: 'missing-approval' };
   if (action === 'yes')
     return { kind: 'message', message: `yes ${approvalId}` };
-  if (action === 'session') {
+  if (action === 'session' || action === 'always' || action === 'all') {
     return { kind: 'message', message: `yes ${approvalId} for session` };
   }
   if (action === 'agent') {

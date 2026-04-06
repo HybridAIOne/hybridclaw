@@ -55,6 +55,29 @@ test('parses raw runtime approval prompts into TUI approval details', () => {
   });
 });
 
+test('parses always-style durable approval prompts into TUI approval details', () => {
+  expect(
+    parseTuiApprovalPrompt(
+      [
+        'I need your approval before I control a local app with `open -a Calendar`.',
+        'Why: this command controls host GUI or application state',
+        'Approval ID: approve123',
+        'Reply `yes` to approve once.',
+        'Reply `yes always` to trust this action for this conversation.',
+        'Reply `yes for agent` to trust it for this agent.',
+        'Reply `no` to deny.',
+        'Approval expires in 120s.',
+      ].join('\n'),
+    ),
+  ).toEqual({
+    approvalId: 'approve123',
+    intent: 'control a local app with `open -a Calendar`',
+    reason: 'this command controls host GUI or application state',
+    allowSession: true,
+    allowAgent: true,
+  });
+});
+
 test('parses pinned runtime approval prompts without durable trust options', () => {
   expect(
     parseTuiApprovalPrompt(

@@ -3156,6 +3156,57 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
+  test('handles /approve always from the web chat path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      sessionId: 'session-web-approve',
+      toolsUsed: [],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve always',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123 for session',
+      }),
+    );
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'Approved.',
+      sessionId: 'session-web-approve',
+    });
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
   test('normalizes silent message-send chat responses', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementation(

@@ -364,7 +364,11 @@ function mapApprovalSelectionToCommand(
   if (
     options.includes('session') &&
     (normalized === 'session' ||
+      normalized === 'always' ||
+      normalized === 'all' ||
       normalized === 'yes for session' ||
+      normalized === 'yes for always' ||
+      normalized === 'yes for all' ||
       normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
@@ -385,7 +389,9 @@ function mapApprovalSelectionToCommand(
 
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
+    normalized,
+  );
 }
 
 function resolvePendingApproval(

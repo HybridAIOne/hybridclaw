@@ -28,6 +28,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
     ),
   ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
+  expect(labels).toContain('/approve always [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');

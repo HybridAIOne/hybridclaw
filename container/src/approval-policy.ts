@@ -163,7 +163,7 @@ const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const HOST_RE =
   /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
 const APPROVE_RE =
-  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+agent|agent))?$/i;
+  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|always|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 
 function normalizeText(value: unknown): string {
@@ -800,7 +800,13 @@ function parseModeFromApproveMatch(
 ): 'once' | 'session' | 'agent' {
   const scope = String(match?.[2] || '').toLowerCase();
   if (scope.includes('agent')) return 'agent';
-  if (scope.includes('session') || scope.includes('always')) return 'session';
+  if (
+    scope.includes('session') ||
+    scope.includes('always') ||
+    scope.includes('all')
+  ) {
+    return 'session';
+  }
   return 'once';
 }
 

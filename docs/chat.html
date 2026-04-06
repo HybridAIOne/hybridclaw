@@ -1661,10 +1661,15 @@
       if (normalizedAction === 'yes' || normalizedAction === '1') {
         return withApprovalId('/approve yes');
       }
-      if (normalizedAction === 'session' || normalizedAction === '2') {
+      if (
+        normalizedAction === 'session' ||
+        normalizedAction === 'always' ||
+        normalizedAction === 'all' ||
+        normalizedAction === '2'
+      ) {
         return normalizedApprovalId
-          ? `/approve session ${normalizedApprovalId}`
-          : '/approve session';
+          ? `/approve always ${normalizedApprovalId}`
+          : '/approve always';
       }
       if (normalizedAction === 'agent' || normalizedAction === '3') {
         return normalizedApprovalId
@@ -1725,8 +1730,10 @@
           .join('\n'),
         intent,
         reason,
-        allowSession: lines.includes(
-          'Reply `yes for session` to trust this action for this session.',
+        allowSession: lines.some((line) =>
+          /^Reply `yes(?:\s+for)?\s+(?:session|all|always)` to trust this action for this (?:session|conversation)\.$/.test(
+            line,
+          ),
         ),
         allowAgent: lines.includes(
           'Reply `yes for agent` to trust it for this agent.',
@@ -2801,7 +2808,7 @@
 
       appendButton('Allow once', 'yes', { primary: true });
       if (approval.allowSession) {
-        appendButton('Allow session', 'session');
+        appendButton('Allow always', 'always');
       }
       if (approval.allowAgent) {
         appendButton('Allow agent', 'agent');

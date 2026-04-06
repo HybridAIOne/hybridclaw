@@ -342,6 +342,45 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.decision).toBe('approved_session');
   });
 
+  test('always/all approval aliases persist session trust for repeated action key', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Fetch from example.com';
+    const argsJson = JSON.stringify({ url: 'https://example.com' });
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const alwaysPrelude = runtime.handleApprovalResponse([
+      userMessage('/approve always'),
+    ]);
+    expect(alwaysPrelude?.approvalMode).toBe('session');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.decision).toBe('approved_session');
+
+    const anotherPending = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'https://docs.example.org' }),
+      latestUserPrompt: 'Open docs.example.org',
+    });
+    expect(anotherPending.decision).toBe('required');
+
+    const allPrelude = runtime.handleApprovalResponse([
+      userMessage('yes for all'),
+    ]);
+    expect(allPrelude?.approvalMode).toBe('session');
+  });
+
   test('network approvals reuse site scope across subdomains', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
