@@ -231,10 +231,10 @@ function resolveContainerPullImages(imageName: string): string[] {
   if (imageName !== DEFAULT_CONTAINER_IMAGE) return [];
 
   const candidates = [
-    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
-    `${DEFAULT_GHCR_IMAGE}:latest`,
     `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
     `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
+    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
+    `${DEFAULT_GHCR_IMAGE}:latest`,
   ];
   return Array.from(new Set(candidates));
 }
@@ -479,6 +479,7 @@ async function buildAndValidateImage(params: {
   }
 
   try {
+    let reasonLoggedBeforeBuild = false;
     if (
       acquisitionMode === 'pull-or-build' ||
       acquisitionMode === 'pull-only'
@@ -493,9 +494,11 @@ async function buildAndValidateImage(params: {
           ].join(' '),
         );
       }
+      console.log(`${commandName}: ${reason}`);
+      reasonLoggedBeforeBuild = true;
       for (const pullImage of pullImages) {
         console.log(
-          `${commandName}: ${reason} Pulling container image '${pullImage}'...`,
+          `${commandName}: Pulling container image '${pullImage}'...`,
         );
         try {
           await pullContainerImage(pullImage);
@@ -522,9 +525,10 @@ async function buildAndValidateImage(params: {
       }
     }
 
-    console.log(
-      `${commandName}: ${reason} Building container image '${imageName}'...`,
-    );
+    const buildLogMessage = reasonLoggedBeforeBuild
+      ? `${commandName}: Building container image '${imageName}'...`
+      : `${commandName}: ${reason} Building container image '${imageName}'...`;
+    console.log(buildLogMessage);
     await buildContainerImage(cwd, imageName);
     recordImageState(cwd, imageName, fingerprint);
     console.log(`${commandName}: Built container image '${imageName}'.`);
@@ -651,6 +655,9 @@ export async function ensureContainerImageReady(
     return;
   }
   if (state.fingerprint === fingerprint) return;
+  const staleImageReason = sourceCheckout
+    ? 'Container sources changed since the last recorded build.'
+    : 'A newer published container image may be available for this install.';
 
   await buildAndValidateImage({
     commandName,
@@ -658,7 +665,7 @@ export async function ensureContainerImageReady(
     cwd,
     imageName,
     acquisitionMode,
-    reason: 'Container sources changed since the last recorded build.',
+    reason: staleImageReason,
     hint: refreshImageHint,
     fingerprint,
     fallbackToExistingImage: true,

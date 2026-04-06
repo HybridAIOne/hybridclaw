@@ -226,25 +226,23 @@ POST to https://staging.hybridai.one/api/v1/virtual-bots/survey with header X-AP
   SecretRefs like `{ "source": "store", "id": "IMESSAGE_PASSWORD" }` or
   `${ENV_VAR}` instead of plaintext config values.
 
-## Setting Up MS Teams
+## Setting Up Channels
 
-See [docs/msteams.md](./docs/msteams.md) for the full setup flow, including:
+See [docs/development/getting-started/channels.md](./docs/development/getting-started/channels.md)
+for the setup commands and step-by-step flows for:
 
-- Azure app registration and bot credentials
-- Azure Bot webhook and Teams channel configuration
-- `hybridclaw auth login msteams`
-- local tunnel setup
-- DM and channel smoke tests
+- Discord
+- Email
+- WhatsApp
+- iMessage
+- Microsoft Teams
 
-## Setting Up iMessage
+For transport-specific deep dives:
 
-See [docs/imessage.md](./docs/imessage.md) for the full setup flow, including:
-
-- local macOS mode with `imsg` and Messages `chat.db`
-- remote/cloud mode with BlueBubbles webhooks + REST sends
-- `imessage.*` config examples for both backends
-- `IMESSAGE_PASSWORD` secret handling for BlueBubbles
-- DM/group policy notes and smoke-test steps
+- [docs/imessage.md](./docs/imessage.md) covers local macOS and BlueBubbles
+  remote setup in detail
+- [docs/msteams.md](./docs/msteams.md) covers the Azure app, bot resource, and
+  webhook registration flow
 
 ## Model Selection
 

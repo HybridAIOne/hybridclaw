@@ -5,6 +5,14 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function expectInfoLog(
+  state: ReturnType<typeof createGatewayMainTestState>,
+  message: string,
+  payload: unknown,
+): void {
+  expect(state.loggerInfo).toHaveBeenCalledWith(payload, message);
+}
+
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
@@ -31,6 +39,7 @@ function createGatewayMainTestState(options?: {
           next: Record<string, unknown>,
           prev: Record<string, unknown>,
         ) => void),
+    scheduledTaskRunner: null as null | ((...args: unknown[]) => Promise<void>),
     currentConfig: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
@@ -73,8 +82,14 @@ function createGatewayMainTestState(options?: {
       (title: string, detail: string) => `**${title}:** ${detail}`,
     ),
     formatInfo: vi.fn((title: string, body: string) => `**${title}**\n${body}`),
+    currentMostRecentSessionChannelId: 'discord:123' as string | null,
     getConfigSnapshot: vi.fn(),
-    getGatewayStatus: vi.fn(() => ({ status: 'ok', sessions: 1 })),
+    getGatewayStatus: vi.fn(() => ({
+      status: 'ok',
+      sessions: 1,
+      providerHealth: {},
+      localBackends: {},
+    })),
     getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
@@ -120,6 +135,7 @@ function createGatewayMainTestState(options?: {
       (result: { text: string }) => `rendered:${result.text}`,
     ),
     resumeEnabledFullAutoSessions: vi.fn(() => 0),
+    runGatewayScheduledTask: vi.fn(async () => {}),
     resolveAgentForRequest: vi.fn(() => ({
       agentId: 'agent-resolved',
       model: 'gpt-5-nano',
@@ -129,7 +145,10 @@ function createGatewayMainTestState(options?: {
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
-    startGatewayHttpServer: vi.fn(),
+    startGatewayHttpServer: vi.fn(() => ({
+      broadcastShutdown: vi.fn(),
+      setReady: vi.fn(),
+    })),
     startHeartbeat: vi.fn(),
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
@@ -224,7 +243,7 @@ async function importFreshGatewayMain(options?: {
     state.whatsappMessageHandler = messageHandler;
   });
   state.startScheduler.mockImplementation((listener) => {
-    void listener;
+    state.scheduledTaskRunner = listener;
   });
   state.processOn.mockImplementation((() => process) as never);
   vi.stubGlobal('setInterval', state.setInterval as never);
@@ -324,7 +343,9 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/memory/db.js', () => ({
     deleteQueuedProactiveMessage: vi.fn(),
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
-    getMostRecentSessionChannelId: vi.fn(() => 'discord:123'),
+    getMostRecentSessionChannelId: vi.fn(
+      () => state.currentMostRecentSessionChannelId,
+    ),
     getQueuedProactiveMessageCount: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
     initDatabase: state.initDatabase,
@@ -378,7 +399,7 @@ async function importFreshGatewayMain(options?: {
     handleGatewayMessage: state.handleGatewayMessage,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
-    runGatewayScheduledTask: vi.fn(async () => {}),
+    runGatewayScheduledTask: state.runGatewayScheduledTask,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     initGatewayService: state.initGatewayService,
@@ -487,12 +508,12 @@ describe('gateway bootstrap', () => {
 
     expect(state.initIMessage).toHaveBeenCalledTimes(1);
     expect(state.imessageMessageHandler).not.toBeNull();
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         imessage: true,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -508,12 +529,12 @@ describe('gateway bootstrap', () => {
       { error: expect.any(Error) },
       'iMessage integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         imessage: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -563,6 +584,145 @@ describe('gateway bootstrap', () => {
     expect(state.whatsappMessageHandler).not.toBeNull();
   });
 
+  test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentMostRecentSessionChannelId = null;
+      },
+    });
+
+    await state.scheduledTaskRunner?.({
+      source: 'config-job',
+      jobId: 'release-notes',
+      sessionId: 'scheduler:release-notes',
+      channelId: 'scheduler',
+      prompt: 'publish release notes',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'last-channel',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).not.toHaveBeenCalled();
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'release-notes',
+        taskId: undefined,
+        source: 'config-job',
+        actionKind: 'agent_turn',
+        delivery: 'last-channel',
+      },
+      'Scheduled task skipped: no delivery channel available',
+    );
+    expect(state.loggerError).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'release-notes',
+        delivery: 'last-channel',
+      }),
+      'Scheduled task failed',
+    );
+  });
+
+  test('logs provider health and scheduler jobs separately from the startup summary', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.getGatewayStatus.mockReturnValue({
+          status: 'ok',
+          sessions: 1,
+          codex: {
+            authenticated: true,
+            source: 'browser-pkce',
+            accountId: 'acct-1',
+            expiresAt: 1,
+            reloginRequired: false,
+          },
+          observability: {
+            enabled: true,
+            running: false,
+            paused: false,
+            reason: null,
+            streamKey: 'stream-key',
+            lastCursor: 1,
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+          scheduler: {
+            jobs: [
+              {
+                id: 'release-notes',
+                name: 'Release Notes',
+                description: null,
+                enabled: true,
+                lastRun: '2026-04-03T13:00:00.003Z',
+                lastStatus: 'success',
+                nextRunAt: '2026-04-03T14:00:00.000Z',
+                disabled: false,
+                consecutiveErrors: 0,
+              },
+            ],
+          },
+          providerHealth: {
+            codex: {
+              kind: 'remote',
+              reachable: true,
+              modelCount: 8,
+              detail: 'Authenticated via browser-pkce',
+            },
+          },
+          localBackends: {
+            lmstudio: {
+              reachable: true,
+              latencyMs: 29,
+              modelCount: 12,
+            },
+          },
+        });
+      },
+    });
+
+    expectInfoLog(
+      state,
+      'HybridClaw gateway started',
+      expect.not.objectContaining({
+        scheduler: expect.anything(),
+        providerHealth: expect.anything(),
+        localBackends: expect.anything(),
+      }),
+    );
+    expectInfoLog(state, 'Gateway scheduler jobs', {
+      jobs: [
+        {
+          id: 'release-notes',
+          name: 'Release Notes',
+          description: null,
+          enabled: true,
+          lastRun: '2026-04-03T13:00:00.003Z',
+          lastStatus: 'success',
+          nextRunAt: '2026-04-03T14:00:00.000Z',
+          disabled: false,
+          consecutiveErrors: 0,
+        },
+      ],
+    });
+    expectInfoLog(
+      state,
+      'Gateway provider health',
+      expect.objectContaining({
+        providerHealth: expect.objectContaining({
+          codex: expect.objectContaining({
+            reachable: true,
+          }),
+        }),
+        localBackends: expect.objectContaining({
+          lmstudio: expect.objectContaining({
+            reachable: true,
+          }),
+        }),
+      }),
+    );
+  });
+
   test('keeps the gateway running when WhatsApp auth is locked by another process', async () => {
     const state = await importFreshGatewayMain({
       whatsappLinked: true,
@@ -586,12 +746,12 @@ describe('gateway bootstrap', () => {
         (call) => call[1] === 'WhatsApp integration failed to start',
       ),
     ).toBe(false);
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         whatsapp: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -608,12 +768,12 @@ describe('gateway bootstrap', () => {
       { error: whatsappInitError },
       'WhatsApp integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         whatsapp: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -634,16 +794,15 @@ describe('gateway bootstrap', () => {
       { error: discordInitError },
       'Discord integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
-        sessions: 1,
         discord: false,
         msteams: true,
         email: false,
         whatsapp: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -659,12 +818,12 @@ describe('gateway bootstrap', () => {
     expect(state.loggerWarn).not.toHaveBeenCalledWith(
       'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         discord: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 

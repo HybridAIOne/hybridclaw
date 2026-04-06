@@ -34,6 +34,7 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
@@ -1558,6 +1559,347 @@ function buildHybridAIAuthStatusLines(): string[] {
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
     'Billing: unavailable from this status command',
   ];
+}
+
+type GatewayAuthStatusProvider =
+  | 'hybridai'
+  | 'codex'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'local'
+  | 'msteams';
+
+function normalizeGatewayAuthStatusProvider(
+  rawProvider: string | undefined,
+): GatewayAuthStatusProvider | null {
+  const normalized = String(rawProvider || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'hybridai' ||
+    normalized === 'hybrid-ai' ||
+    normalized === 'hybrid'
+  ) {
+    return 'hybridai';
+  }
+  if (normalized === 'codex' || normalized === 'openai-codex') {
+    return 'codex';
+  }
+  if (normalized === 'openrouter' || normalized === 'or') {
+    return 'openrouter';
+  }
+  if (normalized === 'mistral') {
+    return 'mistral';
+  }
+  if (
+    normalized === 'huggingface' ||
+    normalized === 'hf' ||
+    normalized === 'hugging-face' ||
+    normalized === 'huggingface-hub'
+  ) {
+    return 'huggingface';
+  }
+  if (normalized === 'local') {
+    return 'local';
+  }
+  if (
+    normalized === 'msteams' ||
+    normalized === 'teams' ||
+    normalized === 'ms-teams'
+  ) {
+    return 'msteams';
+  }
+  return null;
+}
+
+function maskGatewaySecret(value: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '***';
+  if (normalized.length <= 8) {
+    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
+  }
+  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
+}
+
+function resolveRuntimeCredentialStatus(
+  storedSecretName: string,
+  envValues: Array<string | undefined>,
+): {
+  value: string;
+  source: 'env' | 'runtime-secrets' | null;
+} {
+  const storedValue = readStoredRuntimeSecret(storedSecretName);
+  const envValue =
+    envValues
+      .map((value) => String(value || '').trim())
+      .find((value) => value.length > 0) || '';
+  const source = envValue
+    ? storedValue && envValue === storedValue
+      ? 'runtime-secrets'
+      : 'env'
+    : storedValue
+      ? 'runtime-secrets'
+      : null;
+  return {
+    value: envValue || storedValue || '',
+    source,
+  };
+}
+
+function buildOpenRouterAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
+    process.env.OPENROUTER_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value
+      ? [`API key: ${maskGatewaySecret(credential.value)}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.openrouter.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
+  ];
+}
+
+function buildMistralAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('MISTRAL_API_KEY', [
+    process.env.MISTRAL_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value
+      ? [`API key: ${maskGatewaySecret(credential.value)}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.mistral.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    `Models: ${config.mistral.models.length > 0 ? config.mistral.models.join(', ') : '(none configured)'}`,
+  ];
+}
+
+function buildHuggingFaceAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('HF_TOKEN', [
+    process.env.HF_TOKEN,
+    process.env.HUGGINGFACE_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value
+      ? [`API key: ${maskGatewaySecret(credential.value)}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.huggingface.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    `Models: ${config.huggingface.models.length > 0 ? config.huggingface.models.join(', ') : '(none configured)'}`,
+  ];
+}
+
+function buildCodexAuthStatusLines(): string[] {
+  const status = getCodexAuthStatus();
+  return [
+    `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
+    `Relogin required: ${status.reloginRequired ? 'yes' : 'no'}`,
+    ...(status.authenticated
+      ? [
+          `Source: ${status.source}`,
+          `Account: ${status.accountId}`,
+          `Access token: ${status.maskedAccessToken}`,
+          `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
+        ]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+  ];
+}
+
+function buildLocalAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const lines = [
+    `Config: ${runtimeConfigPath()}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  ];
+  for (const [backend, settings] of Object.entries(config.local.backends)) {
+    lines.push(
+      `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
+    );
+    if (backend === 'vllm') {
+      lines.push(`vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`);
+    }
+  }
+  return lines;
+}
+
+function buildMSTeamsAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('MSTEAMS_APP_PASSWORD', [
+    process.env.MSTEAMS_APP_PASSWORD,
+  ]);
+  const appId =
+    String(process.env.MSTEAMS_APP_ID || '').trim() || config.msteams.appId;
+  const tenantId =
+    String(process.env.MSTEAMS_TENANT_ID || '').trim() ||
+    config.msteams.tenantId;
+  return [
+    `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value
+      ? [`App password: ${maskGatewaySecret(credential.value)}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`,
+    `App ID: ${appId || '(not set)'}`,
+    `Tenant ID: ${tenantId || '(not set)'}`,
+    `Webhook path: ${config.msteams.webhook.path}`,
+    `DM policy: ${config.msteams.dmPolicy}`,
+    `Group policy: ${config.msteams.groupPolicy}`,
+  ];
+}
+
+function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
+  title: string;
+  lines: string[];
+} {
+  switch (provider) {
+    case 'hybridai':
+      return {
+        title: 'HybridAI Auth Status',
+        lines: buildHybridAIAuthStatusLines(),
+      };
+    case 'codex':
+      return {
+        title: 'Codex Auth Status',
+        lines: buildCodexAuthStatusLines(),
+      };
+    case 'openrouter':
+      return {
+        title: 'OpenRouter Auth Status',
+        lines: buildOpenRouterAuthStatusLines(),
+      };
+    case 'mistral':
+      return {
+        title: 'Mistral Auth Status',
+        lines: buildMistralAuthStatusLines(),
+      };
+    case 'huggingface':
+      return {
+        title: 'Hugging Face Auth Status',
+        lines: buildHuggingFaceAuthStatusLines(),
+      };
+    case 'local':
+      return {
+        title: 'Local Auth Status',
+        lines: buildLocalAuthStatusLines(),
+      };
+    case 'msteams':
+      return {
+        title: 'Microsoft Teams Auth Status',
+        lines: buildMSTeamsAuthStatusLines(),
+      };
+  }
+}
+
+function buildProviderEnableCommand(
+  provider: 'openrouter' | 'mistral' | 'huggingface',
+): string {
+  return `config set ${provider}.enabled true`;
+}
+
+function buildModelListProviderSetupMessage(
+  providerArg: string,
+): string | null {
+  const provider = normalizeModelCatalogProviderFilter(providerArg);
+  const config = getRuntimeConfig();
+  switch (provider) {
+    case 'hybridai': {
+      if (getHybridAIAuthStatus().authenticated) return null;
+      return [
+        'HybridAI is not authorized.',
+        'Authorize it first from a terminal:',
+        '  hybridclaw auth login hybridai',
+        'Then rerun `model list hybridai`.',
+      ].join('\n');
+    }
+    case 'openai-codex': {
+      const status = getCodexAuthStatus();
+      if (status.authenticated && !status.reloginRequired) return null;
+      return [
+        status.reloginRequired
+          ? 'Codex authorization expired.'
+          : 'Codex is not authorized.',
+        'Authorize it first from a terminal:',
+        '  hybridclaw auth login codex',
+        'Then rerun `model list codex`.',
+      ].join('\n');
+    }
+    case 'openrouter': {
+      const authorized = Boolean(readOpenRouterApiKey({ required: false }));
+      if (authorized && config.openrouter.enabled) return null;
+      return [
+        !authorized
+          ? 'OpenRouter is not authorized.'
+          : 'OpenRouter is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login openrouter',
+            ]
+          : []),
+        ...(config.openrouter.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('openrouter')}`]),
+        'Then rerun `model list openrouter`.',
+      ].join('\n');
+    }
+    case 'mistral': {
+      const authorized = Boolean(readMistralApiKey({ required: false }));
+      if (authorized && config.mistral.enabled) return null;
+      return [
+        !authorized ? 'Mistral is not authorized.' : 'Mistral is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login mistral',
+            ]
+          : []),
+        ...(config.mistral.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('mistral')}`]),
+        'Then rerun `model list mistral`.',
+      ].join('\n');
+    }
+    case 'huggingface': {
+      const authorized = Boolean(readHuggingFaceApiKey({ required: false }));
+      if (authorized && config.huggingface.enabled) return null;
+      return [
+        !authorized
+          ? 'Hugging Face is not authorized.'
+          : 'Hugging Face is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login huggingface',
+            ]
+          : []),
+        ...(config.huggingface.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('huggingface')}`]),
+        'Then rerun `model list huggingface`.',
+      ].join('\n');
+    }
+    default:
+      return null;
+  }
 }
 
 export function formatCanonicalContextPrompt(params: {
@@ -4724,7 +5066,7 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'approve [view|yes|session|agent|no] [approval_id]',
+            command: APPROVE_COMMAND_USAGE.slice('/'.length),
             description: 'View/respond to pending approvals privately',
             scope: 'slash',
           },
@@ -5387,7 +5729,8 @@ export async function handleGatewayCommand(
             return infoCommand(
               'Available Models',
               providerFilterArg
-                ? `No models available for provider \`${providerFilterArg}\`.`
+                ? (buildModelListProviderSetupMessage(providerFilterArg) ??
+                    `No models available for provider \`${providerFilterArg}\`.`)
                 : 'No models available.',
             );
           }
@@ -5771,20 +6114,21 @@ export async function handleGatewayCommand(
 
       case 'auth': {
         const sub = (req.args[1] || '').trim().toLowerCase();
-        const provider = (req.args[2] || '').trim().toLowerCase();
-        if (sub === 'status' && provider === 'hybridai') {
+        const provider = normalizeGatewayAuthStatusProvider(req.args[2]);
+        if (sub === 'status' && provider) {
           if (!isLocalSession(req)) {
             return badCommand(
               'Auth Status Restricted',
-              '`auth status hybridai` reads local credential state and is only available from local TUI/web sessions.',
+              `\`auth status ${provider}\` reads local credential state and is only available from local TUI/web sessions.`,
             );
           }
-          return infoCommand(
-            'HybridAI Auth Status',
-            buildHybridAIAuthStatusLines().join('\n'),
-          );
+          const status = buildGatewayAuthStatusResponse(provider);
+          return infoCommand(status.title, status.lines.join('\n'));
         }
-        return badCommand('Usage', 'Usage: `auth status hybridai`');
+        return badCommand(
+          'Usage',
+          'Usage: `auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`',
+        );
       }
 
       case 'secret': {

@@ -250,8 +250,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642195f882660b323136e2a # v4
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
@@ -259,18 +258,7 @@ jobs:
       - name: Build and verify pack contents
         run: npm run prepack
 
-      - name: Verify NPM_TOKEN is configured
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [[ -z "${NPM_TOKEN}" ]]; then
-            echo "::error::NPM_TOKEN secret is not configured. Add it in repo Settings > Secrets."
-            exit 1
-          fi
-
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           if [[ "$VERSION" == *-* ]]; then
@@ -278,4 +266,4 @@ jobs:
           else
             NPM_TAG="latest"
           fi
-          npm publish --access public --tag "$NPM_TAG"
+          npm publish --access public --tag "$NPM_TAG" --provenance
