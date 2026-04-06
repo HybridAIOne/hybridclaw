@@ -142,6 +142,10 @@ import type {
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
+  handleOpenAICompatibleChatCompletions,
+  handleOpenAICompatibleModelList,
+} from './openai-compatible.js';
+import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
@@ -3072,6 +3076,52 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           sendJson(res, statusCode, { error: errorText });
         }
       })();
+      return;
+    }
+
+    if (pathname.startsWith('/v1/')) {
+      if (!hasApiAuth(req, url)) {
+        sendJson(res, 401, {
+          error: {
+            message:
+              'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+            type: 'authentication_error',
+            param: null,
+            code: null,
+          },
+        });
+        return;
+      }
+
+      void (async () => {
+        if (pathname === '/v1/models' && method === 'GET') {
+          await handleOpenAICompatibleModelList(res);
+          return;
+        }
+        if (pathname === '/v1/chat/completions' && method === 'POST') {
+          await handleOpenAICompatibleChatCompletions(req, res);
+          return;
+        }
+        sendJson(res, 404, {
+          error: {
+            message: 'Not Found',
+            type: 'invalid_request_error',
+            param: null,
+            code: null,
+          },
+        });
+      })().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err }, 'OpenAI-compatible API request failed');
+        sendJson(res, 500, {
+          error: {
+            message,
+            type: 'server_error',
+            param: null,
+            code: null,
+          },
+        });
+      });
       return;
     }
 
