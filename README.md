@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@hybridaione/hybridclaw)](https://www.npmjs.com/package/@hybridaione/hybridclaw)
 [![Node](https://img.shields.io/badge/node-22.x-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://hybridaione.github.io/hybridclaw/)
+[![Docs](https://img.shields.io/badge/docs-hybridclaw.io-blue)](https://www.hybridclaw.io/docs/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
@@ -53,8 +53,8 @@ Open locally:
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
-operator and maintainer manual lives under
-[docs/development/README.md](./docs/development/README.md).
+operator and maintainer manual lives at
+[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
 ## Coming from OpenClaw or Hermes?
 
@@ -129,34 +129,35 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Documentation
 
-Browse the full manual in
-[docs/development/README.md](./docs/development/README.md).
+Browse the full manual at
+[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
 - Getting started:
-  [Installation](./docs/development/getting-started/installation.md),
-  [Authentication](./docs/development/getting-started/authentication.md), and
-  [Quick Start](./docs/development/getting-started/quickstart.md)
+  [Installation](https://www.hybridclaw.io/docs/development/getting-started/installation),
+  [Authentication](https://www.hybridclaw.io/docs/development/getting-started/authentication), and
+  [Quick Start](https://www.hybridclaw.io/docs/development/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](./docs/development/internals/runtime.md) and
-  [Architecture](./docs/development/internals/architecture.md)
+  [Runtime Internals](https://www.hybridclaw.io/docs/development/internals/runtime) and
+  [Architecture](https://www.hybridclaw.io/docs/development/internals/architecture)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
-  [Commands: Migration](./docs/development/reference/commands.md#migration) and
-  [FAQ](./docs/development/reference/faq.md#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
+  [Commands: Migration](https://www.hybridclaw.io/docs/development/reference/commands#migration) and
+  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](./docs/development/getting-started/channels.md),
-  [iMessage](./docs/imessage.md), and [MS Teams](./docs/msteams.md)
+  [Channel Setup](https://www.hybridclaw.io/docs/development/getting-started/channels),
+  [iMessage](https://www.hybridclaw.io/docs/imessage), and
+  [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
-  [Extensibility](./docs/development/extensibility/README.md),
-  [Bundled Skills](./docs/development/guides/bundled-skills.md), and
-  [Plugin System](./docs/development/extensibility/plugins.md)
+  [Extensibility](https://www.hybridclaw.io/docs/development/extensibility),
+  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills), and
+  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins)
 - Configuration:
-  [Configuration Reference](./docs/development/reference/configuration.md)
+  [Configuration Reference](https://www.hybridclaw.io/docs/development/reference/configuration)
 - CLI reference:
-  [Commands](./docs/development/reference/commands.md),
-  [Diagnostics](./docs/development/reference/diagnostics.md), and
-  [FAQ](./docs/development/reference/faq.md)
+  [Commands](https://www.hybridclaw.io/docs/development/reference/commands),
+  [Diagnostics](https://www.hybridclaw.io/docs/development/reference/diagnostics), and
+  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq)
 
 ## Contributing
 
