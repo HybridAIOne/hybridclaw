@@ -435,7 +435,7 @@ export function SkillsPage() {
                       ...current,
                       files: [
                         ...current.files,
-                        { id: nextFileId++, path: 'scripts/', content: '' },
+                        { id: nextFileId++, path: 'scripts/new-file.mjs', content: '' },
                       ],
                     }))
                   }

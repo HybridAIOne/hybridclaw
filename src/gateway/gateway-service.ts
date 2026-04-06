@@ -3563,10 +3563,9 @@ export function createGatewayAdminSkill(input: {
   const body = String(input.body || '').trim();
   const content = `${frontmatterLines.join('\n')}\n\n${body}\n`;
 
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
-
+  // Validate all file paths before writing anything to disk
   const files = Array.isArray(input.files) ? input.files : [];
+  const resolvedFiles: Array<{ resolved: string; content: string }> = [];
   for (const file of files) {
     const filePath = String(file.path || '').trim();
     if (!filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)) {
@@ -3579,8 +3578,20 @@ export function createGatewayAdminSkill(input: {
         `File path \`${filePath}\` escapes the skill directory.`,
       );
     }
-    fs.mkdirSync(path.dirname(resolved), { recursive: true });
-    fs.writeFileSync(resolved, file.content || '', 'utf-8');
+    resolvedFiles.push({ resolved, content: file.content || '' });
+  }
+
+  // Write atomically — clean up on failure
+  fs.mkdirSync(skillDir, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
+    for (const file of resolvedFiles) {
+      fs.mkdirSync(path.dirname(file.resolved), { recursive: true });
+      fs.writeFileSync(file.resolved, file.content, 'utf-8');
+    }
+  } catch (error) {
+    fs.rmSync(skillDir, { recursive: true, force: true });
+    throw error;
   }
 
   return getGatewayAdminSkills();
@@ -3677,6 +3688,12 @@ export async function uploadGatewayAdminSkillZip(
       throw new GatewayRequestError(
         400,
         `Skill name "${skillName}" must be lowercase alphanumeric with hyphens.`,
+      );
+    }
+    if (skillName.length > 64) {
+      throw new GatewayRequestError(
+        400,
+        'Skill name must be 64 characters or fewer.',
       );
     }
 
