@@ -264,9 +264,9 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const items = screen.getAllByRole('button').filter((element) =>
-      /^Item /.test(element.textContent || ''),
-    );
+    const items = screen
+      .getAllByRole('button')
+      .filter((element) => /^Item /.test(element.textContent || ''));
     expect(items).toHaveLength(3);
   });
 

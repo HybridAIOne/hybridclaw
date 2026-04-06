@@ -3,9 +3,9 @@ import {
   applyResolvedTheme,
   getStoredTheme,
   getSystemTheme,
+  type ResolvedTheme,
   resolveTheme,
   THEME_STORAGE_KEY,
-  type ResolvedTheme,
   type Theme,
 } from './theme-bootstrap';
 

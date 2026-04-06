@@ -43,9 +43,8 @@ export function Dropdown({
   onOpenChange,
 }: DropdownProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const [triggerElement, setTriggerElement] = useState<HTMLButtonElement | null>(
-    null,
-  );
+  const [triggerElement, setTriggerElement] =
+    useState<HTMLButtonElement | null>(null);
   const [contentElement, setContentElement] = useState<HTMLDivElement | null>(
     null,
   );
@@ -99,13 +98,8 @@ export function DropdownTrigger({
   'aria-label': ariaLabel,
   title,
 }: DropdownTriggerProps) {
-  const {
-    open,
-    onOpenChange,
-    onOpenToggle,
-    setTriggerElement,
-    contentId,
-  } = useDropdownContext('DropdownTrigger');
+  const { open, onOpenChange, onOpenToggle, setTriggerElement, contentId } =
+    useDropdownContext('DropdownTrigger');
 
   const classNames = [styles.trigger, className].filter(Boolean).join(' ');
 
