@@ -3077,7 +3077,14 @@ export function startGatewayHttpServer(): void {
           await handleOpenAICompatibleChatCompletions(req, res);
           return;
         }
-        sendJson(res, 404, { error: { message: 'Not Found' } });
+        sendJson(res, 404, {
+          error: {
+            message: 'Not Found',
+            type: 'invalid_request_error',
+            param: null,
+            code: null,
+          },
+        });
       })().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         logger.error({ err }, 'OpenAI-compatible API request failed');

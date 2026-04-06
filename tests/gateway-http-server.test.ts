@@ -1179,6 +1179,9 @@ describe('gateway HTTP server', () => {
   });
 
   test('translates OpenAI chat completions requests into gateway chat requests', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockResolvedValueOnce({
       status: 'success',
@@ -1282,6 +1285,9 @@ describe('gateway HTTP server', () => {
   });
 
   test('streams OpenAI-compatible chat completion chunks with usage', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementationOnce(
       async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
@@ -1334,6 +1340,201 @@ describe('gateway HTTP server', () => {
       '"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}',
     );
     expect(res.body).toContain('data: [DONE]');
+  });
+
+  test('rejects OpenAI chat completions requests where n is not 1', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        n: 2,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+      },
+    });
+    expect(payload.error.message).toContain('n=1');
+  });
+
+  test('rejects OpenAI chat completions requests with client-defined tools', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup_weather',
+            },
+          },
+        ],
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+      },
+    });
+    expect(payload.error.message).toMatch(/tools|functions/i);
+  });
+
+  test('rejects OpenAI chat completions requests whose final message is not from the user', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        messages: [
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: 'I can help with that.' },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+      },
+    });
+    expect(payload.error.message).toMatch(/final|user/i);
+  });
+
+  test('rejects OpenAI chat completions requests with invalid message content shape', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        messages: [{ role: 'user', content: { text: 'hello' } }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+      },
+    });
+    expect(payload.error.message).toMatch(/content|messages/i);
+  });
+
+  test('rejects OpenAI chat completions requests with stream_options when stream is not enabled', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        stream: false,
+        stream_options: { include_usage: true },
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+      },
+    });
+    expect(payload.error.message).toMatch(/stream_options|stream/i);
+  });
+
+  test('rejects OpenAI chat completions requests with private media URLs', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'describe this' },
+              {
+                type: 'image_url',
+                image_url: { url: 'http://localhost/private.png' },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(400);
+    expect(payload).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+        code: 'invalid_url',
+      },
+    });
+    expect(payload.error.message).toMatch(/private|loopback|image_url/i);
+  });
+
+  test('returns full OpenAI-style errors for unknown /v1 routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/v1/does-not-exist' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: {
+        message: 'Not Found',
+        type: 'invalid_request_error',
+        param: null,
+        code: null,
+      },
+    });
   });
 
   test('serves static docs files from the install docs directory', async () => {

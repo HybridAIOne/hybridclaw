@@ -1,4 +1,6 @@
+import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
+import net from 'node:net';
 import type { MediaContextItem } from '../types/container.js';
 
 const MAX_REQUEST_BYTES = 1_000_000;
@@ -80,7 +82,7 @@ async function readRequestBody(req: IncomingMessage): Promise<Buffer> {
     total += buffer.length;
     if (total > MAX_REQUEST_BYTES) {
       throw new OpenAICompatibleRequestError(413, 'Request body too large.', {
-        type: 'server_error',
+        type: 'invalid_request_error',
         code: 'request_too_large',
       });
     }
@@ -175,6 +177,121 @@ function normalizeIncludeUsage(value: unknown): boolean {
   return (value as { include_usage?: unknown }).include_usage === true;
 }
 
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+    return false;
+  }
+  if (parts[0] === 0) return true;
+  if (parts[0] === 10 || parts[0] === 127) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+  if (parts[0] >= 224) return true;
+  return false;
+}
+
+function isPrivateIpv6(ip: string): boolean {
+  const normalized = ip.trim().toLowerCase();
+  return (
+    normalized === '::1' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe80:')
+  );
+}
+
+function isPrivateIp(ip: string): boolean {
+  const normalized = ip.replace(/^::ffff:/, '');
+  const version = net.isIP(normalized);
+  if (version === 4) return isPrivateIpv4(normalized);
+  if (version === 6) return isPrivateIpv6(normalized);
+  return false;
+}
+
+async function assertAllowedRemoteMediaUrl(
+  rawUrl: string,
+  param: string,
+): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new OpenAICompatibleRequestError(400, `Invalid \`${param}.url\`.`, {
+      param: `${param}.url`,
+      code: 'invalid_url',
+    });
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Unsupported \`${param}.url\` protocol: ${parsed.protocol}`,
+      {
+        param: `${param}.url`,
+        code: 'unsupported_value',
+      },
+    );
+  }
+
+  const hostname = parsed.hostname.trim().toLowerCase();
+  if (
+    !hostname ||
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local')
+  ) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Blocked \`${param}.url\`: private or loopback host.`,
+      {
+        param: `${param}.url`,
+        code: 'invalid_url',
+      },
+    );
+  }
+
+  if (net.isIP(hostname) > 0 && isPrivateIp(hostname)) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Blocked \`${param}.url\`: private or loopback host.`,
+      {
+        param: `${param}.url`,
+        code: 'invalid_url',
+      },
+    );
+  }
+
+  try {
+    const resolved = await lookup(hostname, { all: true, verbatim: true });
+    if (resolved.some((entry) => isPrivateIp(entry.address))) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        `Blocked \`${param}.url\`: private or loopback host.`,
+        {
+          param: `${param}.url`,
+          code: 'invalid_url',
+        },
+      );
+    }
+  } catch (error) {
+    if (error instanceof OpenAICompatibleRequestError) throw error;
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Unable to validate \`${param}.url\`.`,
+      {
+        param: `${param}.url`,
+        code: 'invalid_url',
+      },
+    );
+  }
+
+  return parsed.toString();
+}
+
 function deriveFilenameFromUrl(url: string, fallback: string): string {
   try {
     const parsed = new URL(url);
@@ -206,14 +323,14 @@ function deriveMimeTypeFromUrl(
   return 'audio/*';
 }
 
-function buildRemoteMediaItem(params: {
+async function buildRemoteMediaItem(params: {
   rawUrl: unknown;
   type: 'image_url' | 'audio_url';
   paramPrefix: string;
   mediaIndex: number;
-}): MediaContextItem {
-  const url = normalizeOptionalString(params.rawUrl);
-  if (!url) {
+}): Promise<MediaContextItem> {
+  const rawUrl = normalizeOptionalString(params.rawUrl);
+  if (!rawUrl) {
     throw new OpenAICompatibleRequestError(
       400,
       `Missing \`${params.paramPrefix}.url\`.`,
@@ -222,6 +339,7 @@ function buildRemoteMediaItem(params: {
       },
     );
   }
+  const url = await assertAllowedRemoteMediaUrl(rawUrl, params.paramPrefix);
   return {
     path: null,
     url,
@@ -232,40 +350,14 @@ function buildRemoteMediaItem(params: {
   };
 }
 
-function formatToolCallsForHistory(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) return [];
-  const lines: string[] = [];
-  for (const [index, entry] of value.entries()) {
-    if (!entry || typeof entry !== 'object') continue;
-    const typed = entry as {
-      id?: unknown;
-      function?: { name?: unknown; arguments?: unknown } | unknown;
-    };
-    const functionValue =
-      typed.function && typeof typed.function === 'object'
-        ? (typed.function as { name?: unknown; arguments?: unknown })
-        : null;
-    const name = normalizeOptionalString(functionValue?.name) || 'unnamed_tool';
-    const argumentsText =
-      typeof functionValue?.arguments === 'string'
-        ? functionValue.arguments
-        : '';
-    const callId = normalizeOptionalString(typed.id);
-    lines.push(
-      `Tool call ${callId || index + 1}: ${name}${argumentsText ? ` ${argumentsText}` : ''}`.trim(),
-    );
-  }
-  return lines;
-}
-
-function parseMessageContent(params: {
+async function parseMessageContent(params: {
   message: OpenAIChatCompletionMessage;
   index: number;
   extractMedia: boolean;
-}): {
+}): Promise<{
   text: string;
   media: MediaContextItem[];
-} {
+}> {
   const content = params.message.content;
   if (content == null) return { text: '', media: [] };
   if (typeof content === 'string') return { text: content, media: [] };
@@ -298,7 +390,7 @@ function parseMessageContent(params: {
       continue;
     }
     if (type === 'image_url') {
-      const mediaItem = buildRemoteMediaItem({
+      const mediaItem = await buildRemoteMediaItem({
         rawUrl: (part.image_url as { url?: unknown } | undefined)?.url,
         type: 'image_url',
         paramPrefix: `messages[${params.index}].content[${partIndex}].image_url`,
@@ -312,7 +404,7 @@ function parseMessageContent(params: {
       continue;
     }
     if (type === 'audio_url') {
-      const mediaItem = buildRemoteMediaItem({
+      const mediaItem = await buildRemoteMediaItem({
         rawUrl: (part.audio_url as { url?: unknown } | undefined)?.url,
         type: 'audio_url',
         paramPrefix: `messages[${params.index}].content[${partIndex}].audio_url`,
@@ -339,6 +431,31 @@ function parseMessageContent(params: {
     media,
   };
 }
+function formatToolCallsForHistory(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  const lines: string[] = [];
+  for (const [index, entry] of value.entries()) {
+    if (!entry || typeof entry !== 'object') continue;
+    const typed = entry as {
+      id?: unknown;
+      function?: { name?: unknown; arguments?: unknown } | unknown;
+    };
+    const functionValue =
+      typed.function && typeof typed.function === 'object'
+        ? (typed.function as { name?: unknown; arguments?: unknown })
+        : null;
+    const name = normalizeOptionalString(functionValue?.name) || 'unnamed_tool';
+    const argumentsText =
+      typeof functionValue?.arguments === 'string'
+        ? functionValue.arguments
+        : '';
+    const callId = normalizeOptionalString(typed.id);
+    lines.push(
+      `Tool call ${callId || index + 1}: ${name}${argumentsText ? ` ${argumentsText}` : ''}`.trim(),
+    );
+  }
+  return lines;
+}
 
 function buildMediaOnlyPrompt(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
@@ -348,15 +465,15 @@ function buildMediaOnlyPrompt(media: MediaContextItem[]): string {
     : `Attached files: ${filenames.join(', ')}`;
 }
 
-function serializeMessageForHistory(
+async function serializeMessageForHistory(
   message: OpenAIChatCompletionMessage,
   index: number,
-): {
+): Promise<{
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
-} | null {
+} | null> {
   const role = normalizeOpenAIRole(message.role, index);
-  const { text } = parseMessageContent({
+  const { text } = await parseMessageContent({
     message,
     index,
     extractMedia: false,
@@ -380,6 +497,7 @@ export async function readOpenAICompatibleChatRequest(
   req: IncomingMessage,
 ): Promise<ParsedOpenAICompatibleChatRequest> {
   const body = await readJsonBody(req);
+  const wantsStream = body.stream === true;
   const model = normalizeOptionalString(body.model);
   if (!model) {
     throw new OpenAICompatibleRequestError(
@@ -393,6 +511,16 @@ export async function readOpenAICompatibleChatRequest(
 
   normalizeRequestedChoiceCount(body.n);
   assertNoClientToolConfig(body);
+  if (body.stream_options !== undefined && !wantsStream) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      '`stream_options` requires `stream: true`.',
+      {
+        param: 'stream_options',
+        code: 'unsupported_value',
+      },
+    );
+  }
 
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new OpenAICompatibleRequestError(
@@ -418,7 +546,7 @@ export async function readOpenAICompatibleChatRequest(
     );
   }
 
-  const current = parseMessageContent({
+  const current = await parseMessageContent({
     message: finalMessage,
     index: finalIndex,
     extractMedia: true,
@@ -437,14 +565,17 @@ export async function readOpenAICompatibleChatRequest(
   return {
     model,
     user: normalizeOptionalString(body.user) || 'openai',
-    wantsStream: body.stream === true,
+    wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
-    priorMessages: parsedMessages
-      .slice(0, -1)
-      .map((message, index) => serializeMessageForHistory(message, index))
-      .filter(
-        (message): message is NonNullable<typeof message> => message != null,
-      ),
+    priorMessages: (
+      await Promise.all(
+        parsedMessages
+          .slice(0, -1)
+          .map((message, index) => serializeMessageForHistory(message, index)),
+      )
+    ).filter(
+      (message): message is NonNullable<typeof message> => message != null,
+    ),
     prompt,
     media: current.media,
   };

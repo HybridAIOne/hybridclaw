@@ -29,6 +29,10 @@ import {
   writeOpenAICompatibleStreamChunk,
 } from './openai-compatible-response.js';
 
+function isResponseWritable(res: ServerResponse): boolean {
+  return !res.writableEnded && !res.destroyed;
+}
+
 function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
   return normalizePendingApprovalReply(
     normalizePlaceholderToolReply(normalizeSilentMessageSendReply(result)),
@@ -133,17 +137,32 @@ async function handleOpenAICompatibleNonStreamingChat(
 }
 
 async function handleOpenAICompatibleStreamingChat(
+  req: IncomingMessage,
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
   includeUsage: boolean,
   completionId: string,
   created: number,
 ): Promise<void> {
+  const abortController = new AbortController();
+  const abortStreaming = (): void => {
+    if (!abortController.signal.aborted) {
+      abortController.abort(new Error('Client disconnected.'));
+    }
+  };
+  req.on('close', abortStreaming);
+
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  if (!isResponseWritable(res)) {
+    abortStreaming();
+    req.off('close', abortStreaming);
+    return;
+  }
 
   writeOpenAICompatibleStreamChunk(
     res,
@@ -156,78 +175,89 @@ async function handleOpenAICompatibleStreamingChat(
 
   const streamFilter = createSilentReplyStreamFilter();
   let emittedText = '';
-  const result = await runOpenAICompatibleChat({
-    ...chatRequest,
-    onTextDelta: (delta: string) => {
-      const filtered = streamFilter.push(delta);
-      if (!filtered) return;
-      emittedText += filtered;
+  try {
+    const result = await runOpenAICompatibleChat({
+      ...chatRequest,
+      abortSignal: abortController.signal,
+      onTextDelta: (delta: string) => {
+        const filtered = streamFilter.push(delta);
+        if (!filtered) return;
+        if (!isResponseWritable(res)) {
+          abortStreaming();
+          return;
+        }
+        emittedText += filtered;
+        writeOpenAICompatibleStreamChunk(
+          res,
+          buildOpenAICompatibleStreamTextChunk({
+            completionId,
+            created,
+            model: chatRequest.model || '',
+            content: filtered,
+          }),
+        );
+      },
+    });
+
+    if (!isResponseWritable(res)) return;
+
+    const buffered = streamFilter.flush();
+    if (buffered) {
+      emittedText += buffered;
       writeOpenAICompatibleStreamChunk(
         res,
         buildOpenAICompatibleStreamTextChunk({
           completionId,
           created,
           model: chatRequest.model || '',
-          content: filtered,
+          content: buffered,
         }),
       );
-    },
-  });
+    }
 
-  const buffered = streamFilter.flush();
-  if (buffered) {
-    emittedText += buffered;
+    if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
+      result.result = 'Message sent.';
+    }
+
+    const finalText = typeof result.result === 'string' ? result.result : '';
+    if (!emittedText && finalText) {
+      writeOpenAICompatibleStreamChunk(
+        res,
+        buildOpenAICompatibleStreamTextChunk({
+          completionId,
+          created,
+          model: chatRequest.model || '',
+          content: finalText,
+        }),
+      );
+    }
+
     writeOpenAICompatibleStreamChunk(
       res,
-      buildOpenAICompatibleStreamTextChunk({
+      buildOpenAICompatibleStreamStopChunk({
         completionId,
         created,
         model: chatRequest.model || '',
-        content: buffered,
       }),
     );
+
+    if (includeUsage) {
+      writeOpenAICompatibleStreamChunk(
+        res,
+        buildOpenAICompatibleStreamUsageChunk({
+          completionId,
+          created,
+          model: chatRequest.model || '',
+          tokenUsage: result.tokenUsage,
+        }),
+      );
+    }
+
+    writeOpenAICompatibleStreamChunk(res, '[DONE]');
+    res.end();
+  } finally {
+    req.off('close', abortStreaming);
   }
-
-  if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
-    result.result = 'Message sent.';
-  }
-
-  const finalText = typeof result.result === 'string' ? result.result : '';
-  if (!emittedText && finalText) {
-    writeOpenAICompatibleStreamChunk(
-      res,
-      buildOpenAICompatibleStreamTextChunk({
-        completionId,
-        created,
-        model: chatRequest.model || '',
-        content: finalText,
-      }),
-    );
-  }
-
-  writeOpenAICompatibleStreamChunk(
-    res,
-    buildOpenAICompatibleStreamStopChunk({
-      completionId,
-      created,
-      model: chatRequest.model || '',
-    }),
-  );
-
-  if (includeUsage) {
-    writeOpenAICompatibleStreamChunk(
-      res,
-      buildOpenAICompatibleStreamUsageChunk({
-        completionId,
-        created,
-        model: chatRequest.model || '',
-        tokenUsage: result.tokenUsage,
-      }),
-    );
-  }
-
-  writeOpenAICompatibleStreamChunk(res, '[DONE]');
-  res.end();
 }
 
 export async function handleOpenAICompatibleChatCompletions(
@@ -242,6 +272,7 @@ export async function handleOpenAICompatibleChatCompletions(
 
     if (input.wantsStream) {
       await handleOpenAICompatibleStreamingChat(
+        req,
         res,
         chatRequest,
         input.includeUsage,
@@ -259,6 +290,7 @@ export async function handleOpenAICompatibleChatCompletions(
     );
   } catch (error) {
     const typed = toRequestError(error);
+    if (!isResponseWritable(res)) return;
     logger.error({ error }, 'OpenAI-compatible chat completion failed');
     sendOpenAICompatibleStreamError(res, typed.statusCode, typed.message, {
       type: typed.type,
