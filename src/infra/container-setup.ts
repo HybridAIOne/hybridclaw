@@ -479,6 +479,7 @@ async function buildAndValidateImage(params: {
   }
 
   try {
+    let reasonLoggedBeforeBuild = false;
     if (
       acquisitionMode === 'pull-or-build' ||
       acquisitionMode === 'pull-only'
@@ -494,6 +495,7 @@ async function buildAndValidateImage(params: {
         );
       }
       console.log(`${commandName}: ${reason}`);
+      reasonLoggedBeforeBuild = true;
       for (const pullImage of pullImages) {
         console.log(
           `${commandName}: Pulling container image '${pullImage}'...`,
@@ -523,9 +525,10 @@ async function buildAndValidateImage(params: {
       }
     }
 
-    console.log(
-      `${commandName}: ${reason} Building container image '${imageName}'...`,
-    );
+    const buildLogMessage = reasonLoggedBeforeBuild
+      ? `${commandName}: Building container image '${imageName}'...`
+      : `${commandName}: ${reason} Building container image '${imageName}'...`;
+    console.log(buildLogMessage);
     await buildContainerImage(cwd, imageName);
     recordImageState(cwd, imageName, fingerprint);
     console.log(`${commandName}: Built container image '${imageName}'.`);
