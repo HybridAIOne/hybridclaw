@@ -102,7 +102,9 @@ export async function handleBrevoInbound(ctx, api, config) {
 
   const knownAgentIds = new Set(
     (api.config.agents?.list ?? []).map((a) =>
-      String(a.id || '').trim().toLowerCase(),
+      String(a.id || '')
+        .trim()
+        .toLowerCase(),
     ),
   );
 

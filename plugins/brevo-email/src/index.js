@@ -57,7 +57,8 @@ export default {
         let agentId = defaultAgentId;
         const match = context.sessionId.match(/^agent:([^:]+):channel:/);
         if (match) agentId = decodeURIComponent(match[1]);
-        const address = config.fromAddress ||
+        const address =
+          config.fromAddress ||
           resolveAgentEmailAddress(agentId, config.domain);
         const from = config.fromName
           ? `"${config.fromName}" <${address}>`

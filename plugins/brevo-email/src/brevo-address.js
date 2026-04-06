@@ -25,7 +25,9 @@ export function resolveAgentEmailAddress(agentId, domain, override) {
  * @returns {string | null}
  */
 export function resolveAgentIdFromRecipient(toAddress, domain) {
-  const normalized = String(toAddress || '').trim().toLowerCase();
+  const normalized = String(toAddress || '')
+    .trim()
+    .toLowerCase();
   const atIndex = normalized.lastIndexOf('@');
   if (atIndex === -1) return null;
 

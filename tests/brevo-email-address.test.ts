@@ -14,13 +14,21 @@ describe('resolveAgentEmailAddress', () => {
 
   test('uses override when provided', () => {
     expect(
-      resolveAgentEmailAddress('marketing', 'mail.hybridclaw.io', 'custom@example.com'),
+      resolveAgentEmailAddress(
+        'marketing',
+        'mail.hybridclaw.io',
+        'custom@example.com',
+      ),
     ).toBe('custom@example.com');
   });
 
   test('trims override whitespace', () => {
     expect(
-      resolveAgentEmailAddress('main', 'mail.hybridclaw.io', '  trimmed@example.com  '),
+      resolveAgentEmailAddress(
+        'main',
+        'mail.hybridclaw.io',
+        '  trimmed@example.com  ',
+      ),
     ).toBe('trimmed@example.com');
   });
 
@@ -37,9 +45,9 @@ describe('resolveAgentEmailAddress', () => {
   });
 
   test('falls back to default when override is undefined', () => {
-    expect(resolveAgentEmailAddress('main', 'mail.hybridclaw.io', undefined)).toBe(
-      'main@mail.hybridclaw.io',
-    );
+    expect(
+      resolveAgentEmailAddress('main', 'mail.hybridclaw.io', undefined),
+    ).toBe('main@mail.hybridclaw.io');
   });
 });
 
@@ -47,21 +55,21 @@ describe('resolveAgentIdFromRecipient', () => {
   const domain = 'mail.hybridclaw.io';
 
   test('extracts agent ID from matching domain', () => {
-    expect(resolveAgentIdFromRecipient('marketing@mail.hybridclaw.io', domain)).toBe(
-      'marketing',
-    );
+    expect(
+      resolveAgentIdFromRecipient('marketing@mail.hybridclaw.io', domain),
+    ).toBe('marketing');
   });
 
   test('normalises to lowercase', () => {
-    expect(resolveAgentIdFromRecipient('Marketing@Mail.HybridClaw.IO', domain)).toBe(
-      'marketing',
-    );
+    expect(
+      resolveAgentIdFromRecipient('Marketing@Mail.HybridClaw.IO', domain),
+    ).toBe('marketing');
   });
 
   test('trims whitespace', () => {
-    expect(resolveAgentIdFromRecipient('  main@mail.hybridclaw.io  ', domain)).toBe(
-      'main',
-    );
+    expect(
+      resolveAgentIdFromRecipient('  main@mail.hybridclaw.io  ', domain),
+    ).toBe('main');
   });
 
   test('returns null for non-matching domain', () => {
@@ -73,7 +81,9 @@ describe('resolveAgentIdFromRecipient', () => {
   });
 
   test('returns null for empty local part', () => {
-    expect(resolveAgentIdFromRecipient('@mail.hybridclaw.io', domain)).toBeNull();
+    expect(
+      resolveAgentIdFromRecipient('@mail.hybridclaw.io', domain),
+    ).toBeNull();
   });
 
   test('returns null for empty input', () => {
