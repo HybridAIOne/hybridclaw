@@ -4,10 +4,6 @@ version: 0.1.0
 kind: channel
 description: Per-agent email addresses via Brevo inbound parsing webhook and SMTP relay.
 entrypoint: src/index.js
-requires:
-  env:
-    - BREVO_SMTP_LOGIN
-    - BREVO_SMTP_KEY
 configSchema:
   type: object
   additionalProperties: false

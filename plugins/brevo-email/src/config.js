@@ -7,16 +7,22 @@
  * @returns {import('./types.js').BrevoEmailConfig}
  */
 export function resolveBrevoConfig(pluginConfig, api) {
-  const smtpLogin = api.getCredential('BREVO_SMTP_LOGIN');
+  const smtpLogin =
+    api.getCredential('BREVO_SMTP_LOGIN') ||
+    (process.env.BREVO_SMTP_LOGIN || '').trim();
   if (!smtpLogin) {
     throw new Error('BREVO_SMTP_LOGIN is required but not set.');
   }
-  const smtpKey = api.getCredential('BREVO_SMTP_KEY');
+  const smtpKey =
+    api.getCredential('BREVO_SMTP_KEY') ||
+    (process.env.BREVO_SMTP_KEY || '').trim();
   if (!smtpKey) {
     throw new Error('BREVO_SMTP_KEY is required but not set.');
   }
 
-  const webhookSecret = api.getCredential('BREVO_WEBHOOK_SECRET') || '';
+  const webhookSecret =
+    api.getCredential('BREVO_WEBHOOK_SECRET') ||
+    (process.env.BREVO_WEBHOOK_SECRET || '').trim();
 
   return {
     domain: String(pluginConfig.domain || 'agent.hybridai.one').trim(),
