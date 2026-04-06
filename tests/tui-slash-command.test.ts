@@ -242,9 +242,7 @@ test('maps /approve actions to explicit typed results', () => {
     kind: 'message',
     message: 'yes abc123',
   });
-  expect(
-    mapTuiApproveSlashToMessage(['approve', 'always'], 'abc123'),
-  ).toEqual({
+  expect(mapTuiApproveSlashToMessage(['approve', 'always'], 'abc123')).toEqual({
     kind: 'message',
     message: 'yes abc123 for session',
   });

@@ -2964,7 +2964,9 @@ describe('gateway HTTP server', () => {
 
     // demo_status should no longer appear.
     const commands = JSON.parse(res2.body).commands;
-    expect(commands.find((c: { id: string }) => c.id === 'demo_status')).toBeUndefined();
+    expect(
+      commands.find((c: { id: string }) => c.id === 'demo_status'),
+    ).toBeUndefined();
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {

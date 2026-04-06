@@ -87,9 +87,7 @@ test('root entries with subcommands include arg hints in labels', () => {
 
   // Commands with string options show formatted option suffixes.
   const configEntry = rootEntries.find((entry) => entry.id === 'config');
-  expect(configEntry?.label).toBe(
-    '/config [check|reload|set] [key] [value]',
-  );
+  expect(configEntry?.label).toBe('/config [check|reload|set] [key] [value]');
 
   // Commands with no options or subcommands have plain labels.
   const statusEntry = rootEntries.find((entry) => entry.id === 'status');
