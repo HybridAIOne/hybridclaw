@@ -4987,5 +4987,4 @@ describe('gateway HTTP server', () => {
       expect.objectContaining({ type: 'shutdown' }),
     );
   });
-
 });
