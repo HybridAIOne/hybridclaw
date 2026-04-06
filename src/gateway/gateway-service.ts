@@ -3585,6 +3585,8 @@ export function createGatewayAdminSkill(input: {
 }
 
 const SKILL_ZIP_MAX_BYTES = 10 * 1024 * 1024;
+const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+const SKILL_ZIP_MAX_FILES = 200;
 
 export async function uploadGatewayAdminSkillZip(
   zipBuffer: Buffer,
@@ -3606,9 +3608,37 @@ export async function uploadGatewayAdminSkillZip(
   try {
     fs.writeFileSync(tmpZipPath, zipBuffer);
 
-    // safeExtractZip handles all security: symlinks, path traversal,
-    // encrypted entries, size limits, null bytes, absolute paths
+    // safeExtractZip handles structural security: symlinks, path traversal,
+    // encrypted entries, null bytes, absolute paths
     await safeExtractZip(tmpZipPath, tmpExtractDir);
+
+    // Enforce skill-specific size and file count limits (safeExtractZip's
+    // 512MB / 10k-entry budget is for CLAW archives — too generous here)
+    let totalBytes = 0;
+    let fileCount = 0;
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name));
+        } else {
+          fileCount += 1;
+          totalBytes += fs.statSync(path.join(dir, entry.name)).size;
+        }
+        if (fileCount > SKILL_ZIP_MAX_FILES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_FILES} file limit.`,
+          );
+        }
+        if (totalBytes > SKILL_ZIP_MAX_UNCOMPRESSED_BYTES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
+          );
+        }
+      }
+    };
+    walk(tmpExtractDir);
 
     // ZIP may contain a top-level wrapper directory — detect and unwrap it
     const topEntries = fs.readdirSync(tmpExtractDir);
@@ -3657,9 +3687,10 @@ export async function uploadGatewayAdminSkillZip(
       );
     }
 
-    // Move extracted skill to project skills directory
+    // Copy extracted skill to project skills directory (copy instead of
+    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
     fs.mkdirSync(projectSkillsDir, { recursive: true });
-    fs.renameSync(skillRoot, targetDir);
+    fs.cpSync(skillRoot, targetDir, { recursive: true });
 
     return getGatewayAdminSkills();
   } finally {

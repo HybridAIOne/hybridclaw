@@ -2536,6 +2536,11 @@ async function handleApiAdminSkills(
     return;
   }
 
+  if (method !== 'PUT') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
   // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
