@@ -507,14 +507,20 @@ describe('ensureContainerImageReady', () => {
         args[0] === 'pull' &&
         args[1] === 'hybridaione/hybridclaw-agent:v0.4.1'
       ) {
-        return makeSpawnResult({ code: 1, err: 'dockerhub version pull failed' });
+        return makeSpawnResult({
+          code: 1,
+          err: 'dockerhub version pull failed',
+        });
       }
       if (
         command === 'docker' &&
         args[0] === 'pull' &&
         args[1] === 'hybridaione/hybridclaw-agent:latest'
       ) {
-        return makeSpawnResult({ code: 1, err: 'dockerhub latest pull failed' });
+        return makeSpawnResult({
+          code: 1,
+          err: 'dockerhub latest pull failed',
+        });
       }
       if (
         command === 'docker' &&
@@ -556,9 +562,7 @@ describe('ensureContainerImageReady', () => {
       spawnMock.mock.calls
         .filter(
           ([command, args]) =>
-            command === 'docker' &&
-            Array.isArray(args) &&
-            args[0] === 'pull',
+            command === 'docker' && Array.isArray(args) && args[0] === 'pull',
         )
         .map(([, args]) => args[1]),
     ).toEqual([
