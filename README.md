@@ -78,14 +78,14 @@ Once the gateway is running, open HybridClaw locally:
 
 | Capability | HybridClaw | OpenClaw | Hermes Agent |
 | --- | --- | --- | --- |
-| Self-hosted runtime | ✅ Gateway + sandboxed container runtime | ✅ Self-hosted runtime | ✅ Self-hosted runtime |
-| Migration support | ✅ Import from OpenClaw and Hermes | ❌ | ❌ |
-| Encrypted secrets | ✅ Encrypted store + SecretRefs | ⚠️ Partial | ⚠️ Partial |
-| Approvals / governance | ✅ Approvals, audit trails, sandbox, config revision history | ⚠️ Limited | ⚠️ Limited |
-| Shared enterprise knowledge | ✅ Shared memory + HybridAI knowledge/RAG path | ⚠️ Memory wiki + embeddings | ⚠️ Self-improving memory stack |
-| Multi-agent observability | ✅ Built-in audit surfaces + HybridAI observability path | ❌ | ❌ |
-| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path | ⚠️ Self-hosted focus | ⚠️ Self-hosted focus |
-| Multiple UIs | ✅ TUI + Chat UI + Admin UI + Agents UI | ✅ TUI + WebChat + Control UI | ❌ TUI only |
+| Self-hosted runtime | ✅ Gateway + sandboxed container runtime | ✅ Self-hosted gateway/runtime | ✅ Self-hosted gateway/runtime |
+| Migration support | ✅ Imports from OpenClaw and Hermes | ❌ No comparable import path surfaced | ⚠️ Imports from OpenClaw only |
+| Encrypted secrets | ✅ Encrypted store + SecretRefs | ⚠️ SecretRefs, not a built-in encrypted store | ⚠️ File-permission-based secret storage |
+| Approvals / governance | ✅ Approvals, audit trails, sandbox, config history | ⚠️ Strong approvals/audit, less enterprise-governance framing | ⚠️ Strong approvals/isolation, less audit/admin surface |
+| Memory / knowledge | ✅ Shared memory + HybridAI knowledge path | ⚠️ Strong memory/session features | ⚠️ Strong persistent/self-improving memory |
+| Multi-agent observability | ✅ Built-in audit surfaces + platform path | ⚠️ Multi-agent/task inspection exists | ⚠️ Subagents + logs/session search, not central observability |
+| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
+| Multiple UIs | ✅ TUI + Chat UI + Admin UI + Agents UI | ✅ TUI + WebChat + Control UI | ⚠️ TUI + messaging + API server, no comparable built-in admin/chat web UI |
 
 ## Adjacent tools
 
