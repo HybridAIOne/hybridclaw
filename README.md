@@ -9,9 +9,10 @@
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
-<img width="540" height="511" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
+<img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
 
-**The enterprise operating layer for open agents.**
+## The enterprise operating layer for open agents.
+
 Self-hosted, controllable, and built for real business workflows.
 
 Most open agent stacks are optimized for experimentation and breadth.
@@ -21,29 +22,33 @@ HybridClaw is optimized for enterprise deployment:
 - shared knowledge
 - observability
 - repeatable workflows
-- local-first with a cloud path via HybridAI
+- local-first deployment
 
-> “Finally an assistant that actually follows you everywhere — without having to explain everything again every time.”
+## HybridAI Platform Advantage
 
-## 🚀 Quick Start (2 minutes)
+HybridClaw is the runtime. HybridAI is the platform layer around it.
+
+HybridAI adds:
+
+- one-click cloud deployment
+- enterprise shared RAG / knowledge
+- access to current models from Anthropic, OpenAI, Google, xAI, and others
+- observability across multiple agents
+
+## Get running in 2 minutes
 
 ```bash
-# 1. Global installation
 npm install -g @hybridaione/hybridclaw
-
-# 2. Onboarding (sets up LLM, channels, secrets, everything)
 hybridclaw onboarding
-
-# 3. Start using it
-hybridclaw gateway      # Start the backend
-hybridclaw tui          # Terminal interface (optional)
+hybridclaw gateway
+hybridclaw tui
 ```
 
-After that open:
+Open locally:
 
-Web Chat: http://127.0.0.1:9090/chat
-Admin Console: http://127.0.0.1:9090/admin
-Agent Dashboard: http://127.0.0.1:9090/agents
+- Chat UI: `http://127.0.0.1:9090/chat`
+- Admin UI: `http://127.0.0.1:9090/admin`
+- Agents UI: `http://127.0.0.1:9090/agents`
 
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
@@ -84,15 +89,6 @@ Once the gateway is running, open HybridClaw locally:
 | **Self-improving / adaptive skills** | ✅ Adaptive skill loop + health | ✅ ClawHub skills | ✅ Strongest learning loop | ✅ (you code it) | ✅ Via AI nodes |
 | **No-code workflow building** | ✅ CLI + skills + kanban | ⚠️ Skills + ClawHub | ⚠️ Skills Hub | ❌ Code-first | ✅ Best-in-class no-code |
 | **Setup & onboarding** | ✅ `npm install -g` + `onboarding` (2 min) | ✅ Onboard CLI | ✅ One-line curl install | ❌ Requires coding | ✅ Visual + templates |
-
-## HybridAI Advantage
-
-- Security-focused foundation
-- Enterprise-ready stack
-- EU-stack compatibility
-- GDPR-aligned posture
-- RAG-powered retrieval
-- Document-grounded responses
 
 ## Architecture
 
