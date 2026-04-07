@@ -18,6 +18,7 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
+  LOCAL_DEFAULT_MAX_TOKENS,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
@@ -77,6 +78,27 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
+
+function resolveExecutorMaxTokens(params: {
+  requestedMaxTokens?: number;
+  provider?: string;
+  isLocal?: boolean;
+}): number | undefined {
+  if (
+    typeof params.requestedMaxTokens === 'number' &&
+    Number.isFinite(params.requestedMaxTokens) &&
+    params.requestedMaxTokens > 0
+  ) {
+    return Math.floor(params.requestedMaxTokens);
+  }
+  if (params.provider === 'hybridai') {
+    return HYBRIDAI_MAX_TOKENS;
+  }
+  if (params.isLocal) {
+    return LOCAL_DEFAULT_MAX_TOKENS;
+  }
+  return undefined;
+}
 
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
@@ -621,6 +643,9 @@ export async function runHostProcess(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    maxTokens,
+    maxWallClockMs,
+    inactivityTimeoutMs,
   } = params;
 
   const workspacePath = getHostWorkspacePath({
@@ -678,7 +703,11 @@ export async function runHostProcess(
     fullAutoNeverApproveTools,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    maxTokens: HYBRIDAI_MAX_TOKENS,
+    maxTokens: resolveExecutorMaxTokens({
+      requestedMaxTokens: maxTokens,
+      provider: modelRuntime.provider,
+      isLocal: modelRuntime.isLocal,
+    }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map(
@@ -800,11 +829,18 @@ export async function runHostProcess(
       writeInput(sessionId, input, { omitApiKey: true });
     }
 
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
-      signal: abortSignal,
-      activity,
-      terminalError: () => entry.terminalError,
-    });
+    const output = await readOutput(
+      sessionId,
+      inactivityTimeoutMs === undefined
+        ? CONTAINER_TIMEOUT
+        : inactivityTimeoutMs,
+      {
+        signal: abortSignal,
+        activity,
+        maxWallClockMs,
+        terminalError: () => entry.terminalError,
+      },
+    );
     if (isTimedOutAgentOutput(output)) {
       logger.warn(
         { sessionId },

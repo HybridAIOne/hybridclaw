@@ -1930,7 +1930,19 @@ async function executeToolInternal(
   name: string,
   argsJson: string,
 ): Promise<string> {
-  const args = JSON.parse(argsJson);
+  let parsedArgs: unknown;
+  try {
+    parsedArgs = JSON.parse(argsJson);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return failTool(
+      `Error: tool arguments were malformed JSON (${detail}). Retry with a valid JSON object; for very large file contents, split the work into smaller write/edit calls.`,
+    );
+  }
+  const args =
+    parsedArgs && typeof parsedArgs === 'object'
+      ? (parsedArgs as Record<string, any>)
+      : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
   if (mcpClientManager?.isKnownTool(name)) {
@@ -2950,13 +2962,19 @@ async function executeToolInternal(
         );
       }
 
-      const modeRaw =
+      const rawModeValue =
         typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+      const modeRaw: '' | 'single' | 'parallel' | 'chain' =
+        rawModeValue === 'single' ||
+        rawModeValue === 'parallel' ||
+        rawModeValue === 'chain'
+          ? rawModeValue
+          : '';
       if (
-        modeRaw &&
-        modeRaw !== 'single' &&
-        modeRaw !== 'parallel' &&
-        modeRaw !== 'chain'
+        rawModeValue &&
+        rawModeValue !== 'single' &&
+        rawModeValue !== 'parallel' &&
+        rawModeValue !== 'chain'
       ) {
         return failTool(
           'Error: mode must be one of "single", "parallel", or "chain".',

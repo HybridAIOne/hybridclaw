@@ -503,4 +503,17 @@ describe.sequential('container tool runtime guards', () => {
     expect(result.detector).toBe('ping_pong');
     expect(result.count).toBe(6);
   });
+
+  test('does not block repeated identical bash calls', () => {
+    const history = [];
+    const argsJson = JSON.stringify({ command: 'python script.py' });
+
+    for (let i = 0; i < 6; i += 1) {
+      recordToolCallOutcome(history, 'bash', argsJson, 'same output', false);
+    }
+
+    const result = detectToolCallLoop(history, 'bash', argsJson);
+
+    expect(result.stuck).toBe(false);
+  });
 });

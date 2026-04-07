@@ -18,6 +18,9 @@ export interface ExecutorRequest {
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   skipContainerSystemPrompt?: boolean;
+  maxTokens?: number;
+  maxWallClockMs?: number | null;
+  inactivityTimeoutMs?: number | null;
   bashProxy?:
     | {
         mode: 'docker-exec';

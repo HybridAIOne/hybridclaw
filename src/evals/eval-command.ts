@@ -145,6 +145,7 @@ interface TerminalBenchNativeSummary {
   mean: number;
   passed: number;
   rewards: TerminalBenchNativeReward[];
+  tokenUsage: TerminalBenchNativeTokenUsage | null;
 }
 
 interface TerminalBenchNativeProgress {
@@ -156,6 +157,18 @@ interface TerminalBenchNativeProgress {
   failed: number;
   running: number;
   pending: number | null;
+  tokenUsage: TerminalBenchNativeTokenUsage | null;
+}
+
+interface TerminalBenchNativeTokenUsage {
+  modelCalls: number;
+  apiPromptTokens: number;
+  apiCompletionTokens: number;
+  apiTotalTokens: number;
+  estimatedPromptTokens: number;
+  estimatedCompletionTokens: number;
+  estimatedTotalTokens: number;
+  apiUsageAvailable: boolean;
 }
 
 const MAX_QUEUED_EVAL_MESSAGES = 200;
@@ -935,6 +948,29 @@ function parseIsoDate(value: string | null | undefined): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function sanitizeEvalTaskName(value: string): string {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function formatIntegerValue(value: number): string {
+  return Math.round(value).toLocaleString('en-US');
+}
+
+function formatTerminalBenchTokenUsage(
+  tokenUsage: TerminalBenchNativeTokenUsage | null | undefined,
+): string | null {
+  if (!tokenUsage) return null;
+  if (tokenUsage.apiUsageAvailable && tokenUsage.apiTotalTokens > 0) {
+    return `${formatIntegerValue(tokenUsage.apiTotalTokens)} total (${formatIntegerValue(tokenUsage.apiPromptTokens)} prompt / ${formatIntegerValue(tokenUsage.apiCompletionTokens)} completion)`;
+  }
+  if (tokenUsage.estimatedTotalTokens > 0) {
+    return `${formatIntegerValue(tokenUsage.estimatedTotalTokens)} estimated (${formatIntegerValue(tokenUsage.estimatedPromptTokens)} prompt / ${formatIntegerValue(tokenUsage.estimatedCompletionTokens)} completion)`;
+  }
+  return null;
+}
+
 function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
   const baseDir = getEvalBaseDir(dataDir);
   if (!fs.existsSync(baseDir)) return [];
@@ -1144,6 +1180,75 @@ function readTerminalBenchJobDir(meta: EvalRunMeta): string | null {
   return jobDir ? jobDir : null;
 }
 
+function readFiniteTokenNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readTerminalBenchJobTokenUsage(
+  jobDir: string,
+  taskNames?: readonly string[],
+): TerminalBenchNativeTokenUsage | null {
+  const taskDirs =
+    Array.isArray(taskNames) && taskNames.length > 0
+      ? [
+          ...new Set(
+            taskNames.map((taskName) => sanitizeEvalTaskName(taskName)),
+          ),
+        ]
+      : fs
+          .readdirSync(jobDir, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name);
+  const totals: TerminalBenchNativeTokenUsage = {
+    modelCalls: 0,
+    apiPromptTokens: 0,
+    apiCompletionTokens: 0,
+    apiTotalTokens: 0,
+    estimatedPromptTokens: 0,
+    estimatedCompletionTokens: 0,
+    estimatedTotalTokens: 0,
+    apiUsageAvailable: false,
+  };
+  let foundAny = false;
+
+  for (const taskDirName of taskDirs) {
+    const agentResultPath = path.join(jobDir, taskDirName, 'agent-result.json');
+    if (!fs.existsSync(agentResultPath)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(agentResultPath, 'utf-8')) as {
+        tokenUsage?: Record<string, unknown>;
+      };
+      const tokenUsage = parsed.tokenUsage;
+      if (!tokenUsage || typeof tokenUsage !== 'object') continue;
+      foundAny = true;
+      totals.modelCalls += readFiniteTokenNumber(tokenUsage.modelCalls);
+      totals.apiPromptTokens += readFiniteTokenNumber(
+        tokenUsage.apiPromptTokens,
+      );
+      totals.apiCompletionTokens += readFiniteTokenNumber(
+        tokenUsage.apiCompletionTokens,
+      );
+      totals.apiTotalTokens += readFiniteTokenNumber(tokenUsage.apiTotalTokens);
+      totals.estimatedPromptTokens += readFiniteTokenNumber(
+        tokenUsage.estimatedPromptTokens,
+      );
+      totals.estimatedCompletionTokens += readFiniteTokenNumber(
+        tokenUsage.estimatedCompletionTokens,
+      );
+      totals.estimatedTotalTokens += readFiniteTokenNumber(
+        tokenUsage.estimatedTotalTokens,
+      );
+      if (tokenUsage.apiUsageAvailable === true) {
+        totals.apiUsageAvailable = true;
+      }
+    } catch {
+      // ignore malformed per-task agent results
+    }
+  }
+
+  return foundAny ? totals : null;
+}
+
 function readTerminalBenchNativeSummary(
   meta: EvalRunMeta,
 ): TerminalBenchNativeSummary | null {
@@ -1181,6 +1286,14 @@ function readTerminalBenchNativeSummary(
           : 0,
       passed,
       rewards,
+      tokenUsage: readTerminalBenchJobTokenUsage(
+        jobDir,
+        rewards
+          .map((reward) => reward.taskName)
+          .filter(
+            (taskName): taskName is string => typeof taskName === 'string',
+          ),
+      ),
     };
   } catch {
     return null;
@@ -1228,6 +1341,7 @@ function readTerminalBenchNativeProgress(
     failed: failCount + errorCount,
     running,
     pending,
+    tokenUsage: readTerminalBenchJobTokenUsage(jobDir),
   };
 }
 
@@ -2275,6 +2389,10 @@ function renderManagedSuiteResults(
               `${terminalBenchSummary.passed}/${terminalBenchSummary.trials}`,
             ],
             ['Errors', terminalBenchSummary.errors],
+            [
+              'Tokens',
+              formatTerminalBenchTokenUsage(terminalBenchSummary.tokenUsage),
+            ],
           ]
         : [
             ['Tasks', terminalBenchProgress?.totalTasks ?? null],
@@ -2288,6 +2406,10 @@ function renderManagedSuiteResults(
             ['Failed', terminalBenchProgress?.failed ?? null],
             ['Running', terminalBenchProgress?.running ?? null],
             ['Pending', terminalBenchProgress?.pending ?? null],
+            [
+              'Tokens',
+              formatTerminalBenchTokenUsage(terminalBenchProgress?.tokenUsage),
+            ],
           ],
     );
     const runSection = renderKeyValueSection('Run', [

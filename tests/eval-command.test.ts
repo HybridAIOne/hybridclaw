@@ -74,6 +74,43 @@ function installTau2Layout(dataDir: string): void {
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
 }
 
+function writeTerminalBenchAgentResult(
+  jobDir: string,
+  taskName: string,
+  tokenUsage: {
+    modelCalls?: number;
+    apiUsageAvailable?: boolean;
+    apiPromptTokens?: number;
+    apiCompletionTokens?: number;
+    apiTotalTokens?: number;
+    estimatedPromptTokens?: number;
+    estimatedCompletionTokens?: number;
+    estimatedTotalTokens?: number;
+  },
+): void {
+  const taskDir = path.join(jobDir, taskName);
+  fs.mkdirSync(taskDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(taskDir, 'agent-result.json'),
+    JSON.stringify(
+      {
+        tokenUsage: {
+          modelCalls: tokenUsage.modelCalls ?? 0,
+          apiUsageAvailable: tokenUsage.apiUsageAvailable ?? false,
+          apiPromptTokens: tokenUsage.apiPromptTokens ?? 0,
+          apiCompletionTokens: tokenUsage.apiCompletionTokens ?? 0,
+          apiTotalTokens: tokenUsage.apiTotalTokens ?? 0,
+          estimatedPromptTokens: tokenUsage.estimatedPromptTokens ?? 0,
+          estimatedCompletionTokens: tokenUsage.estimatedCompletionTokens ?? 0,
+          estimatedTotalTokens: tokenUsage.estimatedTotalTokens ?? 0,
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 test('returns suite stub info without exposing tokens', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
@@ -725,6 +762,26 @@ test('shows managed suite run summary in results when a run exists', async () =>
       2,
     ),
   );
+  writeTerminalBenchAgentResult(jobDir, 'a', {
+    modelCalls: 3,
+    apiUsageAvailable: true,
+    apiPromptTokens: 1250,
+    apiCompletionTokens: 250,
+    apiTotalTokens: 1500,
+    estimatedPromptTokens: 900,
+    estimatedCompletionTokens: 180,
+    estimatedTotalTokens: 1080,
+  });
+  writeTerminalBenchAgentResult(jobDir, 'b', {
+    modelCalls: 2,
+    apiUsageAvailable: true,
+    apiPromptTokens: 750,
+    apiCompletionTokens: 150,
+    apiTotalTokens: 900,
+    estimatedPromptTokens: 700,
+    estimatedCompletionTokens: 120,
+    estimatedTotalTokens: 820,
+  });
   fs.writeFileSync(
     path.join(runDir, 'stdout.log'),
     `Terminal-Bench 2.0 Native Run\nJob dir: ${jobDir}\nResults written to ${path.join(jobDir, 'result.json')}\n`,
@@ -787,6 +844,9 @@ test('shows managed suite run summary in results when a run exists', async () =>
   expect(result.text).toContain('Trials  2');
   expect(result.text).toContain('Passed  1/2');
   expect(result.text).toContain('Errors  0');
+  expect(result.text).toMatch(
+    /Tokens\s+2,400 total \(2,000 prompt \/ 400 completion\)/,
+  );
   expect(result.text).toContain('▶️ Run');
   expect(result.text).not.toContain('Stdout tail:');
   expect(result.text).not.toContain('Terminal-Bench 2.0 Native Run');
@@ -923,6 +983,16 @@ test('shows partial terminal-bench progress in results while a run is still acti
       2,
     ),
   );
+  writeTerminalBenchAgentResult(jobDir, 'bn-fit-modify', {
+    modelCalls: 4,
+    apiUsageAvailable: true,
+    apiPromptTokens: 1000,
+    apiCompletionTokens: 200,
+    apiTotalTokens: 1200,
+    estimatedPromptTokens: 800,
+    estimatedCompletionTokens: 160,
+    estimatedTotalTokens: 960,
+  });
   fs.writeFileSync(
     path.join(runDir, 'stdout.log'),
     [
@@ -997,6 +1067,9 @@ test('shows partial terminal-bench progress in results while a run is still acti
   expect(result.text).toContain('Failed    0');
   expect(result.text).toContain('Running   1');
   expect(result.text).toContain('Pending   0');
+  expect(result.text).toMatch(
+    /Tokens\s+1,200 total \(1,000 prompt \/ 200 completion\)/,
+  );
   expect(result.text).toContain('▶️ Run');
   expect(result.text).not.toContain('Result JSON:');
   expect(result.text).not.toContain('Score:');

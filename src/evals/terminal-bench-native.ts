@@ -46,6 +46,8 @@ interface TaskResultSummary {
   error?: string;
 }
 
+const TERMINAL_BENCH_NATIVE_MAX_TOKENS = 16_384;
+
 function parseArgs(argv: string[]): NativeRunnerOptions {
   let installDir = '';
   let dataDir = '';
@@ -435,6 +437,9 @@ async function runTask(
       content: String(task.instruction || '').trim(),
       agentId: options.agentId,
       model: options.model,
+      maxTokens: TERMINAL_BENCH_NATIVE_MAX_TOKENS,
+      maxWallClockMs: null,
+      inactivityTimeoutMs: null,
       promptMode: options.promptMode,
       includePromptParts:
         options.includePromptParts.length > 0

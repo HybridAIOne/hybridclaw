@@ -151,6 +151,9 @@ export interface GatewayChatRequest {
   neverAutoApproveTools?: string[];
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
+  maxTokens?: number;
+  maxWallClockMs?: number | null;
+  inactivityTimeoutMs?: number | null;
   bashProxy?:
     | {
         mode: 'docker-exec';
