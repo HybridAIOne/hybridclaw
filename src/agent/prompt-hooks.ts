@@ -320,7 +320,7 @@ function buildSafetyHook(context: PromptHookContext): string {
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
     CONTAINER_SANDBOX_MODE === 'host'
-      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, and prefer `/tmp` for temporary artifacts. There is no `/workspace` directory; use the real workspace path from Runtime Metadata.'
+      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, prefer `/tmp` for temporary artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
       : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -6,6 +7,7 @@ import {
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
+  WORKSPACE_ROOT_DISPLAY,
 } from '../runtime-paths.js';
 import type { ToolDefinition } from '../types.js';
 
@@ -96,6 +98,12 @@ const GREP_SEARCH_MAX_FILES_SCANNED = 10_000;
 const GREP_SEARCH_MAX_OUTPUT_CHARS = 50_000;
 const GREP_SEARCH_MAX_REGEX_PATTERN_LENGTH = 256;
 const GREP_SEARCH_TIMEOUT_MS = 30_000;
+const TASK_SANDBOX_CONTAINER = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
+).trim();
+const TASK_SANDBOX_CWD = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CWD || WORKSPACE_ROOT_DISPLAY,
+).trim();
 
 type SearchMatcher = (value: string) => boolean;
 
@@ -180,7 +188,7 @@ export const SEARCH_TOOL_DEFINITIONS: ToolDefinition[] = [
           path: {
             type: 'string',
             description:
-              'Directory or file to search in (default: workspace root)',
+              `Directory or file to search in (default: ${WORKSPACE_ROOT_DISPLAY})`,
           },
           include: {
             type: 'string',
@@ -222,6 +230,105 @@ function readBooleanValue(value: unknown): boolean | null {
   if (normalized === 'true') return true;
   if (normalized === 'false') return false;
   return null;
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function isTaskSandboxSearchEnabled(): boolean {
+  return TASK_SANDBOX_CONTAINER.length > 0;
+}
+
+function resolveTaskSandboxPath(rawPath: string): string | null {
+  const input = String(rawPath || '').trim();
+  if (!input) return null;
+  const normalized = input.replace(/\\/g, '/');
+  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
+
+  if (path.posix.isAbsolute(normalized)) {
+    const absolute = path.posix.normalize(normalized);
+    if (
+      absolute === displayRoot ||
+      absolute.startsWith(`${displayRoot}/`)
+    ) {
+      return absolute;
+    }
+    return null;
+  }
+
+  let clean = path.posix.normalize(normalized);
+  const displayBaseName = path.posix.basename(displayRoot);
+  if (
+    displayRoot !== '/workspace' &&
+    displayBaseName &&
+    displayBaseName !== '.' &&
+    displayBaseName !== '/' &&
+    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
+  ) {
+    clean = clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+  }
+  if (clean === '..' || clean.startsWith('../')) return null;
+  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
+}
+
+function resolveTaskSandboxGlobPattern(rawPattern: string): string | null {
+  const input = String(rawPattern || '').trim();
+  if (!input) return null;
+  const normalized = input.replace(/\\/g, '/');
+  const firstMeta = normalized.search(/[*?[{]/);
+  if (firstMeta === -1) return resolveTaskSandboxPath(input);
+
+  if (!path.posix.isAbsolute(normalized)) {
+    const clean = path.posix.normalize(normalized);
+    if (clean === '..' || clean.startsWith('../')) return null;
+    return path.posix.join(WORKSPACE_ROOT_DISPLAY, clean);
+  }
+
+  const prefixEnd = normalized.lastIndexOf('/', firstMeta);
+  if (prefixEnd <= 0) return null;
+  const prefix = normalized.slice(0, prefixEnd);
+  const suffix = normalized.slice(prefixEnd);
+  const resolvedPrefix = resolveTaskSandboxPath(prefix);
+  if (!resolvedPrefix) return null;
+  return `${resolvedPrefix}${suffix}`;
+}
+
+function runTaskSandboxCommand(params: {
+  command: string;
+  timeoutMs: number;
+  maxBuffer?: number;
+}): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-w',
+      TASK_SANDBOX_CWD || WORKSPACE_ROOT_DISPLAY,
+      TASK_SANDBOX_CONTAINER,
+      'bash',
+      '-lc',
+      params.command,
+    ],
+    {
+      encoding: 'utf-8',
+      timeout: params.timeoutMs,
+      maxBuffer: params.maxBuffer ?? GREP_SEARCH_MAX_OUTPUT_CHARS * 4,
+      env: { ...process.env },
+    },
+  );
+  return {
+    status: typeof result.status === 'number' ? result.status : null,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+  };
+}
+
+function shouldSkipSearchPath(filePath: string): boolean {
+  const relative = stripWorkspaceRootPrefix(filePath);
+  const parts = relative.split('/').filter(Boolean);
+  return parts.some((part) => SEARCH_SKIP_DIRS.has(part));
 }
 
 function safeJoin(userPath: string): string {
@@ -600,6 +707,15 @@ function resolveGlobSearchRoot(pattern: string): string | null {
   }
 }
 
+function resolveTaskSandboxGlobSearchRoot(pattern: string): string | null {
+  const firstMetaIndex = pattern.search(/[*?[{]/);
+  if (firstMetaIndex === -1) return pattern;
+
+  const prefixEnd = pattern.lastIndexOf('/', firstMetaIndex);
+  if (prefixEnd <= 0) return WORKSPACE_ROOT_DISPLAY;
+  return pattern.slice(0, prefixEnd);
+}
+
 function walkWorkspaceFiles(
   searchRoot: string,
   opts: WalkWorkspaceFilesOptions,
@@ -705,11 +821,104 @@ function collectWorkspaceFiles(
   return { files, status };
 }
 
+function collectTaskSandboxFiles(
+  searchRoot: string,
+  opts: CollectWorkspaceFilesOptions,
+): { files: string[]; status: SearchStatus } {
+  const includeMatcher = buildIncludePatternMatcher(opts.includePattern);
+  const command = `if [ -f ${shellEscape(searchRoot)} ]; then printf '%s\\0' ${shellEscape(searchRoot)}; elif [ -d ${shellEscape(searchRoot)} ]; then find ${shellEscape(searchRoot)} -type f -print0; fi`;
+  const result = runTaskSandboxCommand({
+    command,
+    timeoutMs: opts.timeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    return { files: [], status: SEARCH_STATUS_TIMEOUT };
+  }
+
+  const files: string[] = [];
+  let scannedFiles = 0;
+  let status: SearchStatus = SEARCH_STATUS_OK;
+  const candidates = result.stdout
+    .split('\0')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+
+  for (const filePath of candidates) {
+    if (Date.now() >= opts.deadlineAt) {
+      status = SEARCH_STATUS_TIMEOUT;
+      break;
+    }
+    if (shouldSkipSearchPath(filePath)) continue;
+    scannedFiles += 1;
+    if (scannedFiles > opts.maxFilesScanned) {
+      status = createTruncatedSearchStatus(
+        `scanned more than ${opts.maxFilesScanned} files`,
+      );
+      break;
+    }
+
+    if (opts.textOnly && !hasSearchableTextExtension(filePath)) continue;
+    const workspaceRelative = stripWorkspaceRootPrefix(filePath);
+    if (includeMatcher && !includeMatcher(workspaceRelative)) continue;
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    if (opts.matcher && !opts.matcher(normalizedFilePath)) continue;
+
+    files.push(filePath);
+    if (opts.maxResults && files.length >= opts.maxResults) {
+      status = createTruncatedSearchStatus(`result limit (${opts.maxResults})`);
+      break;
+    }
+  }
+
+  return { files, status };
+}
+
 function errorResult(output: string): SearchToolRunResult {
   return { output, isError: true };
 }
 
 export function runGlobSearch(pattern: string): SearchToolRunResult {
+  if (isTaskSandboxSearchEnabled()) {
+    const normalizedWorkspacePattern = resolveTaskSandboxGlobPattern(pattern);
+    if (!normalizedWorkspacePattern) {
+      return errorResult(
+        'Error: glob only searches inside the task workspace. For other absolute paths, use bash.',
+      );
+    }
+    const normalizedPattern = normalizedWorkspacePattern.replace(/\\/g, '/');
+    const matcher = buildGlobMatcher(normalizedPattern);
+    const searchRoot = resolveTaskSandboxGlobSearchRoot(normalizedWorkspacePattern);
+    if (!searchRoot) {
+      return {
+        output: `No files matched pattern: ${pattern}`,
+        isError: false,
+      };
+    }
+    const deadlineAt = computeSearchDeadline(GLOB_SEARCH_TIMEOUT_MS);
+    const result = collectTaskSandboxFiles(searchRoot, {
+      deadlineAt,
+      matcher,
+      maxFilesScanned: GLOB_SEARCH_MAX_FILES_SCANNED,
+      maxResults: GLOB_SEARCH_MAX_RESULTS,
+      timeoutMs: GLOB_SEARCH_TIMEOUT_MS,
+    });
+    const note = buildSearchStatusNote(
+      result.status,
+      'glob',
+      GLOB_SEARCH_TIMEOUT_MS,
+    );
+    return {
+      output: formatSearchOutput(
+        result.files.map(displaySearchPath),
+        `No files matched pattern: ${pattern}`,
+        note,
+      ),
+      isError: false,
+    };
+  }
+
   const normalizedWorkspacePattern = resolveWorkspaceGlobPattern(pattern);
   if (!normalizedWorkspacePattern) {
     return errorResult(
@@ -764,7 +973,12 @@ export function runGrepSearch(
   );
   const searchPathArg = readStringValue(args.path);
   let searchPath = WORKSPACE_ROOT;
-  if (searchPathArg) {
+  if (isTaskSandboxSearchEnabled()) {
+    searchPath = resolveTaskSandboxPath(searchPathArg || WORKSPACE_ROOT_DISPLAY) || '';
+    if (!searchPath) {
+      return errorResult('Error: search path escapes task workspace');
+    }
+  } else if (searchPathArg) {
     try {
       searchPath = safeJoin(searchPathArg);
     } catch (err) {
@@ -781,13 +995,21 @@ export function runGrepSearch(
     return errorResult(`Error: ${matcher}`);
   }
 
-  const fileCollection = collectWorkspaceFiles(searchPath, {
-    deadlineAt,
-    includePattern,
-    maxFilesScanned: GREP_SEARCH_MAX_FILES_SCANNED,
-    timeoutMs: GREP_SEARCH_TIMEOUT_MS,
-    textOnly: true,
-  });
+  const fileCollection = isTaskSandboxSearchEnabled()
+    ? collectTaskSandboxFiles(searchPath, {
+        deadlineAt,
+        includePattern,
+        maxFilesScanned: GREP_SEARCH_MAX_FILES_SCANNED,
+        timeoutMs: GREP_SEARCH_TIMEOUT_MS,
+        textOnly: true,
+      })
+    : collectWorkspaceFiles(searchPath, {
+        deadlineAt,
+        includePattern,
+        maxFilesScanned: GREP_SEARCH_MAX_FILES_SCANNED,
+        timeoutMs: GREP_SEARCH_TIMEOUT_MS,
+        textOnly: true,
+      });
 
   const matches: string[] = [];
   let status = fileCollection.status;
@@ -800,7 +1022,22 @@ export function runGrepSearch(
       break;
     }
 
-    const content = readSearchableTextFile(filePath);
+    const content = isTaskSandboxSearchEnabled()
+      ? (() => {
+          const command = `head -c ${SEARCH_MAX_FILE_SIZE_BYTES + 1} -- ${shellEscape(filePath)}`;
+          const result = runTaskSandboxCommand({
+            command,
+            timeoutMs: GREP_SEARCH_TIMEOUT_MS,
+            maxBuffer: SEARCH_MAX_FILE_SIZE_BYTES + 1024,
+          });
+          if (result.status !== 0) return null;
+          if (!hasSearchableTextExtension(filePath)) return null;
+          if (Buffer.byteLength(result.stdout, 'utf-8') > SEARCH_MAX_FILE_SIZE_BYTES) {
+            return null;
+          }
+          return result.stdout;
+        })()
+      : readSearchableTextFile(filePath);
     if (content == null) continue;
     const lines = content.split('\n');
 

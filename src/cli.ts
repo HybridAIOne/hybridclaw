@@ -952,6 +952,12 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
+      if ((status.sandbox?.activeSessionIds?.length || 0) > 0) {
+        console.log('Active sandbox sessions:');
+        for (const sessionId of status.sandbox?.activeSessionIds || []) {
+          console.log(`  - ${sessionId}`);
+        }
+      }
     } catch (err) {
       console.log(
         `Gateway status fetch failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1459,6 +1465,21 @@ export async function main(
     case 'eval':
       await handleEvalCommand(subargs);
       break;
+    case '__eval-terminal-bench-native': {
+      const { initDatabase, isDatabaseInitialized } = await import(
+        './memory/db.js'
+      );
+      const { initAgentRegistry } = await import('./agents/agent-registry.js');
+      const { runTerminalBenchNativeCli } = await import(
+        './evals/terminal-bench-native.js'
+      );
+      if (!isDatabaseInitialized()) {
+        initDatabase({ quiet: true });
+      }
+      initAgentRegistry(getRuntimeConfig().agents);
+      await runTerminalBenchNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;

@@ -44,6 +44,7 @@ export interface ParsedOpenAICompatibleChatRequest {
   wantsStream: boolean;
   includeUsage: boolean;
   usesClientTools: boolean;
+  evalProfile?: string;
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
   toolChoice?: OpenAICompatibleToolChoice;
@@ -53,6 +54,19 @@ export interface ParsedOpenAICompatibleChatRequest {
   }>;
   prompt: string;
   media: MediaContextItem[];
+}
+
+function normalizeEvalProfileHeader(
+  value: string | string[] | undefined,
+): string {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = normalizeOptionalString(entry);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return normalizeOptionalString(value) || '';
 }
 
 export class OpenAICompatibleRequestError extends Error {
@@ -835,6 +849,13 @@ export async function readOpenAICompatibleChatRequest(
     wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
     usesClientTools,
+    ...(normalizeEvalProfileHeader(req.headers['x-hybridclaw-eval-profile'])
+      ? {
+          evalProfile: normalizeEvalProfileHeader(
+            req.headers['x-hybridclaw-eval-profile'],
+          ),
+        }
+      : {}),
     messages: normalizedMessages,
     tools,
     ...(toolChoice ? { toolChoice } : {}),

@@ -1,4 +1,5 @@
 import { runAgent } from '../agent/agent.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
 import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
 import {
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED,
@@ -103,13 +104,14 @@ function buildSystemPrompt(
   agentId: string,
   sessionSummary?: string | null,
   extra?: string,
+  promptMode: PromptMode = 'minimal',
 ): string {
   return buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
     skills: loadSkills(agentId, undefined),
     purpose: 'memory-flush',
-    promptMode: 'minimal',
+    promptMode,
     extraSafetyText: extra,
     runtimeInfo: {
       workspacePath: agentWorkspaceDir(agentId),
@@ -321,6 +323,7 @@ export async function maybeCompactSession(params: {
   enableRag: boolean;
   model: string;
   channelId: string;
+  promptMode?: PromptMode;
 }): Promise<void> {
   if (!SESSION_COMPACTION_ENABLED) return;
 
@@ -353,6 +356,8 @@ export async function maybeCompactSession(params: {
   const systemPrompt = buildSystemPrompt(
     params.agentId,
     session.session_summary,
+    undefined,
+    params.promptMode ?? 'minimal',
   );
   const systemPromptTokens = estimateTokenCountFromText(systemPrompt);
   const totalTokens = msgTokens + summaryTokens + systemPromptTokens;

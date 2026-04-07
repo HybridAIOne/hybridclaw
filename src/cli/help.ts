@@ -38,7 +38,7 @@ Commands:
   hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
-  hybridclaw gateway sessions
+  hybridclaw gateway sessions [active|clear-active]
   hybridclaw gateway bot info
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
@@ -47,7 +47,8 @@ Commands:
 
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
-       hybridclaw eval <suite> [setup|status|results]
+       hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
+       hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 
 Runs local eval helpers backed by HybridClaw's OpenAI-compatible API.
@@ -60,24 +61,20 @@ Examples:
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
   hybridclaw eval terminal-bench-2.0 run --num-tasks 10
-  hybridclaw eval swebench-verified setup
-  hybridclaw eval agentbench setup
-  hybridclaw eval gaia setup
-  hybridclaw eval gaia --ablate-system
-  hybridclaw eval gaia --omit-prompt=bootstrap,soul
-  hybridclaw eval gaia --include-prompt=memory,runtime
+  hybridclaw eval swebench-verified
+  hybridclaw eval agentbench
   hybridclaw eval gaia
   hybridclaw eval tau2 status
   hybridclaw eval tau2 results
   hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
-  hybridclaw eval swebench-verified
   hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Managed setup helpers are available for \`swebench-verified\`, \`terminal-bench-2.0\`, \`agentbench\`, \`gaia\`, and \`tau2\`.
-  - \`terminal-bench-2.0 run --num-tasks 10\` defaults to a managed HybridClaw Harbor agent on \`terminal-bench@2.0\`.
+  - Only \`terminal-bench-2.0\` and \`tau2\` have active HybridClaw implementations today.
+  - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
   - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
   - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
   - For \`tau2 run\`, omitted \`--agent-llm\` and \`--user-llm\` flags default to \`$HYBRIDCLAW_EVAL_MODEL\`.
@@ -125,7 +122,7 @@ Interactive slash commands inside TUI:
   /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
-  /sessions
+  /sessions [active|clear-active]
   /show [all|thinking|tools|none]
   /skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status

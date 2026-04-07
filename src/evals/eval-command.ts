@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import { isContainerMaxConcurrentExplicit } from '../config/runtime-config.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
@@ -124,14 +125,54 @@ interface Tau2RunSummary {
   normalStop: number | null;
 }
 
+interface TerminalBenchNativeReward {
+  taskName?: string;
+  category?: string;
+  reward?: number;
+  passed?: boolean;
+  turnsUsed?: number;
+  finishedNaturally?: boolean;
+  error?: string;
+}
+
+interface TerminalBenchNativeSummary {
+  jobDir: string;
+  resultPath: string;
+  agent: string | null;
+  dataset: string | null;
+  trials: number;
+  errors: number;
+  mean: number;
+  passed: number;
+  rewards: TerminalBenchNativeReward[];
+}
+
+interface TerminalBenchNativeProgress {
+  jobDir: string;
+  totalTasks: number | null;
+  started: number;
+  finished: number;
+  passed: number;
+  failed: number;
+  running: number;
+  pending: number | null;
+}
+
 const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
 const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
 const EVAL_EARLY_EXIT_CHECK_MS = 1500;
 const TAU2_REPO_URL = 'https://github.com/sierra-research/tau2-bench';
 const TAU2_INSTALL_DIRNAME = 'tau2-bench';
-const SWEBENCH_REPO_URL = 'https://github.com/princeton-nlp/SWE-bench.git';
-const AGENTBENCH_REPO_URL = 'https://github.com/THUDM/AgentBench.git';
+let cachedHarnessVersion: string | null = null;
+const MANAGED_SUITE_SUBCOMMANDS = new Set([
+  'setup',
+  'run',
+  'status',
+  'stop',
+  'results',
+  'logs',
+]);
 
 const EVAL_SUITES: EvalSuiteDefinition[] = [
   {
@@ -156,24 +197,17 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
   {
     id: 'terminal-bench-2.0',
     title: 'Terminal-Bench 2.0',
-    summary: 'Sandboxed terminal-task benchmark typically run through Harbor.',
+    summary:
+      'Sandboxed terminal-task benchmark run through a native HybridClaw harness runner.',
     aliases: ['terminal-bench', 'terminal-bench-2', 'terminalbench'],
-    prereqs: [
-      'Python',
-      'Docker',
-      '`pip install harbor`',
-      'A Harbor agent adapter that reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`.',
-    ],
+    prereqs: ['Python', 'Docker', '`pip install datasets`'],
     starter: [
-      'harbor run -d terminal-bench@2.0 \\',
-      '  --agent <your-harbor-agent> \\',
-      '  --model "$HYBRIDCLAW_EVAL_MODEL" \\',
-      '  --n-concurrent 4 \\',
-      '  --n-attempts 5',
+      '/eval terminal-bench-2.0 setup',
+      '/eval terminal-bench-2.0 run --num-tasks 10',
     ],
     notes: [
-      'Keep your Harbor agent config on the benchmark side; HybridClaw only provides the OpenAI-compatible endpoint and auth injection.',
-      'Run the oracle check from Harbor first to validate your local install before launching your own agent.',
+      'This native runner exercises HybridClaw’s own tool loop instead of Harbor Terminus2.',
+      'Each task runs against its own Docker task container, with HybridClaw file and shell tools operating on the same `/app` workspace.',
     ],
   },
   {
@@ -264,8 +298,49 @@ function findSuite(value: string): EvalSuiteDefinition | null {
   return null;
 }
 
+function findSuitePrefixMatches(value: string): EvalSuiteDefinition[] {
+  const normalized = normalizeSuiteId(value);
+  if (!normalized) return [];
+  return EVAL_SUITES.filter((suite) => {
+    if (suite.id.startsWith(normalized)) return true;
+    return suite.aliases.some((alias) =>
+      normalizeSuiteId(alias).startsWith(normalized),
+    );
+  });
+}
+
 function renderSuiteList(): string[] {
-  return EVAL_SUITES.map((suite) => `- ${suite.id} — ${suite.summary}`);
+  return EVAL_SUITES.map(
+    (suite) =>
+      `- ${suite.id} — ${suite.summary}${isImplementedManagedSuite(suite) ? '' : ' (not implemented yet)'}`,
+  );
+}
+
+function isImplementedManagedSuite(suite: EvalSuiteDefinition): boolean {
+  return suite.id === 'terminal-bench-2.0';
+}
+
+function renderUnimplementedSuite(
+  suite: EvalSuiteDefinition,
+  env: EvalEnvironment,
+): string {
+  return [
+    suite.summary,
+    '',
+    'Status:',
+    '- Not implemented yet.',
+    '',
+    'HybridClaw env:',
+    `- OPENAI_BASE_URL=${env.baseUrl}`,
+    `- OPENAI_API_KEY: ${describeAuthMode(env)}`,
+    `- HYBRIDCLAW_EVAL_MODEL=${env.model}`,
+    `- Base model: ${env.baseModel}`,
+    ...describeEvalProfile(env.profile).map((entry) => `- ${entry}`),
+    '',
+    'Implemented suites today:',
+    '- `/eval terminal-bench-2.0 ...`',
+    '- `/eval tau2 ...`',
+  ].join('\n');
 }
 
 function renderUsage(env: EvalEnvironment): string {
@@ -275,6 +350,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Usage:',
     '- `/eval list`',
     '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
@@ -289,7 +365,107 @@ function renderUsage(env: EvalEnvironment): string {
     '',
     'Suites:',
     ...renderSuiteList(),
+    '',
+    'Only `terminal-bench-2.0` and `tau2` are implemented today.',
   ].join('\n');
+}
+
+function renderKeyValueSection(
+  title: string,
+  entries: Array<readonly [string, string | number | null | undefined]>,
+): string {
+  const normalized = entries.filter(
+    (entry): entry is readonly [string, string | number] =>
+      entry[1] !== null &&
+      entry[1] !== undefined &&
+      String(entry[1]).trim() !== '',
+  );
+  if (normalized.length === 0) return '';
+  const width = normalized.reduce(
+    (max, [label]) => Math.max(max, label.length),
+    0,
+  );
+  const icon = (() => {
+    switch (title) {
+      case 'Overview':
+        return '🧭';
+      case 'Results':
+        return '📊';
+      case 'Progress':
+        return '⏳';
+      case 'Run':
+        return '▶️';
+      case 'Paths':
+        return '📁';
+      case 'Stdout tail':
+        return '📄';
+      case 'Stderr tail':
+        return '⚠️';
+      default:
+        return '';
+    }
+  })();
+  return renderSectionCard(
+    `${icon ? `${icon} ` : ''}${title}`,
+    normalized.map(
+      ([label, value]) => `${label.padEnd(width)}  ${String(value)}`,
+    ),
+  );
+}
+
+function renderSectionCard(title: string, lines: string[]): string {
+  const bodyLines = lines.flatMap((line) =>
+    String(line || '')
+      .split('\n')
+      .map((entry) => entry.trimEnd()),
+  );
+  const contentWidth = Math.max(
+    title.length + 2,
+    ...bodyLines.map((line) => line.length),
+  );
+  const topBorder = `┌─ ${title} ${'─'.repeat(Math.max(1, contentWidth - title.length - 1))}┐`;
+  const middle = bodyLines.map((line) => `│ ${line.padEnd(contentWidth)} │`);
+  const bottomBorder = `└${'─'.repeat(contentWidth + 2)}┘`;
+  return [topBorder, ...middle, bottomBorder].join('\n');
+}
+
+function joinSections(sections: Array<string | null | undefined>): string {
+  return sections
+    .map((section) => String(section || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function readVersionFromPackageJson(packageJsonPath: string): string | null {
+  try {
+    const raw = fs.readFileSync(packageJsonPath, 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+function resolveHarnessVersion(): string {
+  if (cachedHarnessVersion) return cachedHarnessVersion;
+  const envVersion = process.env.npm_package_version;
+  if (envVersion?.trim()) {
+    cachedHarnessVersion = envVersion.trim();
+    return cachedHarnessVersion;
+  }
+
+  const modulePath = fileURLToPath(import.meta.url);
+  const moduleVersion = readVersionFromPackageJson(
+    path.join(path.dirname(modulePath), '..', '..', 'package.json'),
+  );
+  if (moduleVersion) {
+    cachedHarnessVersion = moduleVersion;
+    return cachedHarnessVersion;
+  }
+  return 'unknown';
 }
 
 function renderEnv(env: EvalEnvironment): string {
@@ -310,6 +486,9 @@ function renderRecipe(
   suite: EvalSuiteDefinition,
   env: EvalEnvironment,
 ): string {
+  if (!isImplementedManagedSuite(suite)) {
+    return renderUnimplementedSuite(suite, env);
+  }
   return [
     suite.summary,
     '',
@@ -329,13 +508,13 @@ function renderRecipe(
     'Notes:',
     ...suite.notes.map((entry) => `- ${entry}`),
     '',
-    'Managed setup:',
+    'Managed commands:',
     `- \`/eval ${suite.id} setup\``,
-    ...(suite.id === 'terminal-bench-2.0'
-      ? [`- \`/eval ${suite.id} run --num-tasks 10\``]
-      : []),
+    `- \`/eval ${suite.id} run --num-tasks 10\``,
     `- \`/eval ${suite.id} status\``,
+    `- \`/eval ${suite.id} stop\``,
     `- \`/eval ${suite.id} results\``,
+    `- \`/eval ${suite.id} logs\``,
     '',
     'Launch the starter or your own command with `/eval <shell command...>`.',
   ].join('\n');
@@ -410,34 +589,12 @@ function getTau2InstallDir(dataDir: string): string {
 function getManagedSuiteSetup(
   suite: EvalSuiteDefinition,
 ): ManagedEvalSuiteSetup | null {
-  switch (suite.id) {
-    case 'swebench-verified':
-      return {
-        installDirName: 'swebench',
-        strategyDescription:
-          'uv-managed Python 3.12 venv with editable SWE-bench install',
-      };
-    case 'terminal-bench-2.0':
-      return {
-        installDirName: 'terminal-bench-2.0',
-        strategyDescription:
-          'uv-managed Python 3.12 venv with Harbor CLI install and HybridClaw Harbor agent smoke test',
-      };
-    case 'agentbench':
-      return {
-        installDirName: 'agentbench',
-        strategyDescription:
-          'uv-managed Python 3.12 venv with AgentBench requirements install',
-      };
-    case 'gaia':
-      return {
-        installDirName: 'gaia',
-        strategyDescription:
-          'uv-managed Python 3.12 venv with Inspect AI + inspect-evals install',
-      };
-    default:
-      return null;
-  }
+  if (suite.id !== 'terminal-bench-2.0') return null;
+  return {
+    installDirName: 'terminal-bench-2.0',
+    strategyDescription:
+      'uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test',
+  };
 }
 
 function getManagedSuiteInstallDir(
@@ -475,18 +632,9 @@ function getManagedSuiteExecutablePath(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): string | null {
-  const installDir = getManagedSuiteInstallDir(suite, dataDir);
-  if (suite.id === 'terminal-bench-2.0') {
-    return process.platform === 'win32'
-      ? path.join(installDir, '.venv', 'Scripts', 'harbor.exe')
-      : path.join(installDir, '.venv', 'bin', 'harbor');
-  }
-  if (suite.id === 'gaia') {
-    return process.platform === 'win32'
-      ? path.join(installDir, '.venv', 'Scripts', 'inspect.exe')
-      : path.join(installDir, '.venv', 'bin', 'inspect');
-  }
-  return null;
+  return suite.id === 'terminal-bench-2.0'
+    ? getManagedSuitePythonPath(suite, dataDir)
+    : null;
 }
 
 function isManagedSuiteInstalled(
@@ -530,64 +678,18 @@ function getManagedSuiteSetupCommand(
       ? '.venv\\Scripts\\python.exe'
       : '.venv/bin/python';
   const smokeTest = (() => {
-    switch (suite.id) {
-      case 'swebench-verified':
-        return `${quoteShellArg(venvPython)} -c "import swebench"`;
-      case 'terminal-bench-2.0': {
-        return `${quoteShellArg(venvPython)} -c "import hybridclaw_harbor_agent"`;
-      }
-      case 'agentbench':
-        return process.platform === 'win32'
-          ? `${quoteShellArg(venvPython)} eval.py --help >NUL`
-          : `${quoteShellArg(venvPython)} eval.py --help >/dev/null`;
-      case 'gaia': {
-        const inspectExe =
-          process.platform === 'win32'
-            ? '.venv\\Scripts\\inspect.exe'
-            : '.venv/bin/inspect';
-        return `${quoteShellArg(inspectExe)} eval --help`;
-      }
-    }
+    return `${quoteShellArg(venvPython)} -c "import hybridclaw_terminal_bench_dataset"`;
   })();
   const installStep = (() => {
-    switch (suite.id) {
-      case 'swebench-verified':
-        return `uv pip install --python ${quoteShellArg(venvPython)} -e .`;
-      case 'terminal-bench-2.0':
-        return `uv pip install --python ${quoteShellArg(venvPython)} harbor`;
-      case 'agentbench':
-        return `uv pip install --python ${quoteShellArg(venvPython)} -r requirements.txt`;
-      case 'gaia':
-        return `uv pip install --python ${quoteShellArg(venvPython)} inspect-ai inspect-evals`;
-    }
+    return `uv pip install --python ${quoteShellArg(venvPython)} datasets`;
   })();
   const fallbackInstallStep = (() => {
-    switch (suite.id) {
-      case 'swebench-verified':
-        return 'python -m pip install -e .';
-      case 'terminal-bench-2.0':
-        return 'python -m pip install harbor';
-      case 'agentbench':
-        return 'python -m pip install -r requirements.txt';
-      case 'gaia':
-        return 'python -m pip install inspect-ai inspect-evals';
-    }
+    return 'python -m pip install datasets';
   })();
   const repoSyncStep = (() => {
-    switch (suite.id) {
-      case 'swebench-verified':
-        return process.platform === 'win32'
-          ? `if exist ${quoteShellArg(path.join(installDir, '.git'))} (git -C ${installDirQuoted} pull --ff-only) else (git clone ${quoteShellArg(SWEBENCH_REPO_URL)} ${installDirQuoted})`
-          : `if [ -d ${quoteShellArg(path.join(installDir, '.git'))} ]; then git -C ${installDirQuoted} pull --ff-only; else git clone ${quoteShellArg(SWEBENCH_REPO_URL)} ${installDirQuoted}; fi`;
-      case 'agentbench':
-        return process.platform === 'win32'
-          ? `if exist ${quoteShellArg(path.join(installDir, '.git'))} (git -C ${installDirQuoted} pull --ff-only) else (git clone ${quoteShellArg(AGENTBENCH_REPO_URL)} ${installDirQuoted})`
-          : `if [ -d ${quoteShellArg(path.join(installDir, '.git'))} ]; then git -C ${installDirQuoted} pull --ff-only; else git clone ${quoteShellArg(AGENTBENCH_REPO_URL)} ${installDirQuoted}; fi`;
-      default:
-        return process.platform === 'win32'
-          ? `if not exist ${installDirQuoted} mkdir ${installDirQuoted}`
-          : `mkdir -p ${installDirQuoted}`;
-    }
+    return process.platform === 'win32'
+      ? `if not exist ${installDirQuoted} mkdir ${installDirQuoted}`
+      : `mkdir -p ${installDirQuoted}`;
   })();
   const cdStep =
     process.platform === 'win32'
@@ -643,78 +745,81 @@ function getManagedSuiteSetupCommand(
 
 function getManagedSuiteNextStep(
   suite: EvalSuiteDefinition,
-  dataDir: string,
+  _dataDir: string,
 ): string {
-  const installDir = getManagedSuiteInstallDir(suite, dataDir);
-  const pythonPath = getManagedSuitePythonPath(suite, dataDir);
   switch (suite.id) {
-    case 'swebench-verified':
-      return `/eval ${quoteShellArg(pythonPath)} -m swebench.harness.run_evaluation --dataset_name princeton-nlp/SWE-bench_Verified --predictions_path <your_patches.jsonl> --max_workers 8 --run_id hybridclaw_run`;
     case 'terminal-bench-2.0': {
       return `/eval terminal-bench-2.0 run --num-tasks 10`;
     }
-    case 'agentbench':
-      return `/eval cd ${quoteShellArg(installDir)} && ${quoteShellArg(pythonPath)} eval.py --config configs/your_agent_config.yaml`;
-    case 'gaia': {
-      const executablePath = getManagedSuiteExecutablePath(suite, dataDir);
-      return `/eval ${quoteShellArg(executablePath || path.join(installDir, '.venv', 'bin', 'inspect'))} eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs`;
-    }
+    default:
+      return `/eval ${suite.id}`;
   }
 }
 
-function getTerminalBenchAdapterPath(dataDir: string): string {
+function getTerminalBenchDatasetHelperPath(dataDir: string): string {
   return path.join(
     getEvalBaseDir(dataDir),
     'terminal-bench-2.0',
-    'hybridclaw_harbor_agent.py',
+    'hybridclaw_terminal_bench_dataset.py',
   );
 }
 
-function ensureTerminalBenchHybridClawAdapter(dataDir: string): void {
-  const adapterPath = getTerminalBenchAdapterPath(dataDir);
-  fs.mkdirSync(path.dirname(adapterPath), { recursive: true });
+function ensureTerminalBenchDatasetHelper(dataDir: string): void {
+  const helperPath = getTerminalBenchDatasetHelperPath(dataDir);
+  fs.mkdirSync(path.dirname(helperPath), { recursive: true });
   const content = [
-    'import os',
+    'import argparse',
+    'import json',
     '',
-    'from harbor.agents.terminus_2.terminus_2 import Terminus2',
+    'from datasets import load_dataset',
     '',
     '',
-    'class HybridClawHarborAgent(Terminus2):',
-    '    @staticmethod',
-    '    def name() -> str:',
-    "        return 'hybridclaw'",
+    'def main() -> None:',
+    "    parser = argparse.ArgumentParser(description='HybridClaw Terminal-Bench dataset helper')",
+    "    subparsers = parser.add_subparsers(dest='command', required=True)",
+    "    list_parser = subparsers.add_parser('list')",
+    "    list_parser.add_argument('--num-tasks', type=int, default=1)",
+    "    list_parser.add_argument('--task-filter', default='')",
+    "    list_parser.add_argument('--dataset', default='NousResearch/terminal-bench-2')",
+    '    args = parser.parse_args()',
     '',
-    '    def version(self) -> str | None:',
-    "        return '0.1.0'",
+    "    ds = load_dataset(args.dataset, split='train')",
+    '    tasks = list(ds)',
+    '    filters = [entry.strip() for entry in str(args.task_filter or "").split(",") if entry.strip()]',
+    '    if filters:',
+    '        allowed = set(filters)',
+    '        tasks = [task for task in tasks if str(task.get("task_name", "")).strip() in allowed]',
+    '    tasks = tasks[: max(1, int(args.num_tasks or 1))]',
+    '    payload = []',
+    '    for task in tasks:',
+    '        payload.append({',
+    '            "task_name": task.get("task_name", ""),',
+    '            "category": task.get("category", "unknown"),',
+    '            "instruction": task.get("instruction", ""),',
+    '            "docker_image": task.get("docker_image", ""),',
+    '            "environment_tar": task.get("environment_tar", ""),',
+    '            "tests_tar": task.get("tests_tar", ""),',
+    '            "test_sh": task.get("test_sh", ""),',
+    '        })',
+    '    print(json.dumps(payload))',
     '',
-    '    def __init__(self, logs_dir, model_name=None, api_base=None, llm_kwargs=None, **kwargs):',
-    "        resolved_model = model_name or os.environ.get('HYBRIDCLAW_EVAL_MODEL') or os.environ.get('OPENAI_MODEL') or 'gpt-4.1-mini'",
-    "        resolved_api_base = api_base or os.environ.get('OPENAI_BASE_URL')",
-    '        merged_llm_kwargs = dict(llm_kwargs or {})',
-    "        api_key = os.environ.get('OPENAI_API_KEY')",
-    "        if api_key and 'api_key' not in merged_llm_kwargs:",
-    "            merged_llm_kwargs['api_key'] = api_key",
-    '        super().__init__(',
-    '            logs_dir=logs_dir,',
-    '            model_name=resolved_model,',
-    '            api_base=resolved_api_base,',
-    '            llm_kwargs=merged_llm_kwargs,',
-    '            **kwargs,',
-    '        )',
+    '',
+    'if __name__ == "__main__":',
+    '    main()',
     '',
   ].join('\n');
-  fs.writeFileSync(adapterPath, content, 'utf-8');
+  fs.writeFileSync(helperPath, content, 'utf-8');
 }
 
 function prepareManagedSuiteRun(
   suite: EvalSuiteDefinition,
   dataDir: string,
+  env: EvalEnvironment,
+  effectiveAgentId: string,
   args: string[],
 ): ManagedSuiteRunPreparation | null {
   if (suite.id !== 'terminal-bench-2.0') return null;
-  const executablePath = getManagedSuiteExecutablePath(suite, dataDir);
-  if (!executablePath) return null;
-  ensureTerminalBenchHybridClawAdapter(dataDir);
+  ensureTerminalBenchDatasetHelper(dataDir);
 
   const translatedArgs: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -722,59 +827,65 @@ function prepareManagedSuiteRun(
     if (!current) continue;
     if (current === '--num-tasks') {
       const next = String(args[index + 1] || '').trim();
-      if (next) translatedArgs.push('-l', next);
+      if (next) translatedArgs.push('--num-tasks', next);
       index += 1;
       continue;
     }
     if (current.startsWith('--num-tasks=')) {
       const value = current.slice('--num-tasks='.length).trim();
-      if (value) translatedArgs.push('-l', value);
+      if (value) translatedArgs.push('--num-tasks', value);
       continue;
     }
-    translatedArgs.push(current);
+    translatedArgs.push(current === '-n' ? '--n-concurrent' : current);
   }
 
-  const commandArgs = ['harbor', 'run', ...translatedArgs];
   if (
-    !hasCommandOption(commandArgs, '--dataset') &&
-    !hasCommandOption(commandArgs, '-d')
-  ) {
-    commandArgs.push('-d', 'terminal-bench@2.0');
-  }
-  if (
-    !hasCommandOption(commandArgs, '--n-concurrent') &&
-    !hasCommandOption(commandArgs, '-n')
+    !hasCommandOption(translatedArgs, '--n-concurrent') &&
+    !hasCommandOption(translatedArgs, '-n')
   ) {
     const defaultConcurrency = isContainerMaxConcurrentExplicit()
       ? Math.max(1, Math.min(MAX_CONCURRENT_CONTAINERS - 1, 4))
       : 1;
-    commandArgs.push('-n', String(defaultConcurrency));
+    translatedArgs.push('--n-concurrent', String(defaultConcurrency));
   }
-  if (
-    !hasCommandOption(commandArgs, '--agent-import-path') &&
-    !hasCommandOption(commandArgs, '--agent') &&
-    !hasCommandOption(commandArgs, '-a')
-  ) {
-    commandArgs.push(
-      '--agent-import-path',
-      'hybridclaw_harbor_agent:HybridClawHarborAgent',
+
+  const cliEntry = process.argv[1]?.trim();
+  if (!cliEntry) return null;
+  const promptMode = 'none';
+  const internalArgs = [
+    quoteShellArg(process.execPath),
+    quoteShellArg(path.resolve(cliEntry)),
+    '__eval-terminal-bench-native',
+    '--install-dir',
+    quoteShellArg(getManagedSuiteInstallDir(suite, dataDir)),
+    '--data-dir',
+    quoteShellArg(dataDir),
+    '--agent-id',
+    quoteShellArg(effectiveAgentId || 'main'),
+    '--model',
+    quoteShellArg(env.baseModel),
+    '--prompt-mode',
+    quoteShellArg(promptMode),
+    ...translatedArgs,
+  ];
+  if (env.profile.includePromptParts.length > 0) {
+    internalArgs.push(
+      '--include-prompt',
+      quoteShellArg(env.profile.includePromptParts.join(',')),
     );
   }
-  if (
-    !hasCommandOption(commandArgs, '--model') &&
-    !hasCommandOption(commandArgs, '-m')
-  ) {
-    commandArgs.push('-m', '"$HYBRIDCLAW_EVAL_MODEL"');
+  if (env.profile.omitPromptParts.length > 0) {
+    internalArgs.push(
+      '--omit-prompt',
+      quoteShellArg(env.profile.omitPromptParts.join(',')),
+    );
   }
 
   return {
-    commandArgs,
-    command: buildCommandString([
-      quoteShellArg(executablePath),
-      ...commandArgs.slice(1),
-    ]),
+    commandArgs: ['terminal-bench-2.0', 'run', ...translatedArgs],
+    command: buildCommandString(internalArgs),
     displayCommand: buildCommandString([suite.id, 'run', ...args]),
-    cwd: getManagedSuiteInstallDir(suite, dataDir),
+    cwd: dataDir,
   };
 }
 
@@ -1021,6 +1132,114 @@ function parseTau2RunSummary(stdoutText: string): Tau2RunSummary | null {
 function readTau2RunSummary(meta: EvalRunMeta): Tau2RunSummary | null {
   if (meta.suiteId !== 'tau2' || meta.operation !== 'run') return null;
   return parseTau2RunSummary(readLogFileText(meta.stdoutPath));
+}
+
+function readTerminalBenchJobDir(meta: EvalRunMeta): string | null {
+  if (meta.suiteId !== 'terminal-bench-2.0' || meta.operation !== 'run') {
+    return null;
+  }
+  const stdoutText = readLogFileText(meta.stdoutPath);
+  const match = stdoutText.match(/^Job dir:\s*(.+)$/m);
+  const jobDir = String(match?.[1] || '').trim();
+  return jobDir ? jobDir : null;
+}
+
+function readTerminalBenchNativeSummary(
+  meta: EvalRunMeta,
+): TerminalBenchNativeSummary | null {
+  const jobDir = readTerminalBenchJobDir(meta);
+  if (!jobDir) return null;
+  const resultPath = path.join(jobDir, 'result.json');
+  if (!fs.existsSync(resultPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as {
+      agent?: string;
+      dataset?: string;
+      trials?: number;
+      errors?: number;
+      mean?: number;
+      rewards?: TerminalBenchNativeReward[];
+    };
+    const rewards = Array.isArray(parsed.rewards) ? parsed.rewards : [];
+    const passed = rewards.filter((reward) => reward.passed === true).length;
+    const failedWithError = rewards.filter(
+      (reward) => reward.passed !== true && Boolean(reward.error),
+    ).length;
+    return {
+      jobDir,
+      resultPath,
+      agent: typeof parsed.agent === 'string' ? parsed.agent : null,
+      dataset: typeof parsed.dataset === 'string' ? parsed.dataset : null,
+      trials:
+        typeof parsed.trials === 'number' && Number.isFinite(parsed.trials)
+          ? parsed.trials
+          : rewards.length,
+      errors: rewards.length > 0 ? failedWithError : 0,
+      mean:
+        typeof parsed.mean === 'number' && Number.isFinite(parsed.mean)
+          ? parsed.mean
+          : 0,
+      passed,
+      rewards,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readTerminalBenchNativeProgress(
+  meta: EvalRunMeta,
+): TerminalBenchNativeProgress | null {
+  const jobDir = readTerminalBenchJobDir(meta);
+  if (!jobDir) return null;
+  const stdoutText = readLogFileText(meta.stdoutPath);
+  if (!stdoutText.trim()) return null;
+
+  const totalTasksMatch = stdoutText.match(/^Tasks:\s*(\d+)\s*$/m);
+  const totalTasks = parsePositiveInteger(totalTasksMatch?.[1] || null);
+  const started = [...stdoutText.matchAll(/^\[(\d+)\/(\d+)\]\s+START\s+/gm)]
+    .length;
+  const passCount = [...stdoutText.matchAll(/^\[(\d+)\/(\d+)\]\s+PASS\s+/gm)]
+    .length;
+  const failCount = [...stdoutText.matchAll(/^\[(\d+)\/(\d+)\]\s+FAIL\s+/gm)]
+    .length;
+  const errorCount = [...stdoutText.matchAll(/^\[(\d+)\/(\d+)\]\s+ERROR\s+/gm)]
+    .length;
+  const finished = passCount + failCount + errorCount;
+  const running = Math.max(0, started - finished);
+  const pending = totalTasks != null ? Math.max(0, totalTasks - started) : null;
+
+  if (
+    totalTasks == null &&
+    started === 0 &&
+    finished === 0 &&
+    running === 0 &&
+    pending == null
+  ) {
+    return null;
+  }
+
+  return {
+    jobDir,
+    totalTasks,
+    started,
+    finished,
+    passed: passCount,
+    failed: failCount + errorCount,
+    running,
+    pending,
+  };
+}
+
+function describeManagedSuiteRunLifecycle(
+  meta: EvalRunMeta,
+  summary?: TerminalBenchNativeSummary | null,
+): string {
+  if (isRunMetaActive(meta)) return 'running';
+  if (meta.exitSignal === 'SIGTERM') return 'stopped';
+  if (summary && (meta.exitCode ?? 0) === 0) return 'completed';
+  if ((meta.exitCode ?? 0) === 0) return 'completed';
+  return 'failed';
 }
 
 function formatTau2SuccessLine(summary: Tau2RunSummary): string {
@@ -1365,7 +1584,7 @@ function buildManagedSuiteSetupExitNotification(
       '',
       `Run ID: ${meta.runId}`,
       ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`/eval ${suite.id} results\` for the setup logs.`,
+      `Use \`/eval ${suite.id} logs\` for the setup logs.`,
     ].join('\n');
   }
   if (meta.operation === 'run') {
@@ -1375,7 +1594,8 @@ function buildManagedSuiteSetupExitNotification(
         `${suite.title} run completed.`,
         '',
         `Run ID: ${meta.runId}`,
-        `Use \`/eval ${suite.id} results\` for the run logs.`,
+        `Use \`/eval ${suite.id} results\` for the summary.`,
+        `Use \`/eval ${suite.id} logs\` for the run logs.`,
       ].join('\n');
     }
     return [
@@ -1383,7 +1603,8 @@ function buildManagedSuiteSetupExitNotification(
       '',
       `Run ID: ${meta.runId}`,
       ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`/eval ${suite.id} results\` for the run logs.`,
+      `Use \`/eval ${suite.id} results\` for the summary.`,
+      `Use \`/eval ${suite.id} logs\` for the run logs.`,
     ].join('\n');
   }
   return null;
@@ -1764,32 +1985,45 @@ function renderTau2Results(dataDir: string): GatewayCommandResult {
     extractTau2MetricsSection(stdoutText) || tailLines(stdoutText, 40);
   const stderrTail = tailLines(readLogFileText(latestTau2Job.stderrPath), 20);
   const summary = readTau2RunSummary(latestTau2Job);
+  const overviewSection = renderKeyValueSection('Overview', [
+    ['Evaluated model', latestTau2Job.baseModel || latestTau2Job.model],
+    ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+    ['Status', readRunMetaStatus(latestTau2Job)],
+  ]);
+  const outcomeSection = renderKeyValueSection('Results', [
+    ['Success', summary ? formatTau2SuccessLine(summary) : null],
+    ['DB match', summary ? formatTau2DbMatchLine(summary) : null],
+    [
+      'Conversations',
+      summary
+        ? formatTau2ConversationLine(summary)
+        : formatRunProgress(latestTau2Job)
+          ? `Progress: ${formatRunProgress(latestTau2Job)}`
+          : null,
+    ],
+  ]);
+  const runSection = renderKeyValueSection('Run', [
+    ['Run ID', latestTau2Job.runId],
+    ['Command', latestTau2Job.displayCommand || latestTau2Job.command],
+  ]);
+  const pathsSection = renderKeyValueSection('Paths', [
+    ['Stdout', latestTau2Job.stdoutPath],
+    ['Stderr', latestTau2Job.stderrPath],
+  ]);
   return infoResult(
     'tau2 Results',
-    [
-      `Run ID: ${latestTau2Job.runId}`,
-      `Operation: ${latestTau2Job.operation || 'run'}`,
-      `Status: ${readRunMetaStatus(latestTau2Job)}`,
-      `Command: ${latestTau2Job.displayCommand || latestTau2Job.command}`,
-      ...(summary ? [formatTau2SuccessLine(summary)] : []),
-      ...(summary ? [formatTau2DbMatchLine(summary)] : []),
-      ...(summary
-        ? (() => {
-            const conversationLine = formatTau2ConversationLine(summary);
-            return conversationLine ? [conversationLine] : [];
-          })()
-        : formatRunProgress(latestTau2Job)
-          ? [`Progress: ${formatRunProgress(latestTau2Job)}`]
-          : []),
-      `Stdout: ${latestTau2Job.stdoutPath}`,
-      `Stderr: ${latestTau2Job.stderrPath}`,
-      '',
-      'Stdout tail:',
-      stdoutTail || '(empty)',
-      '',
-      'Stderr tail:',
-      stderrTail || '(empty)',
-    ].join('\n'),
+    joinSections([
+      overviewSection,
+      outcomeSection,
+      runSection,
+      pathsSection,
+      renderKeyValueSection('Stdout tail', [
+        ['Output', stdoutTail || '(empty)'],
+      ]),
+      renderKeyValueSection('Stderr tail', [
+        ['Output', stderrTail || '(empty)'],
+      ]),
+    ]),
   );
 }
 
@@ -1948,6 +2182,10 @@ function renderManagedSuiteStatus(
     dataDir,
     (meta) => meta.suiteId === suite.id && meta.operation === 'run',
   );
+  const latestTerminalBenchSummary =
+    suite.id === 'terminal-bench-2.0' && latestRun
+      ? readTerminalBenchNativeSummary(latestRun)
+      : null;
   const setupFailure =
     !installed && latestSetup ? describeRunFailureReason(latestSetup) : null;
 
@@ -1964,13 +2202,24 @@ function renderManagedSuiteStatus(
       ? `Latest setup: ${latestSetup.runId} (${readRunMetaStatus(latestSetup)})`
       : 'Latest setup: none',
     latestRun
-      ? `Latest run: ${latestRun.runId} (${readRunMetaStatus(latestRun)})`
+      ? `Latest run: ${latestRun.runId} (${describeManagedSuiteRunLifecycle(
+          latestRun,
+          latestTerminalBenchSummary,
+        )})`
       : 'Latest run: none',
     ...(latestRun
       ? [
           `Command: ${latestRun.displayCommand || latestRun.command}`,
           `Stdout: ${latestRun.stdoutPath}`,
           `Stderr: ${latestRun.stderrPath}`,
+          ...(latestTerminalBenchSummary
+            ? [
+                `Score: ${latestTerminalBenchSummary.mean.toFixed(3)}`,
+                `Trials: ${latestTerminalBenchSummary.trials}`,
+                `Passed: ${latestTerminalBenchSummary.passed}/${latestTerminalBenchSummary.trials}`,
+                `Errors: ${latestTerminalBenchSummary.errors}`,
+              ]
+            : []),
         ]
       : []),
     ...(setupFailure ? [`Setup failure: ${setupFailure}`] : []),
@@ -1998,10 +2247,128 @@ function renderManagedSuiteResults(
     );
   }
 
+  const terminalBenchSummary =
+    suite.id === 'terminal-bench-2.0' && latestJob.operation === 'run'
+      ? readTerminalBenchNativeSummary(latestJob)
+      : null;
+  const terminalBenchProgress =
+    suite.id === 'terminal-bench-2.0' && latestJob.operation === 'run'
+      ? readTerminalBenchNativeProgress(latestJob)
+      : null;
+  if (suite.id === 'terminal-bench-2.0') {
+    const overviewSection = renderKeyValueSection('Overview', [
+      ['Evaluated model', latestJob.baseModel || latestJob.model],
+      ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+      [
+        'Status',
+        describeManagedSuiteRunLifecycle(latestJob, terminalBenchSummary),
+      ],
+    ]);
+    const outcomeSection = renderKeyValueSection(
+      terminalBenchSummary ? 'Results' : 'Progress',
+      terminalBenchSummary
+        ? [
+            ['Score', terminalBenchSummary.mean.toFixed(3)],
+            ['Trials', terminalBenchSummary.trials],
+            [
+              'Passed',
+              `${terminalBenchSummary.passed}/${terminalBenchSummary.trials}`,
+            ],
+            ['Errors', terminalBenchSummary.errors],
+          ]
+        : [
+            ['Tasks', terminalBenchProgress?.totalTasks ?? null],
+            [
+              'Finished',
+              terminalBenchProgress
+                ? `${terminalBenchProgress.finished}/${terminalBenchProgress.totalTasks ?? '?'}`
+                : null,
+            ],
+            ['Passed', terminalBenchProgress?.passed ?? null],
+            ['Failed', terminalBenchProgress?.failed ?? null],
+            ['Running', terminalBenchProgress?.running ?? null],
+            ['Pending', terminalBenchProgress?.pending ?? null],
+          ],
+    );
+    const runSection = renderKeyValueSection('Run', [
+      ['Run ID', latestJob.runId],
+      ['Command', latestJob.displayCommand || latestJob.command],
+    ]);
+    const pathsSection = renderKeyValueSection('Paths', [
+      [
+        'Job dir',
+        terminalBenchSummary?.jobDir || terminalBenchProgress?.jobDir || null,
+      ],
+      ['Result JSON', terminalBenchSummary?.resultPath || null],
+      ['Stdout', latestJob.stdoutPath],
+      ['Stderr', latestJob.stderrPath],
+    ]);
+    return infoResult(
+      `${suite.title} Results`,
+      joinSections([overviewSection, outcomeSection, runSection, pathsSection]),
+    );
+  }
+  return infoResult(
+    `${suite.title} Results`,
+    [
+      `Run ID: ${latestJob.runId}`,
+      `Operation: ${latestJob.operation || 'setup'}`,
+      `Status: ${describeManagedSuiteRunLifecycle(latestJob, terminalBenchSummary)}`,
+      `Command: ${latestJob.displayCommand || latestJob.command}`,
+      `Stdout: ${latestJob.stdoutPath}`,
+      `Stderr: ${latestJob.stderrPath}`,
+      ...(terminalBenchSummary
+        ? [
+            `Job dir: ${terminalBenchSummary.jobDir}`,
+            `Result JSON: ${terminalBenchSummary.resultPath}`,
+            `Score: ${terminalBenchSummary.mean.toFixed(3)}`,
+            `Trials: ${terminalBenchSummary.trials}`,
+            `Passed: ${terminalBenchSummary.passed}/${terminalBenchSummary.trials}`,
+            `Errors: ${terminalBenchSummary.errors}`,
+          ]
+        : terminalBenchProgress
+          ? [
+              `Job dir: ${terminalBenchProgress.jobDir}`,
+              ...(terminalBenchProgress.totalTasks != null
+                ? [`Tasks: ${terminalBenchProgress.totalTasks}`]
+                : []),
+              `Finished: ${terminalBenchProgress.finished}/${terminalBenchProgress.totalTasks ?? '?'}`,
+              `Passed: ${terminalBenchProgress.passed}`,
+              `Failed: ${terminalBenchProgress.failed}`,
+              `Running: ${terminalBenchProgress.running}`,
+              ...(terminalBenchProgress.pending != null
+                ? [`Pending: ${terminalBenchProgress.pending}`]
+                : []),
+            ]
+          : []),
+    ].join('\n'),
+  );
+}
+
+function renderManagedSuiteLogs(
+  suite: EvalSuiteDefinition,
+  dataDir: string,
+): GatewayCommandResult {
+  const latestRun = findLatestEvalRun(
+    dataDir,
+    (meta) => meta.suiteId === suite.id && meta.operation === 'run',
+  );
+  const latestSetup = findLatestEvalRun(
+    dataDir,
+    (meta) => meta.suiteId === suite.id && meta.operation === 'setup',
+  );
+  const latestJob = latestRun || latestSetup;
+  if (!latestJob) {
+    return errorResult(
+      `${suite.title} Logs`,
+      `No ${suite.title} setup job found. Start with \`/eval ${suite.id} setup\`.`,
+    );
+  }
+
   const stdoutTail = tailLines(readLogFileText(latestJob.stdoutPath), 40);
   const stderrTail = tailLines(readLogFileText(latestJob.stderrPath), 20);
   return infoResult(
-    `${suite.title} Results`,
+    `${suite.title} Logs`,
     [
       `Run ID: ${latestJob.runId}`,
       `Operation: ${latestJob.operation || 'setup'}`,
@@ -2052,7 +2419,7 @@ async function handleManagedSuiteSetup(params: {
     );
   }
   if (params.suite.id === 'terminal-bench-2.0') {
-    ensureTerminalBenchHybridClawAdapter(params.dataDir);
+    ensureTerminalBenchDatasetHelper(params.dataDir);
   }
   const setupSpec = getManagedSuiteSetupCommand(params.suite, params.dataDir);
   return startDetachedEvalRun({
@@ -2070,7 +2437,8 @@ async function handleManagedSuiteSetup(params: {
       'Detached setup job started.',
       `Setup strategy: ${managed.strategyDescription}.`,
       `Use \`/eval ${params.suite.id} status\` to check whether setup has finished.`,
-      `Use \`/eval ${params.suite.id} results\` to inspect setup logs.`,
+      `Use \`/eval ${params.suite.id} results\` for the summary.`,
+      `Use \`/eval ${params.suite.id} logs\` to inspect setup logs.`,
     ],
     earlyExitCheckMs: EVAL_EARLY_EXIT_CHECK_MS,
     dataDirForNotifications: params.dataDir,
@@ -2081,6 +2449,7 @@ async function handleManagedSuiteRun(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
+  effectiveAgentId?: string;
   channelId?: string;
   args: string[];
 }): Promise<GatewayCommandResult> {
@@ -2090,10 +2459,21 @@ async function handleManagedSuiteRun(params: {
       `Run \`/eval ${params.suite.id} setup\` first.`,
     );
   }
+  if (
+    params.suite.id === 'terminal-bench-2.0' &&
+    params.env.profile.workspaceMode === 'fresh-agent'
+  ) {
+    return errorResult(
+      `${params.suite.title} Run`,
+      'Native Terminal-Bench does not support `--fresh-agent` yet. Use the current agent setup for now.',
+    );
+  }
 
   const prepared = prepareManagedSuiteRun(
     params.suite,
     params.dataDir,
+    params.env,
+    params.effectiveAgentId || 'main',
     params.args,
   );
   if (!prepared) {
@@ -2116,15 +2496,69 @@ async function handleManagedSuiteRun(params: {
     title: `${params.suite.title} Run Started`,
     footerLines: [
       `Use \`/eval ${params.suite.id} status\` and \`/eval ${params.suite.id} results\` to follow this run.`,
+      `Use \`/eval ${params.suite.id} logs\` for tailed stdout/stderr.`,
     ],
     dataDirForNotifications: params.dataDir,
   });
+}
+
+function handleManagedSuiteStop(
+  suite: EvalSuiteDefinition,
+  dataDir: string,
+): GatewayCommandResult {
+  const activeRun = findLatestEvalRun(
+    dataDir,
+    (meta) =>
+      meta.suiteId === suite.id &&
+      (meta.operation === 'run' || meta.operation === 'setup') &&
+      isRunMetaActive(meta),
+  );
+  if (!activeRun) {
+    return infoResult(
+      `${suite.title} Stop`,
+      `No running ${suite.title} setup or eval process found.`,
+    );
+  }
+  if (!killDetachedProcess(activeRun.pid)) {
+    return errorResult(
+      `${suite.title} Stop`,
+      `Failed to stop ${activeRun.operation || suite.id} run ${activeRun.runId}.`,
+    );
+  }
+  try {
+    const metaPath = findEvalRunMetaPath(dataDir, activeRun.runId);
+    if (metaPath) {
+      const latest = {
+        ...activeRun,
+        finishedAt: new Date().toISOString(),
+        exitCode: null,
+        exitSignal: 'SIGTERM',
+        ...(activeRun.progress
+          ? {
+              progress: {
+                ...activeRun.progress,
+                status: 'exited' as const,
+                updatedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+      };
+      writeRunMeta(metaPath, latest);
+    }
+  } catch {
+    // ignore metadata rewrite failure
+  }
+  return infoResult(
+    `${suite.title} Stop`,
+    `Stopped ${activeRun.operation || suite.id} run ${activeRun.runId}.`,
+  );
 }
 
 async function handleManagedSuiteCommand(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
+  effectiveAgentId?: string;
   channelId?: string;
   subcommand?: string;
   args?: string[];
@@ -2132,6 +2566,24 @@ async function handleManagedSuiteCommand(params: {
   const subcommand = String(params.subcommand || '')
     .trim()
     .toLowerCase();
+  if (!isImplementedManagedSuite(params.suite)) {
+    if (!subcommand || ['help', '--help', '-h'].includes(subcommand)) {
+      return infoResult(
+        params.suite.title,
+        renderUnimplementedSuite(params.suite, params.env),
+      );
+    }
+    return errorResult(
+      `${params.suite.title}`,
+      [
+        `${params.suite.title} is not implemented yet.`,
+        '',
+        'Implemented suites today:',
+        '- `/eval terminal-bench-2.0 ...`',
+        '- `/eval tau2 ...`',
+      ].join('\n'),
+    );
+  }
   if (!subcommand || ['help', '--help', '-h'].includes(subcommand)) {
     return infoResult(
       params.suite.title,
@@ -2146,6 +2598,7 @@ async function handleManagedSuiteCommand(params: {
         suite: params.suite,
         dataDir: params.dataDir,
         env: params.env,
+        effectiveAgentId: params.effectiveAgentId,
         channelId: params.channelId,
         args: params.args || [],
       });
@@ -2154,8 +2607,12 @@ async function handleManagedSuiteCommand(params: {
         `${params.suite.title} Status`,
         renderManagedSuiteStatus(params.suite, params.dataDir),
       );
+    case 'stop':
+      return handleManagedSuiteStop(params.suite, params.dataDir);
     case 'results':
       return renderManagedSuiteResults(params.suite, params.dataDir);
+    case 'logs':
+      return renderManagedSuiteLogs(params.suite, params.dataDir);
     default:
       return errorResult(
         `${params.suite.title} Usage`,
@@ -2419,21 +2876,40 @@ export async function handleEvalCommand(
       const managedSubcommand = String(parsed.commandArgs[1] || '')
         .trim()
         .toLowerCase();
-      if (
-        managedSubcommand === 'setup' ||
-        managedSubcommand === 'run' ||
-        managedSubcommand === 'status' ||
-        managedSubcommand === 'results'
-      ) {
+      if (MANAGED_SUITE_SUBCOMMANDS.has(managedSubcommand)) {
         return await handleManagedSuiteCommand({
           suite: managedSuite,
           dataDir: params.dataDir,
           env,
+          effectiveAgentId: params.effectiveAgentId,
           channelId: params.channelId,
           subcommand: managedSubcommand,
           args: parsed.commandArgs.slice(2),
         });
       }
+    }
+    const probableSuite = String(parsed.commandArgs[0] || '').trim();
+    const probableSubcommand = String(parsed.commandArgs[1] || '')
+      .trim()
+      .toLowerCase();
+    const prefixMatches = findSuitePrefixMatches(probableSuite);
+    if (
+      probableSuite &&
+      !managedSuite &&
+      prefixMatches.length === 1 &&
+      (parsed.commandArgs.length === 1 ||
+        MANAGED_SUITE_SUBCOMMANDS.has(probableSubcommand))
+    ) {
+      const suggestedSuite = prefixMatches[0];
+      return errorResult(
+        'Unknown Eval',
+        [
+          `Unknown eval suite: \`${probableSuite}\`.`,
+          `Did you mean \`${suggestedSuite.id}\`?`,
+          '',
+          `Try \`/eval ${suggestedSuite.id}\` or \`/eval ${suggestedSuite.id} ${probableSubcommand || 'run'} ...\`.`,
+        ].join('\n'),
+      );
     }
     const prepared = prepareEvalRun(parsed.commandArgs);
     if (!prepared.command) {
@@ -2468,6 +2944,7 @@ export async function handleEvalCommand(
     suite,
     dataDir: params.dataDir,
     env,
+    effectiveAgentId: params.effectiveAgentId,
     channelId: params.channelId,
     subcommand: 'help',
   });

@@ -856,6 +856,8 @@ async function processRequest(
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
+  skipContainerSystemPrompt = false,
+  streamTextDeltas = false,
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
@@ -866,7 +868,9 @@ async function processRequest(
     messageCount: messages.length,
   });
   let history: ChatMessage[] = collapseSystemMessages(
-    injectRuntimeCapabilitiesMessage(messages),
+    skipContainerSystemPrompt
+      ? messages
+      : injectRuntimeCapabilitiesMessage(messages),
   );
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
@@ -996,8 +1000,8 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: emitStreamDelta,
-        onActivity: emitStreamActivity,
+        onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
+        onActivity: streamTextDeltas ? emitStreamActivity : undefined,
         maxTokens,
         isLocal,
         contextWindow,
@@ -1580,6 +1584,8 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
+      firstInput.skipContainerSystemPrompt === true,
+      firstInput.streamTextDeltas === true,
       firstInput.maxTokens,
       firstPromptOverride,
       firstInput.ralphMaxIterations,
@@ -1612,6 +1618,8 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
+        firstInput.skipContainerSystemPrompt === true,
+        firstInput.streamTextDeltas === true,
         firstInput.maxTokens,
         firstPromptOverride,
         firstInput.ralphMaxIterations,
@@ -1725,6 +1733,8 @@ async function main(): Promise<void> {
       resolveTools(input),
       taskModels,
       input.contextGuard,
+      input.skipContainerSystemPrompt === true,
+      input.streamTextDeltas === true,
       input.maxTokens,
       promptOverride,
       input.ralphMaxIterations,
@@ -1756,6 +1766,8 @@ async function main(): Promise<void> {
         resolveTools(input),
         taskModels,
         input.contextGuard,
+        input.skipContainerSystemPrompt === true,
+        input.streamTextDeltas === true,
         input.maxTokens,
         promptOverride,
         input.ralphMaxIterations,

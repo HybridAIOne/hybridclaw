@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -172,6 +172,13 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
+const BASH_DOCKER_CONTAINER = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
+).trim();
+const BASH_DOCKER_CWD = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
+).trim();
+const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -186,6 +193,179 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
     out.push(id);
   }
   return out;
+}
+
+function runDockerExecBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-w',
+      BASH_DOCKER_CWD || '/app',
+      BASH_DOCKER_CONTAINER,
+      'bash',
+      '-lc',
+      params.command,
+    ],
+    {
+      timeout: params.timeoutMs,
+      encoding: 'utf-8',
+      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+      env: { ...process.env },
+    },
+  );
+
+  if (result.status === 0) {
+    return formatBashOutput(
+      replaceWorkspaceRootInOutput(result.stdout || '(no output)'),
+    );
+  }
+
+  const combinedOutput = [result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  const timeoutLikely =
+    result.error?.name === 'Error' &&
+    /ETIMEDOUT|timed out/i.test(result.error.message || '');
+  const summary = timeoutLikely
+    ? `Command timed out after ${params.timeoutMs}ms`
+    : result.error?.message ||
+      `docker exec failed with exit code ${result.status ?? 'unknown'}`;
+  if (!combinedOutput) return failTool(`Error: ${summary}`);
+  return failTool(
+    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+  );
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveTaskSandboxPath(userPath: string): string | null {
+  const raw = String(userPath || '').trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/\\/g, '/');
+  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
+  if (path.posix.isAbsolute(normalized)) {
+    const absolute = path.posix.normalize(normalized);
+    if (
+      absolute === displayRoot ||
+      absolute.startsWith(`${displayRoot}/`)
+    ) {
+      return absolute;
+    }
+    return null;
+  }
+
+  let clean = path.posix.normalize(normalized);
+  const displayBaseName = path.posix.basename(displayRoot);
+  if (
+    displayRoot !== '/workspace' &&
+    displayBaseName &&
+    displayBaseName !== '.' &&
+    displayBaseName !== '/' &&
+    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
+  ) {
+    clean = clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+  }
+  if (clean === '..' || clean.startsWith('../')) return null;
+  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
+}
+
+function runTaskSandboxDocker(params: {
+  args: string[];
+  timeoutMs?: number;
+  input?: string;
+}): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+} {
+  const result = spawnSync('docker', params.args, {
+    encoding: 'utf-8',
+    input: params.input,
+    timeout: params.timeoutMs,
+    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+    env: { ...process.env },
+  });
+  return {
+    status: typeof result.status === 'number' ? result.status : null,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.error ?? undefined,
+  };
+}
+
+function ensureTaskSandboxSuccess(
+  result: {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    error?: Error;
+  },
+  fallback: string,
+): void {
+  if (result.status === 0) return;
+  const detail = [result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  failTool(`Error: ${detail || result.error?.message || fallback}`);
+}
+
+function copyTaskSandboxFileToTemp(
+  sandboxPath: string,
+): { tempDir: string; localPath: string } {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-taskfs-'));
+  const localPath = path.join(
+    tempDir,
+    path.posix.basename(sandboxPath) || 'file',
+  );
+  const result = runTaskSandboxDocker({
+    args: ['cp', `${BASH_DOCKER_CONTAINER}:${sandboxPath}`, localPath],
+  });
+  if (result.status !== 0) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    if (/no such file|could not find|not found/i.test(detail)) {
+      failTool(`Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`);
+    }
+    failTool(`Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`);
+  }
+  return { tempDir, localPath };
+}
+
+function writeTempFileToTaskSandbox(
+  localPath: string,
+  sandboxPath: string,
+): void {
+  const parentDir = path.posix.dirname(sandboxPath);
+  ensureTaskSandboxSuccess(
+    runTaskSandboxDocker({
+      args: [
+        'exec',
+        '-i',
+        BASH_DOCKER_CONTAINER,
+        'bash',
+        '-lc',
+        `mkdir -p ${shellEscape(parentDir)}`,
+      ],
+    }),
+    'Failed to prepare task sandbox directory',
+  );
+  ensureTaskSandboxSuccess(
+    runTaskSandboxDocker({
+      args: ['cp', localPath, `${BASH_DOCKER_CONTAINER}:${sandboxPath}`],
+    }),
+    'Failed to copy file into task sandbox',
+  );
 }
 
 function resolveGatewayDiscordChannelFallback(): string {
@@ -1733,102 +1913,187 @@ async function executeToolInternal(
       if (typeof args.path !== 'string' || args.path.trim() === '') {
         return failTool('Error: path is required');
       }
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const lines = content.split('\n');
-      const totalFileLines = lines.length;
-
-      const rawOffset =
-        typeof args.offset === 'number' && Number.isFinite(args.offset)
-          ? args.offset
-          : 1;
-      const startLine = Math.max(1, Math.floor(rawOffset));
-      if (startLine > totalFileLines) {
-        return failTool(
-          `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`,
-        );
-      }
-
-      const rawLimit =
-        typeof args.limit === 'number' &&
-        Number.isFinite(args.limit) &&
-        args.limit > 0
-          ? Math.floor(args.limit)
-          : undefined;
-
-      let selected = lines.slice(startLine - 1);
-      let userLimitedLines: number | undefined;
-      if (rawLimit !== undefined) {
-        selected = selected.slice(0, rawLimit);
-        userLimitedLines = selected.length;
-      }
-
-      const selectedContent = selected.join('\n');
-      const truncation = truncateReadContent(selectedContent);
-      if (truncation.firstLineExceedsLimit) {
-        const firstSelectedLine = selected[0] ?? '';
-        const firstLineSize = formatBytes(
-          Buffer.byteLength(firstSelectedLine, 'utf-8'),
-        );
-        return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
-      }
-
-      if (truncation.truncated) {
-        const endLine = startLine + truncation.outputLines - 1;
-        const nextOffset = endLine + 1;
-        if (truncation.truncatedBy === 'lines') {
-          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+      let tempDirToCleanup: string | null = null;
+      try {
+        let content = '';
+        if (TASK_SANDBOX_FS_ENABLED) {
+          const sandboxPath = resolveTaskSandboxPath(args.path);
+          if (!sandboxPath) {
+            return failTool(`Error: Path escapes workspace: ${args.path}`);
+          }
+          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          tempDirToCleanup = copied.tempDir;
+          content = fs.readFileSync(copied.localPath, 'utf-8');
+        } else {
+          const filePath = safeJoin(args.path);
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${args.path}`);
+          content = fs.readFileSync(filePath, 'utf-8');
         }
-        return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
-      }
+        const lines = content.split('\n');
+        const totalFileLines = lines.length;
 
-      if (userLimitedLines !== undefined) {
-        const linesFromStart = startLine - 1 + userLimitedLines;
-        if (linesFromStart < totalFileLines) {
-          const remaining = totalFileLines - linesFromStart;
-          const nextOffset = startLine + userLimitedLines;
-          return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+        const rawOffset =
+          typeof args.offset === 'number' && Number.isFinite(args.offset)
+            ? args.offset
+            : 1;
+        const startLine = Math.max(1, Math.floor(rawOffset));
+        if (startLine > totalFileLines) {
+          return failTool(
+            `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`,
+          );
+        }
+
+        const rawLimit =
+          typeof args.limit === 'number' &&
+          Number.isFinite(args.limit) &&
+          args.limit > 0
+            ? Math.floor(args.limit)
+            : undefined;
+
+        let selected = lines.slice(startLine - 1);
+        let userLimitedLines: number | undefined;
+        if (rawLimit !== undefined) {
+          selected = selected.slice(0, rawLimit);
+          userLimitedLines = selected.length;
+        }
+
+        const selectedContent = selected.join('\n');
+        const truncation = truncateReadContent(selectedContent);
+        if (truncation.firstLineExceedsLimit) {
+          const firstSelectedLine = selected[0] ?? '';
+          const firstLineSize = formatBytes(
+            Buffer.byteLength(firstSelectedLine, 'utf-8'),
+          );
+          return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
+        }
+
+        if (truncation.truncated) {
+          const endLine = startLine + truncation.outputLines - 1;
+          const nextOffset = endLine + 1;
+          if (truncation.truncatedBy === 'lines') {
+            return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+          }
+          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+        }
+
+        if (userLimitedLines !== undefined) {
+          const linesFromStart = startLine - 1 + userLimitedLines;
+          if (linesFromStart < totalFileLines) {
+            const remaining = totalFileLines - linesFromStart;
+            const nextOffset = startLine + userLimitedLines;
+            return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+          }
+        }
+
+        return truncation.content;
+      } finally {
+        if (tempDirToCleanup) {
+          fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
         }
       }
-
-      return truncation.content;
     }
 
     case 'write': {
-      const filePath = safeJoin(args.path);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, args.contents);
+      if (TASK_SANDBOX_FS_ENABLED) {
+        const sandboxPath = resolveTaskSandboxPath(args.path);
+        if (!sandboxPath) {
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        }
+        const tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
+        );
+        const localPath = path.join(
+          tempDir,
+          path.posix.basename(sandboxPath) || 'file',
+        );
+        try {
+          fs.writeFileSync(localPath, args.contents, 'utf-8');
+          writeTempFileToTaskSandbox(localPath, sandboxPath);
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } else {
+        const filePath = safeJoin(args.path);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, args.contents);
+      }
       return `Wrote ${args.contents.length} bytes to ${args.path}`;
     }
 
     case 'edit': {
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      let content = fs.readFileSync(filePath, 'utf-8');
-      const count = args.count || 1;
-      for (let i = 0; i < count; i++) {
-        const idx = content.indexOf(args.old);
-        if (idx === -1) {
-          if (i === 0) return failTool(`Error: Text not found in ${args.path}`);
-          break;
+      let tempDirToCleanup: string | null = null;
+      try {
+        let content = '';
+        let filePath = '';
+        let sandboxPath = '';
+        if (TASK_SANDBOX_FS_ENABLED) {
+          sandboxPath = resolveTaskSandboxPath(args.path) || '';
+          if (!sandboxPath) {
+            return failTool(`Error: Path escapes workspace: ${args.path}`);
+          }
+          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          tempDirToCleanup = copied.tempDir;
+          filePath = copied.localPath;
+          content = fs.readFileSync(filePath, 'utf-8');
+        } else {
+          filePath = safeJoin(args.path);
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${args.path}`);
+          content = fs.readFileSync(filePath, 'utf-8');
         }
-        content =
-          content.slice(0, idx) +
-          args.new +
-          content.slice(idx + args.old.length);
+
+        const count = args.count || 1;
+        for (let i = 0; i < count; i++) {
+          const idx = content.indexOf(args.old);
+          if (idx === -1) {
+            if (i === 0)
+              return failTool(`Error: Text not found in ${args.path}`);
+            break;
+          }
+          content =
+            content.slice(0, idx) +
+            args.new +
+            content.slice(idx + args.old.length);
+        }
+
+        fs.writeFileSync(filePath, content);
+        if (TASK_SANDBOX_FS_ENABLED) {
+          writeTempFileToTaskSandbox(filePath, sandboxPath);
+        }
+        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
+      } finally {
+        if (tempDirToCleanup) {
+          fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
+        }
       }
-      fs.writeFileSync(filePath, content);
-      return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
     }
 
     case 'delete': {
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      fs.unlinkSync(filePath);
+      if (TASK_SANDBOX_FS_ENABLED) {
+        const sandboxPath = resolveTaskSandboxPath(args.path);
+        if (!sandboxPath) {
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        }
+        ensureTaskSandboxSuccess(
+          runTaskSandboxDocker({
+            args: [
+              'exec',
+              '-i',
+              BASH_DOCKER_CONTAINER,
+              'bash',
+              '-lc',
+              `rm -f -- ${shellEscape(sandboxPath)}`,
+            ],
+          }),
+          'Failed to delete file from task sandbox',
+        );
+      } else {
+        const filePath = safeJoin(args.path);
+        if (!fs.existsSync(filePath))
+          return failTool(`Error: File not found: ${args.path}`);
+        fs.unlinkSync(filePath);
+      }
       return `Deleted ${args.path}`;
     }
 
@@ -1850,6 +2115,12 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
+      if (BASH_DOCKER_CONTAINER) {
+        return runDockerExecBash({
+          command: args.command,
+          timeoutMs,
+        });
+      }
       try {
         // Strip secrets from subprocess environment (belt-and-suspenders)
         const cleanEnv = { ...process.env };
@@ -2840,7 +3111,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'bash',
       description:
-        'Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal /workspace paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.',
+        `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
       parameters: {
         type: 'object',
         properties: {
@@ -3317,14 +3588,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'vision_analyze',
       description:
-        'Analyze a current-turn image attachment using vision. Prefer local attachment paths from /workspace, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.',
+        `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+              `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
@@ -3355,7 +3626,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+              `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',

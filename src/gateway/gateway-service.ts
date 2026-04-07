@@ -10,7 +10,9 @@ import {
 import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
+  stopAllExecutions,
 } from '../agent/executor.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -2057,6 +2059,7 @@ export function recordSuccessfulTurn(opts: {
   enableRag: boolean;
   model: string;
   channelId: string;
+  promptMode?: PromptMode;
   runId: string;
   turnIndex: number;
   userId: string;
@@ -2138,6 +2141,7 @@ export function recordSuccessfulTurn(opts: {
     enableRag: opts.enableRag,
     model: opts.model,
     channelId: opts.channelId,
+    promptMode: opts.promptMode,
   }).catch((err) => {
     logger.warn(
       { sessionId: opts.sessionId, err },
@@ -5092,8 +5096,9 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'sessions',
-            description: 'List active sessions',
+            command: 'sessions [active|clear-active]',
+            description:
+              'List chat sessions, inspect active sandbox sessions, or stop them all',
             scope: 'bare',
           },
           {
@@ -6791,6 +6796,7 @@ export async function handleGatewayCommand(
               ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
           ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
@@ -6805,6 +6811,11 @@ export async function handleGatewayCommand(
             : '🗄️ Cache: n/a (provider did not report cache stats)',
           `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
+          ...(activeSandboxSessionIds.length > 0
+            ? [
+                `🧱 Sandbox sessions: ${activeSandboxSessionIds.slice(0, 5).join(', ')}${activeSandboxSessionIds.length > 5 ? ` (+${activeSandboxSessionIds.length - 5} more)` : ''}`,
+              ]
+            : []),
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
@@ -6816,6 +6827,39 @@ export async function handleGatewayCommand(
       }
 
       case 'sessions': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (sub === 'active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions.');
+          }
+          return infoCommand(
+            'Active Sandbox Sessions',
+            [`Count: ${activeSessionIds.length}`, ...activeSessionIds].join(
+              '\n',
+            ),
+          );
+        }
+        if (sub === 'clear-active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions to stop.');
+          }
+          stopAllExecutions();
+          return infoCommand(
+            'Stopped Sandbox Sessions',
+            [
+              `Stopped ${activeSessionIds.length} active sandbox session${activeSessionIds.length === 1 ? '' : 's'}.`,
+              ...activeSessionIds,
+            ].join('\n'),
+          );
+        }
+        if (sub) {
+          return badCommand(
+            'Usage',
+            'Usage: `sessions`, `sessions active`, or `sessions clear-active`',
+          );
+        }
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
         const visibleSessions = sessions.slice(0, 20);
@@ -6831,7 +6875,20 @@ export async function handleGatewayCommand(
             return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
           })
           .join('\n');
-        return infoCommand('Sessions', list);
+        const activeSessionIds = getActiveExecutorSessionIds();
+        return infoCommand(
+          'Sessions',
+          [
+            ...(activeSessionIds.length > 0
+              ? [
+                  `Active sandbox sessions: ${activeSessionIds.length}`,
+                  'Use `sessions active` to inspect or `sessions clear-active` to stop them.',
+                  '',
+                ]
+              : []),
+            list,
+          ].join('\n'),
+        );
       }
 
       case 'usage': {

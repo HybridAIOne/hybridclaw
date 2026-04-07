@@ -245,6 +245,93 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
   expect(stopCalls).toHaveLength(1);
 });
 
+test('ContainerExecutor disables internal text streaming when no text callback is provided', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-no-stream-ipc',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+  });
+
+  expect(proc.stdin.write).toHaveBeenCalledTimes(1);
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as Record<string, unknown>;
+  expect(firstInput).toMatchObject({
+    streamTextDeltas: false,
+  });
+});
+
 test('ContainerExecutor surfaces missing packaged runtime dependencies as immediate errors', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

@@ -74,7 +74,7 @@ function installTau2Layout(dataDir: string): void {
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
 }
 
-test('returns suite recipes without exposing tokens', async () => {
+test('returns suite stub info without exposing tokens', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
   const result = await handleEvalCommand({
@@ -91,6 +91,7 @@ test('returns suite recipes without exposing tokens', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('GAIA');
+  expect(result.text).toContain('Not implemented yet.');
   expect(result.text).toContain('OPENAI_BASE_URL=http://127.0.0.1:9090/v1');
   expect(result.text).toContain('WEB_API_TOKEN injected automatically');
   expect(result.text).toContain(
@@ -233,44 +234,24 @@ test('starts detached tau2 setup', async () => {
   expect(shellArgs[1]).toContain('.venv/bin/python\' -c "import tau2.cli"');
 });
 
-test('starts detached swebench setup', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  spawnMock.mockReturnValue({
-    pid: 6791,
-    unref: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-  });
-
+test('reports non-terminal suites as not implemented yet', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+
   const result = await handleEvalCommand({
     args: ['swebench-verified', 'setup'],
-    dataDir,
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
 
-  expect(result.kind).toBe('info');
-  if (result.kind !== 'info') {
-    throw new Error(`Unexpected result kind: ${result.kind}`);
-  }
-  expect(result.title).toBe('SWE-bench Verified Setup Started');
-  expect(result.text).toContain('Command: swebench-verified setup');
-  expect(result.text).toContain(
-    'Setup strategy: uv-managed Python 3.12 venv with editable SWE-bench install.',
-  );
-  expect(result.text).toContain('Use `/eval swebench-verified status`');
-  expect(result.text).toContain('Use `/eval swebench-verified results`');
-
-  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain('github.com/princeton-nlp/SWE-bench.git');
-  expect(shellArgs[1]).toContain('uv pip install --python');
-  expect(shellArgs[1]).toContain('-e .');
-  expect(shellArgs[1]).toContain('import swebench');
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('SWE-bench Verified');
+  expect(result.text).toContain('SWE-bench Verified is not implemented yet.');
+  expect(result.text).toContain('/eval terminal-bench-2.0');
+  expect(result.text).toContain('/eval tau2');
+  expect(spawnMock).not.toHaveBeenCalled();
 });
 
 test('starts detached terminal-bench setup', async () => {
@@ -302,31 +283,30 @@ test('starts detached terminal-bench setup', async () => {
   expect(result.title).toBe('Terminal-Bench 2.0 Setup Started');
   expect(result.text).toContain('Command: terminal-bench-2.0 setup');
   expect(result.text).toContain(
-    'Setup strategy: uv-managed Python 3.12 venv with Harbor CLI install and HybridClaw Harbor agent smoke test.',
+    'Setup strategy: uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test.',
   );
   expect(result.text).toContain('Use `/eval terminal-bench-2.0 status`');
   expect(result.text).toContain('Use `/eval terminal-bench-2.0 results`');
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('uv pip install --python');
-  expect(shellArgs[1]).toContain('harbor');
-  expect(shellArgs[1]).toContain('import hybridclaw_harbor_agent');
-  expect(
-    fs.readFileSync(
-      path.join(installDir, 'hybridclaw_harbor_agent.py'),
-      'utf-8',
-    ),
-  ).toContain('class HybridClawHarborAgent(Terminus2):');
+  expect(shellArgs[1]).toContain('datasets');
+  expect(shellArgs[1]).toContain('import hybridclaw_terminal_bench_dataset');
+  const helperSource = fs.readFileSync(
+    path.join(installDir, 'hybridclaw_terminal_bench_dataset.py'),
+    'utf-8',
+  );
+  expect(helperSource).toContain('from datasets import load_dataset');
+  expect(helperSource).toContain("list_parser.add_argument('--num-tasks'");
 });
 
-test('runs managed terminal-bench with HybridClaw Harbor agent defaults', async () => {
+test('runs managed terminal-bench with native HybridClaw runner defaults', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
   );
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'harbor'), '');
   fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
   spawnMock.mockReturnValue({
     pid: 6793,
@@ -358,20 +338,23 @@ test('runs managed terminal-bench with HybridClaw Harbor agent defaults', async 
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain(
-    path.join('terminal-bench-2.0', '.venv', 'bin', 'harbor'),
-  );
-  expect(shellArgs[1]).toContain('run -l 10 -d terminal-bench@2.0 -n 1');
-  expect(shellArgs[1]).toContain(
-    '--agent-import-path hybridclaw_harbor_agent:HybridClawHarborAgent',
-  );
-  expect(shellArgs[1]).toContain('-m "$HYBRIDCLAW_EVAL_MODEL"');
+  expect(shellArgs[1]).toContain('__eval-terminal-bench-native');
+  expect(shellArgs[1]).toContain('--install-dir');
+  expect(shellArgs[1]).toContain('--data-dir');
+  expect(shellArgs[1]).toContain('--agent-id');
+  expect(shellArgs[1]).toContain('main');
+  expect(shellArgs[1]).toContain('--model');
+  expect(shellArgs[1]).toContain('hybridai/gpt-4.1-mini');
+  expect(shellArgs[1]).toContain('--prompt-mode');
+  expect(shellArgs[1]).toContain('none');
+  expect(shellArgs[1]).toContain('--num-tasks 10');
+  expect(shellArgs[1]).toContain('--n-concurrent 1');
   expect(
     fs.readFileSync(
-      path.join(installDir, 'hybridclaw_harbor_agent.py'),
+      path.join(installDir, 'hybridclaw_terminal_bench_dataset.py'),
       'utf-8',
     ),
-  ).toContain('HYBRIDCLAW_EVAL_MODEL');
+  ).toContain('load_dataset');
 });
 
 test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent leaves headroom', async () => {
@@ -381,7 +364,6 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'harbor'), '');
   fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
   spawnMock.mockReturnValue({
     pid: 6794,
@@ -403,7 +385,7 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
   });
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain('-n 4');
+  expect(shellArgs[1]).toContain('--n-concurrent 4');
 });
 
 test('reserves one slot from configured terminal-bench concurrency defaults', async () => {
@@ -413,7 +395,6 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'harbor'), '');
   fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
   spawnMock.mockReturnValue({
     pid: 6796,
@@ -436,7 +417,7 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
   });
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain('-n 2');
+  expect(shellArgs[1]).toContain('--n-concurrent 2');
 });
 
 test('preserves explicit terminal-bench concurrency override', async () => {
@@ -446,7 +427,6 @@ test('preserves explicit terminal-bench concurrency override', async () => {
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'harbor'), '');
   fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
   spawnMock.mockReturnValue({
     pid: 6795,
@@ -476,8 +456,8 @@ test('preserves explicit terminal-bench concurrency override', async () => {
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--n-concurrent 2');
-  expect(shellArgs[1]).not.toContain('-n 4');
-  expect(shellArgs[1]).not.toContain('-n 1');
+  expect(shellArgs[1]).not.toContain('--n-concurrent 4');
+  expect(shellArgs[1]).not.toContain('--n-concurrent 1');
 });
 
 test('reports fast tau2 setup failures inline with the reason', async () => {
@@ -517,63 +497,37 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
   expect(result.text).toContain('requires a different Python');
 });
 
-test('reports managed suite install state and latest setup status', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  const installDir = path.join(dataDir, 'evals', 'gaia');
-  fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'inspect'), '');
-  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
-  const runDir = path.join(dataDir, 'evals', 'eval-gaia-setup-abc123');
-  fs.mkdirSync(runDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(runDir, 'run.json'),
-    JSON.stringify(
-      {
-        runId: 'eval-gaia-setup',
-        suiteId: 'gaia',
-        operation: 'setup',
-        pid: 4446,
-        startedAt: '2026-04-06T18:00:00.000Z',
-        finishedAt: '2026-04-06T18:05:00.000Z',
-        exitCode: 0,
-        cwd: installDir,
-        command: 'gaia setup',
-        displayCommand: 'gaia setup',
-        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
-        model: 'hybridai/gpt-4.1-mini',
-        baseModel: 'hybridai/gpt-4.1-mini',
-        authMode: 'loopback',
-        profile: {
-          workspaceMode: 'current-agent',
-          ablateSystemPrompt: false,
-          includePromptParts: [],
-          omitPromptParts: [],
-        },
-        stdoutPath: path.join(runDir, 'stdout.log'),
-        stderrPath: path.join(runDir, 'stderr.log'),
-      },
-      null,
-      2,
-    ),
-  );
-
+test('reports gaia subcommands as not implemented yet', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
     args: ['gaia', 'status'],
-    dataDir,
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
 
-  expect(result.kind).toBe('info');
-  expect(result.text).toContain('Installed: yes');
-  expect(result.text).toContain('Latest setup: eval-gaia-setup (exited)');
-  expect(result.text).toContain(path.join('gaia', '.venv', 'bin', 'inspect'));
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('GAIA');
+  expect(result.text).toContain('GAIA is not implemented yet.');
+});
+
+test('rejects unknown suite prefixes instead of launching a raw eval command', async () => {
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['termin'],
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('Unknown Eval');
+  expect(result.text).toContain('Unknown eval suite: `termin`.');
+  expect(result.text).toContain('Did you mean `terminal-bench-2.0`?');
 });
 
 test('reports managed suite latest run in status output', async () => {
@@ -583,10 +537,35 @@ test('reports managed suite latest run in status output', async () => {
   const installDir = path.join(dataDir, 'evals', 'terminal-bench-2.0');
   fs.mkdirSync(path.join(installDir, '.venv', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
-  fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'harbor'), '');
   fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
   const runDir = path.join(dataDir, 'evals', 'eval-terminal-bench-run-abc123');
   fs.mkdirSync(runDir, { recursive: true });
+  const jobDir = path.join(
+    dataDir,
+    'evals',
+    'terminal-bench-2.0',
+    'jobs',
+    '2026-04-07T08-11-03-774Z',
+  );
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    JSON.stringify(
+      {
+        agent: 'main',
+        dataset: 'terminal-bench',
+        trials: 2,
+        errors: 0,
+        mean: 0,
+        rewards: [
+          { taskName: 'a', reward: 0, passed: false },
+          { taskName: 'b', reward: 0, passed: false },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
   fs.writeFileSync(
     path.join(runDir, 'run.json'),
     JSON.stringify(
@@ -600,7 +579,7 @@ test('reports managed suite latest run in status output', async () => {
         exitCode: 0,
         cwd: installDir,
         command:
-          'harbor run -d terminal-bench@2.0 --agent-import-path hybridclaw_harbor_agent:HybridClawHarborAgent -m "$HYBRIDCLAW_EVAL_MODEL" -l 10',
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${installDir} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -619,6 +598,11 @@ test('reports managed suite latest run in status output', async () => {
       2,
     ),
   );
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    `Terminal-Bench 2.0 Native Run\nJob dir: ${jobDir}\nResults written to ${path.join(jobDir, 'result.json')}\n`,
+  );
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
@@ -631,10 +615,15 @@ test('reports managed suite latest run in status output', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Latest run: eval-terminal-bench-run (exited)');
+  expect(result.text).toContain('Latest run: eval-terminal-bench-run (completed)');
   expect(result.text).toContain(
     'Command: terminal-bench-2.0 run --num-tasks 10',
   );
+  expect(result.text).toContain(path.join('terminal-bench-2.0', '.venv', 'bin', 'python'));
+  expect(result.text).toContain('Score: 0.000');
+  expect(result.text).toContain('Trials: 2');
+  expect(result.text).toContain('Passed: 0/2');
+  expect(result.text).toContain('Errors: 0');
 });
 
 test('shows generic managed suite setup logs in results', async () => {
@@ -647,7 +636,7 @@ test('shows generic managed suite setup logs in results', async () => {
     'eval-terminal-bench-setup-abc123',
   );
   fs.mkdirSync(runDir, { recursive: true });
-  fs.writeFileSync(path.join(runDir, 'stdout.log'), 'installed harbor\n');
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), 'installed datasets\n');
   fs.writeFileSync(path.join(runDir, 'stderr.log'), 'docker check pending\n');
   fs.writeFileSync(
     path.join(runDir, 'run.json'),
@@ -690,13 +679,14 @@ test('shows generic managed suite setup logs in results', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Run ID: eval-terminal-bench-setup');
-  expect(result.text).toContain('Operation: setup');
-  expect(result.text).toContain('installed harbor');
-  expect(result.text).toContain('docker check pending');
+  expect(result.text).toMatch(/Run ID\s+eval-terminal-bench-setup/);
+  expect(result.text).toContain('Status           completed');
+  expect(result.text).not.toContain('Stdout tail:');
+  expect(result.text).not.toContain('installed datasets');
+  expect(result.text).not.toContain('docker check pending');
 });
 
-test('shows managed suite run logs in results when a run exists', async () => {
+test('shows managed suite run summary in results when a run exists', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
   );
@@ -706,7 +696,36 @@ test('shows managed suite run logs in results when a run exists', async () => {
     'eval-terminal-bench-run-results-abc123',
   );
   fs.mkdirSync(runDir, { recursive: true });
-  fs.writeFileSync(path.join(runDir, 'stdout.log'), 'harbor summary line\n');
+  const jobDir = path.join(
+    dataDir,
+    'evals',
+    'terminal-bench-2.0',
+    'jobs',
+    '2026-04-07T08-11-03-774Z',
+  );
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    JSON.stringify(
+      {
+        agent: 'main',
+        dataset: 'terminal-bench',
+        trials: 2,
+        errors: 0,
+        mean: 0.5,
+        rewards: [
+          { taskName: 'a', reward: 1, passed: true },
+          { taskName: 'b', reward: 0, passed: false },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    `Terminal-Bench 2.0 Native Run\nJob dir: ${jobDir}\nResults written to ${path.join(jobDir, 'result.json')}\n`,
+  );
   fs.writeFileSync(path.join(runDir, 'stderr.log'), 'docker warning\n');
   fs.writeFileSync(
     path.join(runDir, 'run.json'),
@@ -720,7 +739,7 @@ test('shows managed suite run logs in results when a run exists', async () => {
         finishedAt: '2026-04-06T20:05:00.000Z',
         cwd: process.cwd(),
         command:
-          'harbor run -d terminal-bench@2.0 --agent-import-path hybridclaw_harbor_agent:HybridClawHarborAgent -m "$HYBRIDCLAW_EVAL_MODEL" -l 10',
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -751,12 +770,374 @@ test('shows managed suite run logs in results when a run exists', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Operation: run');
-  expect(result.text).toContain(
-    'Command: terminal-bench-2.0 run --num-tasks 10',
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Overview');
+  expect(result.text).toContain('Results');
+  expect(result.text).toContain('Run');
+  expect(result.text).toContain('Paths');
+  expect(result.text).toContain('Status           completed');
+  expect(result.text).toMatch(
+    /Command\s+terminal-bench-2\.0 run --num-tasks 10/,
   );
-  expect(result.text).toContain('harbor summary line');
+  expect(result.text).toContain(`Job dir      ${jobDir}`);
+  expect(result.text).toContain('Score   0.500');
+  expect(result.text).toContain('Trials  2');
+  expect(result.text).toContain('Passed  1/2');
+  expect(result.text).toContain('Errors  0');
+  expect(result.text).toContain('▶️ Run');
+  expect(result.text).not.toContain('Stdout tail:');
+  expect(result.text).not.toContain('Terminal-Bench 2.0 Native Run');
+  expect(result.text).not.toContain('docker warning');
+});
+
+test('does not count recovered terminal-bench task warnings as errors', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-run-recovered-warning-abc123',
+  );
+  fs.mkdirSync(runDir, { recursive: true });
+  const jobDir = path.join(
+    dataDir,
+    'evals',
+    'terminal-bench-2.0',
+    'jobs',
+    '2026-04-07T11-19-35-721Z',
+  );
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    JSON.stringify(
+      {
+        agent: 'main',
+        dataset: 'terminal-bench',
+        trials: 2,
+        errors: 1,
+        mean: 1,
+        rewards: [
+          {
+            taskName: 'adaptive-rejection-sampler',
+            reward: 1,
+            passed: true,
+            error:
+              'HybridAI API error 400: No tool output found for function call call_123.',
+          },
+          {
+            taskName: 'bn-fit-modify',
+            reward: 1,
+            passed: true,
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    `Terminal-Bench 2.0 Native Run\nJob dir: ${jobDir}\nResults written to ${path.join(jobDir, 'result.json')}\n`,
+  );
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-terminal-bench-run-recovered-warning',
+        suiteId: 'terminal-bench-2.0',
+        operation: 'run',
+        pid: 8896,
+        startedAt: '2026-04-07T11:19:33.032Z',
+        finishedAt: '2026-04-07T11:21:33.032Z',
+        cwd: process.cwd(),
+        command:
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
+        displayCommand: 'terminal-bench-2.0 run --num-tasks 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['terminal-bench-2.0', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Score   1.000');
+  expect(result.text).toContain('Passed  2/2');
+  expect(result.text).toContain('Errors  0');
+});
+
+test('shows partial terminal-bench progress in results while a run is still active', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-run-partial-abc123',
+  );
+  fs.mkdirSync(runDir, { recursive: true });
+  const jobDir = path.join(
+    dataDir,
+    'evals',
+    'terminal-bench-2.0',
+    'jobs',
+    '2026-04-07T10-27-23-793Z',
+  );
+  fs.mkdirSync(path.join(jobDir, 'bn-fit-modify'), { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'bn-fit-modify', 'summary.json'),
+    JSON.stringify(
+      {
+        taskName: 'bn-fit-modify',
+        reward: 1,
+        passed: true,
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    [
+      'Terminal-Bench 2.0 Native Run',
+      `Job dir: ${jobDir}`,
+      'Agent: main',
+      'Model: hybridai/gpt-4.1-mini',
+      'Prompt mode: none',
+      'Tasks: 2',
+      'Concurrency: 1',
+      '',
+      '[1/2] START adaptive-rejection-sampler',
+      '[2/2] START bn-fit-modify',
+      '[2/2] PASS bn-fit-modify reward=1.000 182s',
+    ].join('\n'),
+  );
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-terminal-bench-run-partial',
+        suiteId: 'terminal-bench-2.0',
+        operation: 'run',
+        pid: 8895,
+        startedAt: '2026-04-07T10:27:20.465Z',
+        cwd: process.cwd(),
+        command:
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
+        displayCommand: 'terminal-bench-2.0 run --num-tasks 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+
+  process.kill = vi.fn(() => true) as typeof process.kill;
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['terminal-bench-2.0', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Overview');
+  expect(result.text).toContain('Progress');
+  expect(result.text).toContain('Run');
+  expect(result.text).toContain('Paths');
+  expect(result.text).toContain('Status           running');
+  expect(result.text).toContain(`Job dir  ${jobDir}`);
+  expect(result.text).toContain('Tasks     2');
+  expect(result.text).toContain('Finished  1/2');
+  expect(result.text).toContain('Passed    1');
+  expect(result.text).toContain('Failed    0');
+  expect(result.text).toContain('Running   1');
+  expect(result.text).toContain('Pending   0');
+  expect(result.text).toContain('▶️ Run');
+  expect(result.text).not.toContain('Result JSON:');
+  expect(result.text).not.toContain('Score:');
+});
+
+test('shows managed suite log tails in logs view', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-run-logs-abc123',
+  );
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runDir, 'stdout.log'),
+    'Terminal-Bench 2.0 Native Run\nResults written to jobs/test/result.json\n',
+  );
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), 'docker warning\n');
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-terminal-bench-run-logs',
+        suiteId: 'terminal-bench-2.0',
+        operation: 'run',
+        pid: 8890,
+        startedAt: '2026-04-06T20:00:00.000Z',
+        finishedAt: '2026-04-06T20:05:00.000Z',
+        exitCode: 0,
+        cwd: process.cwd(),
+        command:
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['terminal-bench-2.0', 'logs'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('Terminal-Bench 2.0 Logs');
+  expect(result.text).toContain('Stdout tail:');
+  expect(result.text).toContain('Stderr tail:');
+  expect(result.text).toContain('Terminal-Bench 2.0 Native Run');
   expect(result.text).toContain('docker warning');
+});
+
+test('stops managed suite runs and marks the run metadata as terminated', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-terminal-bench-run-stop-abc123',
+  );
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), '');
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+  const metaPath = path.join(runDir, 'run.json');
+  fs.writeFileSync(
+    metaPath,
+    JSON.stringify(
+      {
+        runId: 'eval-terminal-bench-run-stop',
+        suiteId: 'terminal-bench-2.0',
+        operation: 'run',
+        pid: 8891,
+        startedAt: '2026-04-06T20:00:00.000Z',
+        cwd: process.cwd(),
+        command:
+          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+
+  process.kill = vi.fn(() => true) as typeof process.kill;
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['terminal-bench-2.0', 'stop'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('Terminal-Bench 2.0 Stop');
+  expect(result.text).toContain(
+    'Stopped run run eval-terminal-bench-run-stop.',
+  );
+  expect(process.kill).toHaveBeenCalledWith(8891, 0);
+  expect(process.kill).toHaveBeenCalledWith(-8891, 'SIGTERM');
+
+  const updated = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
+    finishedAt?: string;
+    exitSignal?: string | null;
+  };
+  expect(updated.finishedAt).toBeTruthy();
+  expect(updated.exitSignal).toBe('SIGTERM');
 });
 
 test('requires tau2 setup before tau2 run', async () => {
@@ -1626,16 +2007,22 @@ test('shows latest tau2 results from log tails', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Run ID: eval-results-run');
-  expect(result.text).toContain('Operation: run');
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Overview');
+  expect(result.text).toContain('Results');
+  expect(result.text).toContain('Run');
+  expect(result.text).toContain('Paths');
+  expect(result.text).toContain('Status           exited');
   expect(result.text).toContain('Success: 6/10 (0.600 reward pass)');
   expect(result.text).toContain('DB match: 3/10 (30.0%)');
   expect(result.text).toContain('Conversations: 10 normal stop');
+  expect(result.text).toContain('▶️ Run');
   expect(result.text).not.toContain('Progress: tau2 10/10 tasks');
-  expect(result.text).toContain('Stdout tail:');
+  expect(result.text).toContain('Stdout tail');
   expect(result.text).toContain('Agent Performance Metrics');
   expect(result.text).toContain('Average Reward         0.6000');
-  expect(result.text).toContain('Stderr tail:');
+  expect(result.text).toContain('Stderr tail');
   expect(result.text).toContain('warning line');
 });
 
@@ -1692,7 +2079,13 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Operation: setup');
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Overview');
+  expect(result.text).toContain('Run');
+  expect(result.text).toContain('Paths');
+  expect(result.text).toContain('Status           running');
+  expect(result.text).toContain('▶️ Run');
   expect(result.text).toContain('cloning repo');
   expect(result.text).toContain('pip warning');
 });

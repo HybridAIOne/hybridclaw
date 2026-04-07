@@ -28,6 +28,7 @@ const {
     mountAllowlistPath: '/tmp/mount-allowlist.json',
     additionalMountsConfigured: 0,
     activeSessions: 0,
+    activeSessionIds: [],
     warning: 'Running in host mode without container isolation.',
   })),
 }));
@@ -142,6 +143,7 @@ afterEach(() => {
     mountAllowlistPath: '/tmp/mount-allowlist.json',
     additionalMountsConfigured: 0,
     activeSessions: 0,
+    activeSessionIds: [],
     warning: 'Running in host mode without container isolation.',
   }));
   vi.useRealTimers();

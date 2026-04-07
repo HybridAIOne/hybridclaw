@@ -713,6 +713,88 @@ function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
   return title.startsWith('Available Models') || title === 'Default Model';
 }
 
+function isEvalResultsCommandResult(result: GatewayCommandResult): boolean {
+  const title = String(result.title || '').trim();
+  return title === 'Terminal-Bench 2.0 Results' || title === 'tau2 Results';
+}
+
+interface TuiSectionCard {
+  title: string;
+  rows: string[];
+}
+
+function parseTuiSectionCards(text: string): TuiSectionCard[] {
+  const lines = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
+  const sections: TuiSectionCard[] = [];
+  let currentTitle: string | null = null;
+  let currentRows: string[] = [];
+
+  const flush = () => {
+    if (!currentTitle) return;
+    sections.push({ title: currentTitle, rows: [...currentRows] });
+    currentTitle = null;
+    currentRows = [];
+  };
+
+  for (const line of lines) {
+    const topMatch = line.match(/^┌─\s*(.*?)\s*─+┐$/u);
+    if (topMatch) {
+      flush();
+      currentTitle = String(topMatch[1] || '').trim();
+      currentRows = [];
+      continue;
+    }
+    if (/^└[─]+┘$/u.test(line)) {
+      flush();
+      continue;
+    }
+    const rowMatch = line.match(/^│\s?(.*?)\s?│$/u);
+    if (rowMatch && currentTitle) {
+      currentRows.push(String(rowMatch[1] || '').trimEnd());
+    }
+  }
+
+  flush();
+  return sections;
+}
+
+function renderTuiEvalResultsPanel(
+  sections: readonly TuiSectionCard[],
+  columns: number,
+): string[] {
+  const innerWidth = Math.max(16, Math.floor(columns || 80) - 7);
+  const lines: string[] = [];
+  const pad = (value: string) =>
+    value + ' '.repeat(Math.max(0, innerWidth - value.length));
+  const pushBorder = (
+    left: '╭' | '├' | '╰',
+    fill: string,
+    right: '╮' | '┤' | '╯',
+  ) => {
+    lines.push(
+      `  ${MUTED}${left}${fill.repeat(innerWidth + 2)}${right}${RESET}`,
+    );
+  };
+  const pushRow = (text = '', color = '') => {
+    const content = color ? `${color}${pad(text)}${RESET}` : pad(text);
+    lines.push(`  ${MUTED}│${RESET} ${content} ${MUTED}│${RESET}`);
+  };
+
+  sections.forEach((section, index) => {
+    pushBorder(index === 0 ? '╭' : '├', '─', index === 0 ? '╮' : '┤');
+    pushRow(section.title, `${BOLD}${GOLD}`);
+    for (const row of section.rows) {
+      for (const wrapped of wrapTuiBlock(row, innerWidth, '').split('\n')) {
+        pushRow(wrapped);
+      }
+    }
+  });
+  pushBorder('╰', '─', '╯');
+  return lines;
+}
+
 function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   clearTuiSlashMenu();
   console.log();
@@ -783,6 +865,38 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     for (const line of formatTuiOutput(rendered).split('\n')) {
       const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  if (isEvalResultsCommandResult(result)) {
+    clearTuiSlashMenu();
+    console.log();
+    console.log(`${GOLD}${result.title || ''}${RESET}`);
+    console.log();
+    const sections = parseTuiSectionCards(result.text);
+    if (sections.length > 0) {
+      for (const line of renderTuiEvalResultsPanel(
+        sections,
+        terminalColumns(),
+      )) {
+        console.log(line);
+      }
+    } else {
+      for (const line of formatTuiOutput(result.text).split('\n')) {
+        console.log(`${GOLD}${line}${RESET}`);
+      }
+    }
+    console.log();
+    return;
+  }
+  if (result.title) {
+    clearTuiSlashMenu();
+    console.log();
+    console.log(`${GOLD}${result.title}${RESET}`);
+    console.log();
+    for (const line of formatTuiOutput(result.text).split('\n')) {
+      console.log(`${GOLD}${line}${RESET}`);
     }
     console.log();
     return;

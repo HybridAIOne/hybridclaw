@@ -10,6 +10,8 @@ const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
+const OPENAI_EXECUTION_SESSION_ID_RE =
+  /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
 
 const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
@@ -931,6 +933,7 @@ async function importFreshHealth(options?: {
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
     HYBRIDAI_MODEL: 'gpt-5',
+    MAX_CONCURRENT_CONTAINERS: 5,
     IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
@@ -1335,6 +1338,7 @@ describe('gateway HTTP server', () => {
     });
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -1353,9 +1357,7 @@ describe('gateway HTTP server', () => {
       model: 'gpt-5',
       source: 'gateway.chat.openai-compatible',
     });
-    expect(state.stopSessionExecution).toHaveBeenCalledWith(
-      expect.stringMatching(OPENAI_SESSION_ID_RE),
-    );
+    expect(state.stopSessionExecution).not.toHaveBeenCalled();
 
     const payload = JSON.parse(res.body);
     expect(res.statusCode).toBe(200);
@@ -1376,6 +1378,49 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('reuses the OpenAI executor session across repeated requests in the same conversation seed', async () => {
+    const state = await importFreshHealth();
+    const makeBody = (finalPrompt: string) => ({
+      model: 'gpt-5',
+      user: 'sdk-user',
+      messages: [
+        { role: 'system', content: 'You are concise.' },
+        { role: 'user', content: 'Task: fix the bug.' },
+        { role: 'assistant', content: 'I will inspect it.' },
+        { role: 'user', content: finalPrompt },
+      ],
+    });
+
+    const firstReq = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: makeBody('Step 1'),
+    });
+    const firstRes = makeResponse();
+    state.handler(firstReq as never, firstRes as never);
+    await waitForResponse(firstRes, (next) => next.writableEnded);
+
+    const secondReq = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: makeBody('Step 2'),
+    });
+    const secondRes = makeResponse();
+    state.handler(secondReq as never, secondRes as never);
+    await waitForResponse(secondRes, (next) => next.writableEnded);
+
+    const firstCall = state.handleGatewayMessage.mock.calls[0]?.[0];
+    const secondCall = state.handleGatewayMessage.mock.calls[1]?.[0];
+    expect(firstCall?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
+    expect(secondCall?.sessionId).toMatch(OPENAI_SESSION_ID_RE);
+    expect(firstCall?.sessionId).not.toBe(secondCall?.sessionId);
+    expect(firstCall?.executionSessionId).toMatch(
+      OPENAI_EXECUTION_SESSION_ID_RE,
+    );
+    expect(secondCall?.executionSessionId).toBe(firstCall?.executionSessionId);
+    expect(state.stopSessionExecution).not.toHaveBeenCalled();
+  });
+
   test('routes eval-profiled OpenAI requests to the selected current agent with system ablation', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -1393,6 +1438,7 @@ describe('gateway HTTP server', () => {
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -1406,6 +1452,42 @@ describe('gateway HTTP server', () => {
 
     const payload = JSON.parse(res.body);
     expect(payload.model).toBe('gpt-5__hc_eval=agent=charly,ablate-system');
+  });
+
+  test('routes OpenAI requests with HybridClaw eval-profile header using the plain model name', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: {
+        'x-hybridclaw-eval-profile': 'agent=charly,ablate-system',
+      },
+      body: {
+        model: 'gpt-5',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith({
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
+      guildId: null,
+      channelId: 'openai',
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'openai',
+      content: 'hello',
+      agentId: 'charly',
+      model: 'gpt-5',
+      promptMode: 'none',
+      source: 'gateway.chat.openai-compatible',
+    });
+
+    const payload = JSON.parse(res.body);
+    expect(payload.model).toBe('gpt-5');
   });
 
   test('routes eval-profiled OpenAI requests to a fresh temporary agent workspace', async () => {
@@ -1434,9 +1516,10 @@ describe('gateway HTTP server', () => {
       model: 'gpt-5',
       omitPromptParts: ['bootstrap', 'soul'],
       source: 'gateway.chat.openai-compatible',
+      executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
     });
     expect(state.stopSessionExecution).toHaveBeenCalledWith(
-      expect.stringMatching(OPENAI_SESSION_ID_RE),
+      expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
     );
   });
 

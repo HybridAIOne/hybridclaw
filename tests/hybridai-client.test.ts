@@ -283,6 +283,51 @@ test('callRoutedModelStream parses Codex SSE text deltas and tool calls', async 
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('callRoutedModelStream preserves streamed Codex tool calls when completed output is empty', async () => {
+  const fetchMock = vi.fn(async () =>
+    makeEventStreamResponse([
+      'event: response.created\n',
+      'data: {"type":"response.created","response":{"id":"resp_codex","model":"gpt-5.3-codex-spark"}}\n\n',
+      'event: response.output_item.added\n',
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}\n\n',
+      'event: response.function_call_arguments.delta\n',
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\\"path\\":\\"/app/file.txt\\"}"}\n\n',
+      'event: response.completed\n',
+      'data: {"type":"response.completed","response":{"id":"resp_codex","model":"gpt-5.3-codex-spark","output":[],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}}\n\n',
+    ]),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await callRoutedModelStream({
+    provider: 'openai-codex',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    apiKey: 'test-key',
+    model: 'openai-codex/gpt-5.3-codex-spark',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {
+      'Chatgpt-Account-Id': 'acct_123',
+      'OpenAI-Beta': 'responses=experimental',
+    },
+    messages: [{ role: 'user', content: 'read the file' }],
+    tools: [],
+    onTextDelta: () => undefined,
+  });
+
+  expect(result.choices[0]?.message.tool_calls).toEqual([
+    {
+      id: 'call_1',
+      type: 'function',
+      function: {
+        name: 'read',
+        arguments: '{"path":"/app/file.txt"}',
+      },
+    },
+  ]);
+  expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  expect(result.usage?.total_tokens).toBe(18);
+});
+
 test('callRoutedModel sends Codex instructions and omits system messages from input', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -292,11 +337,15 @@ test('callRoutedModel sends Codex instructions and omits system messages from in
 
     expect(body.model).toBe('gpt-5-codex');
     expect(body.store).toBe(false);
+    expect(body.stream).toBe(true);
     expect(body.instructions).toBe('Follow repository conventions exactly.');
     expect(body.input).toEqual([{ role: 'user', content: 'hello' }]);
     expect(body.tool_choice).toBe('auto');
     expect(body.parallel_tool_calls).toBe(true);
     expect(body.max_output_tokens).toBeUndefined();
+    expect(String((init?.headers as Record<string, string>).Accept)).toContain(
+      'text/event-stream',
+    );
 
     return new Response(
       JSON.stringify({

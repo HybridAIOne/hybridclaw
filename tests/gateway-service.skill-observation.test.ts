@@ -128,6 +128,88 @@ test('handleGatewayMessage does not attribute ambiguous read-only skill explorat
   expect(getSkillObservationSummary({ skillName: 'pdf' })).toEqual([]);
 });
 
+test('handleGatewayMessage does not request text streaming when no text callback is provided', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-no-stream',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Say hi',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(runAgentMock.mock.calls[0]?.[0]?.onTextDelta).toBeUndefined();
+});
+
+test('handleGatewayMessage can auto-approve tools for eval requests without enabling full-auto session mode', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: ['write'],
+    toolExecutions: [],
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-eval-auto-approve',
+    guildId: null,
+    channelId: 'eval-terminal-bench-native',
+    userId: 'terminal-bench-native',
+    username: 'terminal-bench-native',
+    content: 'Write the file.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+    autoApproveTools: true,
+    neverAutoApproveTools: [],
+    promptMode: 'none',
+    source: 'eval.terminal-bench.native',
+  });
+
+  expect(result.status).toBe('success');
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(runAgentMock.mock.calls[0]?.[0]?.fullAutoEnabled).toBe(true);
+  expect(runAgentMock.mock.calls[0]?.[0]?.fullAutoNeverApproveTools).toEqual(
+    [],
+  );
+  expect(
+    runAgentMock.mock.calls[0]?.[0]?.skipContainerSystemPrompt,
+  ).toBe(true);
+  const messages = runAgentMock.mock.calls[0]?.[0]?.messages as
+    | Array<{ content?: string }>
+    | undefined;
+  expect(messages?.[0]?.content || '').not.toContain(
+    'FULLAUTO mode is active for this session.',
+  );
+});
+
 test('setGatewayAdminSkillEnabled stores per-channel disabled skills separately', async () => {
   setupHome();
 

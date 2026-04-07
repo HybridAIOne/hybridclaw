@@ -114,6 +114,30 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  test('maps overridden /app display root into the actual workspace root', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-app-root-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.resetModules();
+
+    const { resolveWorkspacePath, WORKSPACE_ROOT_DISPLAY } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(WORKSPACE_ROOT_DISPLAY).toBe('/app');
+    expect(resolveWorkspacePath('/app/ars.R')).toBe(
+      path.join(workspaceRoot, 'ars.R'),
+    );
+    expect(resolveWorkspacePath('app/ars.R')).toBe(
+      path.join(workspaceRoot, 'ars.R'),
+    );
+    expect(resolveWorkspacePath('ars.R')).toBe(path.join(workspaceRoot, 'ars.R'));
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
   test('resolves uploaded-media cache display paths', async () => {
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'

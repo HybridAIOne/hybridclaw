@@ -1,12 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { HYBRIDAI_MODEL } from '../config/config.js';
-import { parseEvalProfileModel } from '../evals/eval-profile.js';
+import { HYBRIDAI_MODEL, MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
+import {
+  EVAL_MODEL_PROFILE_MARKER,
+  parseEvalProfileModel,
+} from '../evals/eval-profile.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -62,6 +65,129 @@ function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
   );
 }
 
+const OPENAI_EXECUTION_SESSION_TTL_MS = 30_000;
+
+interface OpenAIExecutionSessionEntry {
+  sessionId: string;
+  inFlight: number;
+  lastUsedAt: number;
+}
+
+const openAIExecutionSessions = new Map<string, OpenAIExecutionSessionEntry>();
+
+function buildOpenAIExecutionSeed(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): string {
+  const rootMessages =
+    params.input.priorMessages.length > 0
+      ? params.input.priorMessages.slice(0, 4)
+      : [{ role: 'user' as const, content: params.input.prompt }];
+  const conversationRoot = rootMessages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+  return JSON.stringify({
+    user: params.input.user,
+    agentId: params.prepared.requestAgentId,
+    model: params.prepared.model,
+    workspaceMode: params.prepared.profile.workspaceMode,
+    ablateSystemPrompt: params.prepared.profile.ablateSystemPrompt,
+    includePromptParts: params.prepared.profile.includePromptParts,
+    omitPromptParts: params.prepared.profile.omitPromptParts,
+    conversationRoot,
+  });
+}
+
+function buildOpenAIExecutionSessionId(agentId: string, seed: string): string {
+  const digest = createHash('sha256').update(seed).digest('hex').slice(0, 24);
+  return buildSessionKey(agentId, 'openai', 'dm', `exec-${digest}`);
+}
+
+function reapExpiredOpenAIExecutionSessions(now = Date.now()): void {
+  for (const [key, entry] of openAIExecutionSessions) {
+    if (
+      entry.inFlight === 0 &&
+      now - entry.lastUsedAt > OPENAI_EXECUTION_SESSION_TTL_MS
+    ) {
+      stopSessionExecution(entry.sessionId);
+      openAIExecutionSessions.delete(key);
+    }
+  }
+}
+
+function evictOldestIdleOpenAIExecutionSession(): boolean {
+  let oldestKey: string | null = null;
+  let oldestEntry: OpenAIExecutionSessionEntry | null = null;
+  for (const [key, entry] of openAIExecutionSessions) {
+    if (entry.inFlight > 0) continue;
+    if (!oldestEntry || entry.lastUsedAt < oldestEntry.lastUsedAt) {
+      oldestKey = key;
+      oldestEntry = entry;
+    }
+  }
+  if (!oldestKey || !oldestEntry) return false;
+  stopSessionExecution(oldestEntry.sessionId);
+  openAIExecutionSessions.delete(oldestKey);
+  return true;
+}
+
+function acquireOpenAIExecutionSession(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): {
+  sessionId: string;
+  stopOnFinish: boolean;
+  release: () => void;
+} {
+  if (params.prepared.cleanupAgentId) {
+    return {
+      sessionId: buildSessionKey(
+        params.prepared.requestAgentId,
+        'openai',
+        'dm',
+        randomUUID().replace(/-/g, '').slice(0, 16),
+      ),
+      stopOnFinish: true,
+      release: () => {},
+    };
+  }
+
+  const now = Date.now();
+  reapExpiredOpenAIExecutionSessions(now);
+  const seed = buildOpenAIExecutionSeed(params);
+  let entry = openAIExecutionSessions.get(seed);
+  if (!entry) {
+    while (
+      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
+      evictOldestIdleOpenAIExecutionSession()
+    ) {
+      // Make room by evicting idle reusable OpenAI execution sessions first.
+    }
+    entry = {
+      sessionId: buildOpenAIExecutionSessionId(
+        params.prepared.requestAgentId,
+        seed,
+      ),
+      inFlight: 0,
+      lastUsedAt: now,
+    };
+    openAIExecutionSessions.set(seed, entry);
+  }
+  entry.inFlight += 1;
+  entry.lastUsedAt = now;
+  return {
+    sessionId: entry.sessionId,
+    stopOnFinish: false,
+    release: () => {
+      const current = openAIExecutionSessions.get(seed);
+      if (!current) return;
+      current.inFlight = Math.max(0, current.inFlight - 1);
+      current.lastUsedAt = Date.now();
+    },
+  };
+}
+
 function prepareOpenAICompatibleRequest(
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
 ): {
@@ -72,9 +198,14 @@ function prepareOpenAICompatibleRequest(
   model: string;
   profile: ReturnType<typeof parseEvalProfileModel>['profile'];
 } {
+  const profiledModel = input.evalProfile
+    ? input.model.includes(EVAL_MODEL_PROFILE_MARKER)
+      ? input.model
+      : `${input.model}${EVAL_MODEL_PROFILE_MARKER}${input.evalProfile}`
+    : input.model;
   const parsed = (() => {
     try {
-      return parseEvalProfileModel(input.model);
+      return parseEvalProfileModel(profiledModel);
     } catch (error) {
       throw new OpenAICompatibleRequestError(
         400,
@@ -123,12 +254,16 @@ function prepareOpenAICompatibleRequest(
 function buildGatewayChatRequest(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+  executionSessionId?: string;
 }): GatewayChatRequest {
   const includeAgentId =
     Boolean(params.prepared.cleanupAgentId) ||
     Boolean(params.prepared.profile.agentId?.trim());
   return {
     sessionId: params.prepared.sessionId,
+    ...(params.executionSessionId
+      ? { executionSessionId: params.executionSessionId }
+      : {}),
     guildId: null,
     channelId: 'openai',
     userId: params.prepared.sessionId,
@@ -565,6 +700,9 @@ export async function handleOpenAICompatibleChatCompletions(
   try {
     const input = await readOpenAICompatibleChatRequest(req);
     const prepared = prepareOpenAICompatibleRequest(input);
+    const executionSession = input.usesClientTools
+      ? null
+      : acquireOpenAIExecutionSession({ input, prepared });
     const completionId = `chatcmpl_${randomUUID().replace(/-/g, '')}`;
     const created = Math.floor(Date.now() / 1000);
 
@@ -595,6 +733,7 @@ export async function handleOpenAICompatibleChatCompletions(
       const chatRequest = buildGatewayChatRequest({
         input,
         prepared,
+        executionSessionId: executionSession?.sessionId,
       });
       if (input.wantsStream) {
         await handleOpenAICompatibleStreamingChat(
@@ -617,7 +756,10 @@ export async function handleOpenAICompatibleChatCompletions(
         created,
       );
     } finally {
-      stopSessionExecution(prepared.sessionId);
+      executionSession?.release();
+      if (executionSession?.stopOnFinish) {
+        stopSessionExecution(executionSession.sessionId);
+      }
       if (prepared.cleanupAgentId) {
         resetWorkspace(prepared.cleanupAgentId);
       }

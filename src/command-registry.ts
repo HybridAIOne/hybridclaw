@@ -1393,7 +1393,7 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'sessions',
-      description: 'List active sessions',
+      description: 'List chat sessions or inspect active sandbox sessions',
     },
     {
       name: 'audit',
@@ -1484,14 +1484,7 @@ function buildSlashCommandCatalogDefinitions(
           id: 'eval.swebench-verified',
           label: '/eval swebench-verified',
           insertText: '/eval swebench-verified',
-          description: 'Show the SWE-bench Verified starter recipe',
-        },
-        {
-          id: 'eval.swebench-verified.setup',
-          label: '/eval swebench-verified setup',
-          insertText: '/eval swebench-verified setup',
-          description:
-            'Clone and install SWE-bench into the local eval workspace',
+          description: 'Stub entry for a planned SWE-bench Verified runner',
         },
         {
           id: 'eval.terminal-bench-2.0',
@@ -1503,14 +1496,28 @@ function buildSlashCommandCatalogDefinitions(
           id: 'eval.terminal-bench-2.0.setup',
           label: '/eval terminal-bench-2.0 setup',
           insertText: '/eval terminal-bench-2.0 setup',
-          description: 'Install the Harbor CLI into the local eval workspace',
+          description:
+            'Install the native Terminal-Bench dataset helper into the local eval workspace',
         },
         {
           id: 'eval.terminal-bench-2.0.run',
           label: '/eval terminal-bench-2.0 run --num-tasks 10',
           insertText: '/eval terminal-bench-2.0 run --num-tasks 10',
           description:
-            'Run 10 Terminal-Bench tasks with the managed HybridClaw Harbor agent',
+            'Run 10 Terminal-Bench tasks through the native HybridClaw harness',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.results',
+          label: '/eval terminal-bench-2.0 results',
+          insertText: '/eval terminal-bench-2.0 results',
+          description: 'Show the latest Terminal-Bench summary and score',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.logs',
+          label: '/eval terminal-bench-2.0 logs',
+          insertText: '/eval terminal-bench-2.0 logs',
+          description:
+            'Show tailed stdout/stderr for the latest Terminal-Bench job',
         },
         {
           id: 'eval.tau2',
@@ -1549,27 +1556,13 @@ function buildSlashCommandCatalogDefinitions(
           id: 'eval.agentbench',
           label: '/eval agentbench',
           insertText: '/eval agentbench',
-          description: 'Show the AgentBench starter recipe',
-        },
-        {
-          id: 'eval.agentbench.setup',
-          label: '/eval agentbench setup',
-          insertText: '/eval agentbench setup',
-          description:
-            'Clone and install AgentBench into the local eval workspace',
+          description: 'Stub entry for a planned AgentBench runner',
         },
         {
           id: 'eval.gaia',
           label: '/eval gaia',
           insertText: '/eval gaia',
-          description: 'Show the GAIA starter recipe',
-        },
-        {
-          id: 'eval.gaia.setup',
-          label: '/eval gaia setup',
-          insertText: '/eval gaia setup',
-          description:
-            'Install Inspect AI and inspect-evals into the local eval workspace',
+          description: 'Stub entry for a planned GAIA runner',
         },
       ],
       options: [
