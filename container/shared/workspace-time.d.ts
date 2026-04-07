@@ -5,7 +5,4 @@ export function currentDateStampInTimezone(
   timezone?: string,
   now?: Date,
 ): string;
-export function nextDateBoundaryInTimezone(
-  timezone?: string,
-  now?: Date,
-): Date;
+export function nextDateBoundaryInTimezone(timezone?: string, now?: Date): Date;

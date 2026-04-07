@@ -55,6 +55,14 @@ test('dream command runs memory consolidation on demand', async () => {
   expect(infoSpy).toHaveBeenCalledWith(
     expect.objectContaining({
       trigger: 'manual',
+      decayRate: getRuntimeConfig().memory.decayRate,
+      consolidationLanguage: getRuntimeConfig().memory.consolidationLanguage,
+    }),
+    'Memory consolidation started',
+  );
+  expect(infoSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      trigger: 'manual',
       decayed: 7,
       dailyFilesCompiled: 3,
       workspacesUpdated: 2,

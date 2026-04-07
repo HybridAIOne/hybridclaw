@@ -133,6 +133,14 @@ export async function runMemoryConsolidation(params: {
   const { decayRate, consolidationLanguage } = getConfigSnapshot().memory;
   memoryConsolidationRunning = true;
   try {
+    logger.info(
+      {
+        trigger: params.trigger,
+        decayRate,
+        consolidationLanguage,
+      },
+      'Memory consolidation started',
+    );
     memoryService.setConsolidationDecayRate(decayRate);
     memoryService.setConsolidationLanguage(consolidationLanguage);
     const report = await memoryService.consolidateMemoriesWithCleanup();
