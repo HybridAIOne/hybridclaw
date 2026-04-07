@@ -5,6 +5,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../container/shared/workspace-time.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
@@ -448,6 +452,27 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
     }
   }
 
+  const userFile = files.find((file) => file.name === 'USER.md');
+  const userTimezone = extractUserTimezone(userFile?.content);
+  const todayMemoryName = `memory/${currentDateStampInTimezone(userTimezone)}.md`;
+  const todayMemoryPath = path.join(wsDir, todayMemoryName);
+  if (fs.existsSync(todayMemoryPath)) {
+    try {
+      let content = fs.readFileSync(todayMemoryPath, 'utf-8').trim();
+      if (content) {
+        if (content.length > MAX_FILE_CHARS) {
+          content = truncateHeadTailText(content, MAX_FILE_CHARS);
+        }
+        files.push({ name: todayMemoryName, content });
+      }
+    } catch (err) {
+      logger.warn(
+        { agentId, file: todayMemoryName, err },
+        'Failed to read daily memory file',
+      );
+    }
+  }
+
   return files;
 }
 
@@ -512,8 +537,7 @@ export function buildContextPrompt(files: ContextFile[]): string {
 
   // Extract timezone from USER.md if available
   const userFile = files.find((f) => f.name === 'USER.md');
-  const tzMatch = userFile?.content.match(/\*\*Timezone:\*\*\s*(.+)/i);
-  const userTimezone = tzMatch?.[1]?.trim() || undefined;
+  const userTimezone = extractUserTimezone(userFile?.content);
 
   const lines: string[] = [
     '# Project Context',

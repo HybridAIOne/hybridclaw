@@ -314,6 +314,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -6772,7 +6773,7 @@ export async function handleGatewayCommand(
           [
             `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
             currentIntervalHours > 0
-              ? `Cadence: every ${currentIntervalHours}h`
+              ? 'Cadence: nightly, with startup catch-up if a run was missed'
               : 'Cadence: off',
             `Decay rate: ${currentConfig.memory.decayRate}`,
           ].join('\n');
@@ -6787,14 +6788,14 @@ export async function handleGatewayCommand(
         if (sub === 'on' || sub === 'enable') {
           if (currentIntervalHours > 0) {
             return plainCommand(
-              `Dream scheduling already enabled. Consolidation runs every ${currentIntervalHours}h.`,
+              'Dream scheduling already enabled. Consolidation runs nightly and catches up after downtime.',
             );
           }
           updateRuntimeConfig((draft) => {
             draft.memory.consolidationIntervalHours = 24;
           });
           return plainCommand(
-            'Dream scheduling enabled. Memory consolidation will run every 24h.',
+            'Dream scheduling enabled. Memory consolidation will run nightly and catch up on the next startup if a run was missed.',
           );
         }
 
@@ -6813,16 +6814,20 @@ export async function handleGatewayCommand(
         }
 
         try {
-          memoryService.setConsolidationDecayRate(
-            currentConfig.memory.decayRate,
-          );
-          const report = memoryService.consolidateMemories();
+          const report = await runMemoryConsolidation({
+            trigger: 'manual',
+          });
+          if (!report) {
+            return plainCommand('Memory consolidation already running.');
+          }
           return infoCommand(
             'Memory Consolidated',
             [
               `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
               `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
               `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Model cleanups: ${formatCompactNumber(report.modelCleanups)}`,
+              `Fallbacks used: ${formatCompactNumber(report.fallbacksUsed)}`,
               `Duration: ${formatDurationMs(report.durationMs)}`,
             ].join('\n'),
           );

@@ -38,7 +38,6 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'show',
       'approve',
       'compact',
-      'dream',
       'channel-mode',
       'channel-policy',
       'concierge',
@@ -86,19 +85,11 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
   const conciergeDefinition = definitions.find(
     (definition) => definition.name === 'concierge',
   );
-  const dreamDefinition = definitions.find(
-    (definition) => definition.name === 'dream',
-  );
   expect(
     conciergeDefinition?.options
       ?.map((option) => ('name' in option ? option.name : ''))
       .filter(Boolean),
   ).toEqual(['info', 'on', 'off', 'model', 'profile']);
-  expect(
-    dreamDefinition?.options
-      ?.map((option) => ('name' in option ? option.name : ''))
-      .filter(Boolean),
-  ).toEqual(['now', 'on', 'off']);
 });
 
 test('parseSlashInteractionArgs maps agent interactions to command args', () => {
@@ -163,17 +154,6 @@ test('parseSlashInteractionArgs maps bot clear interactions to command args', ()
   );
 
   expect(args).toEqual(['bot', 'clear']);
-});
-
-test('parseSlashInteractionArgs maps dream interactions to command args', () => {
-  const args = parseSlashInteractionArgs(
-    makeInteraction({
-      commandName: 'dream',
-      subcommand: 'now',
-    }) as never,
-  );
-
-  expect(args).toEqual(['dream', 'now']);
 });
 
 test('parseSlashInteractionArgs maps model list, set, clear, and default interactions', () => {

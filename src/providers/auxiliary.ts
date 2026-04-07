@@ -1,5 +1,9 @@
 import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
+import {
+  drainServerSentEventBlocks,
+  parseServerSentEventBlock,
+} from '../../container/shared/server-sent-events.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
@@ -692,54 +696,142 @@ async function callCodexTextModel(
     .map((message) => contentToText(message.content).trim())
     .filter((message) => message.length > 0)
     .join('\n\n');
-  const body = withCoreRequestBody(
-    {
-      model: normalizeCodexModelName(context.model),
-      store: false,
-      instructions: instructions || 'You are Codex, a coding assistant.',
-      input: messages.flatMap(convertMessageToCodexInput),
-      tools: convertToolsToCodexTools(options.tools),
-      tool_choice: 'auto',
-      parallel_tool_calls: true,
-      ...(context.maxTokens ? { max_output_tokens: context.maxTokens } : {}),
-    },
-    options,
-  );
+  const body: Record<string, unknown> = {
+    ...(options.extraBody || {}),
+    model: normalizeCodexModelName(context.model),
+    store: false,
+    stream: true,
+    instructions: instructions || 'You are Codex, a coding assistant.',
+    input: messages.flatMap(convertMessageToCodexInput),
+    tools: convertToolsToCodexTools(options.tools),
+    tool_choice: 'auto',
+    parallel_tool_calls: true,
+    ...(context.maxTokens ? { max_output_tokens: context.maxTokens } : {}),
+  };
 
   const response = await fetch(`${context.baseUrl}/responses`, {
     method: 'POST',
-    headers: buildJsonHeaders({
-      apiKey: context.apiKey,
-      requestHeaders: context.requestHeaders,
-    }),
+    headers: {
+      ...buildJsonHeaders({
+        apiKey: context.apiKey,
+        requestHeaders: context.requestHeaders,
+      }),
+      Accept: 'text/event-stream, application/json',
+    },
     body: JSON.stringify(body),
     signal: createTimeoutSignal(options.timeoutMs),
   });
   if (!response.ok) await parseError(response);
 
-  const payload = (await response.json()) as {
-    output?: Array<{
-      type?: string;
-      content?: Array<{
-        text?: string;
-        output_text?: string;
+  const contentType = (
+    response.headers.get('content-type') || ''
+  ).toLowerCase();
+  if (
+    contentType.includes('application/json') &&
+    !contentType.includes('event-stream')
+  ) {
+    const payload = (await response.json()) as {
+      output?: Array<{
+        type?: string;
+        content?: Array<{
+          text?: string;
+          output_text?: string;
+        }>;
       }>;
-    }>;
-  };
-  const chunks: string[] = [];
-  for (const entry of payload.output || []) {
-    if (entry.type !== 'message' || !Array.isArray(entry.content)) continue;
-    for (const part of entry.content) {
-      const text =
-        typeof part.text === 'string'
-          ? part.text
-          : typeof part.output_text === 'string'
-            ? part.output_text
+    };
+    const chunks: string[] = [];
+    for (const entry of payload.output || []) {
+      if (entry.type !== 'message' || !Array.isArray(entry.content)) continue;
+      for (const part of entry.content) {
+        const text =
+          typeof part.text === 'string'
+            ? part.text
+            : typeof part.output_text === 'string'
+              ? part.output_text
+              : '';
+        if (text.trim()) chunks.push(text.trim());
+      }
+    }
+    return chunks.join('\n').trim();
+  }
+
+  if (!response.body) {
+    throw new Error('Auxiliary provider returned no response body.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+
+  const applyCodexEvent = (payload: Record<string, unknown>): void => {
+    const type = typeof payload.type === 'string' ? payload.type : '';
+    if (type === 'response.output_text.delta') {
+      const delta =
+        typeof payload.delta === 'string'
+          ? payload.delta
+          : typeof payload.text === 'string'
+            ? payload.text
             : '';
-      if (text.trim()) chunks.push(text.trim());
+      if (delta) text += delta;
+      return;
+    }
+    if (type === 'response.output_text.done') {
+      const finalText =
+        typeof payload.text === 'string'
+          ? payload.text
+          : typeof payload.output_text === 'string'
+            ? payload.output_text
+            : '';
+      if (finalText && finalText.length >= text.length) {
+        text = finalText;
+      }
+      return;
+    }
+    if (type !== 'response.completed') return;
+    const responsePayload = payload.response;
+    if (
+      typeof responsePayload !== 'object' ||
+      responsePayload === null ||
+      !Array.isArray((responsePayload as { output?: unknown }).output)
+    ) {
+      return;
+    }
+    const completedText = extractResponseTextContent(
+      (
+        responsePayload as { output: Array<{ content?: unknown }> }
+      ).output.flatMap((entry) => entry.content ?? []),
+    );
+    if (completedText && completedText.length >= text.length) {
+      text = completedText;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    const drained = drainServerSentEventBlocks(buffer);
+    buffer = drained.remainder;
+    for (const block of drained.blocks) {
+      const event = parseServerSentEventBlock(block);
+      if (!event || !event.data || event.data === '[DONE]') continue;
+      const payload = JSON.parse(event.data) as Record<string, unknown>;
+      applyCodexEvent(payload);
+    }
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    const event = parseServerSentEventBlock(buffer);
+    if (event?.data && event.data !== '[DONE]') {
+      const payload = JSON.parse(event.data) as Record<string, unknown>;
+      applyCodexEvent(payload);
     }
   }
-  return chunks.join('\n').trim();
+
+  return text.trim();
 }
 
 async function callOllamaTextModel(

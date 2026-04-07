@@ -11,6 +11,7 @@ test('dream command runs memory consolidation on demand', async () => {
 
   const { getRuntimeConfig } = await import('../src/config/runtime-config.js');
   const { initDatabase } = await import('../src/memory/db.ts');
+  const { logger } = await import('../src/logger.js');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
@@ -18,13 +19,16 @@ test('dream command runs memory consolidation on demand', async () => {
 
   initDatabase({ quiet: true });
 
+  const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => logger);
   const decaySpy = vi.spyOn(memoryService, 'setConsolidationDecayRate');
   const consolidateSpy = vi
-    .spyOn(memoryService, 'consolidateMemories')
-    .mockReturnValue({
+    .spyOn(memoryService, 'consolidateMemoriesWithCleanup')
+    .mockResolvedValue({
       memoriesDecayed: 7,
       dailyFilesCompiled: 3,
       workspacesUpdated: 2,
+      modelCleanups: 1,
+      fallbacksUsed: 0,
       durationMs: 1_250,
     });
 
@@ -45,8 +49,21 @@ test('dream command runs memory consolidation on demand', async () => {
   expect(result.text).toContain('Memories decayed: 7');
   expect(result.text).toContain('Daily files compiled: 3');
   expect(result.text).toContain('Workspaces updated: 2');
+  expect(result.text).toContain('Model cleanups: 1');
+  expect(result.text).toContain('Fallbacks used: 0');
   expect(result.text).toContain('Duration: 1.3s');
-});
+  expect(infoSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      trigger: 'manual',
+      decayed: 7,
+      dailyFilesCompiled: 3,
+      workspacesUpdated: 2,
+      modelCleanups: 1,
+      fallbacksUsed: 0,
+    }),
+    'Memory consolidation completed',
+  );
+}, 10_000);
 
 test('dream command reports consolidation failures', async () => {
   setupHome();
@@ -59,9 +76,9 @@ test('dream command reports consolidation failures', async () => {
 
   initDatabase({ quiet: true });
 
-  vi.spyOn(memoryService, 'consolidateMemories').mockImplementation(() => {
-    throw new Error('disk busy');
-  });
+  vi.spyOn(memoryService, 'consolidateMemoriesWithCleanup').mockRejectedValue(
+    new Error('disk busy'),
+  );
 
   const result = await handleGatewayCommand({
     sessionId: 'session-dream-error',
@@ -86,7 +103,10 @@ test('dream command is restricted to local TUI/web sessions', async () => {
 
   initDatabase({ quiet: true });
 
-  const consolidateSpy = vi.spyOn(memoryService, 'consolidateMemories');
+  const consolidateSpy = vi.spyOn(
+    memoryService,
+    'consolidateMemoriesWithCleanup',
+  );
 
   const result = await handleGatewayCommand({
     sessionId: 'session-dream-remote',
@@ -124,7 +144,9 @@ test('dream command reports scheduler status by default', async () => {
   }
   expect(result.title).toBe('Dream Status');
   expect(result.text).toContain('Scheduler: enabled');
-  expect(result.text).toContain('Cadence: every 24h');
+  expect(result.text).toContain(
+    'Cadence: nightly, with startup catch-up if a run was missed',
+  );
   expect(result.text).toContain('Usage: `dream on|off|now`');
 });
 
@@ -159,5 +181,6 @@ test('dream command can disable and re-enable scheduled consolidation', async ()
 
   expect(enabled.kind).toBe('plain');
   expect(enabled.text).toContain('Dream scheduling enabled');
+  expect(enabled.text).toContain('run nightly');
   expect(getRuntimeConfig().memory.consolidationIntervalHours).toBe(24);
 });

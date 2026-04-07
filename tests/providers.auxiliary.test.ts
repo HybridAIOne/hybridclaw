@@ -178,6 +178,83 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
   });
 });
 
+test('host auxiliary caller streams Codex responses for auxiliary tasks', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    apiKey: 'codex-key',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: { 'OpenAI-Beta': 'responses=experimental' },
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  vi.doMock('../src/providers/task-routing.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/task-routing.js')
+    >('../src/providers/task-routing.js');
+    return {
+      ...actual,
+      resolveTaskModelPolicy,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+
+  const streamBody = [
+    'event: response.output_text.delta\r\n',
+    'data: {"type":"response.output_text.delta","delta":"Clean"}\r\n\r\n',
+    'event: response.output_text.delta\r\n',
+    'data: {"type":"response.output_text.delta","delta":" memory"}\r\n\r\n',
+    'event: response.completed\r\n',
+    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}]}}\r\n\r\n',
+  ].join('');
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://chatgpt.com/backend-api/codex/responses');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Accept')).toBe('text/event-stream, application/json');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.stream).toBe(true);
+      expect(body.temperature).toBeUndefined();
+      return new Response(streamBody, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: 'main',
+    fallbackModel: 'openai-codex/gpt-5-codex',
+    fallbackChatbotId: '',
+    temperature: 0.1,
+    messages: [{ role: 'user', content: 'Rewrite this memory.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5-codex',
+    content: 'Clean memory',
+  });
+});
+
 test('host auxiliary caller supports explicit provider overrides and max_completion_tokens retry', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({

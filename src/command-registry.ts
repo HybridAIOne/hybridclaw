@@ -522,8 +522,8 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'dream',
-      description:
-        'Control memory consolidation scheduling and run it on demand',
+      description: 'Control nightly memory consolidation and run it on demand',
+      tuiOnly: true,
       tuiMenuEntries: [
         {
           id: 'dream.now',
@@ -535,13 +535,13 @@ function buildSlashCommandCatalogDefinitions(
           id: 'dream.on',
           label: '/dream on',
           insertText: '/dream on',
-          description: 'Enable scheduled memory consolidation',
+          description: 'Enable nightly dream consolidation',
         },
         {
           id: 'dream.off',
           label: '/dream off',
           insertText: '/dream off',
-          description: 'Disable scheduled memory consolidation',
+          description: 'Disable nightly dream consolidation',
         },
       ],
       options: [
@@ -553,12 +553,12 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'on',
-          description: 'Enable scheduled memory consolidation',
+          description: 'Enable nightly dream consolidation',
         },
         {
           kind: 'subcommand',
           name: 'off',
-          description: 'Disable scheduled memory consolidation',
+          description: 'Disable nightly dream consolidation',
         },
       ],
     },

@@ -1,22 +1,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { listAgents } from '../agents/agent-registry.js';
+import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../../container/shared/workspace-time.js';
+import {
+  listAgents,
+  resolveAgentForRequest,
+} from '../agents/agent-registry.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { MemoryBackend } from './memory-service.js';
 
 export interface MemoryConsolidationConfig {
   decayRate: number;
   staleAfterDays: number;
   minConfidence: number;
+  language?: string;
 }
 
 export interface MemoryConsolidationReport {
   memoriesDecayed: number;
   dailyFilesCompiled: number;
   workspacesUpdated: number;
+  modelCleanups: number;
+  fallbacksUsed: number;
   durationMs: number;
 }
 
@@ -35,6 +46,8 @@ const DAILY_MEMORY_FILE_MAX_CHARS = 4_000;
 const DAILY_MEMORY_SUMMARY_MAX_ITEMS = 6;
 const DAILY_MEMORY_LINE_MAX_CHARS = 220;
 const MEMORY_FILE_MAX_CHARS = 12_000;
+const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
+const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
 // Keep this aligned with DEFAULT_MEMORY_TEMPLATE and templates/MEMORY.md.
 const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
 const DEFAULT_MEMORY_TEMPLATE = `# MEMORY.md - Session Memory
@@ -63,6 +76,22 @@ interface DailyMemoryEntry {
   summary: string;
 }
 
+interface CanonicalMemorySections {
+  facts: string[];
+  decisions: string[];
+  patterns: string[];
+}
+
+type MemoryCleanupFallbackReason =
+  | 'invalid_model_output'
+  | 'empty_model_output'
+  | 'memory_budget_exceeded';
+
+interface MemoryCleanupRewriteResult {
+  content: string | null;
+  fallbackReason: MemoryCleanupFallbackReason | null;
+}
+
 const DAILY_DIGEST_PREFIX = [
   DAILY_MEMORY_BLOCK_START,
   '## Daily Memory Digest',
@@ -80,11 +109,48 @@ const DAILY_DIGEST_BLOCK_RE = new RegExp(
   'g',
 );
 
-export function currentDateStamp(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+const MEMORY_CLEANUP_SYSTEM_PROMPT = [
+  'You consolidate durable assistant memory.',
+  'Return strict JSON only with this shape:',
+  '{"facts":["..."],"decisions":["..."],"patterns":["..."]}',
+  'Rules:',
+  '- Merge older daily memory into durable memory when it is still relevant.',
+  '- Remove duplicates, near-duplicates, outdated facts, and superseded decisions.',
+  '- Prefer the newest valid statement when entries conflict.',
+  '- Keep only durable facts, durable decisions, and recurring patterns.',
+  '- Drop transient statuses, one-off progress notes, and stale historical context.',
+  '- Each item must be a short standalone bullet sentence without markdown bullet prefixes.',
+  '- Do not include dates, headings, commentary, markdown fences, or any keys besides facts, decisions, patterns.',
+].join('\n');
+
+function normalizeConsolidationLanguage(language?: string): string {
+  const normalized = (language || '').trim().toLowerCase();
+  return normalized || 'en';
+}
+
+function describeConsolidationLanguage(language?: string): string {
+  const normalized = normalizeConsolidationLanguage(language);
+  if (normalized === 'en' || normalized === 'en-us' || normalized === 'en-gb') {
+    return 'English';
+  }
+  if (normalized === 'de' || normalized === 'de-de') {
+    return 'German';
+  }
+  return normalized;
+}
+
+export function currentDateStamp(now = new Date(), timezone?: string): string {
+  return currentDateStampInTimezone(timezone, now);
+}
+
+function resolveWorkspaceTimezone(workspaceDir: string): string | undefined {
+  try {
+    const userPath = path.join(workspaceDir, 'USER.md');
+    if (!fs.existsSync(userPath)) return undefined;
+    return extractUserTimezone(fs.readFileSync(userPath, 'utf-8'));
+  } catch {
+    return undefined;
+  }
 }
 
 function readMemoryTemplate(): string {
@@ -124,6 +190,277 @@ function normalizeBullet(line: string): string {
     .replace(/^\s*\d+\.\s+/, '')
     .replace(/^\s*\[[ xX]\]\s+/, '')
     .trim();
+}
+
+function emptyCanonicalMemorySections(): CanonicalMemorySections {
+  return {
+    facts: [],
+    decisions: [],
+    patterns: [],
+  };
+}
+
+function stripCodeFence(value: string): string {
+  const trimmed = value.trim();
+  const fencedMatch = /^```(?:json|markdown)?\s*([\s\S]*?)\s*```$/i.exec(
+    trimmed,
+  );
+  return fencedMatch?.[1]?.trim() || trimmed;
+}
+
+function normalizeMemoryItems(
+  input: unknown,
+  maxChars = MODEL_MEMORY_ITEM_MAX_CHARS,
+): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const normalized = truncateLine(normalizeBullet(raw), maxChars);
+    const key = normalized.toLowerCase();
+    if (!addUniqueKey(seen, key)) continue;
+    items.push(normalized);
+    if (items.length >= MODEL_MEMORY_MAX_ITEMS_PER_SECTION) break;
+  }
+  return items;
+}
+
+function parseCanonicalMemorySections(
+  rawContent: string,
+): CanonicalMemorySections | null {
+  try {
+    const parsed = JSON.parse(stripCodeFence(rawContent)) as Record<
+      string,
+      unknown
+    >;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return {
+      facts: normalizeMemoryItems(parsed.facts),
+      decisions: normalizeMemoryItems(parsed.decisions),
+      patterns: normalizeMemoryItems(parsed.patterns),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractCanonicalMemorySections(
+  memoryContent: string,
+): CanonicalMemorySections {
+  const sections = emptyCanonicalMemorySections();
+  let activeSection: keyof CanonicalMemorySections | null = null;
+
+  for (const line of stripDailyDigestBlock(memoryContent)
+    .replace(/\r/g, '')
+    .split('\n')) {
+    const headingMatch = /^##\s+(.+?)\s*$/.exec(line.trim());
+    if (headingMatch) {
+      const sectionName = headingMatch[1]?.trim();
+      if (sectionName === 'Facts') activeSection = 'facts';
+      else if (sectionName === 'Decisions') activeSection = 'decisions';
+      else if (sectionName === 'Patterns') activeSection = 'patterns';
+      else activeSection = null;
+      continue;
+    }
+
+    if (!activeSection || !/^[-*+]\s+/.test(line.trim())) {
+      continue;
+    }
+
+    const bullet = truncateLine(
+      normalizeBullet(line),
+      MODEL_MEMORY_ITEM_MAX_CHARS,
+    );
+    if (!bullet) continue;
+    const current = sections[activeSection];
+    if (current.some((entry) => entry.toLowerCase() === bullet.toLowerCase())) {
+      continue;
+    }
+    current.push(bullet);
+  }
+
+  return sections;
+}
+
+function countCanonicalMemoryItems(sections: CanonicalMemorySections): number {
+  return (
+    sections.facts.length + sections.decisions.length + sections.patterns.length
+  );
+}
+
+function renderMemorySection(
+  title: string,
+  items: string[],
+  placeholder: string,
+): string {
+  return [
+    `## ${title}`,
+    '',
+    items.length > 0
+      ? items.map((item) => `- ${item}`).join('\n')
+      : placeholder,
+  ].join('\n');
+}
+
+function renderCanonicalMemoryDocument(
+  sections: CanonicalMemorySections,
+): string {
+  return [
+    '# MEMORY.md - Session Memory',
+    '',
+    "_Things you've learned across conversations. Update as you go._",
+    '',
+    renderMemorySection(
+      'Facts',
+      sections.facts,
+      '_(No durable facts captured yet.)_',
+    ),
+    '',
+    renderMemorySection(
+      'Decisions',
+      sections.decisions,
+      '_(No durable decisions captured yet.)_',
+    ),
+    '',
+    renderMemorySection(
+      'Patterns',
+      sections.patterns,
+      '_(No recurring patterns captured yet.)_',
+    ),
+    '',
+    '---',
+    '',
+    'This is your persistent memory. Each session, read this first. Update it when you learn something worth remembering.',
+    '',
+  ].join('\n');
+}
+
+function fitCanonicalMemoryDocument(
+  sections: CanonicalMemorySections,
+): string | null {
+  const fitted: CanonicalMemorySections = {
+    facts: [...sections.facts],
+    decisions: [...sections.decisions],
+    patterns: [...sections.patterns],
+  };
+
+  let rendered = renderCanonicalMemoryDocument(fitted);
+  while (rendered.length > MEMORY_FILE_MAX_CHARS) {
+    const buckets: Array<keyof CanonicalMemorySections> = [
+      'patterns',
+      'facts',
+      'decisions',
+    ];
+    const target = buckets.find((key) => fitted[key].length > 0);
+    if (!target) return null;
+    fitted[target].pop();
+    rendered = renderCanonicalMemoryDocument(fitted);
+  }
+
+  return rendered;
+}
+
+function formatDailyEntriesForPrompt(entries: DailyMemoryEntry[]): string {
+  if (entries.length === 0) return 'None.';
+  return entries
+    .map((entry) => [`### ${entry.date}`, entry.summary].join('\n'))
+    .join('\n\n');
+}
+
+function buildModelCleanupPrompt(params: {
+  existing: string;
+  entries: DailyMemoryEntry[];
+  language?: string;
+}): string {
+  const sections = extractCanonicalMemorySections(params.existing);
+  const existingSummary =
+    countCanonicalMemoryItems(sections) > 0
+      ? [
+          '## Current durable memory',
+          '',
+          `Facts: ${sections.facts.length > 0 ? sections.facts.map((item) => `- ${item}`).join('\n') : 'None.'}`,
+          '',
+          `Decisions: ${sections.decisions.length > 0 ? sections.decisions.map((item) => `- ${item}`).join('\n') : 'None.'}`,
+          '',
+          `Patterns: ${sections.patterns.length > 0 ? sections.patterns.map((item) => `- ${item}`).join('\n') : 'None.'}`,
+        ].join('\n')
+      : '## Current durable memory\n\nNone.';
+
+  return [
+    'Rewrite the durable memory from these sources.',
+    '',
+    existingSummary,
+    '',
+    '## Older daily memory summaries',
+    '',
+    formatDailyEntriesForPrompt(params.entries),
+    '',
+    `Write every returned item in ${describeConsolidationLanguage(params.language)}.`,
+    '',
+    'Keep the result concise and durable. If a newer daily note supersedes an existing item, keep only the newer truth.',
+  ].join('\n');
+}
+
+async function rewriteMemoryContentWithModel(params: {
+  agentId: string;
+  existing: string;
+  entries: DailyMemoryEntry[];
+  language?: string;
+}): Promise<MemoryCleanupRewriteResult> {
+  const runtime = resolveAgentForRequest({ agentId: params.agentId });
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: params.agentId,
+    fallbackModel: runtime.model,
+    fallbackChatbotId: runtime.chatbotId,
+    fallbackEnableRag: false,
+    messages: [
+      { role: 'system', content: MEMORY_CLEANUP_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: buildModelCleanupPrompt({
+          existing: params.existing,
+          entries: params.entries,
+          language: params.language,
+        }),
+      },
+    ],
+    temperature: 0.1,
+  });
+
+  const sections = parseCanonicalMemorySections(result.content);
+  if (!sections) {
+    return {
+      content: null,
+      fallbackReason: 'invalid_model_output',
+    };
+  }
+  if (
+    countCanonicalMemoryItems(sections) === 0 &&
+    (countCanonicalMemoryItems(
+      extractCanonicalMemorySections(params.existing),
+    ) > 0 ||
+      params.entries.length > 0)
+  ) {
+    return {
+      content: null,
+      fallbackReason: 'empty_model_output',
+    };
+  }
+  const content = fitCanonicalMemoryDocument(sections);
+  if (!content) {
+    return {
+      content: null,
+      fallbackReason: 'memory_budget_exceeded',
+    };
+  }
+  return {
+    content,
+    fallbackReason: null,
+  };
 }
 
 function summarizeDailyMemory(rawContent: string): string {
@@ -265,6 +602,17 @@ function buildMemoryContent(params: {
   );
 }
 
+function buildMemoryContentWithFallback(params: {
+  existing: string;
+  entries: DailyMemoryEntry[];
+}): string {
+  try {
+    return buildMemoryContent(params);
+  } catch {
+    return dedupeMemorySections(params.existing);
+  }
+}
+
 function readDailyMemoryFile(filePath: string): string | null {
   try {
     const stats = fs.statSync(filePath);
@@ -290,7 +638,10 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
   const dailyDir = path.join(workspaceDir, 'memory');
   if (!fs.existsSync(dailyDir)) return [];
 
-  const today = currentDateStamp();
+  const today = currentDateStamp(
+    undefined,
+    resolveWorkspaceTimezone(workspaceDir),
+  );
   const selected: DailyMemoryEntry[] = [];
   let usedChars = 0;
   for (const name of fs
@@ -330,13 +681,23 @@ export class MemoryConsolidationEngine {
 
   constructor(backend: MemoryBackend, config: MemoryConsolidationConfig) {
     this.backend = backend;
-    this.config = { ...config };
+    this.config = {
+      ...config,
+      language: normalizeConsolidationLanguage(config.language),
+    };
   }
 
   setDecayRate(decayRate: number): void {
     this.config = {
       ...this.config,
       decayRate,
+    };
+  }
+
+  setLanguage(language: string): void {
+    this.config = {
+      ...this.config,
+      language: normalizeConsolidationLanguage(language),
     };
   }
 
@@ -375,6 +736,92 @@ export class MemoryConsolidationEngine {
       memoriesDecayed,
       dailyFilesCompiled,
       workspacesUpdated,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
+      durationMs: Math.max(0, Date.now() - start),
+    };
+  }
+
+  async consolidateWithCleanup(): Promise<MemoryConsolidationReport> {
+    const start = Date.now();
+    const memoriesDecayed = this.backend.decaySemanticMemories({
+      decayRate: this.config.decayRate,
+      staleAfterDays: this.config.staleAfterDays,
+      minConfidence: this.config.minConfidence,
+    });
+    let dailyFilesCompiled = 0;
+    let workspacesUpdated = 0;
+    let modelCleanups = 0;
+    let fallbacksUsed = 0;
+
+    for (const agent of listAgents()) {
+      const workspaceDir = agentWorkspaceDir(agent.id);
+      if (!fs.existsSync(workspaceDir)) continue;
+
+      try {
+        const entries = collectDailyMemoryEntries(workspaceDir);
+        const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+        const hasExistingMemory = fs.existsSync(memoryPath);
+        if (!hasExistingMemory && entries.length === 0) {
+          continue;
+        }
+
+        const existing = hasExistingMemory
+          ? fs.readFileSync(memoryPath, 'utf-8')
+          : readMemoryTemplate();
+        dailyFilesCompiled += entries.length;
+
+        let next: string | null = null;
+        try {
+          const rewriteResult = await rewriteMemoryContentWithModel({
+            agentId: agent.id,
+            existing,
+            entries,
+            language: this.config.language,
+          });
+          next = rewriteResult.content;
+          if (!next && rewriteResult.fallbackReason) {
+            logger.warn(
+              {
+                agentId: agent.id,
+                workspaceDir,
+                fallbackReason: rewriteResult.fallbackReason,
+              },
+              'Model-backed memory cleanup returned unusable output; falling back to deterministic consolidation',
+            );
+          }
+        } catch (err) {
+          logger.warn(
+            { agentId: agent.id, workspaceDir, err },
+            'Model-backed memory cleanup failed; falling back to deterministic consolidation',
+          );
+        }
+
+        if (!next) {
+          next = buildMemoryContentWithFallback({ existing, entries });
+          fallbacksUsed += 1;
+        } else {
+          modelCleanups += 1;
+        }
+
+        if (next === existing) continue;
+        fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
+        fs.writeFileSync(memoryPath, next, 'utf-8');
+        workspacesUpdated += 1;
+      } catch (err) {
+        logger.warn(
+          { agentId: agent.id, workspaceDir, err },
+          'Memory consolidation skipped a workspace after a file error',
+        );
+      }
+    }
+
+    return {
+      memoriesDecayed,
+      dailyFilesCompiled,
+      workspacesUpdated,
+      modelCleanups,
+      fallbacksUsed,
       durationMs: Math.max(0, Date.now() - start),
     };
   }

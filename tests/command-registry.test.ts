@@ -11,10 +11,14 @@ afterEach(() => {
 });
 
 test('registers plugin as a slash/text command', async () => {
-  const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
-    await importCommandRegistry();
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+  } = await importCommandRegistry();
   expect(isRegisteredTextCommandName('plugin')).toBe(true);
   expect(isRegisteredTextCommandName('concierge')).toBe(true);
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
     expect.arrayContaining([
@@ -80,6 +84,15 @@ test('registers plugin as a slash/text command', async () => {
           }),
         ]),
       }),
+    ]),
+  );
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
       expect.objectContaining({
         name: 'dream',
         options: expect.arrayContaining([
@@ -403,9 +416,10 @@ test('parses /plugin reload into gateway args', async () => {
   ).toEqual(['plugin', 'reload']);
 });
 
-test('registers dream as a canonical and local slash/text command', async () => {
+test('registers dream as a local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
     isRegisteredTextCommandName,
     mapCanonicalCommandToGatewayArgs,
     parseCanonicalSlashCommandArgs,
@@ -414,6 +428,11 @@ test('registers dream as a canonical and local slash/text command', async () => 
   expect(isRegisteredTextCommandName('dream')).toBe(true);
   expect(
     buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(
+    buildTuiSlashCommandDefinitions([]).some(
       (definition) => definition.name === 'dream',
     ),
   ).toBe(true);

@@ -1,4 +1,15 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const tempDirs: string[] = [];
+
+function makeTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -64,7 +75,11 @@ function createGatewayMainTestState(options?: {
         webhookPath: '/api/imessage/webhook',
       },
       local: { enabled: false },
-      memory: { consolidationIntervalHours: 0, decayRate: 0.25 },
+      memory: {
+        consolidationIntervalHours: 0,
+        decayRate: 0.25,
+        consolidationLanguage: 'en',
+      },
       observability: { enabled: false, botId: '', agentId: '' },
       ops: { healthPort: 9090 },
       scheduler: { jobs: [] as unknown[] },
@@ -125,9 +140,22 @@ function createGatewayMainTestState(options?: {
     loggerWarn: vi.fn(),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
+      dailyFilesCompiled: 0,
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
+      durationMs: 1,
+    })),
+    memoryServiceConsolidateWithCleanup: vi.fn(async () => ({
+      memoriesDecayed: 0,
+      dailyFilesCompiled: 0,
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
       durationMs: 1,
     })),
     memoryServiceSetDecayRate: vi.fn(),
+    memoryServiceSetLanguage: vi.fn(),
     onConfigChange: vi.fn(),
     processOn: vi.spyOn(process, 'on'),
     rearmScheduler: vi.fn(),
@@ -145,6 +173,7 @@ function createGatewayMainTestState(options?: {
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
+    setTimeout: vi.fn(() => ({ timer: true })),
     startGatewayHttpServer: vi.fn(() => ({
       broadcastShutdown: vi.fn(),
       setReady: vi.fn(),
@@ -174,6 +203,7 @@ async function importFreshGatewayMain(options?: {
   hasMSTeamsCredentials?: boolean;
   initGatewayServiceImpl?: () => Promise<void>;
   skipBootstrapHandlerCheck?: boolean;
+  dataDir?: string;
   onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
 }) {
   vi.resetModules();
@@ -248,6 +278,8 @@ async function importFreshGatewayMain(options?: {
   state.processOn.mockImplementation((() => process) as never);
   vi.stubGlobal('setInterval', state.setInterval as never);
   vi.stubGlobal('clearInterval', vi.fn());
+  vi.stubGlobal('setTimeout', state.setTimeout as never);
+  vi.stubGlobal('clearTimeout', vi.fn());
 
   vi.doMock('../src/agent/executor.js', () => ({
     stopAllExecutions: vi.fn(),
@@ -316,7 +348,7 @@ async function importFreshGatewayMain(options?: {
     })),
   }));
   vi.doMock('../src/config/config.js', () => ({
-    DATA_DIR: '/tmp/hybridclaw-data',
+    DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID:
@@ -354,8 +386,10 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/memory/memory-service.js', () => ({
     memoryService: {
       consolidateMemories: state.memoryServiceConsolidate,
+      consolidateMemoriesWithCleanup: state.memoryServiceConsolidateWithCleanup,
       getSessionById: vi.fn(() => state.currentSession),
       setConsolidationDecayRate: state.memoryServiceSetDecayRate,
+      setConsolidationLanguage: state.memoryServiceSetLanguage,
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
@@ -479,6 +513,10 @@ afterEach(() => {
   vi.doUnmock('../src/workflow/executor.js');
   vi.doUnmock('../src/workflow/service.js');
   vi.resetModules();
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe('gateway bootstrap', () => {
@@ -501,6 +539,50 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('runs a missed dream consolidation on startup when nightly scheduling is enabled', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.memoryServiceSetDecayRate).toHaveBeenCalledWith(0.4);
+    expect(state.memoryServiceConsolidateWithCleanup).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not rerun dream consolidation on startup when a nightly run already completed today', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    fs.writeFileSync(
+      path.join(dataDir, 'memory-consolidation-state.json'),
+      `${JSON.stringify({
+        version: 1,
+        lastCompletedAt: new Date().toISOString(),
+      })}\n`,
+      'utf-8',
+    );
+
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.memoryServiceConsolidateWithCleanup).not.toHaveBeenCalled();
+    expect(state.setTimeout).toHaveBeenCalledTimes(1);
   });
 
   test('starts iMessage integration automatically when enabled in config', async () => {
@@ -1606,7 +1688,11 @@ describe('gateway bootstrap', () => {
         smtpSecure: false,
       },
       local: { enabled: true },
-      memory: { consolidationIntervalHours: 2, decayRate: 0.5 },
+      memory: {
+        consolidationIntervalHours: 2,
+        decayRate: 0.5,
+        consolidationLanguage: 'en',
+      },
       observability: { enabled: true, botId: 'bot-obs', agentId: 'agent-obs' },
       scheduler: { jobs: [{ id: 'job-1' }] },
     };
@@ -1617,6 +1703,6 @@ describe('gateway bootstrap', () => {
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
     expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
-    expect(state.setInterval.mock.calls.length).toBeGreaterThan(1);
+    expect(state.setTimeout).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../shared/workspace-time.js';
+import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
   setBrowserModelContext,
@@ -1190,17 +1194,32 @@ function normalizeDateStamp(input: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function resolveMemoryTimezone(): string | undefined {
+  try {
+    const userPath = safeJoin('USER.md');
+    if (!fs.existsSync(userPath)) return undefined;
+    const content = fs.readFileSync(userPath, 'utf-8');
+    return extractUserTimezone(content);
+  } catch {
+    return undefined;
+  }
+}
+
 function currentDateStamp(): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const year = parts.find((p) => p.type === 'year')?.value;
-  const month = parts.find((p) => p.type === 'month')?.value;
-  const day = parts.find((p) => p.type === 'day')?.value;
-  if (year && month && day) return `${year}-${month}-${day}`;
-  return new Date().toISOString().slice(0, 10);
+  return currentDateStampInTimezone(resolveMemoryTimezone());
+}
+
+function isMemoryWriteAction(action: string): boolean {
+  return (
+    action === 'append' ||
+    action === 'write' ||
+    action === 'replace' ||
+    action === 'remove'
+  );
+}
+
+function isTodayDailyMemoryPath(relativePath: string): boolean {
+  return relativePath === `memory/${currentDateStamp()}.md`;
 }
 
 function normalizeMemoryFilePath(rawPath: unknown): string | null {
@@ -1917,12 +1936,20 @@ async function executeToolInternal(
           'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md',
         );
       }
+      if (
+        isMemoryWriteAction(action) &&
+        !isTodayDailyMemoryPath(relativePath)
+      ) {
+        return failTool(
+          `Error: memory write actions are restricted to today's daily note (${`memory/${currentDateStamp()}.md`}). Use MEMORY.md only through dream consolidation.`,
+        );
+      }
 
       const filePath = safeJoin(relativePath);
       if (action === 'list') {
         const files = listMemoryFiles();
         if (files.length === 0) {
-          return 'No memory files found yet. Use action="append" with MEMORY.md or memory/YYYY-MM-DD.md.';
+          return `No memory files found yet. Use action="append" with memory/${currentDateStamp()}.md.`;
         }
         return files.join('\n');
       }
@@ -2865,7 +2892,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        'Manage durable agent memory files. Supports MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Actions: read, append, write, replace, remove, list, search. Memory files are char-bounded to prevent unbounded growth. Use this proactively for durable facts/preferences; do not wait to be explicitly asked to remember important context.',
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -2877,7 +2904,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           file_path: {
             type: 'string',
             description:
-              'Target file path. Allowed: MEMORY.md, USER.md, memory/YYYY-MM-DD.md',
+              "Target file path. Read/search/list allow MEMORY.md, USER.md, memory/YYYY-MM-DD.md. Write actions only allow today's memory/YYYY-MM-DD.md.",
           },
           target: {
             type: 'string',
