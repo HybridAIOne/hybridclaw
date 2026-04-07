@@ -5,15 +5,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 describe('llm-wiki bundled skill', () => {
-  const originalHome = process.env.HOME;
-  const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-  const tempHomes: string[] = [];
+  let tempHome = '';
 
   beforeEach(() => {
-    const tempHome = fs.mkdtempSync(
+    tempHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-llm-wiki-skill-'),
     );
-    tempHomes.push(tempHome);
     vi.stubEnv('HOME', tempHome);
     vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
     vi.resetModules();
@@ -21,21 +18,9 @@ describe('llm-wiki bundled skill', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    vi.resetModules();
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
-    if (originalDisableWatcher === undefined) {
-      delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-    } else {
-      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = originalDisableWatcher;
-    }
-    while (tempHomes.length > 0) {
-      const tempHome = tempHomes.pop();
-      if (!tempHome) continue;
-      fs.rmSync(tempHome, { recursive: true, force: true });
+    if (tempHome) {
+      fs.rmSync(tempHome, { recursive: true });
+      tempHome = '';
     }
   });
 
@@ -48,8 +33,8 @@ describe('llm-wiki bundled skill', () => {
       available: true,
       metadata: {
         hybridclaw: {
-          tags: ['wiki', 'knowledge-base', 'research', 'markdown', 'obsidian'],
-          relatedSkills: ['obsidian', 'pdf', 'notion'],
+          tags: ['wiki', 'knowledge-base', 'research', 'markdown'],
+          relatedSkills: ['pdf', 'notion'],
         },
       },
     });
@@ -82,49 +67,20 @@ describe('llm-wiki bundled skill', () => {
         ),
       ),
     ).toBe(true);
-    expect(
-      fs
-        .readFileSync(
-          path.join(workspaceDir, 'skills', 'llm-wiki', 'SKILL.md'),
-          'utf8',
-        )
-        .includes('Orient Every Session'),
-    ).toBe(true);
-    expect(
-      fs
-        .readFileSync(
-          path.join(workspaceDir, 'skills', 'llm-wiki', 'SKILL.md'),
-          'utf8',
-        )
-        .includes('Bulk Ingest'),
-    ).toBe(true);
-    expect(
-      fs
-        .readFileSync(
-          path.join(
-            workspaceDir,
-            'skills',
-            'llm-wiki',
-            'templates',
-            'AGENTS.md',
-          ),
-          'utf8',
-        )
-        .includes('Tag Taxonomy'),
-    ).toBe(true);
-    expect(
-      fs
-        .readFileSync(
-          path.join(
-            workspaceDir,
-            'skills',
-            'llm-wiki',
-            'templates',
-            'AGENTS.md',
-          ),
-          'utf8',
-        )
-        .includes('Lint Checks'),
-    ).toBe(true);
+    const skillContent = fs.readFileSync(
+      path.join(workspaceDir, 'skills', 'llm-wiki', 'SKILL.md'),
+      'utf8',
+    );
+    expect(skillContent).toContain('Orient Every Session');
+    expect(skillContent).toContain('skills/llm-wiki/templates/AGENTS.md');
+    expect(skillContent).not.toContain('### Recommended Frontmatter');
+
+    const agentsContent = fs.readFileSync(
+      path.join(workspaceDir, 'skills', 'llm-wiki', 'templates', 'AGENTS.md'),
+      'utf8',
+    );
+    expect(agentsContent).toContain('Tag Taxonomy');
+    expect(agentsContent).toContain('Lint Checks');
+    expect(agentsContent).not.toContain('## Obsidian');
   });
 });

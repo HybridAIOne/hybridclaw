@@ -10,7 +10,7 @@ Append entries in reverse chronological order using headings like:
 ## [2026-04-07] archive | Superseded page
 ```
 
-Each entry should state what changed, which pages were touched, and what follow
-ups remain.
+Each entry should state what changed, which pages were touched, and what
+follow-ups remain.
 
 Rotate this file when it becomes too long to scan comfortably.

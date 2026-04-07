@@ -9,9 +9,7 @@ metadata:
       - knowledge-base
       - research
       - markdown
-      - obsidian
     related_skills:
-      - obsidian
       - pdf
       - notion
 ---
@@ -44,14 +42,13 @@ Use this order:
 1. a user-specified wiki root
 2. an already-structured repo or vault containing `raw/`, `wiki/`, `index.md`,
    and `log.md`
-3. a confirmed Obsidian vault if the user wants the wiki inside Obsidian
+3. a confirmed markdown vault or notes repo chosen by the user
 4. the current workspace only if the user explicitly wants the wiki here
 
 Do not assume the current workspace is the wiki root just because it contains
 Markdown files.
 
-If the target is an Obsidian vault, also follow `skills/obsidian/SKILL.md` for
-vault-safe behavior.
+If the target is an Obsidian vault, also follow `skills/obsidian/SKILL.md`.
 
 ## Orient Every Session
 
@@ -115,50 +112,11 @@ reading them first.
 When bootstrapping or upgrading a wiki, make sure `AGENTS.md` contains a usable
 schema, not just a short description.
 
-### Recommended Frontmatter
-
-When there is no stronger local convention, maintained pages should begin with:
-
-```yaml
----
-title: Page Title
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-type: source | entity | concept | analysis
-tags: [tag-a, tag-b]
-sources:
-  - raw/path-or-source-summary
----
-```
-
-`raw/` files do not need frontmatter unless the user already uses it there.
-
-### Tag Taxonomy
-
-Do not let tags grow ad hoc. Keep a bounded taxonomy in `AGENTS.md`, and add
-new tags there before using them on pages. A useful starter taxonomy often
-includes:
-
-- `source`, `entity`, `concept`, `analysis`
-- domain tags such as `company`, `person`, `product`, `model`, `timeline`
-- state tags such as `open-question`, `hypothesis`, `contradiction`
-
-If the user gave a specific domain, adapt the taxonomy to that domain instead
-of keeping these generic labels.
-
-### Page Thresholds
-
-When there is no stronger local rule in the wiki:
-
-- create a new page when a concept or entity is central to one source or
-  appears meaningfully across multiple sources
-- update an existing page when the source mainly adds facts to something already
-  covered
-- do not create a page for a passing mention
-- split a page when it becomes too large or stops being scannable
-- archive a page when it is superseded and no longer useful as a live page
-
-Prefer richer existing pages over a larger count of shallow near-duplicates.
+The authoritative default schema lives in
+`skills/llm-wiki/templates/AGENTS.md`. Use that file as the source of truth for
+default frontmatter, taxonomy, page thresholds, lint checks, archive behavior,
+and link style. Adapt the copied `AGENTS.md` to the user's domain
+instead of duplicating those defaults here.
 
 ## Ingest Workflow
 
@@ -196,6 +154,10 @@ When a source conflicts with existing wiki content:
 If one ingest would touch many pages, narrate the scope clearly before making a
 large coordinated update.
 
+Apply the local `AGENTS.md` rules for frontmatter, tags, thresholds, page
+shape, and link style. If the wiki still uses the default bundled schema, that
+means following the defaults copied from `skills/llm-wiki/templates/AGENTS.md`.
+
 ## Query Workflow
 
 When answering a wiki question:
@@ -212,27 +174,12 @@ and contradictions clearly.
 
 ## Lint Workflow
 
-When the user asks for a health check, audit the wiki for:
+When the user asks for a health check, audit the wiki against the rules in the
+local `AGENTS.md`.
 
-- orphan pages with no meaningful inbound references
-- broken links or wikilinks
-- frontmatter validation issues on maintained pages
-- tags that are missing from the local taxonomy
-- stale claims superseded by newer sources
-- contradictions between related pages
-- pages that should be split because they are too large or overloaded
-- index entries that no longer match the filesystem
-- pages missing from `index.md`
-- oversized or stale `log.md` files that should be rotated
-- missing follow-up questions or obvious source gaps
-
-When possible, group findings by severity:
-
-1. broken links, missing pages, invalid frontmatter
-2. contradictions, stale claims, missing index entries
-3. orphans, oversized pages, taxonomy cleanup, follow-up gaps
-
-Record meaningful lint passes in `log.md`.
+If the wiki uses the bundled default schema, the checks in
+`skills/llm-wiki/templates/AGENTS.md` are authoritative. Report findings by
+severity, then record meaningful lint passes in `log.md`.
 
 ## Working With The Wiki
 
@@ -247,43 +194,10 @@ When ingesting multiple sources at once:
 5. update `index.md` once at the end
 6. write one clear batch entry to `log.md`
 
-### Archive Workflow
-
-When content is fully superseded or no longer belongs in the live wiki:
-
-1. move it into an archive area only if the user wants archival retention
-2. remove or update its index entry
-3. update inbound links or note the page was archived
-4. log the archive action and why it happened
-
-Do not archive aggressively. Archive when it preserves clarity, not just to
-reduce page count.
-
-### Obsidian Guidance
-
-If the wiki lives in an Obsidian vault:
-
-- prefer wikilinks when that vault already uses them
-- keep attachment-like assets under `raw/assets/`
-- preserve vault conventions instead of imposing new ones
-
-For headless or synced setups, keep the guidance conceptual unless the user
-explicitly asks for sync or automation steps. The wiki should remain plain
-markdown that works without any proprietary integration.
-
-## Page Conventions
-
-- Use clear, stable file names.
-- Prefer updating an existing page over creating near-duplicates.
-- Keep maintained pages scannable and easy to navigate.
-- Match the surrounding link style:
-  use Obsidian wikilinks in vaults that already use them; otherwise use
-  relative Markdown links.
-- Keep provenance explicit. Every non-trivial factual claim should be traceable
-  to a source page, a raw source, or a clearly labeled inference.
-- Mark hypotheses, open questions, and unresolved conflicts explicitly.
-- Every created or materially updated page should be reflected in `index.md`
-  and `log.md`.
+For archive behavior, page shape, link style, and other
+schema defaults, defer to the local `AGENTS.md`. If the wiki was bootstrapped
+from the bundled defaults, `skills/llm-wiki/templates/AGENTS.md` is the
+authoritative reference.
 
 ## Logging Convention
 
@@ -307,5 +221,5 @@ what follow-ups remain. Rotate long logs when they stop being usable.
 - Do not answer solely from raw sources when the wiki already contains the
   relevant synthesis.
 - Do not create placeholder pages with no substance just to increase coverage.
-- Do not use freeform tags without updating the taxonomy in `AGENTS.md`.
+- Do not drift from the local `AGENTS.md` schema defaults or customizations.
 - Do not let `index.md` or `log.md` drift behind the actual wiki state.

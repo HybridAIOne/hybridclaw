@@ -112,11 +112,10 @@ When a page is archived:
 - update important inbound links or note that it was archived
 - log the archive action and the reason
 
-## Obsidian
+## Vaults
 
-If this wiki lives in an Obsidian vault, prefer the vault's existing link and
-attachment conventions. Keep assets under `raw/assets/` unless the vault
-already uses a different structure.
+If this wiki lives in an Obsidian vault, preserve the vault's existing
+conventions and use the separate `obsidian` skill for vault-specific behavior.
 
 ## Default Page Shape
 
@@ -130,5 +129,5 @@ When there is no stronger local convention, prefer:
 
 ## Link Style
 
-If this repository is used as an Obsidian vault or already uses wikilinks,
-prefer wikilinks. Otherwise use relative Markdown links.
+If this repository already uses wikilinks, preserve them. Otherwise use
+relative Markdown links.
