@@ -1421,6 +1421,74 @@ describe('gateway HTTP server', () => {
     expect(state.stopSessionExecution).not.toHaveBeenCalled();
   });
 
+  test('falls back to one-off OpenAI execution sessions when the reusable pool is saturated', async () => {
+    const state = await importFreshHealth();
+    const resolvers: Array<(value: unknown) => void> = [];
+    state.handleGatewayMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const requests = Array.from({ length: 6 }, (_, index) => ({
+      req: makeRequest({
+        method: 'POST',
+        url: '/v1/chat/completions',
+        body: {
+          model: 'gpt-5',
+          user: 'sdk-user',
+          messages: [{ role: 'user', content: `Task ${index + 1}` }],
+        },
+      }),
+      res: makeResponse(),
+    }));
+
+    for (const { req, res } of requests) {
+      state.handler(req as never, res as never);
+    }
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledTimes(6);
+    const calls = state.handleGatewayMessage.mock.calls.map((call) => call[0]);
+    const reusableIds = calls
+      .slice(0, 5)
+      .map((call) => String(call.executionSessionId || ''));
+    expect(new Set(reusableIds).size).toBe(5);
+    for (const id of reusableIds) {
+      expect(id).toMatch(
+        /^agent:[^:]+:channel:openai:chat:dm:peer:exec-[a-f0-9]{24}$/,
+      );
+    }
+    const fallbackExecutionSessionId = String(
+      calls[5]?.executionSessionId || '',
+    );
+    expect(fallbackExecutionSessionId).toMatch(
+      /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/,
+    );
+    expect(fallbackExecutionSessionId).not.toContain('exec-');
+
+    for (const resolve of resolvers) {
+      resolve({
+        status: 'success',
+        result: 'ok',
+        toolsUsed: [],
+      });
+    }
+    await Promise.all(
+      requests.map(({ res }) =>
+        waitForResponse(res, (next) => next.writableEnded),
+      ),
+    );
+
+    expect(state.stopSessionExecution).toHaveBeenCalledWith(
+      fallbackExecutionSessionId,
+    );
+    for (const id of reusableIds) {
+      expect(state.stopSessionExecution).not.toHaveBeenCalledWith(id);
+    }
+  });
+
   test('routes eval-profiled OpenAI requests to the selected current agent with system ablation', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

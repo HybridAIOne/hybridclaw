@@ -823,14 +823,20 @@ function collectTaskSandboxFiles(
   opts: CollectWorkspaceFilesOptions,
 ): { files: string[]; status: SearchStatus } {
   const includeMatcher = buildIncludePatternMatcher(opts.includePattern);
-  const command = `if [ -f ${shellEscape(searchRoot)} ]; then printf '%s\\0' ${shellEscape(searchRoot)}; elif [ -d ${shellEscape(searchRoot)} ]; then find ${shellEscape(searchRoot)} -type f -print0; fi`;
+  const command = `if [ -f ${shellEscape(searchRoot)} ]; then printf '%s\\0' ${shellEscape(searchRoot)}; elif [ -d ${shellEscape(searchRoot)} ]; then find ${shellEscape(searchRoot)} -type f -print0; else true; fi`;
   const result = runTaskSandboxCommand({
     command,
     timeoutMs: opts.timeoutMs,
     maxBuffer: 8 * 1024 * 1024,
   });
-  if (result.status !== 0) {
+  if (result.status === null) {
     return { files: [], status: SEARCH_STATUS_TIMEOUT };
+  }
+  if (result.status !== 0) {
+    return {
+      files: [],
+      status: createTruncatedSearchStatus('task sandbox search failed'),
+    };
   }
 
   const files: string[] = [];

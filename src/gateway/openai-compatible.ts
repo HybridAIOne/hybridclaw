@@ -158,11 +158,28 @@ function acquireOpenAIExecutionSession(params: {
   const seed = buildOpenAIExecutionSeed(params);
   let entry = openAIExecutionSessions.get(seed);
   if (!entry) {
+    let evictedIdleSession = false;
     while (
       openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
       evictOldestIdleOpenAIExecutionSession()
     ) {
+      evictedIdleSession = true;
       // Make room by evicting idle reusable OpenAI execution sessions first.
+    }
+    if (
+      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
+      !evictedIdleSession
+    ) {
+      return {
+        sessionId: buildSessionKey(
+          params.prepared.requestAgentId,
+          'openai',
+          'dm',
+          randomUUID().replace(/-/g, '').slice(0, 16),
+        ),
+        stopOnFinish: true,
+        release: () => {},
+      };
     }
     entry = {
       sessionId: buildOpenAIExecutionSessionId(
