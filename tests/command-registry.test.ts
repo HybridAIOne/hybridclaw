@@ -80,6 +80,9 @@ test('registers plugin as a slash/text command', async () => {
           }),
         ]),
       }),
+      expect.objectContaining({
+        name: 'dream',
+      }),
     ]),
   );
 });
@@ -384,6 +387,30 @@ test('parses /plugin reload into gateway args', async () => {
       getSubcommand: () => 'reload',
     }),
   ).toEqual(['plugin', 'reload']);
+});
+
+test('registers dream as a canonical and local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'dream',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['dream']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream'])).toEqual(['dream']);
 });
 
 test('maps bot clear and bot auto to the clear gateway command', async () => {

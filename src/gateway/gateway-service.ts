@@ -5064,6 +5064,11 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
+            command: 'dream',
+            description: 'Run memory consolidation across agent workspaces now',
+            scope: 'slash',
+          },
+          {
             command: 'status',
             description:
               'Show runtime status (Discord slash command, private to caller)',
@@ -6744,6 +6749,28 @@ export async function handleGatewayCommand(
           }
           return badCommand(
             'Compaction Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
+      case 'dream': {
+        try {
+          const decayRate = getRuntimeConfig().memory.decayRate;
+          memoryService.setConsolidationDecayRate(decayRate);
+          const report = memoryService.consolidateMemories();
+          return infoCommand(
+            'Memory Consolidated',
+            [
+              `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
+              `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
+              `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Duration: ${formatDurationMs(report.durationMs)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          return badCommand(
+            'Memory Consolidation Failed',
             err instanceof Error ? err.message : String(err),
           );
         }

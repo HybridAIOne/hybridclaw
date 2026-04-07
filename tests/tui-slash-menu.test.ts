@@ -15,6 +15,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 
   expect(labels).toContain('/show tools');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/dream');
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');

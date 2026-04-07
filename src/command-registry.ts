@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'dream',
   'secret',
   'concierge',
   'rag',
@@ -360,6 +361,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
+    case 'dream':
+      return ['dream'];
+
     case 'compact':
       return ['compact'];
 
@@ -509,6 +513,10 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'dream',
+      description: 'Run memory consolidation across agent workspaces now',
     },
     {
       name: 'channel-mode',
@@ -1790,6 +1798,9 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'dream':
+      return ['dream'];
 
     case 'channel-mode': {
       const mode = normalizeStringOption(interaction, 'mode', true);

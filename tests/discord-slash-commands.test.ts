@@ -38,6 +38,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'show',
       'approve',
       'compact',
+      'dream',
       'channel-mode',
       'channel-policy',
       'concierge',
@@ -154,6 +155,16 @@ test('parseSlashInteractionArgs maps bot clear interactions to command args', ()
   );
 
   expect(args).toEqual(['bot', 'clear']);
+});
+
+test('parseSlashInteractionArgs maps dream interactions to command args', () => {
+  const args = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'dream',
+    }) as never,
+  );
+
+  expect(args).toEqual(['dream']);
 });
 
 test('parseSlashInteractionArgs maps model list, set, clear, and default interactions', () => {
