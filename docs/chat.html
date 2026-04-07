@@ -1118,12 +1118,14 @@
     }
 
     /* ── mobile: sidebar becomes a slide-out overlay ── */
+    /* ── mobile: compact header + slide-out sidebar ── */
     @media (max-width: 900px) {
       .layout {
         grid-template-columns: 1fr;
-        grid-template-rows: 1fr;       /* chat takes full height */
+        grid-template-rows: 1fr;
       }
 
+      /* sidebar → off-screen overlay */
       .sidebar {
         position: fixed;
         inset: 0;
@@ -1154,23 +1156,22 @@
         display: block;
       }
 
-      /* show hamburger in topbar on mobile */
+      /* show hamburger + inline brand in topbar */
       .mobile-menu-btn {
         display: flex;
       }
 
-      .empty-greeting {
-        font-size: clamp(22px, 6.8vw, 34px);
+      .mobile-brand {
+        display: flex;
       }
-    }
 
-    /* ── compact topbar & icon-only tabs on narrow screens ── */
-    @media (max-width: 720px) {
+      /* compact topbar */
       .chat-topbar {
-        padding: 8px 10px 6px;
-        gap: 8px;
+        padding: 6px 10px;
+        gap: 6px;
       }
 
+      /* icon-only tabs, single row */
       .view-switch {
         width: 100%;
         gap: 2px;
@@ -1185,11 +1186,11 @@
         gap: 0;
       }
 
-      /* hide text labels – icons only */
       .view-switch-link span:not(.sidebar-link-icon) {
         display: none;
       }
 
+      /* tighter content spacing */
       .composer {
         padding: 8px 12px 10px;
       }
@@ -1197,11 +1198,27 @@
       .messages {
         padding: 12px;
       }
+
+      .empty-greeting {
+        font-size: clamp(22px, 6.8vw, 34px);
+      }
     }
 
-    /* backdrop & hamburger – hidden on desktop */
+    /* mobile-only elements – hidden on desktop */
     .mobile-sidebar-backdrop {
       display: none;
+    }
+
+    .mobile-brand {
+      display: none;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .mobile-brand img {
+      width: 26px;
+      height: 26px;
+      display: block;
     }
 
     .mobile-menu-btn {
@@ -1274,6 +1291,9 @@
             <path d="M4 17h16"></path>
           </svg>
         </button>
+        <div class="mobile-brand" aria-hidden="true">
+          <img src="/static/hybridclaw-logo.svg" alt="">
+        </div>
         <nav class="view-switch" aria-label="Switch view">
           <a class="view-switch-link is-active" href="/chat" aria-current="page">
             <span class="sidebar-link-icon">
