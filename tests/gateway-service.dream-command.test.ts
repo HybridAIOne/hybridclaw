@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { setupGatewayTest } from './helpers/gateway-test-setup.ts';
+import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-dream-',
@@ -73,4 +73,30 @@ test('dream command reports consolidation failures', async () => {
   expect(result.kind).toBe('error');
   expect(result.title).toBe('Memory Consolidation Failed');
   expect(result.text).toContain('disk busy');
+});
+
+test('dream command is restricted to local TUI/web sessions', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const consolidateSpy = vi.spyOn(memoryService, 'consolidateMemories');
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-dream-remote',
+    guildId: 'guild-1',
+    channelId: 'discord:channel-1',
+    args: ['dream'],
+  });
+
+  expect(consolidateSpy).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('Dream Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
