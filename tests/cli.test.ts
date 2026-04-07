@@ -346,6 +346,11 @@ async function importFreshCli(options?: {
   }>;
   promptResponses?: string[];
   whatsAppConnectionModuleError?: Error | null;
+  evalCommandResult?: {
+    kind: 'plain' | 'info' | 'error';
+    title?: string;
+    text: string;
+  };
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
@@ -415,6 +420,17 @@ async function importFreshCli(options?: {
   const printUpdateUsage = vi.fn();
   const runUpdateCommand = vi.fn();
   const runDoctorCli = vi.fn(async () => 0);
+  const handleEvalGatewayCommand = vi.fn(
+    async () =>
+      options?.evalCommandResult || {
+        kind: 'info' as const,
+        title: 'Eval',
+        text: 'eval help',
+      },
+  );
+  const renderEvalGatewayCommand = vi.fn(
+    (result: { text: string }) => result.text,
+  );
   const ensureRuntimeCredentials = vi.fn();
   const handleAgentMigrationCommand = vi.fn(
     async (
@@ -1067,6 +1083,10 @@ async function importFreshCli(options?: {
   vi.doMock('../src/doctor.ts', () => ({
     runDoctorCli,
   }));
+  vi.doMock('../src/gateway/gateway-service.js', () => ({
+    handleGatewayCommand: handleEvalGatewayCommand,
+    renderGatewayCommand: renderEvalGatewayCommand,
+  }));
 
   const cli = await import('../src/cli.ts');
   return {
@@ -1080,6 +1100,8 @@ async function importFreshCli(options?: {
     printUpdateUsage,
     runUpdateCommand,
     runDoctorCli,
+    handleEvalGatewayCommand,
+    renderEvalGatewayCommand,
     ensureRuntimeCredentials,
     handleAgentMigrationCommand,
     ensureContainerImageReady,
@@ -1251,6 +1273,27 @@ describe('CLI hybridai commands', () => {
         'Usage: hybridclaw auth <command> [provider] [options]',
       ),
     );
+  });
+
+  it('routes top-level eval through the local eval command path', async () => {
+    const { cli, handleEvalGatewayCommand } = await importFreshCli({
+      evalCommandResult: {
+        kind: 'info',
+        title: 'Eval',
+        text: 'gaia recipe',
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['eval', 'gaia']);
+
+    expect(handleEvalGatewayCommand).toHaveBeenCalledWith({
+      sessionId: 'cli:eval',
+      guildId: null,
+      channelId: 'cli',
+      args: ['eval', 'gaia'],
+    });
+    expect(logSpy).toHaveBeenCalledWith('gaia recipe');
   });
 
   it('hides deprecated aliases from the top-level help output', async () => {

@@ -79,6 +79,9 @@ export function mapTuiSlashCommandToGatewayArgs(
     }
     return null;
   }
+  if (cmd === 'eval') {
+    return ['eval', ...parts.slice(1)];
+  }
   return mapCanonicalCommandToGatewayArgs(parts, options);
 }
 
