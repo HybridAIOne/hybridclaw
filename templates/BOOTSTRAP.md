@@ -40,11 +40,11 @@ workspace truly leaves them open.
 Update the files with what you learned:
 
 - `USER.md` — who the user is, how to address them, timezone, notes
-- `MEMORY.md` — stable preferences, goals, workflow facts, recurring context
+- `memory/YYYY-MM-DD.md` — today's onboarding facts, stable preferences, goals, and workflow context
 - `IDENTITY.md` — only if the user explicitly changes your identity
 - `SOUL.md` — only if the user explicitly wants behavior or boundary changes
 
-Keep the edits short, concrete, and durable.
+Keep the edits short, concrete, and durable. Dream consolidation will later clean and promote durable memory into `MEMORY.md`.
 
 ## Hatching Rules
 
