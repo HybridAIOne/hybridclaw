@@ -292,3 +292,83 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
     nextRunAt: null,
   });
 });
+
+test('stale successful one-shot jobs already in review do not rerun', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-07T12:02:00.000Z'));
+
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+
+  writeRuntimeConfig(homeDir, (config) => {
+    config.scheduler.jobs = [
+      {
+        id: 'release-notes',
+        name: 'Release notes',
+        agentId: 'main',
+        boardStatus: 'review',
+        enabled: true,
+        schedule: {
+          kind: 'at',
+          at: '2026-04-07T12:00:00.000Z',
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Draft the release notes.',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '',
+          to: 'web',
+          webhookUrl: '',
+        },
+      },
+    ];
+  });
+  writeSchedulerState(homeDir, {
+    version: 1,
+    updatedAt: '2026-04-07T12:01:00.000Z',
+    configJobs: {
+      'release-notes': {
+        lastRun: '2026-04-07T12:00:00.000Z',
+        lastStatus: 'success',
+        nextRunAt: '2026-04-07T12:01:00.000Z',
+        consecutiveErrors: 0,
+        disabled: false,
+        oneShotCompleted: false,
+      },
+    },
+  });
+
+  vi.resetModules();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+    '../src/scheduler/scheduler.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const runner = vi.fn(async () => {});
+
+  startScheduler(runner);
+
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+  stopScheduler();
+
+  expect(runner).not.toHaveBeenCalled();
+  expect(
+    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
+    boardStatus: 'review',
+  });
+  expect(getConfigJobState('release-notes')).toMatchObject({
+    lastStatus: 'success',
+    disabled: false,
+    nextRunAt: null,
+  });
+});

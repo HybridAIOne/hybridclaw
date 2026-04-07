@@ -257,6 +257,22 @@ function setConfigJobBoardStatus(
     onlyIfCurrent?: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>;
   } = {},
 ): RuntimeSchedulerJob | null {
+  const currentJob = getConfigSnapshot().scheduler.jobs.find(
+    (candidate) => candidate.id === jobId,
+  );
+  if (!currentJob) return null;
+  if (
+    options.onlyIfCurrent &&
+    currentJob.boardStatus !== options.onlyIfCurrent
+  ) {
+    return null;
+  }
+  if (currentJob.boardStatus === boardStatus) {
+    return {
+      ...currentJob,
+    };
+  }
+
   let updatedJob: RuntimeSchedulerJob | null = null;
   updateRuntimeConfig((draft) => {
     const job = draft.scheduler.jobs.find(
@@ -497,12 +513,17 @@ function reconcileSuccessfulOneShotConfigJob(
   if (meta.oneShotCompleted || meta.lastStatus !== 'success') {
     return job;
   }
-  meta.oneShotCompleted = true;
-  return (
+  if (job.boardStatus !== 'in_progress') {
+    meta.oneShotCompleted = true;
+    return job;
+  }
+
+  const updatedJob =
     setConfigJobBoardStatus(job.id, 'review', {
       onlyIfCurrent: 'in_progress',
-    }) || job
-  );
+    }) || job;
+  meta.oneShotCompleted = true;
+  return updatedJob;
 }
 
 function computeNextFireMs(nowMs = Date.now()): number | null {
