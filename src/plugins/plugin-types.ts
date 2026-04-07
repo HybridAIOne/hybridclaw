@@ -379,6 +379,9 @@ export interface HybridClawPluginApi {
   ): void;
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
+  writeConfigValue(key: string, rawValue: string): Promise<void>;
+  unsetConfigValue(key: string): Promise<void>;
+  resolveSessionAgentId(sessionId: string): string;
 }
 
 export interface HybridClawPluginDefinition {
