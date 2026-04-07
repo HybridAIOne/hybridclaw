@@ -253,6 +253,9 @@ function resolveConfigJobLabel(
 function setConfigJobBoardStatus(
   jobId: string,
   boardStatus: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>,
+  options: {
+    onlyIfCurrent?: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>;
+  } = {},
 ): RuntimeSchedulerJob | null {
   let updatedJob: RuntimeSchedulerJob | null = null;
   updateRuntimeConfig((draft) => {
@@ -260,6 +263,9 @@ function setConfigJobBoardStatus(
       (candidate) => candidate.id === jobId,
     );
     if (!job) return;
+    if (options.onlyIfCurrent && job.boardStatus !== options.onlyIfCurrent) {
+      return;
+    }
     job.boardStatus = boardStatus;
     updatedJob = {
       ...job,
@@ -415,8 +421,16 @@ function syncConfigJobNextRunAt(
   nowMs: number,
 ): boolean {
   const meta = getConfigJobMeta(job.id);
-  const nextRunAt = toIsoTimestamp(nextFireMsForConfigJob(job, nowMs));
-  if (meta.nextRunAt === nextRunAt) return false;
+  const previousNextRunAt = meta.nextRunAt;
+  const previousOneShotCompleted = meta.oneShotCompleted;
+  const effectiveJob = reconcileSuccessfulOneShotConfigJob(job);
+  const nextRunAt = toIsoTimestamp(nextFireMsForConfigJob(effectiveJob, nowMs));
+  if (
+    previousNextRunAt === nextRunAt &&
+    previousOneShotCompleted === meta.oneShotCompleted
+  ) {
+    return false;
+  }
   meta.nextRunAt = nextRunAt;
   return true;
 }
@@ -471,6 +485,24 @@ function nextFireMsForConfigJob(
   } catch {
     return null;
   }
+}
+
+function reconcileSuccessfulOneShotConfigJob(
+  job: RuntimeSchedulerJob,
+): RuntimeSchedulerJob {
+  if (job.schedule.kind !== 'at' || job.boardStatus === 'backlog') {
+    return job;
+  }
+  const meta = getConfigJobMeta(job.id);
+  if (meta.oneShotCompleted || meta.lastStatus !== 'success') {
+    return job;
+  }
+  meta.oneShotCompleted = true;
+  return (
+    setConfigJobBoardStatus(job.id, 'review', {
+      onlyIfCurrent: 'in_progress',
+    }) || job
+  );
 }
 
 function computeNextFireMs(nowMs = Date.now()): number | null {
@@ -751,7 +783,16 @@ async function tick(): Promise<void> {
           );
           dispatchConfigJob(runningJob || job)
             .then(() => {
-              markConfigJobSuccess(runningJob || job, false);
+              const completedJob =
+                setConfigJobBoardStatus(job.id, 'review', {
+                  onlyIfCurrent: 'in_progress',
+                }) ||
+                runningJob ||
+                job;
+              markConfigJobSuccess(
+                completedJob,
+                completedJob.schedule.kind === 'at',
+              );
             })
             .catch((err) => {
               // Backlog-assigned jobs share the same failure counter and

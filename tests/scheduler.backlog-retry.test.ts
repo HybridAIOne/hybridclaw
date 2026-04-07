@@ -43,6 +43,17 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
+function writeSchedulerState(homeDir: string, state: unknown): void {
+  const statePath = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'scheduler-jobs-state.json',
+  );
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+}
+
 afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -130,6 +141,154 @@ test('backlog-assigned config jobs use the same auto-disable failure cap as othe
     lastStatus: 'error',
     consecutiveErrors: 5,
     disabled: true,
+    nextRunAt: null,
+  });
+});
+
+test('backlog-assigned one-shot config jobs complete once and move to review', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-07T12:00:00.000Z'));
+
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+
+  writeRuntimeConfig(homeDir, (config) => {
+    config.scheduler.jobs = [
+      {
+        id: 'release-notes',
+        name: 'Release notes',
+        agentId: 'main',
+        boardStatus: 'backlog',
+        enabled: true,
+        schedule: {
+          kind: 'at',
+          at: '2026-04-07T12:00:00.000Z',
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Draft the release notes.',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '',
+          to: 'web',
+          webhookUrl: '',
+        },
+      },
+    ];
+  });
+
+  vi.resetModules();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+    '../src/scheduler/scheduler.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const runner = vi.fn(async () => {});
+
+  startScheduler(runner);
+
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+  stopScheduler();
+
+  expect(runner).toHaveBeenCalledTimes(1);
+  expect(
+    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
+    boardStatus: 'review',
+  });
+  expect(getConfigJobState('release-notes')).toMatchObject({
+    lastStatus: 'success',
+    consecutiveErrors: 0,
+    disabled: false,
+    nextRunAt: null,
+  });
+});
+
+test('stale successful one-shot jobs reconcile to review without rerunning', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-07T12:02:00.000Z'));
+
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+
+  writeRuntimeConfig(homeDir, (config) => {
+    config.scheduler.jobs = [
+      {
+        id: 'release-notes',
+        name: 'Release notes',
+        agentId: 'main',
+        boardStatus: 'in_progress',
+        enabled: true,
+        schedule: {
+          kind: 'at',
+          at: '2026-04-07T12:00:00.000Z',
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Draft the release notes.',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '',
+          to: 'web',
+          webhookUrl: '',
+        },
+      },
+    ];
+  });
+  writeSchedulerState(homeDir, {
+    version: 1,
+    updatedAt: '2026-04-07T12:01:00.000Z',
+    configJobs: {
+      'release-notes': {
+        lastRun: '2026-04-07T12:00:00.000Z',
+        lastStatus: 'success',
+        nextRunAt: '2026-04-07T12:01:00.000Z',
+        consecutiveErrors: 0,
+        disabled: false,
+        oneShotCompleted: false,
+      },
+    },
+  });
+
+  vi.resetModules();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+    '../src/scheduler/scheduler.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const runner = vi.fn(async () => {});
+
+  startScheduler(runner);
+
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+  stopScheduler();
+
+  expect(runner).not.toHaveBeenCalled();
+  expect(
+    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
+    boardStatus: 'review',
+  });
+  expect(getConfigJobState('release-notes')).toMatchObject({
+    lastStatus: 'success',
+    disabled: false,
     nextRunAt: null,
   });
 });
