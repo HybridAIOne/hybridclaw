@@ -151,8 +151,7 @@ export function normalizeSchedulerAtInput(raw: string): string | null {
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
   );
   if (localDateTimeMatch) {
-    const [, year, month, day, hour, minute, second = '0'] =
-      localDateTimeMatch;
+    const [, year, month, day, hour, minute, second = '0'] = localDateTimeMatch;
     const parsed = new Date(
       Number.parseInt(year, 10),
       Number.parseInt(month, 10) - 1,

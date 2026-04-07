@@ -3,14 +3,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminSchedulerJob, AdminSchedulerResponse } from '../api/types';
-import {
-  SchedulerPage,
-  normalizeSchedulerAtInput,
-} from './scheduler';
+import { normalizeSchedulerAtInput, SchedulerPage } from './scheduler';
 
-const fetchSchedulerMock = vi.fn<
-  () => Promise<AdminSchedulerResponse>
->();
+const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const saveSchedulerJobMock = vi.fn();
 const deleteSchedulerJobMock = vi.fn();
 const setSchedulerJobPausedMock = vi.fn();
@@ -101,11 +96,7 @@ describe('SchedulerPage', () => {
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
     });
-    window.history.replaceState(
-      {},
-      '',
-      '/admin/scheduler?jobId=release-notes',
-    );
+    window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
 
     renderSchedulerPage();
 
@@ -129,11 +120,7 @@ describe('SchedulerPage', () => {
     saveSchedulerJobMock.mockImplementation(
       () => new Promise<AdminSchedulerResponse>(() => {}),
     );
-    window.history.replaceState(
-      {},
-      '',
-      '/admin/scheduler?jobId=release-notes',
-    );
+    window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
 
     renderSchedulerPage();
 
