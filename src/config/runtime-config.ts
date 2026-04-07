@@ -517,6 +517,7 @@ export interface RuntimeConfig {
   memory: {
     decayRate: number;
     consolidationIntervalHours: number;
+    consolidationLanguage: string;
   };
   ops: {
     healthHost: string;
@@ -1004,6 +1005,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   memory: {
     decayRate: 0.1,
     consolidationIntervalHours: 24,
+    consolidationLanguage: 'en',
   },
   ops: {
     healthHost: '127.0.0.1',
@@ -3998,6 +4000,11 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.memory.consolidationIntervalHours,
         { min: 0, max: 24 * 30 },
       ),
+      consolidationLanguage: normalizeString(
+        rawMemory.consolidationLanguage,
+        DEFAULT_RUNTIME_CONFIG.memory.consolidationLanguage,
+        { allowEmpty: false },
+      ).toLowerCase(),
     },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {

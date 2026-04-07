@@ -314,6 +314,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -5064,6 +5065,11 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
+            command: 'dream',
+            description: 'Run memory consolidation across agent workspaces now',
+            scope: 'slash',
+          },
+          {
             command: 'status',
             description:
               'Show runtime status (Discord slash command, private to caller)',
@@ -6744,6 +6750,90 @@ export async function handleGatewayCommand(
           }
           return badCommand(
             'Compaction Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
+      case 'dream': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Dream Restricted',
+            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const currentConfig = getRuntimeConfig();
+        const currentIntervalHours = Math.max(
+          0,
+          Math.trunc(currentConfig.memory.consolidationIntervalHours),
+        );
+        const formatDreamStatus = (): string =>
+          [
+            `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
+            currentIntervalHours > 0
+              ? 'Cadence: nightly, with startup catch-up if a run was missed'
+              : 'Cadence: off',
+            `Decay rate: ${currentConfig.memory.decayRate}`,
+          ].join('\n');
+
+        if (!sub || sub === 'status' || sub === 'info' || sub === 'help') {
+          return infoCommand(
+            'Dream Status',
+            [formatDreamStatus(), '', 'Usage: `dream on|off|now`'].join('\n'),
+          );
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          if (currentIntervalHours > 0) {
+            return plainCommand(
+              'Dream scheduling already enabled. Consolidation runs nightly and catches up after downtime.',
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 24;
+          });
+          return plainCommand(
+            'Dream scheduling enabled. Memory consolidation will run nightly and catch up on the next startup if a run was missed.',
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          if (currentIntervalHours <= 0) {
+            return plainCommand('Dream scheduling already disabled.');
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 0;
+          });
+          return plainCommand('Dream scheduling disabled.');
+        }
+
+        if (sub !== 'now' && sub !== 'run') {
+          return badCommand('Usage', 'Usage: `dream on|off|now`');
+        }
+
+        try {
+          const report = await runMemoryConsolidation({
+            trigger: 'manual',
+          });
+          if (!report) {
+            return plainCommand('Memory consolidation already running.');
+          }
+          return infoCommand(
+            'Memory Consolidated',
+            [
+              `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
+              `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
+              `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Model cleanups: ${formatCompactNumber(report.modelCleanups)}`,
+              `Fallbacks used: ${formatCompactNumber(report.fallbacksUsed)}`,
+              `Duration: ${formatDurationMs(report.durationMs)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          return badCommand(
+            'Memory Consolidation Failed',
             err instanceof Error ? err.message : String(err),
           );
         }

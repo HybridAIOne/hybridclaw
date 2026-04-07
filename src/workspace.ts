@@ -5,6 +5,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../container/shared/workspace-time.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
@@ -448,6 +452,27 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
     }
   }
 
+  const userTimezone = resolveUserTimezoneFromContextFiles(files);
+  const todayMemoryName = `memory/${currentDateStampInTimezone(userTimezone)}.md`;
+  const todayMemoryPath = path.join(wsDir, todayMemoryName);
+  if (fs.existsSync(todayMemoryPath)) {
+    try {
+      const raw = readBoundedWorkspaceTextFile(todayMemoryPath, MAX_FILE_CHARS);
+      if (raw == null) {
+        throw new Error('Failed to read daily memory file');
+      }
+      const content = raw.trim();
+      if (content) {
+        files.push({ name: todayMemoryName, content });
+      }
+    } catch (err) {
+      logger.warn(
+        { agentId, file: todayMemoryName, err },
+        'Failed to read daily memory file',
+      );
+    }
+  }
+
   return files;
 }
 
@@ -503,6 +528,37 @@ function formatCurrentTime(timezone?: string): string {
   }
 }
 
+function resolveUserTimezoneFromContextFiles(
+  files: ContextFile[],
+): string | undefined {
+  const userFile = files.find((file) => file.name === 'USER.md');
+  return extractUserTimezone(userFile?.content);
+}
+
+function readBoundedWorkspaceTextFile(
+  filePath: string,
+  maxChars: number,
+): string | null {
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.size <= 0) return '';
+    if (stats.size <= maxChars) {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(maxChars);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      return `${buffer.toString('utf8', 0, bytesRead)}\n...[truncated]`;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build a system prompt section from loaded context files.
  * Injects current date/time (like OpenClaw) so the agent knows when "now" is.
@@ -510,10 +566,7 @@ function formatCurrentTime(timezone?: string): string {
 export function buildContextPrompt(files: ContextFile[]): string {
   if (files.length === 0) return '';
 
-  // Extract timezone from USER.md if available
-  const userFile = files.find((f) => f.name === 'USER.md');
-  const tzMatch = userFile?.content.match(/\*\*Timezone:\*\*\s*(.+)/i);
-  const userTimezone = tzMatch?.[1]?.trim() || undefined;
+  const userTimezone = resolveUserTimezoneFromContextFiles(files);
 
   const lines: string[] = [
     '# Project Context',

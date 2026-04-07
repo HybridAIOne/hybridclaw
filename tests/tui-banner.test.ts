@@ -155,6 +155,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /clear                     │',
     '│ /compact                   │',
     '│ /config                    │',
+    '│ /dream                     │',
     '│ /exit                      │',
     '│ /export                    │',
     '│ /fullauto                  │',

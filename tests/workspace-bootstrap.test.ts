@@ -27,6 +27,14 @@ function readWorkspaceState(workspaceDir: string): {
   };
 }
 
+function currentLocalDateStamp(): string {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 afterEach(() => {
   process.chdir(originalCwd);
   vi.resetModules();
@@ -130,6 +138,37 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).not.toContain('## First Run');
     expect(postHatchAgents?.content).not.toContain('hatching script');
     expect(postHatchAgents?.content).toContain('## Every Session');
+  });
+
+  test("loads today's daily memory note into bootstrap context when present", async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const dailyPath = path.join(
+      workspaceDir,
+      'memory',
+      `${currentLocalDateStamp()}.md`,
+    );
+    fs.mkdirSync(path.dirname(dailyPath), { recursive: true });
+    fs.writeFileSync(
+      dailyPath,
+      '# Daily Memory\n\n- Learned the deployment routine.\n',
+      'utf-8',
+    );
+
+    const files = workspace.loadBootstrapFiles('agent-test');
+    expect(files).toContainEqual({
+      name: `memory/${currentLocalDateStamp()}.md`,
+      content: '# Daily Memory\n\n- Learned the deployment routine.',
+    });
   });
 
   test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
