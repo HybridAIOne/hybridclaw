@@ -8,6 +8,7 @@
     "node": "22.x"
   },
   "dependencies": {
+    "html-to-text": "^9.0.5",
     "nodemailer": "^7.0.3"
   }
 }

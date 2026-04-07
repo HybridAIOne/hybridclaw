@@ -1,14 +1,12 @@
-function normalizeAgentHandles(input) {
+import { normalizeLower } from './normalize.js';
+
+export function normalizeAgentHandles(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
 
   const out = {};
   for (const [agentId, rawHandle] of Object.entries(input)) {
-    const normalizedAgentId = String(agentId || '')
-      .trim()
-      .toLowerCase();
-    const normalizedHandle = String(rawHandle || '')
-      .trim()
-      .toLowerCase();
+    const normalizedAgentId = normalizeLower(agentId);
+    const normalizedHandle = normalizeLower(rawHandle);
     if (!normalizedAgentId || !normalizedHandle) continue;
     out[normalizedAgentId] = normalizedHandle;
   }
@@ -40,6 +38,9 @@ export function resolveBrevoConfig(pluginConfig, api) {
   const webhookSecret =
     api.getCredential('BREVO_WEBHOOK_SECRET') ||
     (process.env.BREVO_WEBHOOK_SECRET || '').trim();
+  if (!webhookSecret) {
+    throw new Error('BREVO_WEBHOOK_SECRET is required but not set.');
+  }
 
   return {
     domain: String(pluginConfig.domain || 'agent.hybridai.one').trim(),

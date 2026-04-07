@@ -1,3 +1,5 @@
+import { normalizeLower } from './normalize.js';
+
 /**
  * Resolve the email address for an agent.
  *
@@ -14,13 +16,7 @@ export function resolveAgentEmailAddress(agentId, domain, override, handle) {
   const custom = String(override || '').trim();
   if (custom) return custom;
 
-  const localPart =
-    String(handle || '')
-      .trim()
-      .toLowerCase() ||
-    String(agentId || '')
-      .trim()
-      .toLowerCase();
+  const localPart = normalizeLower(handle) || normalizeLower(agentId);
   return `${localPart}@${domain}`;
 }
 
@@ -35,28 +31,20 @@ export function resolveAgentEmailAddress(agentId, domain, override, handle) {
  * @returns {string | null}
  */
 export function resolveAgentIdFromRecipient(toAddress, domain, agentHandles) {
-  const normalized = String(toAddress || '')
-    .trim()
-    .toLowerCase();
+  const normalized = normalizeLower(toAddress);
   const atIndex = normalized.lastIndexOf('@');
   if (atIndex === -1) return null;
 
   const localPart = normalized.slice(0, atIndex);
   const emailDomain = normalized.slice(atIndex + 1);
-  if (emailDomain !== domain.toLowerCase()) return null;
+  if (emailDomain !== normalizeLower(domain)) return null;
 
   if (agentHandles && typeof agentHandles === 'object') {
     for (const [agentId, rawHandle] of Object.entries(agentHandles)) {
-      const configuredHandle = String(rawHandle || '')
-        .trim()
-        .toLowerCase();
+      const configuredHandle = normalizeLower(rawHandle);
       if (!configuredHandle) continue;
       if (configuredHandle === localPart) {
-        return (
-          String(agentId || '')
-            .trim()
-            .toLowerCase() || null
-        );
+        return normalizeLower(agentId) || null;
       }
     }
   }
