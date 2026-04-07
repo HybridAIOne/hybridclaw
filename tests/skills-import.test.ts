@@ -136,6 +136,28 @@ describe('skill import', () => {
     ]);
   });
 
+  test('imports the packaged zettelkasten community skill', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+    const { loadSkillCatalog } = await import('../src/skills/skills.ts');
+
+    expect(
+      loadSkillCatalog().some((skill) => skill.name === 'zettelkasten'),
+    ).toBe(false);
+
+    const result = await importSkill('official/zettelkasten');
+
+    expect(result.skillName).toBe('zettelkasten');
+    expect(result.replacedExisting).toBe(false);
+    expect(result.resolvedSource).toBe('official/zettelkasten');
+    expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
+
+    const importedSkill = loadSkillCatalog().find(
+      (skill) => skill.name === 'zettelkasten',
+    );
+    expect(importedSkill?.source).toBe('community');
+    expect(importedSkill?.description).toContain('living idea garden');
+  });
+
   test('imports a GitHub skill from a repo skills/ subdirectory', async () => {
     const { importSkill } = await import('../src/skills/skills-import.ts');
     const { loadSkillCatalog } = await import('../src/skills/skills.ts');
