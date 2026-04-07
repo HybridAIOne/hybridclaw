@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import {
   currentDateStampInTimezone,
-  extractUserTimezone,
   nextDateBoundaryInTimezone,
+  readUserTimezoneFile,
 } from '../../container/shared/workspace-time.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -81,13 +81,7 @@ function persistMemoryConsolidationState(): void {
 }
 
 export function getDreamTimezone(): string | undefined {
-  try {
-    const userPath = path.join(agentWorkspaceDir('main'), 'USER.md');
-    if (!fs.existsSync(userPath)) return undefined;
-    return extractUserTimezone(fs.readFileSync(userPath, 'utf-8'));
-  } catch {
-    return undefined;
-  }
+  return readUserTimezoneFile(path.join(agentWorkspaceDir('main'), 'USER.md'));
 }
 
 export function hasDreamRunToday(now = new Date()): boolean {

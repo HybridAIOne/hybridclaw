@@ -1,6 +1,7 @@
 export function extractUserTimezone(
   content: string | null | undefined,
 ): string | undefined;
+export function readUserTimezoneFile(userPath: string): string | undefined;
 export function currentDateStampInTimezone(
   timezone?: string,
   now?: Date,

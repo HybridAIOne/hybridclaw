@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import {
   currentDateStampInTimezone,
-  extractUserTimezone,
+  readUserTimezoneFile,
 } from '../../container/shared/workspace-time.js';
 import {
   listAgents,
@@ -129,14 +129,7 @@ function normalizeConsolidationLanguage(language?: string): string {
 }
 
 function describeConsolidationLanguage(language?: string): string {
-  const normalized = normalizeConsolidationLanguage(language);
-  if (normalized === 'en' || normalized === 'en-us' || normalized === 'en-gb') {
-    return 'English';
-  }
-  if (normalized === 'de' || normalized === 'de-de') {
-    return 'German';
-  }
-  return normalized;
+  return `language code "${normalizeConsolidationLanguage(language)}"`;
 }
 
 export function currentDateStamp(now = new Date(), timezone?: string): string {
@@ -144,13 +137,7 @@ export function currentDateStamp(now = new Date(), timezone?: string): string {
 }
 
 function resolveWorkspaceTimezone(workspaceDir: string): string | undefined {
-  try {
-    const userPath = path.join(workspaceDir, 'USER.md');
-    if (!fs.existsSync(userPath)) return undefined;
-    return extractUserTimezone(fs.readFileSync(userPath, 'utf-8'));
-  } catch {
-    return undefined;
-  }
+  return readUserTimezoneFile(path.join(workspaceDir, 'USER.md'));
 }
 
 function readMemoryTemplate(): string {
@@ -417,6 +404,7 @@ async function rewriteMemoryContentWithModel(params: {
     fallbackModel: runtime.model,
     fallbackChatbotId: runtime.chatbotId,
     fallbackEnableRag: false,
+    maxTokens: 2048,
     messages: [
       { role: 'system', content: MEMORY_CLEANUP_SYSTEM_PROMPT },
       {
@@ -555,9 +543,7 @@ function buildMemoryContent(params: {
 }): string {
   const normalized = dedupeMemorySections(params.existing);
   if (normalized.length > MEMORY_FILE_MAX_CHARS) {
-    throw new Error(
-      `MEMORY.md exceeds ${MEMORY_FILE_MAX_CHARS} chars before adding the daily digest.`,
-    );
+    return normalized;
   }
   const stripped = stripDailyDigestBlock(normalized);
   const baseContent = renderMemoryContent(stripped, '');
@@ -600,17 +586,6 @@ function buildMemoryContent(params: {
     stripped,
     buildDailyDigest(params.entries.slice(firstEntryIndex)),
   );
-}
-
-function buildMemoryContentWithFallback(params: {
-  existing: string;
-  entries: DailyMemoryEntry[];
-}): string {
-  try {
-    return buildMemoryContent(params);
-  } catch {
-    return dedupeMemorySections(params.existing);
-  }
 }
 
 function readDailyMemoryFile(filePath: string): string | null {
@@ -798,7 +773,7 @@ export class MemoryConsolidationEngine {
         }
 
         if (!next) {
-          next = buildMemoryContentWithFallback({ existing, entries });
+          next = buildMemoryContent({ existing, entries });
           fallbacksUsed += 1;
         } else {
           modelCleanups += 1;

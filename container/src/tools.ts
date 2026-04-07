@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   currentDateStampInTimezone,
-  extractUserTimezone,
+  readUserTimezoneFile,
 } from '../shared/workspace-time.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
@@ -118,6 +118,11 @@ let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
+let memoryTimezoneCache: {
+  userPath: string;
+  mtimeMs: number | null;
+  value: string | undefined;
+} | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
@@ -1197,9 +1202,28 @@ function normalizeDateStamp(input: string): string | null {
 function resolveMemoryTimezone(): string | undefined {
   try {
     const userPath = safeJoin('USER.md');
-    if (!fs.existsSync(userPath)) return undefined;
-    const content = fs.readFileSync(userPath, 'utf-8');
-    return extractUserTimezone(content);
+    let mtimeMs: number | null = null;
+    try {
+      mtimeMs = fs.statSync(userPath).mtimeMs;
+    } catch {
+      mtimeMs = null;
+    }
+
+    if (
+      memoryTimezoneCache &&
+      memoryTimezoneCache.userPath === userPath &&
+      memoryTimezoneCache.mtimeMs === mtimeMs
+    ) {
+      return memoryTimezoneCache.value;
+    }
+
+    const value = mtimeMs == null ? undefined : readUserTimezoneFile(userPath);
+    memoryTimezoneCache = {
+      userPath,
+      mtimeMs,
+      value,
+    };
+    return value;
   } catch {
     return undefined;
   }
@@ -1941,7 +1965,7 @@ async function executeToolInternal(
         !isTodayDailyMemoryPath(relativePath)
       ) {
         return failTool(
-          `Error: memory write actions are restricted to today's daily note (${`memory/${currentDateStamp()}.md`}). Use MEMORY.md only through dream consolidation.`,
+          `Error: memory write actions are restricted to today's daily note (memory/${currentDateStamp()}.md). Use MEMORY.md only through dream consolidation.`,
         );
       }
 

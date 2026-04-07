@@ -169,6 +169,7 @@ function createGatewayMainTestState(options?: {
       model: 'gpt-5-nano',
       chatbotId: 'bot-1',
     })),
+    resolveAgentWorkspaceId: vi.fn((agentId: string) => agentId),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
@@ -395,6 +396,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/agents/agent-registry.js', () => ({
     listAgents: state.listAgents,
     resolveAgentForRequest: state.resolveAgentForRequest,
+    resolveAgentWorkspaceId: state.resolveAgentWorkspaceId,
   }));
   vi.doMock('../src/providers/local-discovery.js', () => ({
     startDiscoveryLoop: state.startDiscoveryLoop,

@@ -429,11 +429,12 @@ describe.sequential('memory consolidation', () => {
 
     expect(callAuxiliaryModel).toHaveBeenCalledWith(
       expect.objectContaining({
+        maxTokens: 2048,
         messages: expect.arrayContaining([
           expect.objectContaining({
             role: 'user',
             content: expect.stringContaining(
-              'Write every returned item in English.',
+              'Write every returned item in language code "en".',
             ),
           }),
         ]),
