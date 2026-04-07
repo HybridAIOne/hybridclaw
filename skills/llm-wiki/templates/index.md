@@ -1,7 +1,10 @@
-# Index
+# Wiki Index
 
 This file is the catalog for the wiki. Update it whenever a page is created,
-renamed, merged, or retired.
+renamed, merged, archived, or retired.
+
+Last updated: YYYY-MM-DD
+Total pages: 0
 
 ## Sources
 

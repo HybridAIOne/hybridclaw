@@ -30,8 +30,7 @@ describe('llm-wiki bundled skill', () => {
     if (originalDisableWatcher === undefined) {
       delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
     } else {
-      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
-        originalDisableWatcher;
+      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = originalDisableWatcher;
     }
     while (tempHomes.length > 0) {
       const tempHome = tempHomes.pop();
@@ -67,13 +66,7 @@ describe('llm-wiki bundled skill', () => {
     expect(llmWiki?.location).toBe('skills/llm-wiki/SKILL.md');
     expect(
       fs.existsSync(
-        path.join(
-          workspaceDir,
-          'skills',
-          'llm-wiki',
-          'templates',
-          'AGENTS.md',
-        ),
+        path.join(workspaceDir, 'skills', 'llm-wiki', 'templates', 'AGENTS.md'),
       ),
     ).toBe(true);
     expect(
@@ -95,7 +88,43 @@ describe('llm-wiki bundled skill', () => {
           path.join(workspaceDir, 'skills', 'llm-wiki', 'SKILL.md'),
           'utf8',
         )
-        .includes('append-only timeline'),
+        .includes('Orient Every Session'),
+    ).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(workspaceDir, 'skills', 'llm-wiki', 'SKILL.md'),
+          'utf8',
+        )
+        .includes('Bulk Ingest'),
+    ).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(
+            workspaceDir,
+            'skills',
+            'llm-wiki',
+            'templates',
+            'AGENTS.md',
+          ),
+          'utf8',
+        )
+        .includes('Tag Taxonomy'),
+    ).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(
+            workspaceDir,
+            'skills',
+            'llm-wiki',
+            'templates',
+            'AGENTS.md',
+          ),
+          'utf8',
+        )
+        .includes('Lint Checks'),
     ).toBe(true);
   });
 });
