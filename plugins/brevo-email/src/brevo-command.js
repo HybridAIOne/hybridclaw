@@ -1,5 +1,7 @@
 import { resolveAgentEmailAddress } from './brevo-address.js';
+import { normalizeAgentHandles } from './config.js';
 import { listHybridAIHandles } from './hybridai-handles.js';
+import { normalizeLower } from './normalize.js';
 
 function isLocalContext(context) {
   return (
@@ -9,32 +11,14 @@ function isLocalContext(context) {
 }
 
 function normalizeHandle(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+  return normalizeLower(value);
 }
 
 function normalizeAgentId(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+  return normalizeLower(value);
 }
 
-function cloneAgentHandles(input) {
-  const out = {};
-  if (!input || typeof input !== 'object') return out;
-
-  for (const [agentId, handle] of Object.entries(input)) {
-    const normalizedAgentId = normalizeAgentId(agentId);
-    const normalizedHandle = normalizeHandle(handle);
-    if (!normalizedAgentId || !normalizedHandle) continue;
-    out[normalizedAgentId] = normalizedHandle;
-  }
-
-  return out;
-}
-
-function resolveCurrentAgentId(api, context, defaultAgentId) {
+export function resolveCurrentAgentId(api, context, defaultAgentId) {
   const sessionAgentId = normalizeAgentId(
     api.resolveSessionAgentId(context.sessionId),
   );
@@ -77,13 +61,17 @@ function resolveHandleConflict(agentHandles, handle, currentAgentId) {
   return null;
 }
 
+function syncRuntimeAgentHandles(config, nextAgentHandles) {
+  // Resolved Brevo config is the plugin's live in-memory state. Keep it aligned
+  // with persisted config writes so later commands/tools see the latest handles.
+  config.agentHandles = nextAgentHandles;
+}
+
 export function createBrevoCommandHandler(api, config, options = {}) {
   const fetchImpl = options.fetchImpl;
 
   return async function brevoCommandHandler(args, context) {
-    const sub = String(args[0] || 'status')
-      .trim()
-      .toLowerCase();
+    const sub = normalizeLower(args[0] || 'status');
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
     const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
 
@@ -94,7 +82,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
     }
 
     if (!config.agentHandles || typeof config.agentHandles !== 'object') {
-      config.agentHandles = {};
+      syncRuntimeAgentHandles(config, {});
     }
 
     if (sub === 'status' || sub === 'info') {
@@ -158,7 +146,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
         );
       }
 
-      const nextAgentHandles = cloneAgentHandles(config.agentHandles);
+      const nextAgentHandles = normalizeAgentHandles(config.agentHandles);
       const conflictingAgentId = resolveHandleConflict(
         nextAgentHandles,
         requestedHandle,
@@ -175,7 +163,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
         'agentHandles',
         JSON.stringify(nextAgentHandles),
       );
-      config.agentHandles = nextAgentHandles;
+      syncRuntimeAgentHandles(config, nextAgentHandles);
 
       return [
         'Brevo handle attached.',
@@ -186,7 +174,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
     }
 
     if (sub === 'detach') {
-      const nextAgentHandles = cloneAgentHandles(config.agentHandles);
+      const nextAgentHandles = normalizeAgentHandles(config.agentHandles);
       const previousHandle = normalizeHandle(nextAgentHandles[agentId]);
       if (!previousHandle) {
         return [
@@ -205,7 +193,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
           JSON.stringify(nextAgentHandles),
         );
       }
-      config.agentHandles = nextAgentHandles;
+      syncRuntimeAgentHandles(config, nextAgentHandles);
 
       return [
         'Brevo handle detached.',

@@ -1,14 +1,59 @@
 import { resolveAgentEmailAddress } from './brevo-address.js';
-import { createBrevoCommandHandler } from './brevo-command.js';
-import { handleBrevoInbound } from './brevo-inbound.js';
+import {
+  createBrevoCommandHandler,
+  resolveCurrentAgentId,
+} from './brevo-command.js';
+import { buildKnownAgentIds, handleBrevoInbound } from './brevo-inbound.js';
 import { createBrevoSmtpService } from './brevo-outbound.js';
 import { resolveBrevoConfig } from './config.js';
+
+const EMAIL_ADDRESS_RE = /^[^\s@<>]+@[^\s@<>]+$/;
+
+function requireEmailAddress(field, value) {
+  const email = String(value || '').trim();
+  if (!EMAIL_ADDRESS_RE.test(email)) {
+    throw new Error(
+      `Invalid ${field} email address. Provide a plain email address like user@example.com.`,
+    );
+  }
+  return email;
+}
+
+export function createSendEmailToolHandler(api, config, send) {
+  return async (args, context) => {
+    const to = requireEmailAddress('to', args.to);
+    const cc = args.cc ? requireEmailAddress('cc', args.cc) : undefined;
+    const bcc = args.bcc ? requireEmailAddress('bcc', args.bcc) : undefined;
+    const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
+    const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
+    const configuredHandle = config.agentHandles?.[agentId];
+    const address =
+      config.fromAddress ||
+      resolveAgentEmailAddress(
+        agentId,
+        config.domain,
+        config.fromAddress,
+        configuredHandle,
+      );
+    const from = config.fromName ? `"${config.fromName}" <${address}>` : address;
+    await send({
+      from,
+      to,
+      subject: String(args.subject),
+      body: String(args.body),
+      ...(cc ? { cc } : {}),
+      ...(bcc ? { bcc } : {}),
+    });
+    return { sent: true, from, to, subject: args.subject };
+  };
+}
 
 export default {
   id: 'brevo-email',
   kind: 'channel',
   register(api) {
     const config = resolveBrevoConfig(api.pluginConfig, api);
+    const knownAgentIds = buildKnownAgentIds(api.config);
     const { service, send } = createBrevoSmtpService(config, api.logger);
 
     api.registerService(service);
@@ -25,7 +70,7 @@ export default {
       method: 'POST',
       description: 'Brevo inbound email parsing webhook',
       async handler(ctx) {
-        await handleBrevoInbound(ctx, api, config);
+        await handleBrevoInbound(ctx, api, config, knownAgentIds);
       },
     });
 
@@ -60,30 +105,7 @@ export default {
         },
         required: ['to', 'subject', 'body'],
       },
-      async handler(args, context) {
-        const agentId = api.resolveSessionAgentId(context.sessionId);
-        const configuredHandle = config.agentHandles?.[agentId];
-        const address =
-          config.fromAddress ||
-          resolveAgentEmailAddress(
-            agentId,
-            config.domain,
-            config.fromAddress,
-            configuredHandle,
-          );
-        const from = config.fromName
-          ? `"${config.fromName}" <${address}>`
-          : address;
-        await send({
-          from,
-          to: String(args.to),
-          subject: String(args.subject),
-          body: String(args.body),
-          ...(args.cc ? { cc: String(args.cc) } : {}),
-          ...(args.bcc ? { bcc: String(args.bcc) } : {}),
-        });
-        return { sent: true, from, to: args.to, subject: args.subject };
-      },
+      handler: createSendEmailToolHandler(api, config, send),
     });
 
     api.logger.info(
