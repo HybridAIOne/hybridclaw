@@ -35,7 +35,9 @@ export function createSendEmailToolHandler(api, config, send) {
         config.fromAddress,
         configuredHandle,
       );
-    const from = config.fromName ? `"${config.fromName}" <${address}>` : address;
+    const from = config.fromName
+      ? `"${config.fromName}" <${address}>`
+      : address;
     await send({
       from,
       to,
