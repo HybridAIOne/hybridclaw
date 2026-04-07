@@ -6762,9 +6762,60 @@ export async function handleGatewayCommand(
           );
         }
 
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const currentConfig = getRuntimeConfig();
+        const currentIntervalHours = Math.max(
+          0,
+          Math.trunc(currentConfig.memory.consolidationIntervalHours),
+        );
+        const formatDreamStatus = (): string =>
+          [
+            `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
+            currentIntervalHours > 0
+              ? `Cadence: every ${currentIntervalHours}h`
+              : 'Cadence: off',
+            `Decay rate: ${currentConfig.memory.decayRate}`,
+          ].join('\n');
+
+        if (!sub || sub === 'status' || sub === 'info' || sub === 'help') {
+          return infoCommand(
+            'Dream Status',
+            [formatDreamStatus(), '', 'Usage: `dream on|off|now`'].join('\n'),
+          );
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          if (currentIntervalHours > 0) {
+            return plainCommand(
+              `Dream scheduling already enabled. Consolidation runs every ${currentIntervalHours}h.`,
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 24;
+          });
+          return plainCommand(
+            'Dream scheduling enabled. Memory consolidation will run every 24h.',
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          if (currentIntervalHours <= 0) {
+            return plainCommand('Dream scheduling already disabled.');
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 0;
+          });
+          return plainCommand('Dream scheduling disabled.');
+        }
+
+        if (sub !== 'now' && sub !== 'run') {
+          return badCommand('Usage', 'Usage: `dream on|off|now`');
+        }
+
         try {
-          const decayRate = getRuntimeConfig().memory.decayRate;
-          memoryService.setConsolidationDecayRate(decayRate);
+          memoryService.setConsolidationDecayRate(
+            currentConfig.memory.decayRate,
+          );
           const report = memoryService.consolidateMemories();
           return infoCommand(
             'Memory Consolidated',

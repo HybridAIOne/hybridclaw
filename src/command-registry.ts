@@ -361,8 +361,14 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
-    case 'dream':
-      return ['dream'];
+    case 'dream': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['dream'];
+      if (sub === 'on' || sub === 'off' || sub === 'now' || sub === 'status') {
+        return ['dream', sub];
+      }
+      return ['dream', ...parts.slice(1)];
+    }
 
     case 'compact':
       return ['compact'];
@@ -516,7 +522,45 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'dream',
-      description: 'Run memory consolidation across agent workspaces now',
+      description:
+        'Control memory consolidation scheduling and run it on demand',
+      tuiMenuEntries: [
+        {
+          id: 'dream.now',
+          label: '/dream now',
+          insertText: '/dream now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          id: 'dream.on',
+          label: '/dream on',
+          insertText: '/dream on',
+          description: 'Enable scheduled memory consolidation',
+        },
+        {
+          id: 'dream.off',
+          label: '/dream off',
+          insertText: '/dream off',
+          description: 'Disable scheduled memory consolidation',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable scheduled memory consolidation',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable scheduled memory consolidation',
+        },
+      ],
     },
     {
       name: 'channel-mode',
@@ -1799,8 +1843,13 @@ export function parseCanonicalSlashCommandArgs(
     case 'compact':
       return ['compact'];
 
-    case 'dream':
-      return ['dream'];
+    case 'dream': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'now' || subcommand === 'on' || subcommand === 'off') {
+        return ['dream', subcommand];
+      }
+      return subcommand ? null : ['dream'];
+    }
 
     case 'channel-mode': {
       const mode = normalizeStringOption(interaction, 'mode', true);

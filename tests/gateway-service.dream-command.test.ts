@@ -32,7 +32,7 @@ test('dream command runs memory consolidation on demand', async () => {
     sessionId: 'session-dream',
     guildId: null,
     channelId: 'web',
-    args: ['dream'],
+    args: ['dream', 'now'],
   });
 
   expect(decaySpy).toHaveBeenCalledWith(getRuntimeConfig().memory.decayRate);
@@ -67,7 +67,7 @@ test('dream command reports consolidation failures', async () => {
     sessionId: 'session-dream-error',
     guildId: null,
     channelId: 'web',
-    args: ['dream'],
+    args: ['dream', 'now'],
   });
 
   expect(result.kind).toBe('error');
@@ -92,11 +92,72 @@ test('dream command is restricted to local TUI/web sessions', async () => {
     sessionId: 'session-dream-remote',
     guildId: 'guild-1',
     channelId: 'discord:channel-1',
-    args: ['dream'],
+    args: ['dream', 'now'],
   });
 
   expect(consolidateSpy).not.toHaveBeenCalled();
   expect(result.kind).toBe('error');
   expect(result.title).toBe('Dream Restricted');
   expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
+test('dream command reports scheduler status by default', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-dream-status',
+    guildId: null,
+    channelId: 'web',
+    args: ['dream'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Dream Status');
+  expect(result.text).toContain('Scheduler: enabled');
+  expect(result.text).toContain('Cadence: every 24h');
+  expect(result.text).toContain('Usage: `dream on|off|now`');
+});
+
+test('dream command can disable and re-enable scheduled consolidation', async () => {
+  setupHome();
+
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.js');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const disabled = await handleGatewayCommand({
+    sessionId: 'session-dream-off',
+    guildId: null,
+    channelId: 'web',
+    args: ['dream', 'off'],
+  });
+
+  expect(disabled.kind).toBe('plain');
+  expect(disabled.text).toContain('Dream scheduling disabled');
+  expect(getRuntimeConfig().memory.consolidationIntervalHours).toBe(0);
+
+  const enabled = await handleGatewayCommand({
+    sessionId: 'session-dream-on',
+    guildId: null,
+    channelId: 'web',
+    args: ['dream', 'on'],
+  });
+
+  expect(enabled.kind).toBe('plain');
+  expect(enabled.text).toContain('Dream scheduling enabled');
+  expect(getRuntimeConfig().memory.consolidationIntervalHours).toBe(24);
 });

@@ -82,6 +82,20 @@ test('registers plugin as a slash/text command', async () => {
       }),
       expect.objectContaining({
         name: 'dream',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'now',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'on',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'off',
+          }),
+        ]),
       }),
     ]),
   );
@@ -407,10 +421,22 @@ test('registers dream as a canonical and local slash/text command', async () => 
     parseCanonicalSlashCommandArgs({
       commandName: 'dream',
       getString: () => null,
-      getSubcommand: () => null,
+      getSubcommand: () => 'now',
     }),
-  ).toEqual(['dream']);
+  ).toEqual(['dream', 'now']);
   expect(mapCanonicalCommandToGatewayArgs(['dream'])).toEqual(['dream']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'on'])).toEqual([
+    'dream',
+    'on',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'off'])).toEqual([
+    'dream',
+    'off',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'now'])).toEqual([
+    'dream',
+    'now',
+  ]);
 });
 
 test('maps bot clear and bot auto to the clear gateway command', async () => {
