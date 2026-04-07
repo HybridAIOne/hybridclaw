@@ -171,7 +171,10 @@ export function createBrevoCommandHandler(api, config, options = {}) {
       }
 
       nextAgentHandles[agentId] = requestedHandle;
-      await api.writeConfigValue('agentHandles', JSON.stringify(nextAgentHandles));
+      await api.writeConfigValue(
+        'agentHandles',
+        JSON.stringify(nextAgentHandles),
+      );
       config.agentHandles = nextAgentHandles;
 
       return [

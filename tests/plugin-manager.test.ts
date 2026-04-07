@@ -681,7 +681,9 @@ test('plugin manager accepts required env vars from stored runtime secrets', asy
 
   vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
     const actual =
-      await importOriginal<typeof import('../src/security/runtime-secrets.js')>();
+      await importOriginal<
+        typeof import('../src/security/runtime-secrets.js')
+      >();
     return {
       ...actual,
       readStoredRuntimeSecret: vi.fn((key: string) =>
