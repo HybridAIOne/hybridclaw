@@ -19,6 +19,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
@@ -866,7 +867,11 @@ export class PluginManager {
       candidate.manifest.requires?.env,
     ).filter((key) => {
       const value = process.env[key];
-      return typeof value !== 'string' || value.trim().length === 0;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return false;
+      }
+      const stored = readStoredRuntimeSecret(key);
+      return typeof stored !== 'string' || stored.trim().length === 0;
     });
     if (missingEnv.length > 0) {
       const error = `Missing required env vars: ${missingEnv.join(', ')}.`;
