@@ -1,6 +1,7 @@
 ---
 name: apple-passwords
 description: Open macOS Passwords or Keychain entries, locate saved logins, and read specific credentials safely.
+category: apple
 user-invocable: true
 metadata:
   hybridclaw:

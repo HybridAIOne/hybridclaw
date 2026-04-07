@@ -1,6 +1,7 @@
 ---
 name: code-simplification
 description: Refactor code to reduce complexity and duplication without changing behavior.
+category: development
 user-invocable: false
 metadata:
   hybridclaw:

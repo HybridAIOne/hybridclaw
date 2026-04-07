@@ -61,6 +61,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return {
     name: 'pdf',
     description: 'Use this skill for PDF work.',
+    category: 'office',
     userInvocable: true,
     disableModelInvocation: false,
     always: false,
@@ -110,6 +111,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
+  expect(prompt).toContain('<category>office</category>');
   expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
   expect(prompt).toContain(
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',

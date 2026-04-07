@@ -1,6 +1,7 @@
 ---
 name: iss-position
 description: Fetch the current ISS latitude and longitude from the WhereTheISS API and return standardized payloads.
+category: utility
 ---
 
 # ISS Position

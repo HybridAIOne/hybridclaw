@@ -1,6 +1,7 @@
 ---
 name: skill-creator
 description: "Create and update SKILL.md-based skills with strong trigger metadata, lean docs, and reliable init, validate, package, and publish workflows."
+category: development
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -48,7 +49,7 @@ Target sizes:
 Required:
 
 - `SKILL.md`
-- YAML frontmatter with `name` and `description`
+- YAML frontmatter with `name`, `description`, and a top-level `category`
 
 Recommended:
 
@@ -66,6 +67,7 @@ Optional:
 Use this taxonomy to keep skills maintainable:
 
 - `SKILL.md`: trigger semantics, decision flow, command contract, minimal examples
+- Frontmatter `category`: short top-level bucket like `development`, `office`, `apple`, or `memory`
 - `references/`: long docs, schemas, framework variants, advanced patterns
 - `scripts/`: executable deterministic helpers
 - `assets/`: output resources that should not be read into context by default

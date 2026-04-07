@@ -3445,6 +3445,7 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     skills: loadSkillCatalog().map((skill) => ({
       name: skill.name,
       description: skill.description,
+      category: skill.category,
       source: String(skill.source),
       available: skill.available,
       enabled: skill.enabled,

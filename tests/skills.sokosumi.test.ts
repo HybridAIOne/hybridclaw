@@ -30,8 +30,7 @@ describe('sokosumi bundled skill', () => {
     if (originalDisableWatcher === undefined) {
       delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
     } else {
-      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
-        originalDisableWatcher;
+      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = originalDisableWatcher;
     }
     while (tempHomes.length > 0) {
       const tempHome = tempHomes.pop();
@@ -45,6 +44,7 @@ describe('sokosumi bundled skill', () => {
     const catalog = loadSkillCatalog();
 
     expect(catalog.find((skill) => skill.name === 'sokosumi')).toMatchObject({
+      category: 'agents',
       userInvocable: true,
       available: true,
       metadata: {

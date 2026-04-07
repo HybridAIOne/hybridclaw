@@ -46,10 +46,12 @@ describe('office bundled skills', () => {
     const catalog = loadSkillCatalog();
 
     expect(catalog.find((skill) => skill.name === 'office')).toMatchObject({
+      category: 'office',
       userInvocable: false,
       disableModelInvocation: true,
     });
     expect(catalog.find((skill) => skill.name === 'docx')).toMatchObject({
+      category: 'office',
       requires: {
         bins: ['node'],
         env: [],
@@ -61,6 +63,7 @@ describe('office bundled skills', () => {
       },
     });
     expect(catalog.find((skill) => skill.name === 'xlsx')).toMatchObject({
+      category: 'office',
       requires: {
         bins: ['node'],
         env: [],
@@ -72,6 +75,7 @@ describe('office bundled skills', () => {
       },
     });
     expect(catalog.find((skill) => skill.name === 'pptx')).toMatchObject({
+      category: 'office',
       requires: {
         bins: ['node'],
         env: [],
@@ -85,6 +89,7 @@ describe('office bundled skills', () => {
     expect(
       catalog.find((skill) => skill.name === 'office-workflows'),
     ).toMatchObject({
+      category: 'office',
       userInvocable: true,
       metadata: {
         hybridclaw: {

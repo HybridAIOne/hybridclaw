@@ -1,6 +1,7 @@
 ---
 name: obsidian
 description: Read, search, organize, and create notes in the Obsidian vault.
+category: memory
 user-invocable: true
 metadata:
   hybridclaw:

@@ -1,6 +1,7 @@
 ---
 name: docx
 description: Create, inspect, and edit `.docx` files safely, including comments and OOXML-preserving changes.
+category: office
 user-invocable: true
 disable-model-invocation: false
 requires:

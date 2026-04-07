@@ -1,6 +1,7 @@
 ---
 name: feature-planning
 description: Break features into implementation plans, acceptance criteria, and sequenced tasks.
+category: planning
 user-invocable: true
 metadata:
   hybridclaw:

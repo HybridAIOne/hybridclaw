@@ -1,6 +1,7 @@
 ---
 name: hybridclaw-help
 description: HybridClaw help. Primary skill for product questions about setup, configuration, commands, runtime behavior, and release notes.
+category: hybridclaw
 user-invocable: true
 metadata:
   hybridclaw:

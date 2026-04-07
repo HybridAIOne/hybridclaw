@@ -1,6 +1,7 @@
 ---
 name: office-workflows
 description: Coordinate cross-format office workflows across CSV/TSV, XLSX, DOCX, and PPTX deliverables.
+category: office
 user-invocable: true
 disable-model-invocation: false
 metadata:

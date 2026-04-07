@@ -1,6 +1,7 @@
 ---
 name: xlsx
 description: Inspect, create, clean, analyze, and format `.xlsx` workbooks and tabular data with Node.js and XlsxPopulate.
+category: office
 user-invocable: true
 disable-model-invocation: false
 requires:

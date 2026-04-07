@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: Review diffs and change sets for bugs, regressions, risks, and missing tests.
+category: development
 user-invocable: true
 metadata:
   hybridclaw:

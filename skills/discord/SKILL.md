@@ -1,6 +1,7 @@
 ---
 name: discord
 description: Read, send, react to, edit, pin, and thread Discord messages with HybridClaw's `message` tool.
+category: communication
 user-invocable: true
 metadata:
   hybridclaw:

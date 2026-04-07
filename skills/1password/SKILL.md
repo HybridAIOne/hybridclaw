@@ -1,6 +1,7 @@
 ---
 name: 1password
 description: Install and use 1Password CLI (`op`) to sign in, inspect vault items, read secrets safely, and inject secrets into commands.
+category: security
 user-invocable: true
 metadata:
   hybridclaw:

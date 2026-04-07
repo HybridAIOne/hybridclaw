@@ -1,6 +1,7 @@
 ---
 name: office
 description: Internal shared OOXML helper scripts for DOCX, XLSX, and PPTX unpacking, validation, and repacking. Not a user-facing skill.
+category: office
 user-invocable: false
 disable-model-invocation: true
 ---

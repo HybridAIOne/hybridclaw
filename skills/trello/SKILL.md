@@ -1,6 +1,7 @@
 ---
 name: trello
 description: Inspect Trello boards, lists, and cards; create or move tasks; and manage Kanban workflows through the Trello API.
+category: productivity
 user-invocable: true
 metadata:
   hybridclaw:

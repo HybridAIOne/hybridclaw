@@ -1,6 +1,7 @@
 ---
 name: write-blog-post
 description: Draft outlines and publish-ready blog posts tailored to audience, sources, and voice.
+category: publishing
 user-invocable: true
 metadata:
   hybridclaw:

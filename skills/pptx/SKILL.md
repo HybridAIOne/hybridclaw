@@ -1,6 +1,7 @@
 ---
 name: pptx
 description: Create and edit `.pptx` presentations safely, export thumbnails for QA, and build polished decks with pptxgenjs plus OOXML editing.
+category: office
 user-invocable: true
 disable-model-invocation: false
 requires:

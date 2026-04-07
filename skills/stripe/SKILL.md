@@ -1,6 +1,7 @@
 ---
 name: stripe
 description: Investigate Stripe customers, subscriptions, payments, webhooks, dashboard state, and CLI or API workflows.
+category: business
 user-invocable: true
 metadata:
   hybridclaw:

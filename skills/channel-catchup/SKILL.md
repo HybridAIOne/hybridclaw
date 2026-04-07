@@ -1,6 +1,7 @@
 ---
 name: channel-catchup
 description: Summarize recent activity across Discord, ingested email threads, WhatsApp, and TUI channels.
+category: communication
 user-invocable: true
 disable-model-invocation: false
 metadata:

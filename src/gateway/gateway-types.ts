@@ -683,6 +683,7 @@ export interface GatewayAdminAuditResponse {
 export interface GatewayAdminSkill {
   name: string;
   description: string;
+  category: string;
   source: string;
   available: boolean;
   enabled: boolean;

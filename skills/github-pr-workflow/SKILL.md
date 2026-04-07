@@ -1,6 +1,7 @@
 ---
 name: github-pr-workflow
 description: Create branches, commit and push changes, open or update GitHub pull requests, handle CI, and merge safely.
+category: development
 user-invocable: true
 metadata:
   hybridclaw:

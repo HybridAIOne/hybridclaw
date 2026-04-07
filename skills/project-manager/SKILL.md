@@ -1,6 +1,7 @@
 ---
 name: project-manager
 description: Plan sprints, milestones, roadmaps, risks, dependencies, and stakeholder updates for team delivery.
+category: planning
 user-invocable: true
 metadata:
   hybridclaw:

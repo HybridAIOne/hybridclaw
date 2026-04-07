@@ -1,6 +1,7 @@
 ---
 name: pdf
 description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
+category: office
 user-invocable: true
 disable-model-invocation: false
 metadata:

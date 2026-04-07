@@ -1,6 +1,7 @@
 ---
 name: apple-calendar
 description: View Apple Calendar schedules, draft or import `.ics` files, and coordinate host-side calendar actions on macOS.
+category: apple
 user-invocable: true
 metadata:
   hybridclaw:

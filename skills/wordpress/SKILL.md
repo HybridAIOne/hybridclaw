@@ -1,6 +1,7 @@
 ---
 name: wordpress
 description: Draft posts and pages, coordinate wp-admin work, use WP-CLI, inspect themes or plugins, and publish safely.
+category: publishing
 user-invocable: true
 metadata:
   hybridclaw:

@@ -1,6 +1,7 @@
 ---
 name: apple-music
 description: Control Apple Music playback, inspect now playing, start playlists, and automate the macOS Music app.
+category: apple
 user-invocable: true
 metadata:
   hybridclaw:

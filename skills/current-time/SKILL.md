@@ -1,6 +1,7 @@
 ---
 name: current-time
 description: Return the current system time and timezone by calling a tool instead of guessing.
+category: utility
 user-invocable: true
 disable-model-invocation: false
 ---

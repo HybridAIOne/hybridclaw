@@ -1,6 +1,7 @@
 ---
 name: sokosumi
 description: Use Sokosumi with API-key auth, direct agent hires, coworker tasks, job monitoring, and result retrieval from non-interactive agent environments. Trigger on explicit Sokosumi mentions and Sokosumi-specific API, agent, coworker, task, or job terms. In agentic environments, do not launch the Ink TUI; use the API-first workflow instead.
+category: agents
 user-invocable: true
 metadata:
   hybridclaw:

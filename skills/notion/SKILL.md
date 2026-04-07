@@ -1,6 +1,7 @@
 ---
 name: notion
 description: Search, create, update, and organize Notion pages, databases, notes, and trackers through the Notion API.
+category: memory
 user-invocable: true
 metadata:
   hybridclaw:

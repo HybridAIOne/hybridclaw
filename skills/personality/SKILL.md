@@ -1,6 +1,7 @@
 ---
 name: personality
 description: Switch persona modes with `/personality` and persist the active mode in `SOUL.md`.
+category: memory
 user-invocable: true
 disable-model-invocation: true
 always: false
