@@ -199,9 +199,7 @@ test('handleGatewayMessage can auto-approve tools for eval requests without enab
   expect(runAgentMock.mock.calls[0]?.[0]?.fullAutoNeverApproveTools).toEqual(
     [],
   );
-  expect(
-    runAgentMock.mock.calls[0]?.[0]?.skipContainerSystemPrompt,
-  ).toBe(true);
+  expect(runAgentMock.mock.calls[0]?.[0]?.skipContainerSystemPrompt).toBe(true);
   const messages = runAgentMock.mock.calls[0]?.[0]?.messages as
     | Array<{ content?: string }>
     | undefined;

@@ -404,13 +404,12 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
     toolsUsed: [],
     artifacts: [],
   };
-  const readOutput = vi.fn(
-    async (sessionId: string) =>
-      sessionId === 'sess-6'
-        ? successOutput
-        : new Promise<typeof successOutput>((resolve) => {
-            pendingResolvers.set(sessionId, resolve);
-          }),
+  const readOutput = vi.fn(async (sessionId: string) =>
+    sessionId === 'sess-6'
+      ? successOutput
+      : new Promise<typeof successOutput>((resolve) => {
+          pendingResolvers.set(sessionId, resolve);
+        }),
   );
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,

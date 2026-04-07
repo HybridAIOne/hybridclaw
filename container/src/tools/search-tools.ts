@@ -187,8 +187,7 @@ export const SEARCH_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           path: {
             type: 'string',
-            description:
-              `Directory or file to search in (default: ${WORKSPACE_ROOT_DISPLAY})`,
+            description: `Directory or file to search in (default: ${WORKSPACE_ROOT_DISPLAY})`,
           },
           include: {
             type: 'string',
@@ -248,10 +247,7 @@ function resolveTaskSandboxPath(rawPath: string): string | null {
 
   if (path.posix.isAbsolute(normalized)) {
     const absolute = path.posix.normalize(normalized);
-    if (
-      absolute === displayRoot ||
-      absolute.startsWith(`${displayRoot}/`)
-    ) {
+    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
       return absolute;
     }
     return null;
@@ -266,7 +262,8 @@ function resolveTaskSandboxPath(rawPath: string): string | null {
     displayBaseName !== '/' &&
     (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
   ) {
-    clean = clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+    clean =
+      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
   }
   if (clean === '..' || clean.startsWith('../')) return null;
   return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
@@ -889,7 +886,9 @@ export function runGlobSearch(pattern: string): SearchToolRunResult {
     }
     const normalizedPattern = normalizedWorkspacePattern.replace(/\\/g, '/');
     const matcher = buildGlobMatcher(normalizedPattern);
-    const searchRoot = resolveTaskSandboxGlobSearchRoot(normalizedWorkspacePattern);
+    const searchRoot = resolveTaskSandboxGlobSearchRoot(
+      normalizedWorkspacePattern,
+    );
     if (!searchRoot) {
       return {
         output: `No files matched pattern: ${pattern}`,
@@ -974,7 +973,8 @@ export function runGrepSearch(
   const searchPathArg = readStringValue(args.path);
   let searchPath = WORKSPACE_ROOT;
   if (isTaskSandboxSearchEnabled()) {
-    searchPath = resolveTaskSandboxPath(searchPathArg || WORKSPACE_ROOT_DISPLAY) || '';
+    searchPath =
+      resolveTaskSandboxPath(searchPathArg || WORKSPACE_ROOT_DISPLAY) || '';
     if (!searchPath) {
       return errorResult('Error: search path escapes task workspace');
     }
@@ -1032,7 +1032,10 @@ export function runGrepSearch(
           });
           if (result.status !== 0) return null;
           if (!hasSearchableTextExtension(filePath)) return null;
-          if (Buffer.byteLength(result.stdout, 'utf-8') > SEARCH_MAX_FILE_SIZE_BYTES) {
+          if (
+            Buffer.byteLength(result.stdout, 'utf-8') >
+            SEARCH_MAX_FILE_SIZE_BYTES
+          ) {
             return null;
           }
           return result.stdout;

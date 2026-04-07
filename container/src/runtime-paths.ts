@@ -205,7 +205,8 @@ function resolveRootBoundPath(
     displayBaseName !== '/' &&
     (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
   ) {
-    clean = clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+    clean =
+      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
   }
   if (clean === '..' || clean.startsWith('../')) return null;
   const resolved = path.resolve(actualRoot, clean);

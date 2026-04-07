@@ -254,10 +254,7 @@ function resolveTaskSandboxPath(userPath: string): string | null {
   const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
   if (path.posix.isAbsolute(normalized)) {
     const absolute = path.posix.normalize(normalized);
-    if (
-      absolute === displayRoot ||
-      absolute.startsWith(`${displayRoot}/`)
-    ) {
+    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
       return absolute;
     }
     return null;
@@ -272,7 +269,8 @@ function resolveTaskSandboxPath(userPath: string): string | null {
     displayBaseName !== '/' &&
     (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
   ) {
-    clean = clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+    clean =
+      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
   }
   if (clean === '..' || clean.startsWith('../')) return null;
   return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
@@ -320,9 +318,10 @@ function ensureTaskSandboxSuccess(
   failTool(`Error: ${detail || result.error?.message || fallback}`);
 }
 
-function copyTaskSandboxFileToTemp(
-  sandboxPath: string,
-): { tempDir: string; localPath: string } {
+function copyTaskSandboxFileToTemp(sandboxPath: string): {
+  tempDir: string;
+  localPath: string;
+} {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-taskfs-'));
   const localPath = path.join(
     tempDir,
@@ -335,9 +334,13 @@ function copyTaskSandboxFileToTemp(
     fs.rmSync(tempDir, { recursive: true, force: true });
     const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
     if (/no such file|could not find|not found/i.test(detail)) {
-      failTool(`Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`);
+      failTool(
+        `Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`,
+      );
     }
-    failTool(`Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`);
+    failTool(
+      `Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`,
+    );
   }
   return { tempDir, localPath };
 }
@@ -3110,8 +3113,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'bash',
-      description:
-        `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
+      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
       parameters: {
         type: 'object',
         properties: {
@@ -3587,15 +3589,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'vision_analyze',
-      description:
-        `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
+      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
-            description:
-              `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
@@ -3625,8 +3625,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           image_url: {
             type: 'string',
-            description:
-              `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',

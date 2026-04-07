@@ -578,8 +578,7 @@ test('reports managed suite latest run in status output', async () => {
         finishedAt: '2026-04-06T18:05:00.000Z',
         exitCode: 0,
         cwd: installDir,
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${installDir} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${installDir} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -615,11 +614,15 @@ test('reports managed suite latest run in status output', async () => {
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('Latest run: eval-terminal-bench-run (completed)');
+  expect(result.text).toContain(
+    'Latest run: eval-terminal-bench-run (completed)',
+  );
   expect(result.text).toContain(
     'Command: terminal-bench-2.0 run --num-tasks 10',
   );
-  expect(result.text).toContain(path.join('terminal-bench-2.0', '.venv', 'bin', 'python'));
+  expect(result.text).toContain(
+    path.join('terminal-bench-2.0', '.venv', 'bin', 'python'),
+  );
   expect(result.text).toContain('Score: 0.000');
   expect(result.text).toContain('Trials: 2');
   expect(result.text).toContain('Passed: 0/2');
@@ -738,8 +741,7 @@ test('shows managed suite run summary in results when a run exists', async () =>
         startedAt: '2026-04-06T20:00:00.000Z',
         finishedAt: '2026-04-06T20:05:00.000Z',
         cwd: process.cwd(),
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -853,8 +855,7 @@ test('does not count recovered terminal-bench task warnings as errors', async ()
         startedAt: '2026-04-07T11:19:33.032Z',
         finishedAt: '2026-04-07T11:21:33.032Z',
         cwd: process.cwd(),
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 2',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -949,8 +950,7 @@ test('shows partial terminal-bench progress in results while a run is still acti
         pid: 8895,
         startedAt: '2026-04-07T10:27:20.465Z',
         cwd: process.cwd(),
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 2 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 2',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -1029,8 +1029,7 @@ test('shows managed suite log tails in logs view', async () => {
         finishedAt: '2026-04-06T20:05:00.000Z',
         exitCode: 0,
         cwd: process.cwd(),
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
@@ -1091,8 +1090,7 @@ test('stops managed suite runs and marks the run metadata as terminated', async 
         pid: 8891,
         startedAt: '2026-04-06T20:00:00.000Z',
         cwd: process.cwd(),
-        command:
-          `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-terminal-bench-native --install-dir ${path.join(dataDir, 'evals', 'terminal-bench-2.0')} --data-dir ${dataDir} --agent-id main --model hybridai/gpt-4.1-mini --prompt-mode none --num-tasks 10 --n-concurrent 1`,
         displayCommand: 'terminal-bench-2.0 run --num-tasks 10',
         openaiBaseUrl: 'http://127.0.0.1:9090/v1',
         model: 'hybridai/gpt-4.1-mini',
