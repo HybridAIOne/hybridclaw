@@ -73,6 +73,7 @@ const SLASH_COMMANDS = [
   '/clear',
   '/compact',
   '/config',
+  '/dream',
   '/exit',
   '/export',
   '/fullauto',

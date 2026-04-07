@@ -15,6 +15,13 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 
   expect(labels).toContain('/show tools');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/dream <now|on|off>');
+  expect(labels).toContain('/dream now');
+  expect(labels).toContain('/dream on');
+  expect(labels).toContain('/dream off');
+  expect(labels.filter((label) => label === '/dream now')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream off')).toHaveLength(1);
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
@@ -72,6 +79,21 @@ test('does not duplicate concierge slash menu entries', () => {
   expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+});
+
+test('does not duplicate slash menu rows that resolve to the same command text', () => {
+  const entries = buildTuiSlashMenuEntries();
+  const counts = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = `${entry.label}\n${entry.insertText.trimEnd()}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const duplicates = Array.from(counts.entries()).filter(
+    ([, count]) => count > 1,
+  );
+  expect(duplicates).toEqual([]);
 });
 
 test('root entries with subcommands include arg hints in labels', () => {
