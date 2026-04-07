@@ -12,6 +12,7 @@ import { logger } from '../logger.js';
 import {
   deleteTask,
   getAllTasks,
+  getSessionById,
   pauseTask,
   resumeTask,
   updateSessionAgent,
@@ -208,6 +209,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
     jobs: [
       ...runtimeConfig.scheduler.jobs.map((job) => {
         const runtime = statuses.get(job.id);
+        const session = getSessionById(`scheduler:${job.id}`);
         return {
           id: job.id,
           source: 'config',
@@ -231,7 +233,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
           createdAt: null,
-          sessionId: null,
+          sessionId: session?.id || null,
           channelId:
             job.delivery.kind === 'channel'
               ? job.delivery.to

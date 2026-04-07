@@ -194,3 +194,109 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     boardStatus: null,
   });
 });
+
+test('admin scheduler resolves config job session ids through legacy scheduler keys', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { getGatewayAdminScheduler } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  updateRuntimeConfig((draft) => {
+    draft.scheduler.jobs.push({
+      id: 'release-notes',
+      schedule: {
+        kind: 'at',
+        at: '2026-04-07T20:00:00.000Z',
+        everyMs: null,
+        expr: null,
+        tz: 'UTC',
+      },
+      action: {
+        kind: 'agent_turn',
+        message: 'Draft release notes',
+      },
+      delivery: {
+        kind: 'channel',
+        channel: 'tui',
+        to: 'tui',
+        webhookUrl: '',
+      },
+      enabled: true,
+      boardStatus: 'review',
+      agentId: 'main',
+    });
+  });
+
+  const session = getOrCreateSession('scheduler:release-notes', null, 'tui', 'main');
+
+  expect(
+    getGatewayAdminScheduler().jobs.find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
+    id: 'release-notes',
+    source: 'config',
+    sessionId: session.id,
+    channelId: 'tui',
+  });
+});
+
+test('admin jobs context exposes full recent assistant outputs for scheduler sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { getGatewayAdminJobsContext } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const session = getOrCreateSession('scheduler:release-notes', null, 'tui', 'main');
+  const resultText = [
+    'HybridClaw 0.10.0 Release Notes',
+    '',
+    'Release: v0.10.0',
+    'Status: Released',
+    '',
+    '**Highlights**',
+    '- Added migration support for scheduler metadata and board reconciliation.',
+  ].join('\n');
+
+  memoryService.storeMessage({
+    sessionId: session.id,
+    userId: 'scheduler',
+    username: 'scheduler',
+    role: 'user',
+    content: 'Draft the release notes.',
+  });
+  memoryService.storeMessage({
+    sessionId: session.id,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: resultText,
+  });
+
+  expect(
+    getGatewayAdminJobsContext().sessions.find(
+      (entry) => entry.sessionId === session.id,
+    ),
+  ).toMatchObject({
+    sessionId: session.id,
+    output: [resultText],
+  });
+});

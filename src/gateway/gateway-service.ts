@@ -95,6 +95,7 @@ import {
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
+  getRecentMessages,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -2893,13 +2894,13 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       );
     })
     .map((session) => ({
+      output: collectRecentAssistantOutputs(session.sessionId),
       sessionId: session.sessionId,
       agentId: session.agentId,
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
       lastAnswer: session.lastAnswer,
-      output: session.output,
     }));
 
   const agentIds = Array.from(
@@ -2919,6 +2920,26 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
     }),
     sessions,
   };
+}
+
+function collectRecentAssistantOutputs(
+  sessionId: string,
+  limit = 12,
+): string[] {
+  const outputs: string[] = [];
+  const seen = new Set<string>();
+  const messages = getRecentMessages(sessionId, limit);
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (String(message.role || '').toLowerCase() !== 'assistant') continue;
+    const content = String(message.content || '').trim();
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    outputs.unshift(content);
+  }
+
+  return outputs;
 }
 
 export function getGatewayAdminSessions(): GatewayAdminSession[] {
