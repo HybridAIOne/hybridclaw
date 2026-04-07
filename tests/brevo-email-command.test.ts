@@ -1,22 +1,13 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const {
-  getSessionByIdMock,
-  unsetPluginConfigValueMock,
-  writePluginConfigValueMock,
+  resolveSessionAgentIdMock,
+  unsetConfigValueMock,
+  writeConfigValueMock,
 } = vi.hoisted(() => ({
-  getSessionByIdMock: vi.fn(),
-  unsetPluginConfigValueMock: vi.fn(),
-  writePluginConfigValueMock: vi.fn(),
-}));
-
-vi.mock('../src/memory/db.js', () => ({
-  getSessionById: getSessionByIdMock,
-}));
-
-vi.mock('../src/plugins/plugin-config.js', () => ({
-  unsetPluginConfigValue: unsetPluginConfigValueMock,
-  writePluginConfigValue: writePluginConfigValueMock,
+  resolveSessionAgentIdMock: vi.fn(),
+  unsetConfigValueMock: vi.fn(),
+  writeConfigValueMock: vi.fn(),
 }));
 
 import { createBrevoCommandHandler } from '../plugins/brevo-email/src/brevo-command.js';
@@ -42,31 +33,15 @@ function makeJsonResponse(body: unknown, status = 200) {
 }
 
 beforeEach(() => {
-  getSessionByIdMock.mockReset();
-  unsetPluginConfigValueMock.mockReset();
-  writePluginConfigValueMock.mockReset();
-  writePluginConfigValueMock.mockResolvedValue({
-    pluginId: 'brevo-email',
-    key: 'agentHandles',
-    value: { writer: 'steve-cf4' },
-    changed: true,
-    removed: false,
-    configPath: '/tmp/home/.hybridclaw/config.json',
-    entry: null,
-  });
-  unsetPluginConfigValueMock.mockResolvedValue({
-    pluginId: 'brevo-email',
-    key: 'agentHandles',
-    value: undefined,
-    changed: true,
-    removed: true,
-    configPath: '/tmp/home/.hybridclaw/config.json',
-    entry: null,
-  });
+  resolveSessionAgentIdMock.mockReset();
+  unsetConfigValueMock.mockReset();
+  writeConfigValueMock.mockReset();
+  writeConfigValueMock.mockResolvedValue(undefined);
+  unsetConfigValueMock.mockResolvedValue(undefined);
 });
 
 test('brevo attach validates the handle and persists it for the current agent', async () => {
-  getSessionByIdMock.mockReturnValue({ agent_id: 'writer' });
+  resolveSessionAgentIdMock.mockReturnValue('writer');
   const fetchImpl = vi.fn(async () =>
     makeJsonResponse({
       handles: [
@@ -84,6 +59,9 @@ test('brevo attach validates the handle and persists it for the current agent', 
     getCredential: vi.fn((key: string) =>
       key === 'HYBRIDAI_API_KEY' ? 'hai-test-key' : undefined,
     ),
+    resolveSessionAgentId: resolveSessionAgentIdMock,
+    writeConfigValue: writeConfigValueMock,
+    unsetConfigValue: unsetConfigValueMock,
     config: {
       hybridai: {
         baseUrl: 'https://hybridai.one',
@@ -116,8 +94,8 @@ test('brevo attach validates the handle and persists it for the current agent', 
       },
     }),
   );
-  expect(writePluginConfigValueMock).toHaveBeenCalledWith(
-    'brevo-email',
+  expect(resolveSessionAgentIdMock).toHaveBeenCalledWith('session-1');
+  expect(writeConfigValueMock).toHaveBeenCalledWith(
     'agentHandles',
     JSON.stringify({ writer: 'steve-cf4' }),
   );
@@ -128,10 +106,12 @@ test('brevo attach validates the handle and persists it for the current agent', 
 });
 
 test('brevo detach removes the current agent handle mapping', async () => {
-  getSessionByIdMock.mockReturnValue({ agent_id: 'writer' });
+  resolveSessionAgentIdMock.mockReturnValue('writer');
   const api = {
-    pluginId: 'brevo-email',
     getCredential: vi.fn(),
+    resolveSessionAgentId: resolveSessionAgentIdMock,
+    writeConfigValue: writeConfigValueMock,
+    unsetConfigValue: unsetConfigValueMock,
     config: {
       agents: {
         defaultAgentId: 'main',
@@ -153,10 +133,8 @@ test('brevo detach removes the current agent handle mapping', async () => {
     guildId: null,
   });
 
-  expect(unsetPluginConfigValueMock).toHaveBeenCalledWith(
-    'brevo-email',
-    'agentHandles',
-  );
+  expect(resolveSessionAgentIdMock).toHaveBeenCalledWith('session-1');
+  expect(unsetConfigValueMock).toHaveBeenCalledWith('agentHandles');
   expect(config.agentHandles).toEqual({});
   expect(result).toContain('Brevo handle detached.');
   expect(result).toContain('Previous handle: steve-cf4');

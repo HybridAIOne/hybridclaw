@@ -123,6 +123,43 @@ function writePassivePlugin(rootDir: string, pluginId: string): void {
   );
 }
 
+function writeEnvRequirementPlugin(rootDir: string): void {
+  const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', 'env-plugin');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: env-plugin',
+      'name: Env Plugin',
+      'kind: tool',
+      'requires:',
+      '  env:',
+      '    - TEST_PLUGIN_API_KEY',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'env-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'env_status',",
+      "      description: 'Show required credential status',",
+      '      handler() {',
+      "        return api.getCredential('TEST_PLUGIN_API_KEY') || 'missing';",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeInboundWebhookPlugin(rootDir: string): void {
   const pluginDir = path.join(
     rootDir,
@@ -632,6 +669,64 @@ test('plugin manager auto-discovers plugins from project directories without con
       channelId: 'web',
     }),
   ).resolves.toBe('workspace-auto:true:hello');
+});
+
+test('plugin manager accepts required env vars from stored runtime secrets', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeEnvRequirementPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/security/runtime-secrets.js')>();
+    return {
+      ...actual,
+      readStoredRuntimeSecret: vi.fn((key: string) =>
+        key === 'TEST_PLUGIN_API_KEY' ? 'stored-secret' : null,
+      ),
+    };
+  });
+
+  try {
+    vi.resetModules();
+    const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+    const manager = new PluginManager({
+      homeDir,
+      cwd,
+      getRuntimeConfig: () => config,
+    });
+
+    await manager.ensureInitialized();
+
+    expect(manager.listPluginSummary()).toEqual([
+      expect.objectContaining({
+        id: 'env-plugin',
+        enabled: true,
+        error: undefined,
+        commands: ['env_status'],
+      }),
+    ]);
+
+    const command = manager.findCommand('env_status');
+    expect(command).toBeDefined();
+    if (!command) {
+      throw new Error('Expected env_status command to be registered');
+    }
+    await expect(
+      Promise.resolve(
+        command.handler([], {
+          sessionId: 'session-1',
+          channelId: 'tui',
+        }),
+      ),
+    ).resolves.toBe('stored-secret');
+  } finally {
+    vi.doUnmock('../src/security/runtime-secrets.js');
+    vi.resetModules();
+  }
 });
 
 test('plugin manager reloads JavaScript entrypoints without stale module cache', async () => {

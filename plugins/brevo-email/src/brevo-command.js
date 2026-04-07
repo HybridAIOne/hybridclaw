@@ -1,8 +1,3 @@
-import { getSessionById } from '../../../src/memory/db.js';
-import {
-  unsetPluginConfigValue,
-  writePluginConfigValue,
-} from '../../../src/plugins/plugin-config.js';
 import { resolveAgentEmailAddress } from './brevo-address.js';
 import { listHybridAIHandles } from './hybridai-handles.js';
 
@@ -39,21 +34,11 @@ function cloneAgentHandles(input) {
   return out;
 }
 
-function resolveCurrentAgentId(context, defaultAgentId) {
-  const session = getSessionById(context.sessionId);
-  const sessionAgentId = normalizeAgentId(session?.agent_id);
+function resolveCurrentAgentId(api, context, defaultAgentId) {
+  const sessionAgentId = normalizeAgentId(
+    api.resolveSessionAgentId(context.sessionId),
+  );
   if (sessionAgentId) return sessionAgentId;
-
-  const match = String(context.sessionId || '').match(/^agent:([^:]+):/);
-  if (match?.[1]) {
-    try {
-      const decoded = decodeURIComponent(match[1]);
-      const normalized = normalizeAgentId(decoded);
-      if (normalized) return normalized;
-    } catch {
-      // Fall through to default agent.
-    }
-  }
 
   return normalizeAgentId(defaultAgentId) || 'main';
 }
@@ -100,7 +85,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
       .trim()
       .toLowerCase();
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
-    const agentId = resolveCurrentAgentId(context, defaultAgentId);
+    const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
 
     if (!isLocalContext(context)) {
       throw new Error(
@@ -186,11 +171,7 @@ export function createBrevoCommandHandler(api, config, options = {}) {
       }
 
       nextAgentHandles[agentId] = requestedHandle;
-      await writePluginConfigValue(
-        api.pluginId,
-        'agentHandles',
-        JSON.stringify(nextAgentHandles),
-      );
+      await api.writeConfigValue('agentHandles', JSON.stringify(nextAgentHandles));
       config.agentHandles = nextAgentHandles;
 
       return [
@@ -214,10 +195,9 @@ export function createBrevoCommandHandler(api, config, options = {}) {
 
       delete nextAgentHandles[agentId];
       if (Object.keys(nextAgentHandles).length === 0) {
-        await unsetPluginConfigValue(api.pluginId, 'agentHandles');
+        await api.unsetConfigValue('agentHandles');
       } else {
-        await writePluginConfigValue(
-          api.pluginId,
+        await api.writeConfigValue(
           'agentHandles',
           JSON.stringify(nextAgentHandles),
         );

@@ -61,10 +61,7 @@ export default {
         required: ['to', 'subject', 'body'],
       },
       async handler(args, context) {
-        const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
-        let agentId = defaultAgentId;
-        const match = context.sessionId.match(/^agent:([^:]+):channel:/);
-        if (match) agentId = decodeURIComponent(match[1]);
+        const agentId = api.resolveSessionAgentId(context.sessionId);
         const configuredHandle = config.agentHandles?.[agentId];
         const address =
           config.fromAddress ||

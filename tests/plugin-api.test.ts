@@ -137,6 +137,9 @@ test('createPluginApi only exposes manifest-declared credentials', () => {
     expect(api.getCredential(` ${allowedKey} `)).toBe('allowed-secret');
     expect(api.getCredential(blockedKey)).toBeUndefined();
     expect(api.getCredential('')).toBeUndefined();
+    expect(
+      api.resolveSessionAgentId('agent:writer:channel:tui:chat:dm:peer:local'),
+    ).toBe('writer');
   } finally {
     if (originalAllowed === undefined) {
       delete process.env[allowedKey];
