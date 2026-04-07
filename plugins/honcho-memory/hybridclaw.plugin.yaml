@@ -1,0 +1,55 @@
+id: honcho-memory
+name: Honcho Memory
+version: 0.1.0
+kind: memory
+description: Mirror HybridClaw conversations into Honcho and inject Honcho session context into prompts.
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    baseUrl:
+      type: string
+      default: https://api.honcho.dev
+    apiKey:
+      type: string
+    workspaceId:
+      type: string
+    contextTokens:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 20000
+    searchLimit:
+      type: number
+      default: 5
+      minimum: 1
+      maximum: 20
+    maxInjectedChars:
+      type: number
+      default: 5000
+      minimum: 500
+      maximum: 20000
+    includeSummary:
+      type: boolean
+      default: true
+    includeRecentMessages:
+      type: boolean
+      default: true
+    includePeerRepresentation:
+      type: boolean
+      default: true
+    includePeerCard:
+      type: boolean
+      default: true
+    limitToSession:
+      type: boolean
+      default: true
+    autoSync:
+      type: boolean
+      default: true
+    timeoutMs:
+      type: number
+      default: 15000
+      minimum: 1000
+      maximum: 60000

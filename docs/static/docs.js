@@ -36,6 +36,14 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Extensibility', path: 'extensibility/README.md' },
       { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
       { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
+      {
+        title: 'Honcho Memory Plugin',
+        path: 'extensibility/honcho-memory-plugin.md',
+      },
+      {
+        title: 'MemPalace Memory Plugin',
+        path: 'extensibility/mempalace-memory-plugin.md',
+      },
       { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
       { title: 'Plugins', path: 'extensibility/plugins.md' },
       {
