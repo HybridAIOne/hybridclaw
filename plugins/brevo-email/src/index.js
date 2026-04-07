@@ -1,4 +1,5 @@
 import { resolveAgentEmailAddress } from './brevo-address.js';
+import { createBrevoCommandHandler } from './brevo-command.js';
 import { handleBrevoInbound } from './brevo-inbound.js';
 import { createBrevoSmtpService } from './brevo-outbound.js';
 import { resolveBrevoConfig } from './config.js';
@@ -11,6 +12,13 @@ export default {
     const { service, send } = createBrevoSmtpService(config, api.logger);
 
     api.registerService(service);
+
+    api.registerCommand({
+      name: 'brevo',
+      description:
+        'Show, list, attach, or detach Brevo email handles for the current agent',
+      handler: createBrevoCommandHandler(api, config),
+    });
 
     api.registerInboundWebhook({
       name: 'inbound',
@@ -57,9 +65,15 @@ export default {
         let agentId = defaultAgentId;
         const match = context.sessionId.match(/^agent:([^:]+):channel:/);
         if (match) agentId = decodeURIComponent(match[1]);
+        const configuredHandle = config.agentHandles?.[agentId];
         const address =
           config.fromAddress ||
-          resolveAgentEmailAddress(agentId, config.domain);
+          resolveAgentEmailAddress(
+            agentId,
+            config.domain,
+            config.fromAddress,
+            configuredHandle,
+          );
         const from = config.fromName
           ? `"${config.fromName}" <${address}>`
           : address;

@@ -7,6 +7,7 @@ import {
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import type { PluginManager } from './plugin-manager.js';
 import type {
   HybridClawPluginApi,
@@ -119,9 +120,12 @@ export function createPluginApi(params: {
       if (!normalized) return undefined;
       if (!declaredEnv.has(normalized)) return undefined;
       const value = process.env[normalized];
-      if (typeof value !== 'string') return undefined;
-      const trimmed = value.trim();
-      return trimmed || undefined;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) return trimmed;
+      }
+      const stored = readStoredRuntimeSecret(normalized);
+      return stored?.trim() || undefined;
     },
   });
 }

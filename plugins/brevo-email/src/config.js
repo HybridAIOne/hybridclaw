@@ -1,3 +1,20 @@
+function normalizeAgentHandles(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const out = {};
+  for (const [agentId, rawHandle] of Object.entries(input)) {
+    const normalizedAgentId = String(agentId || '')
+      .trim()
+      .toLowerCase();
+    const normalizedHandle = String(rawHandle || '')
+      .trim()
+      .toLowerCase();
+    if (!normalizedAgentId || !normalizedHandle) continue;
+    out[normalizedAgentId] = normalizedHandle;
+  }
+  return out;
+}
+
 /**
  * Resolve and validate plugin configuration.
  *
@@ -34,5 +51,6 @@ export function resolveBrevoConfig(pluginConfig, api) {
     smtpKey,
     webhookSecret,
     maxBodyBytes: Number(pluginConfig.maxBodyBytes) || 10 * 1024 * 1024,
+    agentHandles: normalizeAgentHandles(pluginConfig.agentHandles),
   };
 }

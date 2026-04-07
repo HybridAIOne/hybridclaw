@@ -107,6 +107,11 @@ export async function handleBrevoInbound(ctx, api, config) {
         .toLowerCase(),
     ),
   );
+  knownAgentIds.add(
+    String(api.config.agents?.defaultAgentId || 'main')
+      .trim()
+      .toLowerCase(),
+  );
 
   if (config.webhookSecret) {
     const raw = ctx.req.headers['x-brevo-secret'] || '';
@@ -149,7 +154,12 @@ export async function handleBrevoInbound(ctx, api, config) {
 
     const recipients = Array.isArray(item.To) ? item.To : [];
     const targetRecipient = recipients.find(
-      (r) => resolveAgentIdFromRecipient(r.Address, config.domain) !== null,
+      (r) =>
+        resolveAgentIdFromRecipient(
+          r.Address,
+          config.domain,
+          config.agentHandles,
+        ) !== null,
     );
     if (!targetRecipient) {
       ctx.logger.debug(
@@ -162,6 +172,7 @@ export async function handleBrevoInbound(ctx, api, config) {
     const agentId = resolveAgentIdFromRecipient(
       targetRecipient.Address,
       config.domain,
+      config.agentHandles,
     );
     if (!agentId) continue;
 

@@ -7,6 +7,7 @@
  * @property {string} smtpKey
  * @property {string} webhookSecret
  * @property {number} maxBodyBytes
+ * @property {Record<string, string>} agentHandles
  */
 
 /**

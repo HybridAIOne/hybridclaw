@@ -12,6 +12,17 @@ describe('resolveAgentEmailAddress', () => {
     );
   });
 
+  test('prefers an attached handle over the agent id', () => {
+    expect(
+      resolveAgentEmailAddress(
+        'marketing',
+        'mail.hybridclaw.io',
+        undefined,
+        'agent007',
+      ),
+    ).toBe('agent007@mail.hybridclaw.io');
+  });
+
   test('uses override when provided', () => {
     expect(
       resolveAgentEmailAddress(
@@ -69,6 +80,14 @@ describe('resolveAgentIdFromRecipient', () => {
   test('trims whitespace', () => {
     expect(
       resolveAgentIdFromRecipient('  main@mail.hybridclaw.io  ', domain),
+    ).toBe('main');
+  });
+
+  test('maps attached handles back to the owning agent', () => {
+    expect(
+      resolveAgentIdFromRecipient('agent007@mail.hybridclaw.io', domain, {
+        main: 'agent007',
+      }),
     ).toBe('main');
   });
 

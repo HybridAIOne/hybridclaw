@@ -4,6 +4,12 @@ version: 0.1.0
 kind: channel
 description: Per-agent email addresses via Brevo inbound parsing webhook and SMTP relay.
 entrypoint: src/index.js
+requires:
+  env:
+    - BREVO_SMTP_LOGIN
+    - BREVO_SMTP_KEY
+    - BREVO_WEBHOOK_SECRET
+    - HYBRIDAI_API_KEY
 configSchema:
   type: object
   additionalProperties: false
@@ -28,11 +34,16 @@ configSchema:
       default: 10485760
       minimum: 1024
       maximum: 52428800
+    agentHandles:
+      type: object
+      default: {}
+      additionalProperties:
+        type: string
 configUiHints:
   domain:
     label: Email Domain
     placeholder: agent.hybridai.one
-    help: The domain used for agent email addresses ({agentId}@domain).
+    help: The domain used for agent email addresses ({handle-or-agentId}@domain).
   fromName:
     label: From Display Name
     placeholder: HybridClaw Agent
@@ -40,4 +51,4 @@ configUiHints:
   fromAddress:
     label: From Address Override
     placeholder: agent@mail.hybridclaw.io
-    help: Override the From email address. Leave empty to use {agentId}@domain.
+    help: Override the From email address. Leave empty to use the assigned handle or {agentId}@domain.
