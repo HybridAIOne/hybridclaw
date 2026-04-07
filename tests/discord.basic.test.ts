@@ -197,6 +197,24 @@ test('parseCommand recognizes slash-text show command namespace', () => {
   });
 });
 
+test('parseCommand recognizes slash-text dream command namespace', () => {
+  const parsed = parseCommand('/dream', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'dream',
+    args: [],
+  });
+});
+
+test('parseCommand preserves slash-text dream subcommands', () => {
+  const parsed = parseCommand('/dream now', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'dream',
+    args: ['now'],
+  });
+});
+
 test('isTrigger commands-only allows slash-text commands', () => {
   const shouldTrigger = isTrigger({
     content: '/status',

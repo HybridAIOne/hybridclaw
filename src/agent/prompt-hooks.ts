@@ -317,7 +317,7 @@ function buildSafetyHook(context: PromptHookContext): string {
 
   if (context.purpose === 'memory-flush') {
     lines.push(
-      'This is a pre-compaction memory flush turn. Persist only durable memory worth keeping.',
+      "This is a pre-compaction memory flush turn. Persist only durable memory worth keeping into today's daily memory note.",
     );
   }
 
@@ -410,7 +410,7 @@ function buildProactivityHook(context: PromptHookContext): string {
 
   if (context.purpose === 'memory-flush') {
     lines.push(
-      'This is a memory-flush pass. Prioritize preserving durable context over immediate user-facing output.',
+      "This is a memory-flush pass. Prioritize preserving durable context into today's daily memory note over immediate user-facing output.",
     );
   }
 
