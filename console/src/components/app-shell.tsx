@@ -1,6 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType, ReactNode } from 'react';
 import { useAuth } from '../auth';
+import { ThemeToggle } from './theme-toggle';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -33,7 +34,11 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   { href: '/chat', label: 'Chat', icon: Chat },
   { href: '/agents', label: 'Agents', icon: Agents },
   { href: '/admin', label: 'Admin', icon: Admin, active: true },
-  { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub', icon: Github },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    label: 'GitHub',
+    icon: Github,
+  },
   { href: '/development', label: 'Docs', icon: Docs },
 ];
 
@@ -92,15 +97,18 @@ export function AppShell(props: { children: ReactNode }) {
               {auth.gatewayStatus.version}
             </span>
           ) : null}
-          {auth.token ? (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={auth.logout}
-            >
-              Forget token
-            </button>
-          ) : null}
+          <div className="sidebar-footer-right">
+            <ThemeToggle />
+            {auth.token ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={auth.logout}
+              >
+                Forget token
+              </button>
+            ) : null}
+          </div>
         </div>
       </aside>
 

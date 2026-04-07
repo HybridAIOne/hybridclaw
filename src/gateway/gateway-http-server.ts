@@ -70,12 +70,16 @@ import {
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
 } from './admin-terminal.js';
+import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   hasSessionAuth,
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -140,6 +144,10 @@ import type {
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
+import {
+  handleOpenAICompatibleChatCompletions,
+  handleOpenAICompatibleModelList,
+} from './openai-compatible.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -1577,6 +1585,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'approval',
       ...approval,
+      summary: formatGatewayChatApprovalSummary(approval),
     });
   };
 
@@ -2623,7 +2632,11 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
-function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
+function handleApiEvents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): void {
   const sendEvent = (event: string, payload: unknown): void => {
     if (res.writableEnded) return;
     res.write(`event: ${event}\n`);
@@ -2635,6 +2648,8 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  activeSseResponses.add(res);
 
   const sendSnapshot = async (): Promise<void> => {
     try {
@@ -2652,6 +2667,7 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
 
   req.on('close', () => {
     clearInterval(timer);
+    activeSseResponses.delete(res);
     if (!res.writableEnded) res.end();
   });
 }
@@ -2727,8 +2743,16 @@ function writeUpgradeError(
   socket.destroy();
 }
 
-export function startGatewayHttpServer(): void {
+export interface GatewayHttpServer {
+  broadcastShutdown: () => void;
+  setReady: () => void;
+}
+
+export function startGatewayHttpServer(): GatewayHttpServer {
+  let gatewayReady = false;
+  const gatewayStartMs = Date.now();
   const terminalManager = createAdminTerminalManager();
+  const activeSseResponses = new Set<ServerResponse>();
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
@@ -2745,6 +2769,15 @@ export function startGatewayHttpServer(): void {
           });
         },
       );
+      return;
+    }
+
+    if ((pathname === '/ready' || pathname === '/readyz') && method === 'GET') {
+      const uptimeMs = Date.now() - gatewayStartMs;
+      sendJson(res, gatewayReady ? 200 : 503, {
+        ready: gatewayReady,
+        uptimeMs,
+      });
       return;
     }
 
@@ -2875,7 +2908,7 @@ export function startGatewayHttpServer(): void {
       void (async () => {
         try {
           if (pathname === '/api/events' && method === 'GET') {
-            handleApiEvents(req, res);
+            handleApiEvents(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
@@ -3050,6 +3083,52 @@ export function startGatewayHttpServer(): void {
       return;
     }
 
+    if (pathname.startsWith('/v1/')) {
+      if (!hasApiAuth(req, url)) {
+        sendJson(res, 401, {
+          error: {
+            message:
+              'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+            type: 'authentication_error',
+            param: null,
+            code: null,
+          },
+        });
+        return;
+      }
+
+      void (async () => {
+        if (pathname === '/v1/models' && method === 'GET') {
+          await handleOpenAICompatibleModelList(res);
+          return;
+        }
+        if (pathname === '/v1/chat/completions' && method === 'POST') {
+          await handleOpenAICompatibleChatCompletions(req, res);
+          return;
+        }
+        sendJson(res, 404, {
+          error: {
+            message: 'Not Found',
+            type: 'invalid_request_error',
+            param: null,
+            code: null,
+          },
+        });
+      })().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err }, 'OpenAI-compatible API request failed');
+        sendJson(res, 500, {
+          error: {
+            message,
+            type: 'server_error',
+            param: null,
+            code: null,
+          },
+        });
+      });
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
@@ -3108,4 +3187,29 @@ export function startGatewayHttpServer(): void {
       'Gateway HTTP server started',
     );
   });
+
+  return {
+    setReady(): void {
+      gatewayReady = true;
+    },
+    broadcastShutdown(): void {
+      const shutdownMessage: AdminTerminalServerMessage = {
+        type: 'shutdown',
+        restartExpectedMs: 1500,
+      };
+      const shutdownPayload = JSON.stringify(shutdownMessage);
+      terminalManager.broadcastShutdown(shutdownMessage);
+      for (const sseRes of activeSseResponses) {
+        try {
+          if (!sseRes.writableEnded) {
+            sseRes.write(`event: shutdown\ndata: ${shutdownPayload}\n\n`);
+            sseRes.end();
+          }
+        } catch {
+          // Ignore errors on already-closed responses.
+        }
+      }
+      activeSseResponses.clear();
+    },
+  };
 }

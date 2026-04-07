@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'dream',
   'secret',
   'concierge',
   'rag',
@@ -86,8 +87,10 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
 const APPROVAL_ACTION_CHOICES = [
   { name: 'view', value: 'view' },
   { name: 'yes', value: 'yes' },
+  { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
+  { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
 
@@ -358,6 +361,15 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
+    case 'dream': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['dream'];
+      if (sub === 'on' || sub === 'off' || sub === 'now' || sub === 'status') {
+        return ['dream', sub];
+      }
+      return ['dream', ...parts.slice(1)];
+    }
+
     case 'compact':
       return ['compact'];
 
@@ -456,6 +468,13 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Approve the pending request once',
         },
         {
+          id: 'approve.always',
+          label: '/approve always [approval_id]',
+          insertText: '/approve always',
+          description:
+            'Approve the pending request for the rest of the conversation',
+        },
+        {
           id: 'approve.session',
           label: '/approve session [approval_id]',
           insertText: '/approve session',
@@ -468,6 +487,13 @@ function buildSlashCommandCatalogDefinitions(
           insertText: '/approve agent',
           description:
             'Approve the pending request for the current agent workspace',
+        },
+        {
+          id: 'approve.all',
+          label: '/approve all [approval_id]',
+          insertText: '/approve all',
+          description:
+            'Approve the pending request for the workspace allowlist',
         },
         {
           id: 'approve.no',
@@ -493,6 +519,48 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'dream',
+      description: 'Control nightly memory consolidation and run it on demand',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'dream.now',
+          label: '/dream now',
+          insertText: '/dream now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          id: 'dream.on',
+          label: '/dream on',
+          insertText: '/dream on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          id: 'dream.off',
+          label: '/dream off',
+          insertText: '/dream off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
     },
     {
       name: 'channel-mode',
@@ -1774,6 +1842,14 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'dream': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'now' || subcommand === 'on' || subcommand === 'off') {
+        return ['dream', subcommand];
+      }
+      return subcommand ? null : ['dream'];
+    }
 
     case 'channel-mode': {
       const mode = normalizeStringOption(interaction, 'mode', true);

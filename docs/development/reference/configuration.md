@@ -9,6 +9,9 @@ sidebar_position: 3
 HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads
 most runtime settings.
 
+Use `config.example.json` as the reference shape when you need to inspect the
+full runtime config surface before editing your local file.
+
 Use `hybridclaw config` to print the active runtime config,
 `hybridclaw config check` to validate only the config file itself,
 `hybridclaw config reload` to force an immediate in-process hot reload from
@@ -26,11 +29,17 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
 - `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
+- `~/.hybridclaw/data/browser-profiles/` for shared browser login state
+- `~/.hybridclaw/data/agents/` for agent workspaces, session files, and related
+  runtime state
 
 HybridClaw does not keep runtime state in the current working directory. If
 `./.env` exists, supported secrets are imported once for compatibility.
 Headless or containerized deployments should prefer `HYBRIDCLAW_MASTER_KEY` or
 `/run/secrets/hybridclaw_master_key` instead of the local fallback key file.
+Set `HYBRIDCLAW_DATA_DIR` to an absolute path when you want to relocate the
+entire runtime home, including config, credentials, SQLite data, browser
+profiles, and agent workspaces.
 
 ## Config Revision History
 
@@ -50,24 +59,87 @@ leak into the saved revision metadata.
 
 ## Important Config Areas
 
-- `container.*` for sandbox mode, resource limits, networking, and extra binds
+- `container.*` for execution isolation, including `sandboxMode`, `memory`,
+  `memorySwap`, `cpus`, `network`, `binds`, and additional mounts
+- `container.binds` for explicit host-to-container mounts in
+  `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
+  under `/workspace/extra/<container>`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
-  runtime status reporting
+  runtime status reporting, including the target base URL, bot and agent ids,
+  flush interval, and batch size
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped
-  default is `4096`
-- `mcpServers.*` for Model Context Protocol servers
-- `sessionReset.*` for daily and idle reset policy
-- `sessionRouting.*` for DM continuity scope and linked identities
+  default is `4096`; you can change it live with
+  `hybridclaw config set hybridai.maxTokens <n>`
+- `mcpServers.*` for Model Context Protocol servers; HybridClaw connects to
+  them per session and exposes their tools as namespaced functions such as
+  `server__tool`
+- `sessionReset.*` for daily and idle reset policy; the default policy resets
+  both daily and after 24 hours idle at `04:00` in the gateway host's local
+  timezone, and `sessionReset.defaultPolicy.mode = "none"` disables automatic
+  resets
+- `sessionRouting.*` for DM continuity scope and linked identities; the default
+  `per-channel-peer` mode keeps DMs isolated by transport and peer identity,
+  while `per-linked-identity` plus `sessionRouting.identityLinks` collapses
+  verified aliases onto one shared main session
+- `agents.defaultAgentId` for the default agent used by new requests and fresh
+  web sessions when no agent is pinned explicitly
 - `skills.disabled` and `skills.channelDisabled.*` for skill availability
-- `plugins.list[]` for plugin overrides and config
+- `plugins.list[]` for plugin overrides and config; use
+  `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
+  edits
 - `adaptiveSkills.*` for skill observation, amendment staging, and rollback
-- `imessage.*` for the dual-backend local or BlueBubbles iMessage transport
-- `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`
+- `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
+  prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
+  encrypted secret store instead of plaintext config
+- `email.pollIntervalMs` for inbound email polling; it defaults to `30000`
+  milliseconds and is clamped to a minimum of `1000`
+- `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
+  when unset, localhost browser access stays open without a login prompt
 - `tools.httpRequest.authRules[]` for gateway-side URL-to-secret header
-  injection used by the `http_request` tool
+  injection used by the `http_request` tool, for example mapping a URL prefix
+  such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
+  stored secret ref
 - `media.audio` for inbound audio transcription backend selection
+
+Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,
+and `adaptiveSkills.*` are covered in
+[Skills Internals](../extensibility/skills.md) and
+[Adaptive Skills](../extensibility/adaptive-skills.md).
+For the dual-backend iMessage workflow, see [Setting Up iMessage](../../imessage.md).
+
+## Audio Transcription Notes
+
+`media.audio` auto-detect prefers local CLIs first
+(`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then
+provider-backed APIs (`openai`, `groq`, `deepgram`, `google`).
+
+`whisper-cli` auto-detect also requires a whisper.cpp model file. If the
+binary exists but HybridClaw still skips local transcription, set
+`WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
+
+If no transcript backend is available, HybridClaw can still fall back to
+native model audio input for supported sessions. Today that path is enabled for
+`vllm` and attaches the original current-turn audio when no transcript block
+was prepended already.
+
+For the full speech and fallback workflow, see
+[Voice And TTS](../guides/voice-tts.md).
+
+## Secrets And Trust
+
+Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
+Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
+`HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`,
+`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`,
+`IMESSAGE_PASSWORD`, and `MSTEAMS_APP_PASSWORD`.
+
+Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+Trust-model acceptance is persisted in `config.json` under `security.*` and is
+required before runtime start. In headless environments,
+`HYBRIDCLAW_ACCEPT_TRUST=true` can persist acceptance automatically before
+credential checks run.
 
 ## Security Notes
 
@@ -82,6 +154,8 @@ leak into the saved revision metadata.
 - In `host` sandbox mode, the agent can access the user home directory, the
   gateway working directory, `/tmp`, and any host paths explicitly added
   through `container.binds` or `container.additionalMounts`
+- prefer storing BlueBubbles credentials as `IMESSAGE_PASSWORD` in the
+  encrypted secret store instead of plaintext `imessage.password`
 - keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
   secret-bearing files)
 - prefer low-privilege tokens
@@ -89,3 +163,5 @@ leak into the saved revision metadata.
   tools
 
 For deeper runtime behavior, see [Runtime Internals](../internals/runtime.md).
+For the trust acceptance policy, see [`TRUST_MODEL.md`](../../../TRUST_MODEL.md).
+For technical security guidelines, see [`SECURITY.md`](../../../SECURITY.md).

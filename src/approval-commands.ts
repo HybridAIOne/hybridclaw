@@ -10,6 +10,7 @@ export type ApprovalScopeMode = (typeof APPROVAL_SCOPE_MODES)[number];
 export const APPROVE_COMMAND_ACTIONS = [
   'view',
   'yes',
+  'always',
   'session',
   'agent',
   'all',

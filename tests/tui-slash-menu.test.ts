@@ -15,6 +15,13 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 
   expect(labels).toContain('/show tools');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/dream <now|on|off>');
+  expect(labels).toContain('/dream now');
+  expect(labels).toContain('/dream on');
+  expect(labels).toContain('/dream off');
+  expect(labels.filter((label) => label === '/dream now')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream off')).toHaveLength(1);
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
@@ -28,6 +35,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
     ),
   ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
+  expect(labels).toContain('/approve always [approval_id]');
+  expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
@@ -72,6 +81,21 @@ test('does not duplicate concierge slash menu entries', () => {
   expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
 });
 
+test('does not duplicate slash menu rows that resolve to the same command text', () => {
+  const entries = buildTuiSlashMenuEntries();
+  const counts = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = `${entry.label}\n${entry.insertText.trimEnd()}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const duplicates = Array.from(counts.entries()).filter(
+    ([, count]) => count > 1,
+  );
+  expect(duplicates).toEqual([]);
+});
+
 test('root entries with subcommands include arg hints in labels', () => {
   const entries = buildTuiSlashMenuEntries();
   const rootEntries = entries.filter((entry) => entry.depth === 1);
@@ -86,9 +110,7 @@ test('root entries with subcommands include arg hints in labels', () => {
 
   // Commands with string options show formatted option suffixes.
   const configEntry = rootEntries.find((entry) => entry.id === 'config');
-  expect(configEntry?.label).toBe(
-    '/config [check|reload|set] [key] [value]',
-  );
+  expect(configEntry?.label).toBe('/config [check|reload|set] [key] [value]');
 
   // Commands with no options or subcommands have plain labels.
   const statusEntry = rootEntries.find((entry) => entry.id === 'status');

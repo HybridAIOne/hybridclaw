@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
-import { stopAllExecutions } from '../agent/executor.js';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
+import {
+  getActiveExecutorCount,
+  stopAllExecutions,
+} from '../agent/executor.js';
 import {
   isWithinActiveHours,
   proactiveWindowLabel,
@@ -111,6 +115,13 @@ import {
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
+  getDreamTimezone,
+  hasDreamRunToday,
+  isMemoryConsolidationEnabled,
+  nextDreamRunAt,
+  runMemoryConsolidation,
+} from './memory-consolidation-runner.js';
+import {
   clearPendingApproval,
   getPendingApproval,
 } from './pending-approvals.js';
@@ -135,7 +146,7 @@ import {
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
-let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
+let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 const WHATSAPP_INTERRUPTED_REPLY =
@@ -150,6 +161,35 @@ const IMESSAGE_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const IMESSAGE_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
+
+function scheduleNextMemoryConsolidationRun(): void {
+  if (!isMemoryConsolidationEnabled()) {
+    logger.info('Memory consolidation scheduler disabled');
+    return;
+  }
+
+  const nextRunAt = nextDreamRunAt();
+  const delayMs = Math.max(1_000, nextRunAt.getTime() - Date.now());
+  memoryConsolidationTimer = setTimeout(() => {
+    memoryConsolidationTimer = null;
+    void runMemoryConsolidation({
+      trigger: 'nightly',
+      requireSchedulerEnabled: true,
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        scheduleNextMemoryConsolidationRun();
+      });
+  }, delayMs);
+
+  logger.info(
+    {
+      nextRunAt: nextRunAt.toISOString(),
+      timeZone: resolveEffectiveTimezone(getDreamTimezone()),
+    },
+    'Memory consolidation scheduled for next nightly run',
+  );
+}
 
 function logGatewayStartup(params: {
   status: Awaited<ReturnType<typeof getGatewayStatus>>;
@@ -400,6 +440,7 @@ function resolveImplicitNumericApprovalArgs(params: {
   if (normalized === '2') return ['approve', '2'];
   if (normalized === '3') return ['approve', '3'];
   if (normalized === '4') return ['approve', '4'];
+  if (normalized === '5') return ['approve', '5'];
   return null;
 }
 
@@ -1076,7 +1117,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             expiresAt: pendingApproval.expiresAt,
           });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, or \`4\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4]\`.`,
+            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
           return;
         }
@@ -1530,9 +1571,9 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
-function setupShutdown(): void {
+function setupShutdown(broadcastShutdown: () => void): void {
   let shuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = async (opts?: { drain?: boolean }) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('Shutting down gateway...');
@@ -1561,6 +1602,17 @@ function setupShutdown(): void {
         'Failed to stop iMessage runtime during shutdown',
       );
     });
+    if (opts?.drain) {
+      broadcastShutdown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+    }
     await runManagedMediaCleanup('shutdown');
     stopHeartbeat();
     stopObservabilityIngest();
@@ -1581,7 +1633,7 @@ function setupShutdown(): void {
     void shutdown();
   });
   process.on('SIGTERM', () => {
-    void shutdown();
+    void shutdown({ drain: true });
   });
 }
 
@@ -1734,43 +1786,24 @@ function startOrRestartHeartbeat(): void {
 
 function stopMemoryConsolidationScheduler(): void {
   if (!memoryConsolidationTimer) return;
-  clearInterval(memoryConsolidationTimer);
+  clearTimeout(memoryConsolidationTimer);
   memoryConsolidationTimer = null;
 }
 
 function startOrRestartMemoryConsolidationScheduler(): void {
   stopMemoryConsolidationScheduler();
-  const intervalHours = Math.max(
-    0,
-    Math.trunc(getConfigSnapshot().memory.consolidationIntervalHours),
-  );
-  if (intervalHours <= 0) {
+  if (!isMemoryConsolidationEnabled()) {
     logger.info('Memory consolidation scheduler disabled');
     return;
   }
 
-  const intervalMs = intervalHours * 3_600_000;
-  memoryConsolidationTimer = setInterval(() => {
-    const { decayRate } = getConfigSnapshot().memory;
-    try {
-      memoryService.setConsolidationDecayRate(decayRate);
-      const report = memoryService.consolidateMemories();
-      if (report.memoriesDecayed > 0) {
-        logger.info(
-          {
-            decayed: report.memoriesDecayed,
-            durationMs: report.durationMs,
-            decayRate,
-          },
-          'Memory consolidation completed',
-        );
-      }
-    } catch (error) {
-      logger.warn({ error, decayRate }, 'Memory consolidation failed');
-    }
-  }, intervalMs);
-
-  logger.info({ intervalHours }, 'Memory consolidation scheduled');
+  if (!hasDreamRunToday()) {
+    void runMemoryConsolidation({
+      trigger: 'startup',
+      requireSchedulerEnabled: true,
+    }).catch(() => undefined);
+  }
+  scheduleNextMemoryConsolidationRun();
 }
 
 async function main(): Promise<void> {
@@ -1782,8 +1815,8 @@ async function main(): Promise<void> {
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
   });
-  startGatewayHttpServer();
-  setupShutdown();
+  const httpServer = startGatewayHttpServer();
+  setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
@@ -1884,6 +1917,7 @@ async function main(): Promise<void> {
       whatsapp: whatsappActive,
     },
   });
+  httpServer.setReady();
 }
 
 main().catch((err) => {

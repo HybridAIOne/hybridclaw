@@ -370,7 +370,9 @@ function mapApprovalSelectionToCommand(
   if (
     options.includes('session') &&
     (normalized === 'session' ||
+      normalized === 'always' ||
       normalized === 'yes for session' ||
+      normalized === 'yes for always' ||
       normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
@@ -399,7 +401,9 @@ function mapApprovalSelectionToCommand(
 
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|agent))?$/.test(normalized);
+  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
+    normalized,
+  );
 }
 
 function resolvePendingApproval(
@@ -413,7 +417,7 @@ function resolvePendingApproval(
       reason: streamedApproval.reason,
       allowSession: streamedApproval.allowSession,
       allowAgent: streamedApproval.allowAgent,
-      allowAll: streamedApproval.allowAgent,
+      allowAll: streamedApproval.allowAll,
     };
   }
 
@@ -425,7 +429,7 @@ function resolvePendingApproval(
       reason: pendingApproval.reason,
       allowSession: pendingApproval.allowSession,
       allowAgent: pendingApproval.allowAgent,
-      allowAll: pendingApproval.allowAgent,
+      allowAll: pendingApproval.allowAll,
     };
   }
 

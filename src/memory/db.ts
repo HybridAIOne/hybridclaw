@@ -80,6 +80,7 @@ import type {
   UsageTotals,
   UsageWindow,
 } from '../types/usage.js';
+import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
@@ -4004,6 +4005,7 @@ interface RecentSessionBoundaryRow {
   first_user_content: string | null;
   first_content: string | null;
   last_content: string | null;
+  last_role: string | null;
 }
 
 export function getRecentSessionsForUser(params: {
@@ -4059,6 +4061,7 @@ export function getRecentSessionsForUser(params: {
     `WITH ranked AS (
        SELECT
          session_id,
+         role,
          content,
          CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
          ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
@@ -4074,7 +4077,8 @@ export function getRecentSessionsForUser(params: {
        session_id,
        MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
        MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
-       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content
+       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
+       MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
      FROM ranked
      GROUP BY session_id`,
     userId,
@@ -4087,15 +4091,26 @@ export function getRecentSessionsForUser(params: {
 
   return targetRows.map((row) => {
     const boundary = boundariesBySessionId.get(row.id);
+    const firstMessage =
+      boundary?.first_user_content || boundary?.first_content || null;
+    const shouldHideApprovalPrompt =
+      boundary?.last_role === 'assistant' &&
+      Boolean(
+        boundary?.last_content &&
+          isApprovalHistoryMessage(boundary.last_content),
+      );
+    const lastMessage =
+      boundary?.last_content && !shouldHideApprovalPrompt
+        ? boundary.last_content
+        : null;
 
     return {
       sessionId: row.id,
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
       title: buildSessionBoundaryPreview({
-        firstMessage:
-          boundary?.first_user_content || boundary?.first_content || null,
-        lastMessage: boundary?.last_content || null,
+        firstMessage,
+        lastMessage,
         maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
       }),
     };

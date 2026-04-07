@@ -26,3 +26,6 @@ Then use the TUI slash commands:
 
 Enabled MCP tools show up in prompts as namespaced tool names such as
 `filesystem__read_file` or `github__list_issues`.
+
+These `mcp list|add|remove|toggle|reconnect` commands update
+`~/.hybridclaw/config.json` and hot-reload future turns.

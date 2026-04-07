@@ -248,6 +248,47 @@ function appendSyntheticMenuEntry(params: {
   return params.sortIndex + 1;
 }
 
+function dedupeMenuEntryKey(entry: TuiSlashMenuEntry): string {
+  return `${entry.label}\n${entry.insertText.trimEnd()}`;
+}
+
+function mergeDuplicateMenuEntries(
+  existing: TuiSlashMenuEntry,
+  next: TuiSlashMenuEntry,
+): TuiSlashMenuEntry {
+  return {
+    ...next,
+    depth: Math.min(existing.depth, next.depth),
+    sortIndex: Math.min(existing.sortIndex, next.sortIndex),
+    searchTerms: Array.from(
+      new Set([...existing.searchTerms, ...next.searchTerms]),
+    ),
+  };
+}
+
+function dedupeTuiSlashMenuEntries(
+  entries: TuiSlashMenuEntry[],
+): TuiSlashMenuEntry[] {
+  const deduped: TuiSlashMenuEntry[] = [];
+  const indexes = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = dedupeMenuEntryKey(entry);
+    const existingIndex = indexes.get(key);
+    if (existingIndex == null) {
+      indexes.set(key, deduped.length);
+      deduped.push(entry);
+      continue;
+    }
+    deduped[existingIndex] = mergeDuplicateMenuEntries(
+      deduped[existingIndex],
+      entry,
+    );
+  }
+
+  return deduped;
+}
+
 function subsequenceScore(query: string, target: string): number | null {
   if (!query) return 0;
   if (!target) return null;
@@ -377,7 +418,7 @@ export function buildTuiSlashMenuEntries(
     entries.push(...childEntries);
   }
 
-  return entries;
+  return dedupeTuiSlashMenuEntries(entries);
 }
 
 export function rankTuiSlashMenuEntries(
