@@ -60,6 +60,7 @@ import {
   estimateTextTokens,
   finalizeTokenUsage,
 } from './token-usage.js';
+import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -856,6 +857,8 @@ async function processRequest(
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
+  skipContainerSystemPrompt = false,
+  streamTextDeltas = false,
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
@@ -866,7 +869,9 @@ async function processRequest(
     messageCount: messages.length,
   });
   let history: ChatMessage[] = collapseSystemMessages(
-    injectRuntimeCapabilitiesMessage(messages),
+    skipContainerSystemPrompt
+      ? messages
+      : injectRuntimeCapabilitiesMessage(messages),
   );
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
@@ -996,8 +1001,8 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: emitStreamDelta,
-        onActivity: emitStreamActivity,
+        onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
+        onActivity: streamTextDeltas ? emitStreamActivity : undefined,
         maxTokens,
         isLocal,
         contextWindow,
@@ -1054,6 +1059,30 @@ async function processRequest(
       );
     }
 
+    const toolCalls = choice.message.tool_calls || [];
+    const invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    if (invalidToolCallError) {
+      console.error(
+        `[model] invalid structured tool call provider=${provider || 'hybridai'} model=${model} error=${invalidToolCallError}`,
+      );
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error: invalidToolCallError,
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
+
     const assistantMessage: ChatMessage = {
       role: 'assistant',
       content: choice.message.content,
@@ -1068,8 +1097,6 @@ async function processRequest(
     if (visibleAssistantText) {
       latestVisibleAssistantText = visibleAssistantText;
     }
-
-    const toolCalls = choice.message.tool_calls || [];
     if (
       provider === 'hybridai' &&
       parseRalphChoice(choice.message.content) === null &&
@@ -1580,6 +1607,8 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
+      firstInput.skipContainerSystemPrompt === true,
+      firstInput.streamTextDeltas === true,
       firstInput.maxTokens,
       firstPromptOverride,
       firstInput.ralphMaxIterations,
@@ -1612,6 +1641,8 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
+        firstInput.skipContainerSystemPrompt === true,
+        firstInput.streamTextDeltas === true,
         firstInput.maxTokens,
         firstPromptOverride,
         firstInput.ralphMaxIterations,
@@ -1725,6 +1756,8 @@ async function main(): Promise<void> {
       resolveTools(input),
       taskModels,
       input.contextGuard,
+      input.skipContainerSystemPrompt === true,
+      input.streamTextDeltas === true,
       input.maxTokens,
       promptOverride,
       input.ralphMaxIterations,
@@ -1756,6 +1789,8 @@ async function main(): Promise<void> {
         resolveTools(input),
         taskModels,
         input.contextGuard,
+        input.skipContainerSystemPrompt === true,
+        input.streamTextDeltas === true,
         input.maxTokens,
         promptOverride,
         input.ralphMaxIterations,

@@ -1,10 +1,26 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
+import { buildConversationContext } from '../agent/conversation.js';
+import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { HYBRIDAI_MODEL, MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
+import {
+  EVAL_MODEL_PROFILE_MARKER,
+  parseEvalProfileModel,
+} from '../evals/eval-profile.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
+import {
+  modelRequiresChatbotId,
+  resolveModelRuntimeCredentials,
+} from '../providers/factory.js';
+import { buildSessionContext } from '../session/session-context.js';
 import { buildSessionKey } from '../session/session-key.js';
+import type { ChatMessage } from '../types/api.js';
+import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
   hasMessageSendToolExecution,
   normalizePendingApprovalReply,
@@ -12,8 +28,17 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
-import { getGatewayAdminModels } from './gateway-service.js';
+import {
+  getGatewayAdminModels,
+  readSystemPromptMessage,
+  resolveGatewayChatbotId,
+} from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import {
+  callOpenAICompatibleModel,
+  callOpenAICompatibleModelStream,
+  mapOpenAICompatibleUsageToTokenStats,
+} from './openai-compatible-model.js';
 import {
   OpenAICompatibleRequestError,
   readOpenAICompatibleChatRequest,
@@ -24,6 +49,7 @@ import {
   buildOpenAICompatibleStreamRoleChunk,
   buildOpenAICompatibleStreamStopChunk,
   buildOpenAICompatibleStreamTextChunk,
+  buildOpenAICompatibleStreamToolCallsChunk,
   buildOpenAICompatibleStreamUsageChunk,
   sendOpenAICompatibleStreamError,
   writeOpenAICompatibleStreamChunk,
@@ -39,17 +65,189 @@ function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
   );
 }
 
-function buildGatewayChatRequest(
+const OPENAI_EXECUTION_SESSION_TTL_MS = 30_000;
+
+interface OpenAIExecutionSessionEntry {
+  sessionId: string;
+  inFlight: number;
+  lastUsedAt: number;
+}
+
+const openAIExecutionSessions = new Map<string, OpenAIExecutionSessionEntry>();
+
+function buildOpenAIExecutionSeed(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): string {
+  const rootMessages =
+    params.input.priorMessages.length > 0
+      ? params.input.priorMessages.slice(0, 4)
+      : [{ role: 'user' as const, content: params.input.prompt }];
+  const conversationRoot = rootMessages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+  return JSON.stringify({
+    user: params.input.user,
+    agentId: params.prepared.requestAgentId,
+    model: params.prepared.model,
+    workspaceMode: params.prepared.profile.workspaceMode,
+    ablateSystemPrompt: params.prepared.profile.ablateSystemPrompt,
+    includePromptParts: params.prepared.profile.includePromptParts,
+    omitPromptParts: params.prepared.profile.omitPromptParts,
+    conversationRoot,
+  });
+}
+
+function buildOpenAIExecutionSessionId(agentId: string, seed: string): string {
+  const digest = createHash('sha256').update(seed).digest('hex').slice(0, 24);
+  return buildSessionKey(agentId, 'openai', 'dm', `exec-${digest}`);
+}
+
+function reapExpiredOpenAIExecutionSessions(now = Date.now()): void {
+  for (const [key, entry] of openAIExecutionSessions) {
+    if (
+      entry.inFlight === 0 &&
+      now - entry.lastUsedAt > OPENAI_EXECUTION_SESSION_TTL_MS
+    ) {
+      stopSessionExecution(entry.sessionId);
+      openAIExecutionSessions.delete(key);
+    }
+  }
+}
+
+function evictOldestIdleOpenAIExecutionSession(): boolean {
+  let oldestKey: string | null = null;
+  let oldestEntry: OpenAIExecutionSessionEntry | null = null;
+  for (const [key, entry] of openAIExecutionSessions) {
+    if (entry.inFlight > 0) continue;
+    if (!oldestEntry || entry.lastUsedAt < oldestEntry.lastUsedAt) {
+      oldestKey = key;
+      oldestEntry = entry;
+    }
+  }
+  if (!oldestKey || !oldestEntry) return false;
+  stopSessionExecution(oldestEntry.sessionId);
+  openAIExecutionSessions.delete(oldestKey);
+  return true;
+}
+
+function acquireOpenAIExecutionSession(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): {
+  sessionId: string;
+  stopOnFinish: boolean;
+  release: () => void;
+} {
+  if (params.prepared.cleanupAgentId) {
+    return {
+      sessionId: buildSessionKey(
+        params.prepared.requestAgentId,
+        'openai',
+        'dm',
+        randomUUID().replace(/-/g, '').slice(0, 16),
+      ),
+      stopOnFinish: true,
+      release: () => {},
+    };
+  }
+
+  const now = Date.now();
+  reapExpiredOpenAIExecutionSessions(now);
+  const seed = buildOpenAIExecutionSeed(params);
+  let entry = openAIExecutionSessions.get(seed);
+  if (!entry) {
+    let evictedIdleSession = false;
+    while (
+      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
+      evictOldestIdleOpenAIExecutionSession()
+    ) {
+      evictedIdleSession = true;
+      // Make room by evicting idle reusable OpenAI execution sessions first.
+    }
+    if (
+      openAIExecutionSessions.size >= MAX_CONCURRENT_CONTAINERS &&
+      !evictedIdleSession
+    ) {
+      return {
+        sessionId: buildSessionKey(
+          params.prepared.requestAgentId,
+          'openai',
+          'dm',
+          randomUUID().replace(/-/g, '').slice(0, 16),
+        ),
+        stopOnFinish: true,
+        release: () => {},
+      };
+    }
+    entry = {
+      sessionId: buildOpenAIExecutionSessionId(
+        params.prepared.requestAgentId,
+        seed,
+      ),
+      inFlight: 0,
+      lastUsedAt: now,
+    };
+    openAIExecutionSessions.set(seed, entry);
+  }
+  entry.inFlight += 1;
+  entry.lastUsedAt = now;
+  return {
+    sessionId: entry.sessionId,
+    stopOnFinish: false,
+    release: () => {
+      const current = openAIExecutionSessions.get(seed);
+      if (!current) return;
+      current.inFlight = Math.max(0, current.inFlight - 1);
+      current.lastUsedAt = Date.now();
+    },
+  };
+}
+
+function prepareOpenAICompatibleRequest(
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
-): GatewayChatRequest {
+): {
+  responseModel: string;
+  cleanupAgentId: string | null;
+  requestAgentId: string;
+  sessionId: string;
+  model: string;
+  profile: ReturnType<typeof parseEvalProfileModel>['profile'];
+} {
+  const profiledModel = input.evalProfile
+    ? input.model.includes(EVAL_MODEL_PROFILE_MARKER)
+      ? input.model
+      : `${input.model}${EVAL_MODEL_PROFILE_MARKER}${input.evalProfile}`
+    : input.model;
+  const parsed = (() => {
+    try {
+      return parseEvalProfileModel(profiledModel);
+    } catch (error) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        error instanceof Error ? error.message : 'Invalid eval model profile.',
+        {
+          param: 'model',
+          code: 'unsupported_value',
+        },
+      );
+    }
+  })();
+  const { model, profile } = parsed;
+  const freshAgentId =
+    profile.workspaceMode === 'fresh-agent'
+      ? `eval-${randomUUID().replace(/-/g, '').slice(0, 16)}`
+      : null;
+  const requestAgentId = freshAgentId || profile.agentId || DEFAULT_AGENT_ID;
   const sessionId = buildSessionKey(
-    DEFAULT_AGENT_ID,
+    requestAgentId,
     'openai',
     'dm',
     randomUUID().replace(/-/g, '').slice(0, 16),
   );
 
-  memoryService.getOrCreateSession(sessionId, null, 'openai', DEFAULT_AGENT_ID);
+  memoryService.getOrCreateSession(sessionId, null, 'openai', requestAgentId);
   for (const message of input.priorMessages) {
     memoryService.storeMessage({
       sessionId,
@@ -61,15 +259,126 @@ function buildGatewayChatRequest(
   }
 
   return {
+    responseModel: input.model,
+    cleanupAgentId: freshAgentId,
+    requestAgentId,
     sessionId,
+    model,
+    profile,
+  };
+}
+
+function buildGatewayChatRequest(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+  executionSessionId?: string;
+}): GatewayChatRequest {
+  const includeAgentId =
+    Boolean(params.prepared.cleanupAgentId) ||
+    Boolean(params.prepared.profile.agentId?.trim());
+  return {
+    sessionId: params.prepared.sessionId,
+    ...(params.executionSessionId
+      ? { executionSessionId: params.executionSessionId }
+      : {}),
     guildId: null,
     channelId: 'openai',
-    userId: sessionId,
-    username: input.user,
-    content: input.prompt,
-    ...(input.media.length > 0 ? { media: input.media } : {}),
-    model: input.model,
+    userId: params.prepared.sessionId,
+    username: params.input.user,
+    content: params.input.prompt,
+    ...(params.input.media.length > 0 ? { media: params.input.media } : {}),
+    ...(includeAgentId ? { agentId: params.prepared.requestAgentId } : {}),
+    model: params.prepared.model,
+    ...(params.prepared.profile.ablateSystemPrompt
+      ? { promptMode: 'none' as const }
+      : {}),
+    ...(!params.prepared.profile.ablateSystemPrompt &&
+    params.prepared.profile.includePromptParts.length > 0
+      ? { includePromptParts: params.prepared.profile.includePromptParts }
+      : {}),
+    ...(!params.prepared.profile.ablateSystemPrompt &&
+    params.prepared.profile.omitPromptParts.length > 0
+      ? { omitPromptParts: params.prepared.profile.omitPromptParts }
+      : {}),
     source: 'gateway.chat.openai-compatible',
+  };
+}
+
+async function buildToolAwareMessages(params: {
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): Promise<ChatMessage[]> {
+  const { input, prepared } = params;
+  ensureBootstrapFiles(prepared.requestAgentId);
+  const workspacePath = path.resolve(
+    agentWorkspaceDir(prepared.requestAgentId),
+  );
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: 'openai',
+      chatId: 'openai',
+      chatType: 'dm',
+      userId: prepared.sessionId,
+      userName: input.user,
+      guildId: null,
+    },
+    agentId: prepared.requestAgentId,
+    sessionId: prepared.sessionId,
+    sessionKey: prepared.sessionId,
+    mainSessionKey: prepared.sessionId,
+  });
+  const { messages } = buildConversationContext({
+    agentId: prepared.requestAgentId,
+    history: [],
+    currentUserContent: input.prompt,
+    promptMode: prepared.profile.ablateSystemPrompt ? 'none' : 'full',
+    includePromptParts: prepared.profile.includePromptParts,
+    omitPromptParts: prepared.profile.omitPromptParts,
+    runtimeInfo: {
+      model: prepared.model,
+      defaultModel: HYBRIDAI_MODEL,
+      channelType: 'openai',
+      channelId: 'openai',
+      sessionContext,
+      workspacePath,
+    },
+  });
+  const systemPrompt = readSystemPromptMessage(messages);
+  return systemPrompt
+    ? [{ role: 'system', content: systemPrompt }, ...input.messages]
+    : input.messages;
+}
+
+async function resolveToolAwareRuntime(params: {
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+}): Promise<Awaited<ReturnType<typeof resolveModelRuntimeCredentials>>> {
+  const runtime = await resolveModelRuntimeCredentials({
+    model: params.prepared.model,
+    agentId: params.prepared.requestAgentId,
+  });
+  if (!modelRequiresChatbotId(params.prepared.model) || runtime.chatbotId) {
+    return runtime;
+  }
+  const fallback = await resolveGatewayChatbotId({
+    model: params.prepared.model,
+    chatbotId: runtime.chatbotId,
+    sessionId: params.prepared.sessionId,
+    channelId: 'openai',
+    agentId: params.prepared.requestAgentId,
+    trigger: 'chat',
+  });
+  if (!fallback.chatbotId) {
+    throw new OpenAICompatibleRequestError(
+      500,
+      fallback.error || 'No chatbot configured for the selected model.',
+      {
+        type: 'server_error',
+      },
+    );
+  }
+  return {
+    ...runtime,
+    chatbotId: fallback.chatbotId,
   };
 }
 
@@ -119,6 +428,7 @@ export async function handleOpenAICompatibleModelList(
 async function handleOpenAICompatibleNonStreamingChat(
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
+  responseModel: string,
   completionId: string,
   created: number,
 ): Promise<void> {
@@ -126,9 +436,46 @@ async function handleOpenAICompatibleNonStreamingChat(
   const payload = buildOpenAICompatibleCompletionResponse({
     completionId,
     created,
-    model: chatRequest.model || '',
+    model: responseModel,
     content: typeof result.result === 'string' ? result.result : '',
     tokenUsage: result.tokenUsage,
+  });
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
+async function handleOpenAICompatibleToolChat(
+  res: ServerResponse,
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>,
+  completionId: string,
+  created: number,
+): Promise<void> {
+  const runtime = await resolveToolAwareRuntime({ prepared });
+  const messages = await buildToolAwareMessages({ input, prepared });
+  const result = await callOpenAICompatibleModel({
+    runtime,
+    model: prepared.model,
+    messages,
+    tools: input.tools,
+    toolChoice: input.toolChoice,
+  });
+  const choice = result.choices[0];
+  const payload = buildOpenAICompatibleCompletionResponse({
+    completionId,
+    created,
+    model: prepared.responseModel,
+    content:
+      typeof choice?.message.content === 'string'
+        ? choice.message.content
+        : null,
+    ...(choice?.message.tool_calls
+      ? { toolCalls: choice.message.tool_calls }
+      : {}),
+    ...(choice?.finish_reason ? { finishReason: choice.finish_reason } : {}),
+    tokenUsage: mapOpenAICompatibleUsageToTokenStats(result.usage),
   });
   res.writeHead(200, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -140,6 +487,7 @@ async function handleOpenAICompatibleStreamingChat(
   req: IncomingMessage,
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
+  responseModel: string,
   includeUsage: boolean,
   completionId: string,
   created: number,
@@ -169,7 +517,7 @@ async function handleOpenAICompatibleStreamingChat(
     buildOpenAICompatibleStreamRoleChunk({
       completionId,
       created,
-      model: chatRequest.model || '',
+      model: responseModel,
     }),
   );
 
@@ -192,7 +540,7 @@ async function handleOpenAICompatibleStreamingChat(
           buildOpenAICompatibleStreamTextChunk({
             completionId,
             created,
-            model: chatRequest.model || '',
+            model: responseModel,
             content: filtered,
           }),
         );
@@ -209,7 +557,7 @@ async function handleOpenAICompatibleStreamingChat(
         buildOpenAICompatibleStreamTextChunk({
           completionId,
           created,
-          model: chatRequest.model || '',
+          model: responseModel,
           content: buffered,
         }),
       );
@@ -226,7 +574,7 @@ async function handleOpenAICompatibleStreamingChat(
         buildOpenAICompatibleStreamTextChunk({
           completionId,
           created,
-          model: chatRequest.model || '',
+          model: responseModel,
           content: finalText,
         }),
       );
@@ -237,7 +585,7 @@ async function handleOpenAICompatibleStreamingChat(
       buildOpenAICompatibleStreamStopChunk({
         completionId,
         created,
-        model: chatRequest.model || '',
+        model: responseModel,
       }),
     );
 
@@ -247,12 +595,114 @@ async function handleOpenAICompatibleStreamingChat(
         buildOpenAICompatibleStreamUsageChunk({
           completionId,
           created,
-          model: chatRequest.model || '',
+          model: responseModel,
           tokenUsage: result.tokenUsage,
         }),
       );
     }
 
+    writeOpenAICompatibleStreamChunk(res, '[DONE]');
+    res.end();
+  } finally {
+    req.off('close', abortStreaming);
+  }
+}
+
+async function handleOpenAICompatibleStreamingToolChat(
+  req: IncomingMessage,
+  res: ServerResponse,
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>,
+  includeUsage: boolean,
+  completionId: string,
+  created: number,
+): Promise<void> {
+  const abortController = new AbortController();
+  const abortStreaming = (): void => {
+    if (!abortController.signal.aborted) {
+      abortController.abort(new Error('Client disconnected.'));
+    }
+  };
+  req.on('close', abortStreaming);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  if (!isResponseWritable(res)) {
+    abortStreaming();
+    req.off('close', abortStreaming);
+    return;
+  }
+
+  writeOpenAICompatibleStreamChunk(
+    res,
+    buildOpenAICompatibleStreamRoleChunk({
+      completionId,
+      created,
+      model: prepared.responseModel,
+    }),
+  );
+
+  try {
+    const runtime = await resolveToolAwareRuntime({ prepared });
+    const messages = await buildToolAwareMessages({ input, prepared });
+    const result = await callOpenAICompatibleModelStream({
+      runtime,
+      model: prepared.model,
+      messages,
+      tools: input.tools,
+      toolChoice: input.toolChoice,
+      onTextDelta: (delta) => {
+        if (!isResponseWritable(res) || !delta) return;
+        writeOpenAICompatibleStreamChunk(
+          res,
+          buildOpenAICompatibleStreamTextChunk({
+            completionId,
+            created,
+            model: prepared.responseModel,
+            content: delta,
+          }),
+        );
+      },
+    });
+    if (!isResponseWritable(res)) return;
+    const choice = result.choices[0];
+    if (choice?.message.tool_calls && choice.message.tool_calls.length > 0) {
+      writeOpenAICompatibleStreamChunk(
+        res,
+        buildOpenAICompatibleStreamToolCallsChunk({
+          completionId,
+          created,
+          model: prepared.responseModel,
+          toolCalls: choice.message.tool_calls,
+        }),
+      );
+    }
+    writeOpenAICompatibleStreamChunk(
+      res,
+      buildOpenAICompatibleStreamStopChunk({
+        completionId,
+        created,
+        model: prepared.responseModel,
+        ...(choice?.finish_reason
+          ? { finishReason: choice.finish_reason }
+          : {}),
+      }),
+    );
+    if (includeUsage) {
+      writeOpenAICompatibleStreamChunk(
+        res,
+        buildOpenAICompatibleStreamUsageChunk({
+          completionId,
+          created,
+          model: prepared.responseModel,
+          tokenUsage: mapOpenAICompatibleUsageToTokenStats(result.usage),
+        }),
+      );
+    }
     writeOpenAICompatibleStreamChunk(res, '[DONE]');
     res.end();
   } finally {
@@ -266,28 +716,71 @@ export async function handleOpenAICompatibleChatCompletions(
 ): Promise<void> {
   try {
     const input = await readOpenAICompatibleChatRequest(req);
-    const chatRequest = buildGatewayChatRequest(input);
+    const prepared = prepareOpenAICompatibleRequest(input);
+    const executionSession = input.usesClientTools
+      ? null
+      : acquireOpenAIExecutionSession({ input, prepared });
     const completionId = `chatcmpl_${randomUUID().replace(/-/g, '')}`;
     const created = Math.floor(Date.now() / 1000);
 
-    if (input.wantsStream) {
-      await handleOpenAICompatibleStreamingChat(
-        req,
+    try {
+      if (input.usesClientTools) {
+        if (input.wantsStream) {
+          await handleOpenAICompatibleStreamingToolChat(
+            req,
+            res,
+            input,
+            prepared,
+            input.includeUsage,
+            completionId,
+            created,
+          );
+          return;
+        }
+        await handleOpenAICompatibleToolChat(
+          res,
+          input,
+          prepared,
+          completionId,
+          created,
+        );
+        return;
+      }
+
+      const chatRequest = buildGatewayChatRequest({
+        input,
+        prepared,
+        executionSessionId: executionSession?.sessionId,
+      });
+      if (input.wantsStream) {
+        await handleOpenAICompatibleStreamingChat(
+          req,
+          res,
+          chatRequest,
+          prepared.responseModel,
+          input.includeUsage,
+          completionId,
+          created,
+        );
+        return;
+      }
+
+      await handleOpenAICompatibleNonStreamingChat(
         res,
         chatRequest,
-        input.includeUsage,
+        prepared.responseModel,
         completionId,
         created,
       );
-      return;
+    } finally {
+      executionSession?.release();
+      if (executionSession?.stopOnFinish) {
+        stopSessionExecution(executionSession.sessionId);
+      }
+      if (prepared.cleanupAgentId) {
+        resetWorkspace(prepared.cleanupAgentId);
+      }
     }
-
-    await handleOpenAICompatibleNonStreamingChat(
-      res,
-      chatRequest,
-      completionId,
-      created,
-    );
   } catch (error) {
     const typed = toRequestError(error);
     if (!isResponseWritable(res)) return;

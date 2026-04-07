@@ -148,13 +148,22 @@ export function createActivityTracker(): ActivityTracker {
 
 const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
 
+function normalizePositiveTimeoutMs(
+  value: number | null | undefined,
+): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return Math.floor(value);
+}
+
 export async function readOutput(
   sessionId: string,
-  timeoutMs: number,
+  timeoutMs: number | null | undefined,
   opts?: {
     signal?: AbortSignal;
     activity?: ActivityTracker;
-    maxWallClockMs?: number;
+    maxWallClockMs?: number | null;
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
@@ -166,14 +175,20 @@ export async function readOutput(
   const start = Date.now();
   // Seed the tracker so the initial deadline starts now.
   if (activity) activity.lastActivityMs = start;
-  const hardTimeoutMs = Math.max(
-    timeoutMs,
-    Math.floor(
-      opts?.maxWallClockMs ??
-        timeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1),
-    ),
-  );
-  const hardDeadline = start + hardTimeoutMs;
+  const idleTimeoutMs = normalizePositiveTimeoutMs(timeoutMs);
+  const requestedWallClockMs = normalizePositiveTimeoutMs(opts?.maxWallClockMs);
+  const derivedWallClockMs =
+    idleTimeoutMs === null
+      ? null
+      : idleTimeoutMs * (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1);
+  const hardTimeoutMs =
+    requestedWallClockMs === null
+      ? derivedWallClockMs
+      : idleTimeoutMs === null
+        ? requestedWallClockMs
+        : Math.max(idleTimeoutMs, requestedWallClockMs);
+  const hardDeadline =
+    hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
   const pollInterval = 250;
 
   if (signal?.aborted) return interruptedOutput();
@@ -181,13 +196,18 @@ export async function readOutput(
   while (true) {
     const now = Date.now();
     const idleDeadline =
-      (activity ? activity.lastActivityMs : start) + timeoutMs;
+      idleTimeoutMs === null
+        ? Number.POSITIVE_INFINITY
+        : (activity ? activity.lastActivityMs : start) + idleTimeoutMs;
     if (now >= hardDeadline) {
       return {
         status: 'error',
         result: null,
         toolsUsed: [],
-        error: `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${timeoutMs}ms inactivity window)`,
+        error:
+          idleTimeoutMs === null
+            ? `Timeout waiting for agent output after ${hardTimeoutMs}ms total`
+            : `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${idleTimeoutMs}ms inactivity window)`,
       };
     }
     if (now >= idleDeadline) break;
@@ -241,7 +261,7 @@ export async function readOutput(
     status: 'error',
     result: null,
     toolsUsed: [],
-    error: `Timeout waiting for agent output after ${timeoutMs}ms`,
+    error: `Timeout waiting for agent output after ${idleTimeoutMs}ms`,
   };
 }
 

@@ -12,8 +12,22 @@ export interface ExecutorRequest {
   messages: ChatMessage[];
   chatbotId: string;
   enableRag: boolean;
+  executorModeOverride?: 'host' | 'container';
   model?: string;
   agentId?: string;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  skipContainerSystemPrompt?: boolean;
+  maxTokens?: number;
+  maxWallClockMs?: number | null;
+  inactivityTimeoutMs?: number | null;
+  bashProxy?:
+    | {
+        mode: 'docker-exec';
+        containerName: string;
+        cwd?: string;
+      }
+    | undefined;
   channelId?: string;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;

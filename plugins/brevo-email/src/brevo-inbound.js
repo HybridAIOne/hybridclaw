@@ -1,5 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
+import { convert } from 'html-to-text';
+import {
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from 'hybridclaw/plugin-sdk';
 import { resolveAgentIdFromRecipient } from './brevo-address.js';
+import { normalizeLower } from './normalize.js';
 
 const MAX_DEDUP_SIZE = 2000;
 
@@ -45,7 +52,7 @@ function recordMessageId(messageId) {
  * @returns {string}
  */
 function buildEmailSessionKey(agentId, senderAddress) {
-  const encode = (v) => encodeURIComponent(String(v).trim().toLowerCase());
+  const encode = (v) => encodeURIComponent(normalizeLower(v));
   return [
     'agent',
     encode(agentId),
@@ -59,17 +66,47 @@ function buildEmailSessionKey(agentId, senderAddress) {
 }
 
 /**
+ * Build the normalized set of known agent IDs for inbound routing.
+ *
+ * @param {import('hybridclaw/plugin-sdk').RuntimeConfig} config
+ * @returns {Set<string>}
+ */
+export function buildKnownAgentIds(config) {
+  const knownAgentIds = new Set(
+    (config.agents?.list ?? []).map((agent) => normalizeLower(agent.id)),
+  );
+  knownAgentIds.add(normalizeLower(config.agents?.defaultAgentId || 'main'));
+  knownAgentIds.delete('');
+  return knownAgentIds;
+}
+
+function htmlToInboundText(html) {
+  return convert(html, {
+    preserveNewlines: true,
+    wordwrap: false,
+    selectors: [
+      { selector: 'head', format: 'skip' },
+      { selector: 'img', format: 'skip' },
+      { selector: 'script', format: 'skip' },
+      { selector: 'style', format: 'skip' },
+      { selector: 'title', format: 'skip' },
+    ],
+  })
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * Extract plain text from a Brevo inbound item.
  *
  * @param {import('./types.js').BrevoInboundItem} item
  * @returns {string}
  */
-function extractText(item) {
+export function extractText(item) {
   if (item.RawTextBody) return item.RawTextBody;
   if (item.RawHtmlBody) {
-    return item.RawHtmlBody.replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .trim();
+    return htmlToInboundText(item.RawHtmlBody);
   }
   return '';
 }
@@ -95,30 +132,17 @@ function describeAttachments(attachments) {
  * @param {import('hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
  * @param {import('hybridclaw/plugin-sdk').HybridClawPluginApi} api
  * @param {import('./types.js').BrevoEmailConfig} config
+ * @param {Set<string>} knownAgentIds
  */
-export async function handleBrevoInbound(ctx, api, config) {
-  const { readWebhookJsonBody, sendWebhookJson, WebhookHttpError } =
-    await import('hybridclaw/plugin-sdk');
+export async function handleBrevoInbound(ctx, api, config, knownAgentIds) {
+  if (!config.webhookSecret) {
+    throw new WebhookHttpError(401, 'Webhook secret is not configured.');
+  }
 
-  const knownAgentIds = new Set(
-    (api.config.agents?.list ?? []).map((a) =>
-      String(a.id || '')
-        .trim()
-        .toLowerCase(),
-    ),
-  );
-  knownAgentIds.add(
-    String(api.config.agents?.defaultAgentId || 'main')
-      .trim()
-      .toLowerCase(),
-  );
-
-  if (config.webhookSecret) {
-    const raw = ctx.req.headers['x-brevo-secret'] || '';
-    const provided = String(Array.isArray(raw) ? raw[0] : raw).trim();
-    if (!provided || !safeEqual(provided, config.webhookSecret)) {
-      throw new WebhookHttpError(401, 'Invalid webhook secret.');
-    }
+  const raw = ctx.req.headers['x-brevo-secret'] || '';
+  const provided = String(Array.isArray(raw) ? raw[0] : raw).trim();
+  if (!provided || !safeEqual(provided, config.webhookSecret)) {
+    throw new WebhookHttpError(401, 'Invalid webhook secret.');
   }
 
   const body = /** @type {import('./types.js').BrevoInboundPayload} */ (
@@ -149,18 +173,19 @@ export async function handleBrevoInbound(ctx, api, config) {
       ctx.logger.warn({ messageId }, 'Inbound item missing From address');
       continue;
     }
-    const senderAddress = from.Address.trim().toLowerCase();
+    const senderAddress = normalizeLower(from.Address);
     const senderName = from.Name || senderAddress;
 
     const recipients = Array.isArray(item.To) ? item.To : [];
-    const targetRecipient = recipients.find(
-      (r) =>
-        resolveAgentIdFromRecipient(
-          r.Address,
-          config.domain,
-          config.agentHandles,
-        ) !== null,
-    );
+    let agentId = null;
+    const targetRecipient = recipients.find((r) => {
+      agentId = resolveAgentIdFromRecipient(
+        r.Address,
+        config.domain,
+        config.agentHandles,
+      );
+      return agentId !== null;
+    });
     if (!targetRecipient) {
       ctx.logger.debug(
         { messageId, to: recipients.map((r) => r.Address) },
@@ -168,12 +193,6 @@ export async function handleBrevoInbound(ctx, api, config) {
       );
       continue;
     }
-
-    const agentId = resolveAgentIdFromRecipient(
-      targetRecipient.Address,
-      config.domain,
-      config.agentHandles,
-    );
     if (!agentId) continue;
 
     if (!knownAgentIds.has(agentId)) {

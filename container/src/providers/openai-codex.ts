@@ -728,35 +728,13 @@ function consumeCodexStreamPayload(
 export async function callOpenAICodexProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const startedAt = Date.now();
-  logCodexTransport(
-    `request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
-  );
-  const response = await fetch(`${args.baseUrl}/responses`, {
-    method: 'POST',
-    headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
-    body: JSON.stringify(
-      buildCodexRequestBody(args.model, args.messages, args.tools),
-    ),
+  // The Codex backend currently requires `stream: true` even for callers that
+  // want a single final response body. Use the streaming transport internally
+  // and suppress text-delta callbacks for the non-streaming runtime path.
+  return callOpenAICodexProviderStream({
+    ...args,
+    onTextDelta: () => undefined,
   });
-  logCodexTransport(
-    `response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
-  }
-
-  const adapted = adaptCodexResponse(
-    (await response.json()) as unknown,
-    args.model,
-  );
-  assertNonEmptyCodexResponse(adapted, args.model);
-  logCodexTransport(
-    `request complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
-  );
-  return adapted;
 }
 
 export async function callOpenAICodexProviderStream(
