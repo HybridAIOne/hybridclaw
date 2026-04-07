@@ -265,6 +265,15 @@ function setConfigJobBoardStatus(
     options.onlyIfCurrent &&
     currentJob.boardStatus !== options.onlyIfCurrent
   ) {
+    logger.debug(
+      {
+        jobId,
+        expectedBoardStatus: options.onlyIfCurrent,
+        currentBoardStatus: currentJob.boardStatus ?? null,
+        nextBoardStatus: boardStatus,
+      },
+      'Skipped config scheduler board status update: current status did not match guard',
+    );
     return null;
   }
   if (currentJob.boardStatus === boardStatus) {
@@ -280,6 +289,15 @@ function setConfigJobBoardStatus(
     );
     if (!job) return;
     if (options.onlyIfCurrent && job.boardStatus !== options.onlyIfCurrent) {
+      logger.debug(
+        {
+          jobId,
+          expectedBoardStatus: options.onlyIfCurrent,
+          currentBoardStatus: job.boardStatus ?? null,
+          nextBoardStatus: boardStatus,
+        },
+        'Skipped config scheduler board status update after config refresh: current status did not match guard',
+      );
       return;
     }
     job.boardStatus = boardStatus;
@@ -437,16 +455,8 @@ function syncConfigJobNextRunAt(
   nowMs: number,
 ): boolean {
   const meta = getConfigJobMeta(job.id);
-  const previousNextRunAt = meta.nextRunAt;
-  const previousOneShotCompleted = meta.oneShotCompleted;
-  const effectiveJob = reconcileSuccessfulOneShotConfigJob(job);
-  const nextRunAt = toIsoTimestamp(nextFireMsForConfigJob(effectiveJob, nowMs));
-  if (
-    previousNextRunAt === nextRunAt &&
-    previousOneShotCompleted === meta.oneShotCompleted
-  ) {
-    return false;
-  }
+  const nextRunAt = toIsoTimestamp(nextFireMsForConfigJob(job, nowMs));
+  if (meta.nextRunAt === nextRunAt) return false;
   meta.nextRunAt = nextRunAt;
   return true;
 }
@@ -505,32 +515,62 @@ function nextFireMsForConfigJob(
 
 function reconcileSuccessfulOneShotConfigJob(
   job: RuntimeSchedulerJob,
-): RuntimeSchedulerJob {
+): boolean {
   if (job.schedule.kind !== 'at' || job.boardStatus === 'backlog') {
-    return job;
+    return false;
   }
   const meta = getConfigJobMeta(job.id);
   if (meta.oneShotCompleted || meta.lastStatus !== 'success') {
-    return job;
+    return false;
   }
   if (job.boardStatus !== 'in_progress') {
     meta.oneShotCompleted = true;
-    return job;
+    return true;
   }
 
-  const updatedJob =
-    setConfigJobBoardStatus(job.id, 'review', {
-      onlyIfCurrent: 'in_progress',
-    }) || job;
-  meta.oneShotCompleted = true;
-  return updatedJob;
+  // Fresh success already moves backlog-assigned jobs to review in tick();
+  // this path only reconciles stale one-shot jobs that were left in progress.
+  const updatedJob = setConfigJobBoardStatus(job.id, 'review', {
+    onlyIfCurrent: 'in_progress',
+  });
+  if (updatedJob) {
+    meta.oneShotCompleted = true;
+    return true;
+  }
+
+  const currentStatus = getConfigSnapshot().scheduler.jobs.find(
+    (candidate) => candidate.id === job.id,
+  )?.boardStatus;
+  if (
+    currentStatus &&
+    currentStatus !== 'backlog' &&
+    currentStatus !== 'in_progress'
+  ) {
+    meta.oneShotCompleted = true;
+    return true;
+  }
+
+  return false;
+}
+
+function reconcileSuccessfulOneShotConfigJobs(
+  jobs: RuntimeSchedulerJob[],
+): boolean {
+  let changed = false;
+  for (const job of jobs) {
+    if (reconcileSuccessfulOneShotConfigJob(job)) changed = true;
+  }
+  return changed;
 }
 
 function computeNextFireMs(nowMs = Date.now()): number | null {
   const dbTasks = getAllEnabledTasks();
   const cfgJobs = getConfigSnapshot().scheduler.jobs;
   pruneConfigJobMeta(cfgJobs);
-  if (syncConfigJobsNextRunAt(cfgJobs, nowMs)) {
+  const reconciledSuccessfulOneShots =
+    reconcileSuccessfulOneShotConfigJobs(cfgJobs);
+  const nextRunsChanged = syncConfigJobsNextRunAt(cfgJobs, nowMs);
+  if (reconciledSuccessfulOneShots || nextRunsChanged) {
     persistSchedulerState();
   }
 
@@ -983,7 +1023,9 @@ export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
   pruneConfigJobMeta(jobs);
   const job = jobs.find((candidate) => candidate.id === normalizedJobId);
   if (!job) return null;
-  if (syncConfigJobNextRunAt(job, Date.now())) {
+  const reconciled = reconcileSuccessfulOneShotConfigJob(job);
+  const nextRunChanged = syncConfigJobNextRunAt(job, Date.now());
+  if (reconciled || nextRunChanged) {
     persistSchedulerState();
   }
   return toRuntimeState(getConfigJobMeta(normalizedJobId));
@@ -992,7 +1034,9 @@ export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
 export function getSchedulerStatus(): SchedulerStatusJob[] {
   const jobs = getConfigSnapshot().scheduler.jobs;
   pruneConfigJobMeta(jobs);
-  if (syncConfigJobsNextRunAt(jobs, Date.now())) {
+  const reconciled = reconcileSuccessfulOneShotConfigJobs(jobs);
+  const nextRunsChanged = syncConfigJobsNextRunAt(jobs, Date.now());
+  if (reconciled || nextRunsChanged) {
     persistSchedulerState();
   }
   return jobs.map((job) => {
@@ -1043,6 +1087,7 @@ export function resumeConfigJob(jobId: string): boolean {
   const meta = getConfigJobMeta(normalizedJobId);
   meta.disabled = false;
   meta.consecutiveErrors = 0;
+  reconcileSuccessfulOneShotConfigJob(job);
   syncConfigJobNextRunAt(job, Date.now());
   persistSchedulerState();
   rearmScheduler();

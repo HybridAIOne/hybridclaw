@@ -143,7 +143,51 @@ function prepareDraftForSave(draft: SchedulerDraft): SchedulerDraft {
   };
 }
 
+export function normalizeSchedulerAtInput(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+
+  const localDateTimeMatch = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (localDateTimeMatch) {
+    const [, year, month, day, hour, minute, second = '0'] =
+      localDateTimeMatch;
+    const parsed = new Date(
+      Number.parseInt(year, 10),
+      Number.parseInt(month, 10) - 1,
+      Number.parseInt(day, 10),
+      Number.parseInt(hour, 10),
+      Number.parseInt(minute, 10),
+      Number.parseInt(second, 10),
+    );
+    if (
+      parsed.getFullYear() !== Number.parseInt(year, 10) ||
+      parsed.getMonth() !== Number.parseInt(month, 10) - 1 ||
+      parsed.getDate() !== Number.parseInt(day, 10) ||
+      parsed.getHours() !== Number.parseInt(hour, 10) ||
+      parsed.getMinutes() !== Number.parseInt(minute, 10) ||
+      parsed.getSeconds() !== Number.parseInt(second, 10)
+    ) {
+      return null;
+    }
+    return parsed.toISOString();
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
+  const at =
+    draft.scheduleKind === 'at'
+      ? normalizeSchedulerAtInput(draft.scheduleAt)
+      : null;
+  if (draft.scheduleKind === 'at' && !at) {
+    throw new Error('Pick a valid "Run at" timestamp.');
+  }
+
   return {
     id: draft.id.trim(),
     source: 'config',
@@ -154,10 +198,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     enabled: draft.enabled,
     schedule: {
       kind: draft.scheduleKind,
-      at:
-        draft.scheduleKind === 'at' && draft.scheduleAt
-          ? new Date(draft.scheduleAt).toISOString()
-          : null,
+      at,
       everyMs:
         draft.scheduleKind === 'every'
           ? Number.parseInt(draft.scheduleEveryMs, 10) || 0
@@ -655,7 +696,11 @@ function SchedulerJobEditor(props: {
 export function SchedulerPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const requestedId =
+      new URLSearchParams(window.location.search).get('jobId') || '';
+    return requestedId.trim() || null;
+  });
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
 
   const schedulerQuery = useQuery({
@@ -739,6 +784,20 @@ export function SchedulerPage() {
     if (selectedJob) return;
     setSelectedId(null);
   }, [schedulerQuery.isLoading, selectedId, selectedJob]);
+
+  useEffect(() => {
+    const currentUrl = new URL(window.location.href);
+    const currentJobId = currentUrl.searchParams.get('jobId')?.trim() || null;
+    if (selectedId) {
+      if (currentJobId === selectedId) return;
+      currentUrl.searchParams.set('jobId', selectedId);
+    } else if (!currentJobId) {
+      return;
+    } else {
+      currentUrl.searchParams.delete('jobId');
+    }
+    window.history.replaceState({}, '', currentUrl.toString());
+  }, [selectedId]);
 
   return (
     <div className="page-stack">
