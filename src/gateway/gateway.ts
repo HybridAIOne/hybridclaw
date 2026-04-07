@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
   getActiveExecutorCount,
   stopAllExecutions,
@@ -184,10 +185,7 @@ function scheduleNextMemoryConsolidationRun(): void {
   logger.info(
     {
       nextRunAt: nextRunAt.toISOString(),
-      timeZone:
-        getDreamTimezone() ||
-        Intl.DateTimeFormat().resolvedOptions().timeZone ||
-        'local',
+      timeZone: resolveEffectiveTimezone(getDreamTimezone()),
     },
     'Memory consolidation scheduled for next nightly run',
   );

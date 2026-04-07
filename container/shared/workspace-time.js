@@ -1,11 +1,37 @@
 import fs from 'node:fs';
 
+const timezoneValidityCache = new Map();
+
+function isValidTimezone(timezone) {
+  if (!timezone) return false;
+  if (timezoneValidityCache.has(timezone)) {
+    return timezoneValidityCache.get(timezone) === true;
+  }
+  let valid = false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    valid = true;
+  } catch {
+    valid = false;
+  }
+  timezoneValidityCache.set(timezone, valid);
+  return valid;
+}
+
 function resolveTimezone(timezone) {
-  return (
-    timezone?.trim() ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    'UTC'
-  );
+  const requestedTimezone = timezone?.trim();
+  if (requestedTimezone && isValidTimezone(requestedTimezone)) {
+    return requestedTimezone;
+  }
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (localTimezone && isValidTimezone(localTimezone)) {
+    return localTimezone;
+  }
+  return 'UTC';
+}
+
+export function resolveEffectiveTimezone(timezone) {
+  return resolveTimezone(timezone);
 }
 
 function getDatePartsInTimezone(timezone, date) {

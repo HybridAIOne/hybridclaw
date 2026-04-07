@@ -587,6 +587,36 @@ describe('gateway bootstrap', () => {
     expect(state.setTimeout).toHaveBeenCalledTimes(1);
   });
 
+  test('logs the resolved scheduler timezone instead of an invalid USER.md placeholder', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    const mainWorkspaceDir = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(mainWorkspaceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(mainWorkspaceDir, 'USER.md'),
+      '# USER.md\n\n- **Timezone:** _(to be determined)_\n',
+      'utf-8',
+    );
+
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextRunAt: expect.any(String),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      }),
+      'Memory consolidation scheduled for next nightly run',
+    );
+  });
+
   test('starts iMessage integration automatically when enabled in config', async () => {
     const state = await importFreshGatewayMain({ imessageEnabled: true });
 

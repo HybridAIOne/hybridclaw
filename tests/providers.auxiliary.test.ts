@@ -230,6 +230,7 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
       >;
       expect(body.stream).toBe(true);
       expect(body.temperature).toBeUndefined();
+      expect(body.max_output_tokens).toBeUndefined();
       return new Response(streamBody, {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
@@ -244,6 +245,7 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     agentId: 'main',
     fallbackModel: 'openai-codex/gpt-5-codex',
     fallbackChatbotId: '',
+    maxTokens: 2048,
     temperature: 0.1,
     messages: [{ role: 'user', content: 'Rewrite this memory.' }],
   });

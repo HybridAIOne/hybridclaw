@@ -706,7 +706,6 @@ async function callCodexTextModel(
     tools: convertToolsToCodexTools(options.tools),
     tool_choice: 'auto',
     parallel_tool_calls: true,
-    ...(context.maxTokens ? { max_output_tokens: context.maxTokens } : {}),
   };
 
   const response = await fetch(`${context.baseUrl}/responses`, {

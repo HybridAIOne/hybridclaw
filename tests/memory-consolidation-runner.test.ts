@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { nextDateBoundaryInTimezone } from '../container/shared/workspace-time.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -98,4 +99,25 @@ test('nextDreamRunAt targets the next midnight in the main workspace timezone', 
   const nextRun = nextDreamRunAt(new Date('2026-04-07T00:30:00.000Z'));
 
   expect(nextRun.toISOString()).toBe('2026-04-07T07:00:00.000Z');
+});
+
+test('nextDreamRunAt ignores invalid USER.md timezone placeholders', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-dream-runner-invalid-tz-'),
+  );
+  const mainWorkspaceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-dream-runner-main-invalid-tz-'),
+  );
+  fs.writeFileSync(
+    path.join(mainWorkspaceDir, 'USER.md'),
+    '# USER.md\n\n- **Timezone:** _(to be determined)_\n',
+    'utf-8',
+  );
+
+  const { nextDreamRunAt } = await loadRunner({ dataDir, mainWorkspaceDir });
+  const now = new Date('2026-04-07T00:30:00.000Z');
+
+  expect(nextDreamRunAt(now).toISOString()).toBe(
+    nextDateBoundaryInTimezone(undefined, now).toISOString(),
+  );
 });
