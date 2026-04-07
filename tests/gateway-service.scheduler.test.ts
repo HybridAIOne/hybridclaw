@@ -238,7 +238,12 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
     });
   });
 
-  const session = getOrCreateSession('scheduler:release-notes', null, 'tui', 'main');
+  const session = getOrCreateSession(
+    'scheduler:release-notes',
+    null,
+    'tui',
+    'main',
+  );
 
   expect(
     getGatewayAdminScheduler().jobs.find((job) => job.id === 'release-notes'),
@@ -265,7 +270,12 @@ test('admin jobs context exposes full recent assistant outputs for scheduler ses
 
   initDatabase({ quiet: true });
 
-  const session = getOrCreateSession('scheduler:release-notes', null, 'tui', 'main');
+  const session = getOrCreateSession(
+    'scheduler:release-notes',
+    null,
+    'tui',
+    'main',
+  );
   const resultText = [
     'HybridClaw 0.10.0 Release Notes',
     '',
