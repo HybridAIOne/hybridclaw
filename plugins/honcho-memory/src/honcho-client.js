@@ -4,29 +4,94 @@ function normalizeBaseUrl(value) {
     .replace(/\/+$/, '');
 }
 
+function normalizeString(value) {
+  return String(value || '').trim();
+}
+
 function truncateText(value, maxChars) {
-  const normalized = String(value || '').trim();
-  if (normalized.length <= maxChars) return normalized;
+  const normalized = normalizeString(value);
+  if (!maxChars || normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
 function encodePathSegment(value) {
-  return encodeURIComponent(String(value || '').trim());
+  return encodeURIComponent(normalizeString(value));
 }
 
-function buildUserPeerId(userId) {
-  return `user:${String(userId || '').trim()}`;
+function sanitizeIdentifier(value, fallback) {
+  const normalized = normalizeString(value)
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
 }
 
-function buildAgentPeerId(agentId) {
-  return `agent:${String(agentId || '').trim()}`;
+export function buildUserPeerId(userId) {
+  return `user-${sanitizeIdentifier(userId, 'anonymous')}`;
 }
 
-function sanitizeMessageContent(value) {
-  const normalized = String(value || '')
-    .replace(/\r/g, '')
-    .trim();
-  return normalized ? truncateText(normalized, 20_000) : '';
+export function buildAgentPeerId(agentId, aiPeer) {
+  return `agent-${sanitizeIdentifier(aiPeer || agentId, 'main')}`;
+}
+
+export function sanitizeHonchoSessionId(sessionId) {
+  return sanitizeIdentifier(sessionId, 'session');
+}
+
+function normalizeMessageTimestamp(value) {
+  const normalized = normalizeString(value);
+  return normalized || undefined;
+}
+
+function chunkMessageContent(content, limit) {
+  const normalized = normalizeString(content);
+  if (!normalized) return [];
+  if (!limit || normalized.length <= limit) return [normalized];
+
+  const prefix = '[continued] ';
+  const chunks = [];
+  let remaining = normalized;
+  let isFirst = true;
+
+  while (remaining) {
+    const effectiveLimit = isFirst ? limit : Math.max(1, limit - prefix.length);
+    if (remaining.length <= effectiveLimit) {
+      chunks.push(isFirst ? remaining : `${prefix}${remaining}`);
+      break;
+    }
+
+    let cut = effectiveLimit;
+    const paragraphBreak = remaining.lastIndexOf('\n\n', effectiveLimit);
+    const sentenceBreak = remaining.lastIndexOf('. ', effectiveLimit);
+    const wordBreak = remaining.lastIndexOf(' ', effectiveLimit);
+    if (paragraphBreak > effectiveLimit * 0.6) {
+      cut = paragraphBreak;
+    } else if (sentenceBreak > effectiveLimit * 0.6) {
+      cut = sentenceBreak + 1;
+    } else if (wordBreak > effectiveLimit * 0.6) {
+      cut = wordBreak;
+    }
+
+    const chunk = remaining.slice(0, cut).trim();
+    if (!chunk) break;
+    chunks.push(isFirst ? chunk : `${prefix}${chunk}`);
+    remaining = remaining.slice(cut).trim();
+    isFirst = false;
+  }
+
+  return chunks;
+}
+
+function normalizeChatResponse(value) {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object') return '';
+  return (
+    normalizeString(value.answer) ||
+    normalizeString(value.output) ||
+    normalizeString(value.result) ||
+    normalizeString(value.content) ||
+    normalizeString(value.response) ||
+    ''
+  );
 }
 
 export class HonchoClient {
@@ -120,104 +185,197 @@ export class HonchoClient {
     );
   }
 
-  async addPeers(sessionId, peerIds) {
-    const peers = {};
-    for (const peerId of peerIds) {
-      peers[peerId] = {};
+  async addPeers(sessionId, peers) {
+    const body = {};
+    for (const peer of peers) {
+      body[peer.peerId] = {
+        observe_me: Boolean(peer.observeMe),
+        observe_others: Boolean(peer.observeOthers),
+      };
     }
     await this.request(
       'POST',
       `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(sessionId)}/peers`,
-      { body: peers },
+      { body },
     );
   }
 
-  async ensureConversation({ sessionId, userId, agentId }) {
-    const conversationKey = `${sessionId}:${userId}:${agentId}`;
-    if (this.preparedConversations.has(conversationKey)) {
-      return {
-        sessionId,
-        userPeerId: buildUserPeerId(userId),
-        agentPeerId: buildAgentPeerId(agentId),
-      };
+  async ensureConversation(params) {
+    const honchoSessionId = sanitizeHonchoSessionId(params.honchoSessionId);
+    const userPeerId = buildUserPeerId(params.userId);
+    const agentPeerId = buildAgentPeerId(params.agentId, this.config.aiPeer);
+    const conversationKey = `${honchoSessionId}:${userPeerId}:${agentPeerId}`;
+    if (!this.preparedConversations.has(conversationKey)) {
+      await this.ensurePeer(userPeerId, {
+        source: 'hybridclaw',
+        kind: 'user',
+        hybridclaw_user_id: normalizeString(params.userId),
+        display_name: normalizeString(this.config.peerName) || undefined,
+      });
+      await this.ensurePeer(agentPeerId, {
+        source: 'hybridclaw',
+        kind: 'agent',
+        hybridclaw_agent_id: normalizeString(params.agentId),
+        display_name:
+          normalizeString(this.config.aiPeer) ||
+          normalizeString(params.agentId) ||
+          undefined,
+      });
+      await this.ensureSession(honchoSessionId);
+      await this.addPeers(honchoSessionId, [
+        {
+          peerId: userPeerId,
+          observeMe: this.config.userObserveMe,
+          observeOthers: this.config.userObserveOthers,
+        },
+        {
+          peerId: agentPeerId,
+          observeMe: this.config.agentObserveMe,
+          observeOthers: this.config.agentObserveOthers,
+        },
+      ]);
+      this.preparedConversations.add(conversationKey);
     }
 
-    const userPeerId = buildUserPeerId(userId);
-    const agentPeerId = buildAgentPeerId(agentId);
-    await this.ensurePeer(userPeerId, {
-      source: 'hybridclaw',
-      kind: 'user',
-      hybridclaw_user_id: userId,
-    });
-    await this.ensurePeer(agentPeerId, {
-      source: 'hybridclaw',
-      kind: 'agent',
-      hybridclaw_agent_id: agentId,
-    });
-    await this.ensureSession(sessionId);
-    await this.addPeers(sessionId, [userPeerId, agentPeerId]);
-    this.preparedConversations.add(conversationKey);
-    return { sessionId, userPeerId, agentPeerId };
+    return {
+      honchoSessionId,
+      userPeerId,
+      agentPeerId,
+    };
   }
 
-  async syncMessages({ sessionId, userId, agentId, messages }) {
-    if (!Array.isArray(messages) || messages.length === 0) return;
-    const { userPeerId, agentPeerId } = await this.ensureConversation({
-      sessionId,
-      userId,
-      agentId,
-    });
+  async syncMessages(params) {
+    if (!Array.isArray(params.messages) || params.messages.length === 0)
+      return 0;
+    const { honchoSessionId, userPeerId, agentPeerId } =
+      await this.ensureConversation(params);
     const payload = [];
-    for (const message of messages) {
-      const role = String(message?.role || '').toLowerCase();
+    for (const message of params.messages) {
+      const role = normalizeString(message?.role).toLowerCase();
       if (role !== 'user' && role !== 'assistant') continue;
-      const content = sanitizeMessageContent(message?.content);
-      if (!content) continue;
-      payload.push({
-        peer_id: role === 'assistant' ? agentPeerId : userPeerId,
-        content,
-        created_at: String(message.created_at || '').trim() || undefined,
-        metadata: {
-          source: 'hybridclaw',
-          source_role: role,
-          hybridclaw_message_id: Number(message.id),
-          hybridclaw_username:
-            typeof message.username === 'string' ? message.username : null,
-        },
-      });
+      const peerId = role === 'assistant' ? agentPeerId : userPeerId;
+      const chunks = chunkMessageContent(
+        message?.content,
+        this.config.messageMaxChars,
+      );
+      if (chunks.length === 0) continue;
+      for (const [index, chunk] of chunks.entries()) {
+        payload.push({
+          peer_id: peerId,
+          content: chunk,
+          created_at: normalizeMessageTimestamp(message?.created_at),
+          metadata: {
+            source: 'hybridclaw',
+            source_role: role,
+            hybridclaw_message_id: Number(message?.id) || 0,
+            chunk_index: index,
+            chunk_count: chunks.length,
+          },
+        });
+      }
     }
-    if (payload.length === 0) return;
+    if (payload.length === 0) return 0;
     await this.request(
       'POST',
-      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(sessionId)}/messages`,
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(honchoSessionId)}/messages`,
       {
         body: {
           messages: payload,
         },
       },
     );
+    return payload.length;
   }
 
-  async getSessionContext({ sessionId, userId, agentId, searchQuery }) {
-    const { userPeerId, agentPeerId } = await this.ensureConversation({
-      sessionId,
-      userId,
-      agentId,
+  async addPeerMessages(params) {
+    return this.syncMessages({
+      ...params,
+      messages: params.messages.map((content, index) => ({
+        id: index + 1,
+        role: params.role,
+        content,
+        created_at: params.createdAt,
+      })),
     });
+  }
+
+  async getSessionContext(params) {
+    const { honchoSessionId } = await this.ensureConversation(params);
     return await this.request(
       'GET',
-      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(sessionId)}/context`,
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(honchoSessionId)}/context`,
       {
         query: {
           tokens: this.config.contextTokens,
-          summary: this.config.includeSummary ? 'true' : undefined,
-          search_query: searchQuery || undefined,
-          peer_target: userPeerId,
-          peer_perspective: agentPeerId,
-          limit_to_session: this.config.limitToSession ? 'true' : undefined,
+          summary: params.includeSummary ? 'true' : undefined,
+          search_query: normalizeString(params.searchQuery) || undefined,
+          peer_target: normalizeString(params.peerTargetId) || undefined,
+          peer_perspective:
+            normalizeString(params.peerPerspectiveId) || undefined,
+          limit_to_session: params.limitToSession ? 'true' : undefined,
         },
       },
     );
+  }
+
+  async getPeerRepresentation(params) {
+    const peerId = normalizeString(params.peerId);
+    if (!peerId) return { representation: '', peer_card: [] };
+    return await this.request(
+      'POST',
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/peers/${encodePathSegment(peerId)}/representation`,
+      {
+        body: {
+          query: normalizeString(params.query) || undefined,
+          target: normalizeString(params.targetPeerId) || undefined,
+          session_id: normalizeString(params.honchoSessionId) || undefined,
+        },
+      },
+    );
+  }
+
+  async chatWithPeer(params) {
+    const response = await this.request(
+      'POST',
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/peers/${encodePathSegment(params.peerId)}/chat`,
+      {
+        body: {
+          query: truncateText(params.query, this.config.dialecticMaxInputChars),
+          reasoning_level: params.reasoningLevel,
+          target: normalizeString(params.targetPeerId) || undefined,
+          session_id: normalizeString(params.honchoSessionId) || undefined,
+        },
+      },
+    );
+    return truncateText(
+      normalizeChatResponse(response),
+      this.config.dialecticMaxChars,
+    );
+  }
+
+  async createConclusions(params) {
+    const { honchoSessionId } = await this.ensureConversation(params);
+    if (!Array.isArray(params.conclusions) || params.conclusions.length === 0) {
+      return 0;
+    }
+    const conclusions = params.conclusions
+      .map((content) => normalizeString(content))
+      .filter(Boolean)
+      .map((content) => ({
+        content,
+        observer_id: params.observerPeerId,
+        observed_id: params.observedPeerId,
+        session_id: honchoSessionId,
+      }));
+    if (conclusions.length === 0) return 0;
+    await this.request(
+      'POST',
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/conclusions`,
+      {
+        body: { conclusions },
+      },
+    );
+    return conclusions.length;
   }
 
   async getQueueStatus(sessionId) {
@@ -227,21 +385,21 @@ export class HonchoClient {
       `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/queue/status`,
       {
         query: {
-          session_id: sessionId,
+          session_id: sanitizeHonchoSessionId(sessionId),
         },
       },
     );
   }
 
-  async searchSession({ sessionId, query, limit }) {
+  async searchSession(params) {
     await this.ensureWorkspace();
     return await this.request(
       'POST',
-      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(sessionId)}/search`,
+      `/v3/workspaces/${encodePathSegment(this.config.workspaceId)}/sessions/${encodePathSegment(sanitizeHonchoSessionId(params.honchoSessionId))}/search`,
       {
         body: {
-          query,
-          limit,
+          query: params.query,
+          limit: params.limit,
         },
       },
     );
@@ -251,5 +409,5 @@ export class HonchoClient {
 export function formatHonchoLabel(peerId, userPeerId, agentPeerId) {
   if (peerId === userPeerId) return 'user';
   if (peerId === agentPeerId) return 'assistant';
-  return String(peerId || '').trim() || 'peer';
+  return normalizeString(peerId) || 'peer';
 }

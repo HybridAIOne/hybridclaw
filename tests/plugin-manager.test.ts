@@ -123,6 +123,42 @@ function writePassivePlugin(rootDir: string, pluginId: string): void {
   );
 }
 
+function writeMemoryProviderPlugin(rootDir: string, pluginId: string): void {
+  const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', pluginId);
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      `id: ${pluginId}`,
+      `name: ${pluginId}`,
+      'kind: memory',
+      'memoryProvider: true',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      `  id: '${pluginId}',`,
+      "  kind: 'memory',",
+      '  register(api) {',
+      '    api.registerMemoryLayer({',
+      `      id: '${pluginId}-layer',`,
+      '      priority: 50,',
+      '      getContextForPrompt() {',
+      `        return '${pluginId} context';`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeEnvRequirementPlugin(rootDir: string): void {
   const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', 'env-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
@@ -480,6 +516,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
       'version: " 1.2.3 "',
       'description: " Example plugin "',
       'kind: tool',
+      'memoryProvider: true',
       'author: " Example Author "',
       'entrypoint: " dist/index.js "',
       'requires:',
@@ -515,6 +552,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     version: '1.2.3',
     description: 'Example plugin',
     kind: 'tool',
+    memoryProvider: true,
     author: 'Example Author',
     entrypoint: 'dist/index.js',
     requires: {
@@ -669,6 +707,70 @@ test('plugin manager auto-discovers plugins from project directories without con
       channelId: 'web',
     }),
   ).resolves.toBe('workspace-auto:true:hello');
+});
+
+test('plugin manager allows only one external memory provider plugin', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-a');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-b');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getMemoryLayers()).toEqual([
+    expect.objectContaining({ id: 'memory-provider-a-layer' }),
+  ]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'memory-provider-a',
+      enabled: true,
+      status: 'loaded',
+    }),
+    expect.objectContaining({
+      id: 'memory-provider-b',
+      enabled: false,
+      status: 'failed',
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-a" is already loaded.',
+    }),
+  ]);
+  expect(manager.listPluginSummary()).toEqual([
+    {
+      id: 'memory-provider-a',
+      name: 'memory-provider-a',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: true,
+      error: undefined,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+    {
+      id: 'memory-provider-b',
+      name: 'memory-provider-b',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: false,
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-a" is already loaded.',
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
 });
 
 test('plugin manager accepts required env vars from stored runtime secrets', async () => {

@@ -5,8 +5,9 @@ import {
   runtimeConfigPath,
 } from '../config/runtime-config.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getSessionById } from '../memory/db.js';
+import { getRecentMessages, getSessionById } from '../memory/db.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -69,6 +70,25 @@ export function createPluginApi(params: {
   const pluginConfig = deepFreezeClone(params.pluginConfig);
   const defaultAgentId =
     String(params.config.agents?.defaultAgentId || 'main').trim() || 'main';
+  const resolvePluginSessionAgentId = (sessionId: string): string => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return defaultAgentId;
+
+    let sessionAgentId = '';
+    try {
+      sessionAgentId = String(
+        getSessionById(normalizedSessionId)?.agent_id || '',
+      ).trim();
+    } catch {
+      sessionAgentId = '';
+    }
+    if (sessionAgentId) return sessionAgentId;
+
+    const parsed = parseSessionKey(normalizedSessionId);
+    if (parsed?.agentId) return parsed.agentId;
+
+    return defaultAgentId;
+  };
   const runtime: PluginRuntime = Object.freeze({
     cwd: params.cwd,
     homeDir: params.homeDir,
@@ -136,29 +156,50 @@ export function createPluginApi(params: {
       return stored?.trim() || undefined;
     },
     async writeConfigValue(key: string, rawValue: string): Promise<void> {
-      await writePluginConfigValue(params.pluginId, key, rawValue);
+      await writePluginConfigValue(params.pluginId, key, rawValue, {
+        homeDir: params.homeDir,
+        cwd: params.cwd,
+      });
     },
     async unsetConfigValue(key: string): Promise<void> {
-      await unsetPluginConfigValue(params.pluginId, key);
+      await unsetPluginConfigValue(params.pluginId, key, {
+        homeDir: params.homeDir,
+        cwd: params.cwd,
+      });
     },
     resolveSessionAgentId(sessionId: string): string {
+      return resolvePluginSessionAgentId(sessionId);
+    },
+    getSessionInfo(sessionId: string): {
+      sessionId: string;
+      agentId: string;
+      userId: string | null;
+      workspacePath: string;
+    } {
       const normalizedSessionId = String(sessionId || '').trim();
-      if (!normalizedSessionId) return defaultAgentId;
-
-      let sessionAgentId = '';
-      try {
-        sessionAgentId = String(
-          getSessionById(normalizedSessionId)?.agent_id || '',
-        ).trim();
-      } catch {
-        sessionAgentId = '';
+      const agentId = resolvePluginSessionAgentId(normalizedSessionId);
+      let userId: string | null = null;
+      if (normalizedSessionId) {
+        try {
+          const recentMessages = getRecentMessages(normalizedSessionId, 200);
+          const userMessage = recentMessages.find(
+            (message) =>
+              String(message.role || '')
+                .trim()
+                .toLowerCase() === 'user' &&
+              String(message.user_id || '').trim().length > 0,
+          );
+          userId = userMessage?.user_id?.trim() || null;
+        } catch {
+          userId = null;
+        }
       }
-      if (sessionAgentId) return sessionAgentId;
-
-      const parsed = parseSessionKey(normalizedSessionId);
-      if (parsed?.agentId) return parsed.agentId;
-
-      return defaultAgentId;
+      return {
+        sessionId: normalizedSessionId,
+        agentId,
+        userId,
+        workspacePath: agentWorkspaceDir(agentId),
+      };
     },
   });
 }

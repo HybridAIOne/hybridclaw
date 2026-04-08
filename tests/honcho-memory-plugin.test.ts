@@ -8,6 +8,15 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const tempDirs: string[] = [];
+const originalRuntimeHome = process.env.HYBRIDCLAW_DATA_DIR;
+
+interface StubMessage {
+  peer_id: string;
+  content: string;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
+  session_id?: string;
+}
 
 function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -28,9 +37,31 @@ function installBundledPlugin(cwd: string): void {
   fs.cpSync(sourceDir, targetDir, { recursive: true });
 }
 
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 4000,
+  intervalMs = 20,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for condition.`);
+}
+
 function createHonchoStubServer() {
-  const createdMessages: Array<Record<string, unknown>> = [];
+  const createdMessages: StubMessage[] = [];
+  const contextRequests: Array<{
+    sessionId: string;
+    peerTarget: string;
+    peerPerspective: string;
+  }> = [];
+  const representationRequests: Array<Record<string, unknown>> = [];
+  const chatRequests: Array<Record<string, unknown>> = [];
+  const conclusions: Array<Record<string, unknown>> = [];
   let queueStatusRequests = 0;
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     const chunks: Buffer[] = [];
@@ -48,6 +79,20 @@ function createHonchoStubServer() {
       res.end(JSON.stringify(payload));
     };
 
+    const sessionMessages = (sessionId: string) =>
+      createdMessages.filter((message) => message.session_id === sessionId);
+
+    const makeContextMessage = (message: StubMessage, index: number) => ({
+      id: `ctx-${index + 1}`,
+      content: String(message.content || ''),
+      peer_id: String(message.peer_id || ''),
+      session_id: String(message.session_id || ''),
+      workspace_id: 'hybridclaw-test',
+      metadata: message.metadata || {},
+      created_at: String(message.created_at || '2026-04-07T10:00:00.000Z'),
+      token_count: 12,
+    });
+
     if (req.method === 'POST' && url.pathname === '/v3/workspaces') {
       sendJson(200, {
         id: String(body?.id || 'workspace'),
@@ -62,9 +107,8 @@ function createHonchoStubServer() {
       req.method === 'POST' &&
       /^\/v3\/workspaces\/[^/]+\/peers$/.test(url.pathname)
     ) {
-      const peerId = String(body?.id || 'peer');
       sendJson(200, {
-        id: peerId,
+        id: String(body?.id || 'peer'),
         workspace_id: 'hybridclaw-test',
         metadata: body?.metadata || {},
         configuration: {},
@@ -100,17 +144,33 @@ function createHonchoStubServer() {
       req.method === 'POST' &&
       /^\/v3\/workspaces\/[^/]+\/sessions\/[^/]+\/messages$/.test(url.pathname)
     ) {
+      const sessionId = decodeURIComponent(
+        url.pathname.match(
+          /^\/v3\/workspaces\/[^/]+\/sessions\/([^/]+)\/messages$/,
+        )?.[1] || '',
+      );
       const messages = Array.isArray(body?.messages)
-        ? (body?.messages as Array<Record<string, unknown>>)
+        ? (body.messages as Array<Record<string, unknown>>)
         : [];
-      createdMessages.push(...messages);
+      for (const message of messages) {
+        createdMessages.push({
+          peer_id: String(message.peer_id || ''),
+          content: String(message.content || ''),
+          created_at: String(message.created_at || '2026-04-07T10:00:00.000Z'),
+          metadata:
+            message.metadata && typeof message.metadata === 'object'
+              ? (message.metadata as Record<string, unknown>)
+              : {},
+          session_id: sessionId,
+        });
+      }
       sendJson(
         200,
         messages.map((message, index) => ({
           id: `m-${createdMessages.length - messages.length + index + 1}`,
           content: String(message.content || ''),
           peer_id: String(message.peer_id || ''),
-          session_id: 'session-1',
+          session_id: sessionId,
           workspace_id: 'hybridclaw-test',
           metadata: message.metadata || {},
           created_at: String(message.created_at || '2026-04-07T10:00:00.000Z'),
@@ -124,18 +184,39 @@ function createHonchoStubServer() {
       req.method === 'GET' &&
       /^\/v3\/workspaces\/[^/]+\/sessions\/[^/]+\/context$/.test(url.pathname)
     ) {
+      const sessionId = decodeURIComponent(
+        url.pathname.match(
+          /^\/v3\/workspaces\/[^/]+\/sessions\/([^/]+)\/context$/,
+        )?.[1] || '',
+      );
+      const peerTarget = String(url.searchParams.get('peer_target') || '');
+      const peerPerspective = String(
+        url.searchParams.get('peer_perspective') || '',
+      );
+      contextRequests.push({
+        sessionId,
+        peerTarget,
+        peerPerspective,
+      });
+      const recent = sessionMessages(sessionId)
+        .slice(-4)
+        .map(makeContextMessage);
+      if (peerTarget.startsWith('agent-')) {
+        sendJson(200, {
+          id: sessionId,
+          messages: recent,
+          peer_representation:
+            'The assistant is a workspace-aware HybridClaw agent with durable Honcho memory.',
+          peer_card: [
+            'Tracks user preferences across sessions',
+            'Maintains explicit identity seeds from workspace files',
+          ],
+        });
+        return;
+      }
       sendJson(200, {
-        id: 'session-1',
-        messages: createdMessages.slice(-2).map((message, index) => ({
-          id: `ctx-${index + 1}`,
-          content: String(message.content || ''),
-          peer_id: String(message.peer_id || ''),
-          session_id: 'session-1',
-          workspace_id: 'hybridclaw-test',
-          metadata: message.metadata || {},
-          created_at: String(message.created_at || '2026-04-07T10:00:00.000Z'),
-          token_count: 12,
-        })),
+        id: sessionId,
+        messages: recent,
         summary: {
           content: 'User prefers concise status updates.',
           message_id: 'ctx-1',
@@ -144,12 +225,80 @@ function createHonchoStubServer() {
           token_count: 24,
         },
         peer_representation:
-          'The user is actively working on HybridClaw memory integrations.',
+          'The user works across multiple HybridClaw sessions and wants real Honcho compatibility.',
         peer_card: [
           'prefers concise responses',
-          'cares about real source compatibility',
+          'cares about source-compatible integrations',
         ],
       });
+      return;
+    }
+
+    if (
+      req.method === 'POST' &&
+      /^\/v3\/workspaces\/[^/]+\/peers\/[^/]+\/representation$/.test(
+        url.pathname,
+      )
+    ) {
+      const peerId = decodeURIComponent(
+        url.pathname.match(
+          /^\/v3\/workspaces\/[^/]+\/peers\/([^/]+)\/representation$/,
+        )?.[1] || '',
+      );
+      representationRequests.push({
+        peerId,
+        ...(body || {}),
+      });
+      const target = String(body?.target || '');
+      sendJson(200, {
+        representation: target
+          ? `Representation for ${target}: user prefers durable synced memory.`
+          : `Representation for ${peerId}: assistant identity is workspace seeded.`,
+        peer_card: target
+          ? ['prefers durable sync', 'uses Honcho for recall']
+          : ['assistant identity seeded', 'workspace aware'],
+      });
+      return;
+    }
+
+    if (
+      req.method === 'POST' &&
+      /^\/v3\/workspaces\/[^/]+\/peers\/[^/]+\/chat$/.test(url.pathname)
+    ) {
+      const peerId = decodeURIComponent(
+        url.pathname.match(
+          /^\/v3\/workspaces\/[^/]+\/peers\/([^/]+)\/chat$/,
+        )?.[1] || '',
+      );
+      chatRequests.push({
+        peerId,
+        ...(body || {}),
+      });
+      const target = String(body?.target || '');
+      const query = String(body?.query || '');
+      sendJson(200, {
+        content: target
+          ? `Honcho says ${peerId} knows ${target}: ${query}`
+          : `Honcho says ${peerId}: ${query}`,
+      });
+      return;
+    }
+
+    if (
+      req.method === 'POST' &&
+      /^\/v3\/workspaces\/[^/]+\/conclusions$/.test(url.pathname)
+    ) {
+      const items = Array.isArray(body?.conclusions)
+        ? (body.conclusions as Array<Record<string, unknown>>)
+        : [];
+      conclusions.push(...items);
+      sendJson(
+        200,
+        items.map((item, index) => ({
+          id: `conclusion-${conclusions.length - items.length + index + 1}`,
+          ...item,
+        })),
+      );
       return;
     }
 
@@ -159,10 +308,10 @@ function createHonchoStubServer() {
     ) {
       queueStatusRequests += 1;
       sendJson(200, {
-        total_work_units: 2,
+        total_work_units: createdMessages.length,
         completed_work_units: createdMessages.length,
         in_progress_work_units: 0,
-        pending_work_units: Math.max(0, 2 - createdMessages.length),
+        pending_work_units: 0,
       });
       return;
     }
@@ -171,8 +320,13 @@ function createHonchoStubServer() {
       req.method === 'POST' &&
       /^\/v3\/workspaces\/[^/]+\/sessions\/[^/]+\/search$/.test(url.pathname)
     ) {
+      const sessionId = decodeURIComponent(
+        url.pathname.match(
+          /^\/v3\/workspaces\/[^/]+\/sessions\/([^/]+)\/search$/,
+        )?.[1] || '',
+      );
       const query = String(body?.query || '').toLowerCase();
-      const filtered = createdMessages.filter((message) =>
+      const filtered = sessionMessages(sessionId).filter((message) =>
         String(message.content || '')
           .toLowerCase()
           .includes(query),
@@ -183,7 +337,7 @@ function createHonchoStubServer() {
           id: `search-${index + 1}`,
           content: String(message.content || ''),
           peer_id: String(message.peer_id || ''),
-          session_id: 'session-1',
+          session_id: String(message.session_id || ''),
           workspace_id: 'hybridclaw-test',
           metadata: message.metadata || {},
           created_at: String(message.created_at || '2026-04-07T10:00:00.000Z'),
@@ -198,6 +352,10 @@ function createHonchoStubServer() {
 
   return {
     createdMessages,
+    contextRequests,
+    representationRequests,
+    chatRequests,
+    conclusions,
     get queueStatusRequests() {
       return queueStatusRequests;
     },
@@ -223,6 +381,11 @@ function createHonchoStubServer() {
 }
 
 afterEach(() => {
+  if (originalRuntimeHome === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = originalRuntimeHome;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -231,13 +394,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('honcho-memory syncs turns, deduplicates repeated sync, injects context, and exposes status/search commands', async () => {
+test('honcho-memory seeds workspace identity, mirrors turns once, and exposes Honcho commands and tools', async () => {
   const honcho = createHonchoStubServer();
   const baseUrl = await honcho.listen();
 
-  const homeDir = makeTempDir('hybridclaw-honcho-home-');
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
   const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
   installBundledPlugin(cwd);
+
+  const [{ PluginManager }, dbModule, ipcModule] = await Promise.all([
+    import('../src/plugins/plugin-manager.js'),
+    import('../src/memory/db.js'),
+    import('../src/infra/ipc.js'),
+  ]);
+
+  vi.spyOn(dbModule, 'getSessionById').mockReturnValue({
+    agent_id: 'main',
+  } as never);
+  vi.spyOn(dbModule, 'getRecentMessages').mockReturnValue([
+    {
+      role: 'user',
+      user_id: 'user-1',
+    },
+  ] as never);
+
+  const workspacePath = ipcModule.agentWorkspaceDir('main');
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.writeFileSync(path.join(workspacePath, 'SOUL.md'), 'You are HybridClaw.');
+  fs.writeFileSync(
+    path.join(workspacePath, 'IDENTITY.md'),
+    'Assist with reliable memory integrations.',
+  );
+  fs.writeFileSync(
+    path.join(workspacePath, 'AGENTS.md'),
+    'Use concise, direct engineering updates.',
+  );
+  fs.writeFileSync(
+    path.join(workspacePath, 'USER.md'),
+    'User prefers concise answers and real integrations.',
+  );
+  fs.writeFileSync(
+    path.join(workspacePath, 'MEMORY.md'),
+    'Prior note: the user compares implementations against examples.',
+  );
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
@@ -249,20 +449,39 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
         workspaceId: 'hybridclaw-test',
         contextTokens: 2000,
         searchLimit: 5,
-        maxInjectedChars: 2500,
+        maxInjectedChars: 4000,
+        writeFrequency: 'turn',
+        sessionStrategy: 'per-session',
       },
     },
   ];
 
-  try {
-    const { PluginManager } = await import('../src/plugins/plugin-manager.js');
-    const manager = new PluginManager({
-      homeDir,
-      cwd,
-      getRuntimeConfig: () => config,
-    });
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
 
+  try {
     await manager.ensureInitialized();
+
+    expect(manager.getToolDefinitions().map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        'honcho_profile',
+        'honcho_search',
+        'honcho_context',
+        'honcho_conclude',
+      ]),
+    );
+
+    await manager.notifySessionStart({
+      sessionId: 'session-1',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+    });
+    await waitFor(() => honcho.contextRequests.length >= 2);
+    await waitFor(() => honcho.chatRequests.length >= 1);
 
     const turnMessages = [
       {
@@ -298,7 +517,22 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
       messages: turnMessages,
     });
 
-    expect(honcho.createdMessages).toHaveLength(2);
+    const mirroredTurns = honcho.createdMessages.filter((message) =>
+      [10, 11].includes(Number(message.metadata?.hybridclaw_message_id || 0)),
+    );
+    expect(mirroredTurns).toHaveLength(2);
+    expect(
+      honcho.createdMessages.filter((message) =>
+        String(message.content || '').includes('<ai_identity_seed>'),
+      ),
+    ).toHaveLength(3);
+    expect(
+      honcho.createdMessages.filter((message) =>
+        String(message.content || '').includes('<prior_memory_file>'),
+      ),
+    ).toHaveLength(2);
+
+    await waitFor(() => honcho.contextRequests.length >= 4);
 
     const promptContext = await manager.collectPromptContext({
       sessionId: 'session-1',
@@ -319,14 +553,15 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
       ],
     });
 
-    expect(promptContext).toHaveLength(1);
-    expect(promptContext[0]).toContain('Honcho session memory context:');
-    expect(promptContext[0]).toContain('User prefers concise status updates.');
-    expect(promptContext[0]).toContain('HybridClaw memory integrations');
-    expect(promptContext[0]).toContain('user: Please integrate Honcho memory');
-    expect(promptContext[0]).toContain(
-      'assistant: I am mirroring the conversation into Honcho now.',
+    expect(promptContext.join('\n\n')).toContain('# Honcho Memory Context');
+    expect(promptContext.join('\n\n')).toContain(
+      'User prefers concise status updates.',
     );
+    expect(promptContext.join('\n\n')).toContain('prefers concise responses');
+    expect(promptContext.join('\n\n')).toContain(
+      'HybridClaw agent with durable Honcho memory',
+    );
+    expect(promptContext.join('\n\n')).toContain('Commands: /honcho status');
 
     const command = manager.findCommand('honcho');
     expect(command).toBeDefined();
@@ -337,8 +572,36 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
       userId: 'user-1',
     });
     expect(String(statusText)).toContain('Honcho status');
-    expect(String(statusText)).toContain('Workspace: hybridclaw-test');
+    expect(String(statusText)).toContain('Honcho session: session-1');
+    expect(String(statusText)).toContain('Built-in memory: always on');
     expect(honcho.queueStatusRequests).toBeGreaterThan(0);
+
+    const modeHelpText = await command?.handler(['mode'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(modeHelpText)).toContain(
+      'Built-in HybridClaw memory stays on',
+    );
+
+    const modeSetText = await command?.handler(['mode', 'tools'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(modeSetText)).toContain(
+      'Updated Honcho recall mode to tools.',
+    );
+
+    const recallHelpText = await command?.handler(['recall'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(recallHelpText)).toContain(
+      '/honcho recall <hybrid|context|tools>',
+    );
 
     const searchText = await command?.handler(['search', 'mirroring'], {
       sessionId: 'session-1',
@@ -346,7 +609,222 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
       userId: 'user-1',
     });
     expect(String(searchText)).toContain('I am mirroring the conversation');
+
+    const identityText = await command?.handler(['identity', '--show'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(identityText)).toContain('Honcho identity');
+    expect(String(identityText)).toContain('AI peer');
+
+    const syncText = await command?.handler(['sync'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(syncText)).toContain('Honcho sync complete.');
+
+    const profileText = await manager.executeTool({
+      toolName: 'honcho_profile',
+      sessionId: 'session-1',
+      channelId: 'web',
+      args: {},
+    });
+    expect(profileText).toContain('Honcho profile');
+
+    const toolSearchText = await manager.executeTool({
+      toolName: 'honcho_search',
+      sessionId: 'session-1',
+      channelId: 'web',
+      args: {
+        query: 'memory',
+      },
+    });
+    expect(toolSearchText).toContain('Honcho search');
+    expect(toolSearchText).toContain('Session message matches:');
+
+    const toolContextText = await manager.executeTool({
+      toolName: 'honcho_context',
+      sessionId: 'session-1',
+      channelId: 'web',
+      args: {
+        query: 'What matters most about this user?',
+      },
+    });
+    expect(toolContextText).toContain('Honcho says');
+
+    const toolConcludeText = await manager.executeTool({
+      toolName: 'honcho_conclude',
+      sessionId: 'session-1',
+      channelId: 'web',
+      args: {
+        conclusion: 'User prefers source-compatible integrations.',
+      },
+    });
+    expect(toolConcludeText).toContain('Conclusion saved:');
+    expect(honcho.conclusions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: 'User prefers source-compatible integrations.',
+        }),
+      ]),
+    );
   } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
+test('honcho-memory uses prefetched prompt context without fetching during prompt build', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        writeFrequency: 'turn',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  try {
+    await manager.ensureInitialized();
+    await manager.notifySessionStart({
+      sessionId: 'session-2',
+      userId: 'user-2',
+      agentId: 'main',
+      channelId: 'web',
+    });
+    await waitFor(() => honcho.contextRequests.length >= 2);
+    await waitFor(() => honcho.chatRequests.length >= 1);
+
+    const contextRequestsBefore = honcho.contextRequests.length;
+    const chatRequestsBefore = honcho.chatRequests.length;
+
+    const promptContext = await manager.collectPromptContext({
+      sessionId: 'session-2',
+      userId: 'user-2',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [
+        {
+          id: 20,
+          session_id: 'session-2',
+          user_id: 'user-2',
+          username: 'alice',
+          role: 'user',
+          content: 'Summarize my preferences.',
+          created_at: '2026-04-07T10:01:00.000Z',
+        },
+      ],
+    });
+
+    expect(promptContext.join('\n\n')).toContain('# Honcho Memory Context');
+    expect(honcho.contextRequests.length).toBe(contextRequestsBefore);
+    expect(honcho.chatRequests.length).toBe(chatRequestsBefore);
+  } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
+test('honcho-memory persists dedup state across manager restarts', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        writeFrequency: 'turn',
+      },
+    },
+  ];
+
+  const turnMessages = [
+    {
+      id: 30,
+      session_id: 'session-3',
+      user_id: 'user-3',
+      username: 'alice',
+      role: 'user',
+      content: 'Persist this turn in Honcho.',
+      created_at: '2026-04-07T10:00:00.000Z',
+    },
+    {
+      id: 31,
+      session_id: 'session-3',
+      user_id: 'user-3',
+      username: 'assistant',
+      role: 'assistant',
+      content: 'Persisting the turn now.',
+      created_at: '2026-04-07T10:00:01.000Z',
+    },
+  ];
+
+  const managerA = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await managerA.ensureInitialized();
+  await managerA.notifyTurnComplete({
+    sessionId: 'session-3',
+    userId: 'user-3',
+    agentId: 'main',
+    messages: turnMessages,
+  });
+  await managerA.shutdown();
+
+  const managerB = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  try {
+    await managerB.ensureInitialized();
+    await managerB.notifyTurnComplete({
+      sessionId: 'session-3',
+      userId: 'user-3',
+      agentId: 'main',
+      messages: turnMessages,
+    });
+
+    const mirroredTurns = honcho.createdMessages.filter((message) =>
+      [30, 31].includes(Number(message.metadata?.hybridclaw_message_id || 0)),
+    );
+    expect(mirroredTurns).toHaveLength(2);
+  } finally {
+    await managerB.shutdown();
     await honcho.close();
   }
 });
