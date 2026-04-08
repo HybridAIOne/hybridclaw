@@ -39,12 +39,14 @@ import {
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
-import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
+import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -64,6 +66,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -186,6 +189,7 @@ import {
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
   readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -1621,25 +1625,54 @@ function normalizeGatewayAuthStatusProvider(
 function resolveRuntimeCredentialStatus(
   storedSecretName: string,
   envValues: Array<string | undefined>,
+  storedValue?: string,
 ): {
   value: string;
   source: 'env' | 'runtime-secrets' | null;
 } {
-  const storedValue = readStoredRuntimeSecret(storedSecretName);
+  const resolvedStoredValue =
+    typeof storedValue === 'string'
+      ? storedValue.trim()
+      : readStoredRuntimeSecret(storedSecretName);
   const envValue =
     envValues
       .map((value) => String(value || '').trim())
       .find((value) => value.length > 0) || '';
   const source = envValue
-    ? storedValue && envValue === storedValue
+    ? resolvedStoredValue && envValue === resolvedStoredValue
       ? 'runtime-secrets'
       : 'env'
-    : storedValue
+    : resolvedStoredValue
       ? 'runtime-secrets'
       : null;
   return {
-    value: envValue || storedValue || '',
+    value: envValue || resolvedStoredValue || '',
     source,
+  };
+}
+
+function resolveGatewayPasswordStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['email']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      passwordConfigured: Boolean(credential.value),
+      passwordSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    passwordConfigured: Boolean(configValue),
+    passwordSource: configValue ? 'config' : null,
   };
 }
 
@@ -2487,10 +2520,14 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
-    localBackendsProbe.get(),
-    hybridAIProbe.get(),
-  ]);
+  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
+    await Promise.allSettled([
+      localBackendsProbe.get(),
+      hybridAIProbe.get(),
+      getWhatsAppAuthStatus(),
+    ]);
+  const runtimeConfig = getRuntimeConfig();
+  const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2499,6 +2536,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
       : { reachable: false, error: 'probe failed', latencyMs: 0 };
+  const whatsappAuth =
+    whatsappAuthResult.status === 'fulfilled'
+      ? whatsappAuthResult.value
+      : { linked: false, jid: null };
+  const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
@@ -2519,6 +2561,27 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const discordCredential = resolveRuntimeCredentialStatus(
+    'DISCORD_TOKEN',
+    [process.env.DISCORD_TOKEN],
+    storedSecrets.DISCORD_TOKEN,
+  );
+  const discord = {
+    tokenConfigured: Boolean(discordCredential.value),
+    tokenSource: discordCredential.source,
+  } as NonNullable<GatewayStatus['discord']>;
+  const email = resolveGatewayPasswordStatus({
+    storedSecretName: 'EMAIL_PASSWORD',
+    envValues: [process.env.EMAIL_PASSWORD],
+    configValue: runtimeConfig.email.password,
+    storedValue: storedSecrets.EMAIL_PASSWORD,
+  });
+  const imessage = resolveGatewayPasswordStatus({
+    storedSecretName: 'IMESSAGE_PASSWORD',
+    envValues: [process.env.IMESSAGE_PASSWORD],
+    configValue: runtimeConfig.imessage.password,
+    storedValue: storedSecrets.IMESSAGE_PASSWORD,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -2527,7 +2590,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
-    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
+    defaultAgentId: resolveDefaultAgentId(runtimeConfig),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -2545,6 +2608,14 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     observability: getObservabilityIngestState(),
     scheduler: {
       jobs: getSchedulerStatus(),
+    },
+    discord,
+    email,
+    imessage,
+    whatsapp: {
+      ...whatsappAuth,
+      pairingQrText: whatsappPairing.pairingQrText,
+      pairingUpdatedAt: whatsappPairing.updatedAt,
     },
     providerHealth,
     localBackends,
@@ -5092,411 +5163,9 @@ export async function handleGatewayCommand(
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
-        const helpEntries: Array<{
-          command: string;
-          description: string;
-          scope: 'bare' | 'slash' | 'both';
-        }> = [
-          {
-            command: 'agent',
-            description: 'Show current session agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent list',
-            description: 'List available agents',
-            scope: 'bare',
-          },
-          {
-            command: 'agent switch <id>',
-            description: 'Bind this session to an existing agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent create <id> [--model <model>]',
-            description: 'Create a new agent',
-            scope: 'bare',
-          },
-          {
-            command:
-              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
-            description: 'Install a packaged agent from a path or URL',
-            scope: 'both',
-          },
-          {
-            command: 'agent model [name]',
-            description:
-              'Show or set the persistent model for the current agent',
-            scope: 'bare',
-          },
-          {
-            command: 'bot list',
-            description: 'List available bots',
-            scope: 'bare',
-          },
-          {
-            command: 'bot set <id|name>',
-            description: 'Set chatbot for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'bot clear',
-            description: 'Clear the session chatbot and return to auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'bot info',
-            description: 'Show current chatbot settings',
-            scope: 'bare',
-          },
-          {
-            command: 'concierge [info|on|off]',
-            description: 'Show or toggle concierge routing defaults',
-            scope: 'both',
-          },
-          {
-            command: 'concierge model [name]',
-            description: 'Show or set the concierge decision model',
-            scope: 'both',
-          },
-          {
-            command: 'concierge profile <asap|balanced|no_hurry> [model]',
-            description: 'Show or set concierge profile model mappings',
-            scope: 'both',
-          },
-          {
-            command: 'model list [provider]',
-            description: 'List available models',
-            scope: 'both',
-          },
-          {
-            command: 'model set <name>',
-            description: 'Set model for this session',
-            scope: 'both',
-          },
-          {
-            command: 'model clear',
-            description: 'Clear the session model override',
-            scope: 'both',
-          },
-          {
-            command: 'model default [name]',
-            description: 'Show or set default model for new sessions',
-            scope: 'both',
-          },
-          {
-            command: 'model info',
-            description: 'Show effective, session, agent, and default models',
-            scope: 'both',
-          },
-          {
-            command: 'rag [on|off]',
-            description: 'Toggle or set RAG mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel mode [off|mention|free]',
-            description: 'Set or inspect this Discord channel response mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel policy [open|allowlist|disabled]',
-            description: 'Set or inspect guild channel policy',
-            scope: 'bare',
-          },
-          {
-            command: 'ralph [on|off|set <n>|info]',
-            description: 'Configure Ralph loop (0 off, -1 unlimited)',
-            scope: 'bare',
-          },
-          {
-            command: 'fullauto [status|off|on [prompt]|<prompt>]',
-            description: 'Enable/inspect/disable session full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'show [all|thinking|tools|none]',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'show <all|thinking|tools|none>',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'slash',
-          },
-          {
-            command: 'mcp list',
-            description: 'List configured MCP servers',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp add <name> <json>',
-            description: 'Add or update an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp remove <name>',
-            description: 'Remove an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp toggle <name>',
-            description: 'Enable or disable an MCP server',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp reconnect <name>',
-            description:
-              'Restart current session runtime so the server reconnects next turn',
-            scope: 'bare',
-          },
-          {
-            command: 'plugin list',
-            description:
-              'List discovered plugins, descriptions, commands, and load status',
-            scope: 'both',
-          },
-          {
-            command: 'plugin config <plugin-id> [key] [value|--unset]',
-            description: 'Show or change a plugin config override',
-            scope: 'both',
-          },
-          {
-            command: 'plugin enable <plugin-id>',
-            description: 'Enable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin disable <plugin-id>',
-            description: 'Disable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin install <path|npm-spec>',
-            description: 'Install a plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reinstall <path|npm-spec>',
-            description:
-              'Replace an installed plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reload',
-            description:
-              'Reload all plugins (picks up code changes without gateway restart)',
-            scope: 'both',
-          },
-          {
-            command: 'plugin uninstall <plugin-id>',
-            description:
-              'Remove a home-installed plugin and matching runtime config overrides',
-            scope: 'both',
-          },
-          {
-            command: 'auth status hybridai',
-            description: 'Show local HybridAI auth/config state',
-            scope: 'both',
-          },
-          {
-            command: 'secret set <name> <value>',
-            description:
-              'Store an encrypted named secret for local gateway use',
-            scope: 'both',
-          },
-          {
-            command: 'secret list',
-            description:
-              'List stored secret names and configured URL auth rules',
-            scope: 'both',
-          },
-          {
-            command:
-              'secret route add <url-prefix> <secret-name> [header] [prefix|none]',
-            description:
-              'Auto-inject a secret-backed header for matching outbound HTTP requests',
-            scope: 'both',
-          },
-          {
-            command: 'config',
-            description: 'Show the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config check',
-            description: 'Validate the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config reload',
-            description:
-              'Hot-reload the local runtime config file and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'config set <key> <value>',
-            description: 'Set one local runtime config value and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'clear',
-            description: 'Clear session history',
-            scope: 'bare',
-          },
-          {
-            command: 'reset [yes|no]',
-            description:
-              'Clear history, reset session settings, and remove the current agent workspace',
-            scope: 'bare',
-          },
-          {
-            command: 'compact',
-            description:
-              'Archive older history, summarize it, and retain recent context',
-            scope: 'slash',
-          },
-          {
-            command: 'dream',
-            description: 'Run memory consolidation across agent workspaces now',
-            scope: 'slash',
-          },
-          {
-            command: 'status',
-            description:
-              'Show runtime status (Discord slash command, private to caller)',
-            scope: 'slash',
-          },
-          {
-            command: APPROVE_COMMAND_USAGE.slice('/'.length),
-            description: 'View/respond to pending approvals privately',
-            scope: 'slash',
-          },
-          {
-            command: 'stop',
-            description:
-              'Abort the current session run and disable full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel-mode <off|mention|free>',
-            description: 'Set this Discord channel response mode',
-            scope: 'slash',
-          },
-          {
-            command: 'channel-policy <open|allowlist|disabled>',
-            description: 'Set Discord guild channel policy',
-            scope: 'slash',
-          },
-          {
-            command: 'sessions [active|clear-active]',
-            description:
-              'List chat sessions, inspect active sandbox sessions, or stop them all',
-            scope: 'bare',
-          },
-          {
-            command:
-              'usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
-            description: 'Usage/cost aggregates',
-            scope: 'bare',
-          },
-          {
-            command: 'export session [sessionId]',
-            description: 'Export session JSONL snapshot for debugging',
-            scope: 'bare',
-          },
-          {
-            command: 'export trace [sessionId|all|--all]',
-            description:
-              'Export ATIF-compatible debug trace JSONL for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'audit [sessionId]',
-            description: 'Show recent structured audit events for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'skill list',
-            description: 'List available skills and availability',
-            scope: 'bare',
-          },
-          {
-            command: 'skill inspect <name>|--all',
-            description: 'Show observation-based skill health',
-            scope: 'bare',
-          },
-          {
-            command: 'skill runs <name>',
-            description: 'Show recent execution observations for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill learn <name> [--apply|--reject|--rollback]',
-            description: 'Stage or manage skill amendments',
-            scope: 'bare',
-          },
-          {
-            command: 'skill history <name>',
-            description: 'Show amendment history for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill sync [--skip-skill-scan] <source>',
-            description: 'Reinstall a packaged or community skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill import [--force] [--skip-skill-scan] <source>',
-            description:
-              'Import a packaged or community skill into ~/.hybridclaw/skills',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add "<cron>" <prompt>',
-            description: 'Add cron scheduled task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add at "<ISO time>" <prompt>',
-            description: 'Add one-shot task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add every <ms> <prompt>',
-            description: 'Add interval task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule list',
-            description: 'List scheduled tasks',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule remove <id>',
-            description: 'Remove a task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule toggle <id>',
-            description: 'Enable/disable a task',
-            scope: 'bare',
-          },
-          {
-            command: 'eval [list|env|<suite>|<command...>]',
-            description: 'Local-only eval recipes and detached benchmark runs',
-            scope: 'both',
-          },
-        ];
-        const help = helpEntries.flatMap(({ command, description, scope }) => {
-          const prefixes =
-            scope === 'both' ? ['', '/'] : scope === 'slash' ? ['/'] : [''];
-          return prefixes.map(
-            (prefix) => `\`${prefix}${command}\` — ${description}`,
-          );
-        });
+        const help = buildLocalSessionSlashHelpEntries('web').map(
+          ({ command, description }) => `\`${command}\`: ${description}`,
+        );
         return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
@@ -6487,6 +6156,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(
             `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
           );
@@ -6510,6 +6180,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: null });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
         }
 

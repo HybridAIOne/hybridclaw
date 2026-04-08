@@ -9,6 +9,7 @@ import {
 } from './approval-commands.js';
 import { TUI_CAPABILITIES } from './channels/channel.js';
 import { registerChannel } from './channels/channel-registry.js';
+import { buildLocalSessionSlashHelpEntries } from './command-registry.js';
 import {
   APP_VERSION,
   CONFIGURED_MODELS,
@@ -587,6 +588,8 @@ function printHelp(): void {
     process.platform === 'linux' && isProbablyWsl()
       ? 'Ctrl+V / Ctrl+Alt+V'
       : 'Ctrl+V';
+  const helpEntries = buildLocalSessionSlashHelpEntries('tui');
+  const shortCommandWidth = 18;
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
@@ -600,85 +603,11 @@ function printHelp(): void {
     `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
   );
   console.log();
-  console.log(
-    `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
-  );
-  console.log(
-    `  ${TEAL}${APPROVE_COMMAND_USAGE}${RESET} View/respond to pending approvals`,
-  );
-  console.log(
-    `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
-  );
-  console.log(
-    `  ${TEAL}/auth [status <provider>]${RESET} Show local provider auth and config status`,
-  );
-  console.log(
-    `  ${TEAL}/bot [info|list|set <id|name>|clear]${RESET} Manage the chatbot for this session`,
-  );
-  console.log(
-    `  ${TEAL}/channel-mode <off|mention|free>${RESET} Set Discord channel mode`,
-  );
-  console.log(
-    `  ${TEAL}/channel-policy <open|allowlist|disabled>${RESET} Set Discord guild policy`,
-  );
-  console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
-  console.log(
-    `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
-  );
-  console.log(
-    `  ${TEAL}/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]${RESET} Configure concierge routing`,
-  );
-  console.log(
-    `  ${TEAL}/config [check|reload|set <key> <value>|revisions]${RESET} Show or update local runtime config`,
-  );
-  console.log(`  ${TEAL}/exit${RESET}             Quit`);
-  console.log(
-    `  ${TEAL}/export session [sessionId] | /export trace [sessionId|all]${RESET} Export session snapshot or trace JSONL`,
-  );
-  console.log(
-    `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
-  );
-  console.log(`  ${TEAL}/help${RESET}             Show this help`);
-  console.log(`  ${TEAL}/info${RESET}             Show current settings`);
-  console.log(
-    `  ${TEAL}/mcp [list|add|toggle|remove|reconnect] [name] [json]${RESET} Manage MCP servers`,
-  );
-  console.log(
-    `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
-  );
-  console.log(
-    `  ${TEAL}/paste${RESET}            Attach a copied file or clipboard image`,
-  );
-  console.log(
-    `  ${TEAL}/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]${RESET} Manage installed plugins`,
-  );
-  console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
-  console.log(
-    `  ${TEAL}/ralph [info|on|off|set n]${RESET} Configure Ralph loop`,
-  );
-  console.log(
-    `  ${TEAL}/reset [yes|no]${RESET}    Clear history, reset session settings, and remove the agent workspace`,
-  );
-  console.log(
-    `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
-  );
-  console.log(
-    `  ${TEAL}/secret [list|set|show|unset|route]${RESET} Manage stored secrets and URL auth routes`,
-  );
-  console.log(`  ${TEAL}/sessions${RESET}         List active sessions`);
-  console.log(
-    `  ${TEAL}/show [all|thinking|tools|none]${RESET} Control visible thinking/tool activity`,
-  );
-  console.log(
-    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>${RESET} Manage skill config, health, runs, amendments, and imports`,
-  );
-  console.log(`  ${TEAL}/status${RESET}           Show runtime status`);
-  console.log(
-    `  ${TEAL}/stop${RESET}             Interrupt current request and disable full-auto`,
-  );
-  console.log(
-    `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
-  );
+  for (const { command, description } of helpEntries) {
+    console.log(
+      `  ${TEAL}${command.padEnd(shortCommandWidth)}${RESET} ${description}`,
+    );
+  }
   console.log();
 }
 

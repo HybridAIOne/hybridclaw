@@ -272,25 +272,6 @@ export function ConfigPage() {
                 </select>
               </label>
               <BooleanField
-                label="Respond to all messages"
-                value={draft.discord.respondToAllMessages}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(respondToAllMessages) =>
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          discord: {
-                            ...current.discord,
-                            respondToAllMessages,
-                          },
-                        }
-                      : current,
-                  )
-                }
-              />
-              <BooleanField
                 label="Commands only"
                 value={draft.discord.commandsOnly}
                 trueLabel="on"

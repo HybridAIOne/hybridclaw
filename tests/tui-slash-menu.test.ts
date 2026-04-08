@@ -101,6 +101,26 @@ test('does not duplicate slash menu rows that resolve to the same command text',
   expect(duplicates).toEqual([]);
 });
 
+test('hides TUI-only slash menu entries from the web surface', () => {
+  const labels = buildTuiSlashMenuEntries([], 'web').map(
+    (entry) => entry.label,
+  );
+
+  expect(labels).not.toContain('/exit');
+  expect(labels).not.toContain('/paste');
+});
+
+test('keeps slash menu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+  const compareLabels = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(labels).toEqual([...labels].sort(compareLabels));
+});
+
 test('root entries with subcommands include arg hints in labels', () => {
   const entries = buildTuiSlashMenuEntries();
   const rootEntries = entries.filter((entry) => entry.depth === 1);
