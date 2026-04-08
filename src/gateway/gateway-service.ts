@@ -3515,8 +3515,17 @@ export function createGatewayAdminSkill(input: {
   const resolvedFiles: Array<{ resolved: string; content: string }> = [];
   for (const file of files) {
     const filePath = String(file.path || '').trim();
-    if (!filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)) {
-      continue;
+    if (!filePath) {
+      throw new GatewayRequestError(
+        400,
+        'Skill file paths must be non-empty and include a filename.',
+      );
+    }
+    if (filePath.endsWith('/') || filePath.endsWith(path.sep)) {
+      throw new GatewayRequestError(
+        400,
+        `File path \`${filePath}\` must include a filename.`,
+      );
     }
     const resolved = path.resolve(skillDir, filePath);
     if (!resolved.startsWith(skillDir + path.sep)) {
@@ -3656,7 +3665,11 @@ export async function uploadGatewayAdminSkillZip(
     // Copy extracted skill to project skills directory (copy instead of
     // rename to avoid EXDEV when tmp and skills/ are on different mounts)
     fs.mkdirSync(projectSkillsDir, { recursive: true });
-    fs.cpSync(skillRoot, targetDir, { recursive: true });
+    fs.cpSync(skillRoot, targetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
 
     return getGatewayAdminSkills();
   } finally {

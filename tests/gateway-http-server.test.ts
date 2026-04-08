@@ -781,6 +781,12 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const createGatewayAdminSkill = vi.fn(() => ({
+    extraDirs: [],
+    disabled: [],
+    channelDisabled: {},
+    skills: [],
+  }));
   const deleteGatewayAdminSession = vi.fn(() => ({
     deleted: true,
     sessionId: 's1',
@@ -886,6 +892,12 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const uploadGatewayAdminSkillZip = vi.fn(async () => ({
+    extraDirs: [],
+    disabled: [],
+    channelDisabled: {},
+    skills: [],
+  }));
   const getGatewayAdminJobsContext = vi.fn(() => ({
     agents: [{ id: 'main', name: 'Main Agent' }],
     sessions: [
@@ -983,6 +995,7 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
+    createGatewayAdminSkill,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
@@ -1015,6 +1028,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
+    uploadGatewayAdminSkillZip,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
@@ -1112,10 +1126,12 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     createGatewayAdminAgent,
+    createGatewayAdminSkill,
     updateGatewayAdminAgent,
     deleteGatewayAdminAgent,
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
+    uploadGatewayAdminSkillZip,
     handleGatewayMessage,
     handleGatewayCommand,
     handleGatewayPluginWebhook,
@@ -3630,6 +3646,81 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('creates admin skills for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills',
+      body: {
+        name: 'my-skill',
+        description: 'Create a test skill',
+        userInvocable: false,
+        disableModelInvocation: true,
+        tags: ['admin', 'tools'],
+        body: '# My Skill',
+        files: [{ path: 'scripts/run.mjs', content: 'console.log("ok");' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminSkill).toHaveBeenCalledWith({
+      body: '# My Skill',
+      description: 'Create a test skill',
+      disableModelInvocation: true,
+      files: [{ path: 'scripts/run.mjs', content: 'console.log("ok");' }],
+      name: 'my-skill',
+      tags: ['admin', 'tools'],
+      userInvocable: false,
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  test('returns 400 for invalid admin skill file paths', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills',
+      body: {
+        name: 'my-skill',
+        description: 'Create a test skill',
+        body: '# My Skill',
+        files: [{ path: 'scripts/', content: '' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminSkill).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Skill file paths must be non-empty and include a filename.',
+    });
+  });
+
+  test('returns 405 for unsupported admin skill methods', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/skills',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminSkill).not.toHaveBeenCalled();
+    expect(state.setGatewayAdminSkillEnabled).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(405);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Method DELETE is not allowed.',
+    });
+  });
+
   test('toggles admin skills for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -3706,6 +3797,97 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Skill `unknown` was not found.',
+    });
+  });
+
+  test('uploads admin skill zip archives for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const zipBuffer = Buffer.from('zip-bytes');
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills/upload',
+      body: zipBuffer,
+      headers: {
+        'content-type': 'application/zip',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer);
+    expect(res.statusCode).toBe(201);
+  });
+
+  test('returns 400 for empty admin skill zip uploads', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills/upload',
+      body: Buffer.alloc(0),
+      headers: {
+        'content-type': 'application/zip',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.uploadGatewayAdminSkillZip).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Expected a non-empty skill zip upload body.',
+    });
+  });
+
+  test('returns 413 for oversized admin skill zip uploads', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills/upload',
+      body: Buffer.alloc(10 * 1024 * 1024 + 1, 1),
+      headers: {
+        'content-type': 'application/zip',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.uploadGatewayAdminSkillZip).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(413);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Skill zip upload exceeds the maximum size of 10485760 bytes.',
+    });
+  });
+
+  test('returns 409 when uploaded admin skill zip already exists', async () => {
+    const state = await importFreshHealth();
+    state.uploadGatewayAdminSkillZip.mockImplementation(async () => {
+      throw new state.GatewayRequestError(
+        409,
+        'Skill `my-skill` already exists at /tmp/skills/my-skill.',
+      );
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills/upload',
+      body: Buffer.from('zip-bytes'),
+      headers: {
+        'content-type': 'application/zip',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Skill `my-skill` already exists at /tmp/skills/my-skill.',
     });
   });
 

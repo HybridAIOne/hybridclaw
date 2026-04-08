@@ -2514,6 +2514,19 @@ async function handleApiAdminSkills(
             content: String((f as Record<string, unknown>).content ?? ''),
           }))
       : undefined;
+    if (
+      files?.some((file) => {
+        const filePath = file.path.trim();
+        return (
+          !filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)
+        );
+      })
+    ) {
+      sendJson(res, 400, {
+        error: 'Skill file paths must be non-empty and include a filename.',
+      });
+      return;
+    }
     sendJson(
       res,
       201,
@@ -2576,8 +2589,38 @@ async function handleApiAdminSkillUpload(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
-  sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+  const method = req.method || 'GET';
+  if (method !== 'POST') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  try {
+    const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
+    if (buffer.length === 0) {
+      sendJson(res, 400, {
+        error: 'Expected a non-empty skill zip upload body.',
+      });
+      return;
+    }
+    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, {
+        error: error.message,
+      });
+      return;
+    }
+    if (error instanceof HttpRequestError) {
+      const message =
+        error.statusCode === 413
+          ? `Skill zip upload exceeds the maximum size of ${MAX_SKILL_ZIP_UPLOAD_BYTES} bytes.`
+          : error.message;
+      sendJson(res, error.statusCode, { error: message });
+      return;
+    }
+    throw error;
+  }
 }
 
 function decodeApiPathSegment(value: string): string {
@@ -3060,14 +3103,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
-          if (
-            pathname === '/api/admin/skills' &&
-            (method === 'GET' || method === 'PUT' || method === 'POST')
-          ) {
+          if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
             return;
           }
-          if (pathname === '/api/admin/skills/upload' && method === 'POST') {
+          if (pathname === '/api/admin/skills/upload') {
             await handleApiAdminSkillUpload(req, res);
             return;
           }
