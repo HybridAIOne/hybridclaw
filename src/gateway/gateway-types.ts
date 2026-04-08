@@ -705,6 +705,7 @@ export interface GatewayAdminSkill {
   name: string;
   description: string;
   category: string;
+  shortDescription?: string;
   source: string;
   available: boolean;
   enabled: boolean;

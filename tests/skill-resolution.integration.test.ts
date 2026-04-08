@@ -123,6 +123,47 @@ Say hello.
     expect(greet?.source).toBe('extra');
   });
 
+  it('SKILL.md parses metadata.hybridclaw category and short description', () => {
+    const extraDir = path.join(tmpDir, 'extra-metadata-skills');
+    writeSkill(
+      extraDir,
+      'test-metadata-skill',
+      `---
+name: test-metadata-skill
+description: Detailed description for the metadata test skill
+metadata:
+  hybridclaw:
+    category: Knowledge Base
+    short_description: Concise metadata summary.
+    tags:
+      - metadata
+      - parser
+---
+
+# Metadata Skill
+
+Validate metadata parsing.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+    });
+
+    const catalog = skillsMod.loadSkillCatalog();
+    const skill = catalog.find((s) => s.name === 'test-metadata-skill');
+    expect(skill).toBeDefined();
+    expect(skill?.description).toBe(
+      'Detailed description for the metadata test skill',
+    );
+    expect(skill?.category).toBe('knowledge-base');
+    expect(skill?.metadata.hybridclaw.shortDescription).toBe(
+      'Concise metadata summary.',
+    );
+    expect(skill?.metadata.hybridclaw.tags).toEqual(['metadata', 'parser']);
+  });
+
   it('SKILL.md with invalid YAML frontmatter produces a graceful result (not crash)', () => {
     const extraDir = path.join(tmpDir, 'extra-bad-yaml');
     // Write a skill with a broken frontmatter delimiter (missing closing ---).

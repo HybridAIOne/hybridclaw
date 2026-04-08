@@ -103,6 +103,7 @@ import {
 } from './gateway-scheduled-task-service.js';
 import {
   createGatewayAdminAgent,
+  createGatewayAdminSkill,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
@@ -132,6 +133,7 @@ import {
   saveGatewayAdminModels,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
+  uploadGatewayAdminSkillZip,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
@@ -2482,11 +2484,101 @@ async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if ((req.method || 'GET') === 'GET') {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminSkills());
     return;
   }
 
+  if (method === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      name?: unknown;
+      description?: unknown;
+      category?: unknown;
+      shortDescription?: unknown;
+      userInvocable?: unknown;
+      disableModelInvocation?: unknown;
+      tags?: unknown;
+      body?: unknown;
+      files?: unknown;
+    };
+    if (body.files != null && !Array.isArray(body.files)) {
+      sendJson(res, 400, {
+        error:
+          'Expected `files` to be an array of objects with string `path` and optional string `content`.',
+      });
+      return;
+    }
+    const files = Array.isArray(body.files)
+      ? body.files.map((file) => {
+          if (
+            file == null ||
+            typeof file !== 'object' ||
+            Array.isArray(file) ||
+            typeof (file as Record<string, unknown>).path !== 'string'
+          ) {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          const content = (file as Record<string, unknown>).content;
+          if (content != null && typeof content !== 'string') {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          return {
+            path: file.path,
+            content: content ?? '',
+          };
+        })
+      : undefined;
+    if (
+      files?.some((file) => {
+        const filePath = file.path.trim();
+        return (
+          !filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)
+        );
+      })
+    ) {
+      sendJson(res, 400, {
+        error: 'Skill file paths must be non-empty and include a filename.',
+      });
+      return;
+    }
+    sendJson(
+      res,
+      201,
+      createGatewayAdminSkill({
+        name: String(body.name || ''),
+        description: String(body.description || ''),
+        category: String(body.category || ''),
+        shortDescription: String(body.shortDescription || ''),
+        userInvocable:
+          typeof body.userInvocable === 'boolean'
+            ? body.userInvocable
+            : undefined,
+        disableModelInvocation:
+          typeof body.disableModelInvocation === 'boolean'
+            ? body.disableModelInvocation
+            : undefined,
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+        body: String(body.body || ''),
+        files,
+      }),
+    );
+    return;
+  }
+
+  if (method !== 'PUT') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
@@ -2513,6 +2605,46 @@ async function handleApiAdminSkills(
       channel: typeof body.channel === 'string' ? body.channel : undefined,
     }),
   );
+}
+
+const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+async function handleApiAdminSkillUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method !== 'POST') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  try {
+    const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
+    if (buffer.length === 0) {
+      sendJson(res, 400, {
+        error: 'Expected a non-empty skill zip upload body.',
+      });
+      return;
+    }
+    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, {
+        error: error.message,
+      });
+      return;
+    }
+    if (error instanceof HttpRequestError) {
+      const message =
+        error.statusCode === 413
+          ? `Skill zip upload exceeds the maximum size of ${MAX_SKILL_ZIP_UPLOAD_BYTES} bytes.`
+          : error.message;
+      sendJson(res, error.statusCode, { error: message });
+      return;
+    }
+    throw error;
+  }
 }
 
 function decodeApiPathSegment(value: string): string {
@@ -2995,11 +3127,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
-          if (
-            pathname === '/api/admin/skills' &&
-            (method === 'GET' || method === 'PUT')
-          ) {
+          if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/skills/upload') {
+            await handleApiAdminSkillUpload(req, res);
             return;
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {

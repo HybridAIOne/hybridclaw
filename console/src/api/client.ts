@@ -7,6 +7,7 @@ import type {
   AdminChannelTransport,
   AdminConfig,
   AdminConfigResponse,
+  AdminCreateSkillPayload,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -385,6 +386,43 @@ export function fetchAudit(
 
 export function fetchSkills(token: string): Promise<AdminSkillsResponse> {
   return requestJson<AdminSkillsResponse>('/api/admin/skills', { token });
+}
+
+export function createSkill(
+  token: string,
+  payload: AdminCreateSkillPayload,
+): Promise<AdminSkillsResponse> {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function uploadSkillZip(
+  token: string,
+  file: File,
+): Promise<AdminSkillsResponse> {
+  const response = await fetch('/api/admin/skills/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+      'Content-Type': 'application/zip',
+    },
+    body: file,
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+  };
+  if (!response.ok) {
+    const message =
+      payload.error || `${response.status} ${response.statusText}`;
+    if (response.status === 401) {
+      dispatchAuthRequired(message);
+    }
+    throw new Error(message);
+  }
+  return payload as AdminSkillsResponse;
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
