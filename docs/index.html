@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.11.0</div>
+    <div class="section-label">Latest Release • v0.12.0</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.11.0 adds an OpenAI-compatible local gateway API, approval allowlists, a dark-mode admin console, channel setup guides, and release automation.</p>
+    <p class="section-desc">HybridClaw v0.12.0 adds managed local eval workflows, nightly dream memory consolidation controls, browser-based skill authoring, a Brevo email plugin, and new long-lived knowledge skills.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ac;</div>
-      <h3>OpenAI-compatible gateway API</h3>
-      <p>Loopback-scoped <code>/v1/models</code> and <code>/v1/chat/completions</code> endpoints let local tools and editors talk to HybridClaw through an OpenAI-compatible surface with streaming replies and usage reporting.</p>
+      <h3>Managed local eval workflows</h3>
+      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>tau2</code> runs, a native <code>terminal-bench-2.0</code> runner, detached logs, and progress summaries.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2705;</div>
-      <h3>Approval allowlists</h3>
-      <p>Workspace approval allowlists and the <code>/approve always</code> alias make it easier to persist trust decisions across local chat, TUI, and gateway approval flows without weakening the default approval model.</p>
+      <h3>Dream memory consolidation</h3>
+      <p>Local TUI and web sessions now expose <code>dream on|off|now</code> for nightly consolidation, startup catch-up after downtime, and on-demand workspace memory cleanup reporting.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f319;</div>
-      <h3>Dark-mode console</h3>
-      <p>The embedded admin console now supports dark mode, improved dropdown controls, and cleaner iconography, while the web chat UI adds slash-command suggestions and better mobile behavior.</p>
+      <h3>Admin skill authoring</h3>
+      <p>The embedded admin console can create local skills from a form or ZIP upload, applies scanner checks before publish, and groups the catalog by normalized skill categories for easier operator review.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
-      <h3>Channel setup guides</h3>
-      <p>The maintainer docs now include explicit setup walkthroughs for Discord, email, WhatsApp, iMessage, and Microsoft Teams, including slash-command equivalents and restart guidance.</p>
+      <h3>Email and knowledge workflows</h3>
+      <p>The repo now ships the <code>brevo-email</code> plugin for per-agent email routing plus bundled <code>llm-wiki</code> and <code>zettelkasten</code> skills for persistent research and note-system maintenance.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f680;</div>
       <h3>Release automation</h3>
-      <p>Release workflows now publish npm packages through OIDC trusted publishing, with tighter handling for pre-release dist-tags, packaged runtime images, and public install paths.</p>
+      <p>Release workflows now ship these runtime, docs, and plugin changes together through the tagged npm and container publication path, keeping public install artifacts aligned with the repository state.</p>
     </div>
   </div>
 </section>

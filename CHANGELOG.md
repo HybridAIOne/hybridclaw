@@ -2,9 +2,11 @@
 
 ## [Coming up]
 
+## [0.12.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.0)
+
 ### Added
 
-- **Managed local eval workflows**: Added top-level `hybridclaw eval` plus
+- **Managed local eval benchmark workflows**: Added top-level `hybridclaw eval` plus
   local `/eval` support, loopback OpenAI-compatible eval environment helpers,
   detached benchmark command launching, managed `tau2` lifecycle flows, and a
   native `terminal-bench-2.0` runner with progress updates and run logs.

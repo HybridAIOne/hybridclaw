@@ -830,7 +830,7 @@ test('shows managed suite run summary in results when a run exists', async () =>
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Harness          HybridClaw v0.12.0');
   expect(result.text).toContain('Overview');
   expect(result.text).toContain('Results');
   expect(result.text).toContain('Run');
@@ -947,7 +947,7 @@ test('does not count recovered terminal-bench task warnings as errors', async ()
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Harness          HybridClaw v0.12.0');
   expect(result.text).toContain('Score   1.000');
   expect(result.text).toContain('Passed  2/2');
   expect(result.text).toContain('Errors  0');
@@ -1054,7 +1054,7 @@ test('shows partial terminal-bench progress in results while a run is still acti
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Harness          HybridClaw v0.12.0');
   expect(result.text).toContain('Overview');
   expect(result.text).toContain('Progress');
   expect(result.text).toContain('Run');
@@ -2079,7 +2079,7 @@ test('shows latest tau2 results from log tails', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Harness          HybridClaw v0.12.0');
   expect(result.text).toContain('Overview');
   expect(result.text).toContain('Results');
   expect(result.text).toContain('Run');
@@ -2151,7 +2151,7 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('Harness          HybridClaw v0.11.0');
+  expect(result.text).toContain('Harness          HybridClaw v0.12.0');
   expect(result.text).toContain('Overview');
   expect(result.text).toContain('Run');
   expect(result.text).toContain('Paths');
