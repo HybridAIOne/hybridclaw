@@ -837,11 +837,7 @@ async function importFreshCli(options?: {
     return structuredClone(runtimeConfigState);
   });
   const setRuntimeConfigSecretInput = vi.fn(
-    (
-      secretPath: string,
-      value: unknown,
-      _meta?: Record<string, unknown>,
-    ) => {
+    (secretPath: string, value: unknown, _meta?: Record<string, unknown>) => {
       const draft = getRuntimeConfig() as Record<string, unknown>;
       if (secretPath === 'email.password') {
         const email = (draft.email as Record<string, unknown>) || {};

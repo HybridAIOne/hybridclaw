@@ -153,7 +153,9 @@ test('promptForSecretInput switches to a fresh tty when stdin still has readline
     configurable: true,
   });
 
-  const openSync = vi.fn((target: string) => (target.endsWith('tty') ? 11 : 12));
+  const openSync = vi.fn((target: string) =>
+    target.endsWith('tty') ? 11 : 12,
+  );
   const closeSync = vi.fn();
   const writes: string[] = [];
   let dataHandler: ((chunk: string | Buffer) => void) | undefined;
@@ -208,9 +210,7 @@ test('promptForSecretInput switches to a fresh tty when stdin still has readline
 
   const listenerCountSpy = vi
     .spyOn(process.stdin, 'listenerCount')
-    .mockImplementation((event: string | symbol) =>
-      event === 'data' ? 1 : 0,
-    );
+    .mockImplementation((event: string | symbol) => (event === 'data' ? 1 : 0));
 
   const { promptForSecretInput: promptWithFreshTty } = await import(
     '../src/utils/secret-prompt.ts'

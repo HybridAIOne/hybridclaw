@@ -67,7 +67,9 @@ export function createBrevoSmtpService(
 
   function normalizeMessageIdList(value) {
     const raw = Array.isArray(value) ? value : value ? [value] : [];
-    return [...new Set(raw.map((entry) => normalizeMessageId(entry)).filter(Boolean))];
+    return [
+      ...new Set(raw.map((entry) => normalizeMessageId(entry)).filter(Boolean)),
+    ];
   }
 
   function resolveThreadHeaders(opts) {
