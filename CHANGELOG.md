@@ -23,6 +23,7 @@
 - **Knowledge-management skills**: Added bundled `llm-wiki` and
   `zettelkasten` skills for persistent wiki maintenance, linked-note capture,
   and long-lived research workflows.
+- **OpenAI compatible API**: Added an OpenAI compatible API to the gateway.
 
 ### Changed
 
