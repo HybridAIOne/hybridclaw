@@ -30,21 +30,19 @@ export function useFocusTrap(
   useEffect(() => {
     if (!active) return;
     const container = containerRef.current;
-    // Narrow to non-null for use inside closures.
     if (!container) return;
-    const el: HTMLElement = container;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     // Defer initial focus one frame so the element is visible after any
     // CSS transition that runs synchronously with the state change.
     const raf = requestAnimationFrame(() => {
-      getFocusable(el)[0]?.focus({ preventScroll: true });
+      getFocusable(container)[0]?.focus({ preventScroll: true });
     });
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Tab') return;
-      const items = getFocusable(el);
+      const items = getFocusable(container);
       if (!items.length) {
         e.preventDefault();
         return;
@@ -54,12 +52,12 @@ export function useFocusTrap(
       const focused = document.activeElement;
 
       if (e.shiftKey) {
-        if (focused === first || !el.contains(focused)) {
+        if (focused === first || !container.contains(focused)) {
           e.preventDefault();
           last.focus({ preventScroll: true });
         }
       } else {
-        if (focused === last || !el.contains(focused)) {
+        if (focused === last || !container.contains(focused)) {
           e.preventDefault();
           first.focus({ preventScroll: true });
         }
@@ -70,19 +68,19 @@ export function useFocusTrap(
     // call, pull it back on the next frame.
     function onFocusOut() {
       requestAnimationFrame(() => {
-        if (el.isConnected && !el.contains(document.activeElement)) {
-          getFocusable(el)[0]?.focus({ preventScroll: true });
+        if (container.isConnected && !container.contains(document.activeElement)) {
+          getFocusable(container)[0]?.focus({ preventScroll: true });
         }
       });
     }
 
     document.addEventListener('keydown', onKeyDown);
-    el.addEventListener('focusout', onFocusOut);
+    container.addEventListener('focusout', onFocusOut);
 
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener('keydown', onKeyDown);
-      el.removeEventListener('focusout', onFocusOut);
+      container.removeEventListener('focusout', onFocusOut);
       previouslyFocused?.focus({ preventScroll: true });
     };
   }, [active, containerRef]);

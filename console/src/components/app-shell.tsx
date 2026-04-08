@@ -11,6 +11,8 @@ import {
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
+const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((g) => g.items);
+
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
   label: string;
@@ -38,9 +40,8 @@ export function AppShell(props: { children: ReactNode }) {
     : pathname === '/admin'
       ? '/'
       : pathname;
-  const allNavItems = SIDEBAR_NAV_GROUPS.flatMap((g) => g.items);
   const currentNavItem =
-    allNavItems.find((item) => item.to === adminPath) || allNavItems[0];
+    ALL_NAV_ITEMS.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
     <SidebarProvider style={getSidebarStyleVars('15.5rem', '18rem')}>
@@ -60,27 +61,25 @@ export function AppShell(props: { children: ReactNode }) {
           </div>
           <nav className="view-switch" aria-label="Switch view">
             {VIEW_SWITCH_ITEMS.map((item) => {
-              const classes = item.active
-                ? 'view-switch-link active'
-                : 'view-switch-link';
-
-              if (item.active) {
-                return (
-                  <span key={item.href} className={classes} aria-current="page">
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <item.icon />
-                    </span>
-                    <span>{item.label}</span>
-                  </span>
-                );
-              }
-
-              return (
-                <a key={item.href} className={classes} href={item.href}>
+              const inner = (
+                <>
                   <span className="nav-link-icon" aria-hidden="true">
                     <item.icon />
                   </span>
                   <span>{item.label}</span>
+                </>
+              );
+              return item.active ? (
+                <span
+                  key={item.href}
+                  className="view-switch-link active"
+                  aria-current="page"
+                >
+                  {inner}
+                </span>
+              ) : (
+                <a key={item.href} className="view-switch-link" href={item.href}>
+                  {inner}
                 </a>
               );
             })}

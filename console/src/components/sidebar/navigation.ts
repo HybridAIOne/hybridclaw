@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import {
   Audit,
   Channels,
+  Cog,
   Config,
   Dashboard,
   Gateway,
@@ -44,7 +45,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/channels', label: 'Channels', icon: Channels },
       { to: '/models', label: 'Models', icon: Models },
       { to: '/scheduler', label: 'Scheduler', icon: Scheduler },
-      { to: '/mcp', label: 'MCP', icon: Plugins },
+      { to: '/mcp', label: 'MCP', icon: Cog },
     ],
   },
   {

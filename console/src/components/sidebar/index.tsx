@@ -136,27 +136,10 @@ export function SidebarProvider(props: {
   );
 }
 
-export type SidebarContextSnapshot = {
-  state: SidebarState;
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  openMobile: boolean;
-  setOpenMobile: (open: boolean) => void;
-  isMobile: boolean;
-  toggleSidebar: () => void;
-};
+export type SidebarContextSnapshot = SidebarContextValue;
 
 export function useSidebar(): SidebarContextSnapshot {
-  const context = useSidebarContext();
-  return {
-    state: context.state,
-    open: context.open,
-    setOpen: context.setOpen,
-    openMobile: context.openMobile,
-    setOpenMobile: context.setOpenMobile,
-    isMobile: context.isMobile,
-    toggleSidebar: context.toggleSidebar,
-  };
+  return useSidebarContext();
 }
 
 export function Sidebar({
@@ -255,7 +238,6 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
       className={cx(styles.trigger, className)}
       aria-label={props['aria-label'] ?? label}
       aria-expanded={context.isMobile ? context.openMobile : context.open}
-      aria-controls="sidebar-nav"
       onClick={(event) => {
         props.onClick?.(event);
         if (!event.defaultPrevented) {
@@ -311,7 +293,7 @@ export function SidebarMenu(props: {
   ariaLabel?: string;
 }) {
   return (
-    <nav id="sidebar-nav" className={styles.menu} aria-label={props.ariaLabel}>
+    <nav className={styles.menu} aria-label={props.ariaLabel}>
       {props.children}
     </nav>
   );

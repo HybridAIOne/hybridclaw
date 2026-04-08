@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * Fires `onEscape` when the Escape key is pressed, unless focus is inside an
@@ -6,6 +6,11 @@ import { useEffect } from 'react';
  * own meaning.
  */
 export function useEscapeKeydown(onEscape: () => void, active: boolean): void {
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
+
   useEffect(() => {
     if (!active) return;
 
@@ -20,10 +25,10 @@ export function useEscapeKeydown(onEscape: () => void, active: boolean): void {
         return;
       }
       e.stopPropagation();
-      onEscape();
+      onEscapeRef.current();
     }
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [active, onEscape]);
+  }, [active]);
 }

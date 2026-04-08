@@ -138,7 +138,7 @@ export function SheetContent({
       {/* Panel */}
       <section
         {...rest}
-        ref={panelRef as React.RefObject<HTMLElement>}
+        ref={panelRef}
         data-sheet="content"
         data-side={side}
         data-state={open ? 'open' : 'closed'}
