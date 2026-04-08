@@ -853,7 +853,7 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
     '`/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed plugins',
   );
   expect(result.text).toContain(
-    '`/auth [status <provider>]`: Show local provider auth and config status',
+    '`/auth status <provider>`: Show local provider auth and config status',
   );
   expect(result.text).toContain(
     '`/config [check|reload|set <key> <value>]`: Show or update local runtime config',

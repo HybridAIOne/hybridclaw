@@ -180,7 +180,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Show recent structured audit events',
   },
   auth: {
-    command: '/auth [status <provider>]',
+    command: '/auth status <provider>',
     description: 'Show local provider auth and config status',
   },
   bot: {
@@ -195,9 +195,6 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|set <key> <value>]',
     description: 'Show or update local runtime config',
-    commandBySurface: {
-      tui: '/config [check|reload|set <key> <value>|revisions]',
-    },
   },
   export: {
     command: '/export session [sessionId] | /export trace [sessionId|all]',

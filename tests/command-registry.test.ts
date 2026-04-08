@@ -629,7 +629,10 @@ test('builds local session help entries from the registry with surface filtering
   expect(tuiHelp).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        command: '/config [check|reload|set <key> <value>|revisions]',
+        command: '/auth status <provider>',
+      }),
+      expect.objectContaining({
+        command: '/config [check|reload|set <key> <value>]',
       }),
       expect.objectContaining({
         command: '/paste',
@@ -641,6 +644,9 @@ test('builds local session help entries from the registry with surface filtering
   );
   expect(webHelp).toEqual(
     expect.arrayContaining([
+      expect.objectContaining({
+        command: '/auth status <provider>',
+      }),
       expect.objectContaining({
         command: '/config [check|reload|set <key> <value>]',
       }),
