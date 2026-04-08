@@ -53,6 +53,9 @@ async function importFreshHybridAIAuth(
         }),
       },
     }));
+    vi.doMock('../src/utils/secret-prompt.js', () => ({
+      promptForSecretInput: vi.fn(async () => answers.shift() || ''),
+    }));
   }
 
   if (options?.spawnMock) {
@@ -69,6 +72,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('node:child_process');
   vi.doUnmock('node:readline/promises');
+  vi.doUnmock('../src/utils/secret-prompt.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);

@@ -340,6 +340,7 @@ export interface RuntimeEmailConfig {
   smtpPort: number;
   smtpSecure: boolean;
   address: string;
+  password: string;
   pollIntervalMs: number;
   folders: string[];
   allowFrom: string[];
@@ -845,6 +846,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     smtpPort: 587,
     smtpSecure: false,
     address: '',
+    password: '',
     pollIntervalMs: 30_000,
     folders: ['INBOX'],
     allowFrom: [],
@@ -1092,6 +1094,7 @@ const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
 const SECRET_INPUT_PATHS = [
   'ops.webApiToken',
   'ops.gatewayApiToken',
+  'email.password',
   'imessage.password',
   'local.backends.vllm.apiKey',
 ] as const;
@@ -1930,6 +1933,9 @@ function normalizeIMessageConfig(
 function normalizeEmailConfig(
   value: unknown,
   fallback: RuntimeEmailConfig,
+  opts?: {
+    password?: unknown;
+  },
 ): RuntimeEmailConfig {
   const raw = isRecord(value) ? value : {};
   return {
@@ -1953,6 +1959,13 @@ function normalizeEmailConfig(
     address: normalizeString(raw.address, fallback.address, {
       allowEmpty: true,
     }),
+    password: normalizeString(
+      opts?.password ?? raw.password,
+      fallback.password,
+      {
+        allowEmpty: true,
+      },
+    ),
     pollIntervalMs: normalizeInteger(
       raw.pollIntervalMs,
       fallback.pollIntervalMs,
@@ -2734,6 +2747,10 @@ function getSecretInputFromSource(
       ? ops.gatewayApiToken
       : undefined;
   }
+  if (secretPath === 'email.password') {
+    const email = isRecord(source.email) ? source.email : null;
+    return email && hasOwn(email, 'password') ? email.password : undefined;
+  }
   if (secretPath === 'imessage.password') {
     const imessage = isRecord(source.imessage) ? source.imessage : null;
     return imessage && hasOwn(imessage, 'password')
@@ -2760,6 +2777,12 @@ function setSecretInputOnSource(
     source.ops = ops;
     ops[secretPath === 'ops.webApiToken' ? 'webApiToken' : 'gatewayApiToken'] =
       value;
+    return;
+  }
+  if (secretPath === 'email.password') {
+    const email = isRecord(source.email) ? source.email : {};
+    source.email = email;
+    email.password = value;
     return;
   }
   if (secretPath === 'imessage.password') {
@@ -3270,6 +3293,10 @@ function normalizeRuntimeConfig(
   const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
+  const emailEnabled = normalizeBoolean(
+    rawEmail.enabled,
+    DEFAULT_RUNTIME_CONFIG.email.enabled,
+  );
   const imessageEnabled = normalizeBoolean(
     rawIMessage.enabled,
     DEFAULT_RUNTIME_CONFIG.imessage.enabled,
@@ -3301,6 +3328,13 @@ function normalizeRuntimeConfig(
         isSecretRefInput(rawIMessage.password) &&
         imessageEnabled &&
         imessageBackend === 'bluebubbles',
+    },
+  );
+  const resolvedEmailPassword = resolveConfiguredSecretInput(
+    rawEmail.password,
+    {
+      path: 'email.password',
+      required: isSecretRefInput(rawEmail.password) && emailEnabled,
     },
   );
   const resolvedVllmApiKey = resolveConfiguredSecretInput(
@@ -3613,7 +3647,9 @@ function normalizeRuntimeConfig(
         password: resolvedIMessagePassword,
       },
     ),
-    email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
+    email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email, {
+      password: resolvedEmailPassword,
+    }),
     hybridai: {
       baseUrl: hybridBaseUrl,
       defaultModel: normalizeString(

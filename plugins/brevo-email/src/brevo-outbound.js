@@ -60,6 +60,40 @@ export function createBrevoSmtpService(
     },
   };
 
+  function normalizeMessageId(value) {
+    const candidate = String(value || '').trim();
+    return candidate || null;
+  }
+
+  function normalizeMessageIdList(value) {
+    const raw = Array.isArray(value) ? value : value ? [value] : [];
+    return [...new Set(raw.map((entry) => normalizeMessageId(entry)).filter(Boolean))];
+  }
+
+  function resolveThreadHeaders(opts) {
+    let inReplyTo = normalizeMessageId(opts.inReplyTo);
+    const references = normalizeMessageIdList(opts.references);
+    if (references.length > 0) {
+      const lastReference = references[references.length - 1];
+      if (!inReplyTo) {
+        inReplyTo = lastReference;
+      } else if (references.includes(inReplyTo)) {
+        if (lastReference !== inReplyTo) {
+          inReplyTo = lastReference;
+        }
+      } else {
+        references.push(inReplyTo);
+      }
+    } else if (inReplyTo) {
+      references.push(inReplyTo);
+    }
+
+    return {
+      ...(inReplyTo ? { inReplyTo } : {}),
+      ...(references.length > 0 ? { references } : {}),
+    };
+  }
+
   /**
    * @typedef {object} SendOptions
    * @property {string} from
@@ -79,6 +113,7 @@ export function createBrevoSmtpService(
    */
   async function send(opts) {
     const t = ensureTransport();
+    const threadHeaders = resolveThreadHeaders(opts);
     await t.sendMail({
       from: opts.from,
       to: opts.to,
@@ -86,8 +121,7 @@ export function createBrevoSmtpService(
       text: opts.body,
       ...(opts.cc ? { cc: opts.cc } : {}),
       ...(opts.bcc ? { bcc: opts.bcc } : {}),
-      ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
-      ...(opts.references ? { references: opts.references } : {}),
+      ...threadHeaders,
     });
     logger.info(
       { from: opts.from, to: opts.to, subject: opts.subject },

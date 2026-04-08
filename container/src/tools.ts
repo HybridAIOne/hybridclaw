@@ -3362,7 +3362,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           inReplyTo: {
             type: 'string',
             description:
-              'Optional email Message-ID for the In-Reply-To header on action="send" when channelId/to targets an email address.',
+              'Optional email Message-ID for the parent message being replied to on action="send" when channelId/to targets an email address. Use the latest message in the thread.',
           },
           references: {
             type: ['string', 'array'],
@@ -3370,7 +3370,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional email Message-ID or list of Message-IDs for the References header on action="send" when channelId/to targets an email address.',
+              'Optional ordered email Message-ID chain for the References header on action="send" when channelId/to targets an email address. End the list with the same parent message used for inReplyTo.',
           },
           filePath: {
             type: 'string',

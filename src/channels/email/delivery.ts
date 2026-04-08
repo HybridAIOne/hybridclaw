@@ -177,8 +177,22 @@ function normalizeMessageIdList(raw: string[] | null | undefined): string[] {
 function resolveExplicitThreadHeaders(
   params: EmailSendParams,
 ): ExplicitThreadHeaders | null {
-  const inReplyTo = normalizeMessageId(params.inReplyTo);
+  let inReplyTo = normalizeMessageId(params.inReplyTo);
   const references = normalizeMessageIdList(params.references);
+  if (references.length > 0) {
+    const lastReference = references[references.length - 1];
+    if (!inReplyTo) {
+      inReplyTo = lastReference;
+    } else if (references.includes(inReplyTo)) {
+      if (lastReference !== inReplyTo) {
+        inReplyTo = lastReference;
+      }
+    } else {
+      references.push(inReplyTo);
+    }
+  } else if (inReplyTo) {
+    references.push(inReplyTo);
+  }
   if (!inReplyTo && references.length === 0) return null;
   return {
     ...(inReplyTo ? { inReplyTo } : {}),
@@ -268,7 +282,9 @@ export async function sendEmail(
   params: EmailSendParams,
 ): Promise<EmailSendResult> {
   const explicitThreadHeaders = resolveExplicitThreadHeaders(params);
-  const subjectThreadContext = explicitThreadHeaders ? null : params.threadContext;
+  const subjectThreadContext = explicitThreadHeaders
+    ? null
+    : params.threadContext;
   const resolved = resolveSubjectAndBody(
     params.body,
     subjectThreadContext,

@@ -141,12 +141,12 @@ export default {
           inReplyTo: {
             type: 'string',
             description:
-              'Message-ID for the In-Reply-To header when replying in-thread (optional)',
+              'Message-ID for the parent message being replied to when replying in-thread (optional). Use the latest message in the thread.',
           },
           references: {
             type: 'array',
             description:
-              'Prior Message-ID values for the References header when replying in-thread (optional)',
+              'Ordered Message-ID chain for the References header when replying in-thread (optional). End the list with the same parent message used for inReplyTo.',
             items: {
               type: 'string',
             },
