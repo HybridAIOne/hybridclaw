@@ -530,8 +530,16 @@ export class MemoryService {
     return this.consolidationEngine.consolidate();
   }
 
+  async consolidateMemoriesWithCleanup(): Promise<MemoryConsolidationReport> {
+    return this.consolidationEngine.consolidateWithCleanup();
+  }
+
   setConsolidationDecayRate(decayRate: number): void {
     this.consolidationEngine.setDecayRate(decayRate);
+  }
+
+  setConsolidationLanguage(language: string): void {
+    this.consolidationEngine.setLanguage(language);
   }
 
   async compactSession(sessionId: string): Promise<CompactionResult> {

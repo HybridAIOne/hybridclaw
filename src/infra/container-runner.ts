@@ -31,6 +31,7 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
+  LOCAL_DEFAULT_MAX_TOKENS,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
@@ -81,6 +82,27 @@ import {
 import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
+
+function resolveExecutorMaxTokens(params: {
+  requestedMaxTokens?: number;
+  provider?: string;
+  isLocal?: boolean;
+}): number | undefined {
+  if (
+    typeof params.requestedMaxTokens === 'number' &&
+    Number.isFinite(params.requestedMaxTokens) &&
+    params.requestedMaxTokens > 0
+  ) {
+    return Math.floor(params.requestedMaxTokens);
+  }
+  if (params.provider === 'hybridai') {
+    return HYBRIDAI_MAX_TOKENS;
+  }
+  if (params.isLocal) {
+    return LOCAL_DEFAULT_MAX_TOKENS;
+  }
+  return undefined;
+}
 
 interface PoolEntry {
   process: ChildProcess;
@@ -421,10 +443,32 @@ function remapHostBaseUrlForContainer(baseUrl: string): string {
   );
 }
 
+function getContainerWorkspacePath(params: {
+  sessionId: string;
+  agentId: string;
+  workspacePathOverride?: string;
+}): string {
+  const trimmed = params.workspacePathOverride?.trim();
+  if (trimmed) return path.resolve(trimmed);
+  const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
+  return workspacePath;
+}
+
 /**
  * Get or spawn a persistent container for a session.
  */
-function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
+function getOrSpawnContainer(
+  params: Pick<
+    ExecutorRequest,
+    | 'sessionId'
+    | 'agentId'
+    | 'workspacePathOverride'
+    | 'workspaceDisplayRootOverride'
+    | 'bashProxy'
+  >,
+): PoolEntry {
+  const sessionId = params.sessionId;
+  const agentId = params.agentId || DEFAULT_AGENT_ID;
   const existing = pool.get(sessionId);
   if (
     existing &&
@@ -445,7 +489,12 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
 
   ensureSessionDirs(sessionId);
   ensureAgentDirs(agentId);
-  const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
+  const { ipcPath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getContainerWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
@@ -493,6 +542,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-e',
     `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
+    '-e',
+    `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
+    '-e',
+    `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -679,6 +732,7 @@ export async function runContainer(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
+    skipContainerSystemPrompt,
     scheduledTasks,
     allowedTools,
     blockedTools,
@@ -689,8 +743,15 @@ export async function runContainer(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    maxTokens,
+    maxWallClockMs,
+    inactivityTimeoutMs,
   } = params;
-  const { workspacePath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getContainerWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
   const modelRuntime = await resolveModelRuntimeCredentials({
     model,
     chatbotId,
@@ -736,7 +797,13 @@ export async function runContainer(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
-    maxTokens: HYBRIDAI_MAX_TOKENS,
+    skipContainerSystemPrompt,
+    streamTextDeltas: Boolean(onTextDelta),
+    maxTokens: resolveExecutorMaxTokens({
+      requestedMaxTokens: maxTokens,
+      provider: modelRuntime.provider,
+      isLocal: modelRuntime.isLocal,
+    }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map(
@@ -781,6 +848,9 @@ export async function runContainer(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    workspacePathOverride: params.workspacePathOverride,
+    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+    bashProxy: params.bashProxy,
   });
 
   const existingEntry = pool.get(sessionId);
@@ -805,7 +875,13 @@ export async function runContainer(
 
   let entry: PoolEntry;
   try {
-    entry = getOrSpawnContainer(sessionId, agentId);
+    entry = getOrSpawnContainer({
+      sessionId,
+      agentId,
+      workspacePathOverride: params.workspacePathOverride,
+      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+      bashProxy: params.bashProxy,
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -844,11 +920,18 @@ export async function runContainer(
     }
 
     // Wait for the container to produce output
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
-      signal: abortSignal,
-      activity,
-      terminalError: () => entry.terminalError,
-    });
+    const output = await readOutput(
+      sessionId,
+      inactivityTimeoutMs === undefined
+        ? CONTAINER_TIMEOUT
+        : inactivityTimeoutMs,
+      {
+        signal: abortSignal,
+        activity,
+        maxWallClockMs,
+        terminalError: () => entry.terminalError,
+      },
+    );
     if (isTimedOutAgentOutput(output)) {
       logger.warn(
         { sessionId, containerName: entry.containerName },

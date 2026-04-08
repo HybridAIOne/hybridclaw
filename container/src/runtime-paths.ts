@@ -2,7 +2,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const WORKSPACE_ROOT_DISPLAY = '/workspace';
+const DEFAULT_WORKSPACE_ROOT_DISPLAY = '/workspace';
+function normalizeDisplayRoot(rawValue: string | undefined): string {
+  const trimmed = String(rawValue || '').trim();
+  if (!trimmed) return DEFAULT_WORKSPACE_ROOT_DISPLAY;
+  const normalized = normalizeSlashes(trimmed);
+  if (!path.posix.isAbsolute(normalized)) {
+    return DEFAULT_WORKSPACE_ROOT_DISPLAY;
+  }
+  return path.posix.normalize(normalized);
+}
+
+export const WORKSPACE_ROOT_DISPLAY = normalizeDisplayRoot(
+  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT,
+);
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
@@ -183,7 +196,18 @@ function resolveRootBoundPath(
     return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;
   }
 
-  const clean = path.posix.normalize(normalizedInput);
+  let clean = path.posix.normalize(normalizedInput);
+  const displayBaseName = path.posix.basename(displayRoot);
+  if (
+    displayRoot !== DEFAULT_WORKSPACE_ROOT_DISPLAY &&
+    displayBaseName &&
+    displayBaseName !== '.' &&
+    displayBaseName !== '/' &&
+    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
+  ) {
+    clean =
+      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+  }
   if (clean === '..' || clean.startsWith('../')) return null;
   const resolved = path.resolve(actualRoot, clean);
   return isWithinRoot(resolved, actualRoot) ? resolved : null;

@@ -90,6 +90,28 @@ describe('tool call normalizer', () => {
     });
   });
 
+  test('does not repair truncated structured tool call arguments', () => {
+    const result = normalizeToolCalls(
+      [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'write',
+            arguments:
+              '{"path":"/app/ars.R","contents":"line 1\\nline 2\\npartial',
+          },
+        },
+      ],
+      null,
+    );
+
+    expect(result.toolCalls[0]?.function.name).toBe('write');
+    expect(result.toolCalls[0]?.function.arguments).toBe(
+      '{"path":"/app/ars.R","contents":"line 1\\nline 2\\npartial',
+    );
+  });
+
   test('extracts XML-style tool calls from content', () => {
     const result = normalizeToolCalls(
       undefined,

@@ -10,7 +10,9 @@ import {
 import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
+  stopAllExecutions,
 } from '../agent/executor.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -48,6 +50,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -92,6 +95,7 @@ import {
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
+  getRecentMessages,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -314,6 +318,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -2056,6 +2061,7 @@ export function recordSuccessfulTurn(opts: {
   enableRag: boolean;
   model: string;
   channelId: string;
+  promptMode?: PromptMode;
   runId: string;
   turnIndex: number;
   userId: string;
@@ -2137,6 +2143,7 @@ export function recordSuccessfulTurn(opts: {
     enableRag: opts.enableRag,
     model: opts.model,
     channelId: opts.channelId,
+    promptMode: opts.promptMode,
   }).catch((err) => {
     logger.warn(
       { sessionId: opts.sessionId, err },
@@ -2887,13 +2894,13 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       );
     })
     .map((session) => ({
+      output: collectRecentAssistantOutputs(session.sessionId),
       sessionId: session.sessionId,
       agentId: session.agentId,
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
       lastAnswer: session.lastAnswer,
-      output: session.output,
     }));
 
   const agentIds = Array.from(
@@ -2913,6 +2920,26 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
     }),
     sessions,
   };
+}
+
+function collectRecentAssistantOutputs(
+  sessionId: string,
+  limit = 12,
+): string[] {
+  const outputs: string[] = [];
+  const seen = new Set<string>();
+  const messages = getRecentMessages(sessionId, limit);
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (String(message.role || '').toLowerCase() !== 'assistant') continue;
+    const content = String(message.content || '').trim();
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    outputs.unshift(content);
+  }
+
+  return outputs;
 }
 
 export function getGatewayAdminSessions(): GatewayAdminSession[] {
@@ -5064,6 +5091,11 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
+            command: 'dream',
+            description: 'Run memory consolidation across agent workspaces now',
+            scope: 'slash',
+          },
+          {
             command: 'status',
             description:
               'Show runtime status (Discord slash command, private to caller)',
@@ -5091,8 +5123,9 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'sessions',
-            description: 'List active sessions',
+            command: 'sessions [active|clear-active]',
+            description:
+              'List chat sessions, inspect active sandbox sessions, or stop them all',
             scope: 'bare',
           },
           {
@@ -5182,6 +5215,11 @@ export async function handleGatewayCommand(
             command: 'schedule toggle <id>',
             description: 'Enable/disable a task',
             scope: 'bare',
+          },
+          {
+            command: 'eval [list|env|<suite>|<command...>]',
+            description: 'Local-only eval recipes and detached benchmark runs',
+            scope: 'both',
           },
         ];
         const help = helpEntries.flatMap(({ command, description, scope }) => {
@@ -6749,6 +6787,90 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'dream': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Dream Restricted',
+            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const currentConfig = getRuntimeConfig();
+        const currentIntervalHours = Math.max(
+          0,
+          Math.trunc(currentConfig.memory.consolidationIntervalHours),
+        );
+        const formatDreamStatus = (): string =>
+          [
+            `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
+            currentIntervalHours > 0
+              ? 'Cadence: nightly, with startup catch-up if a run was missed'
+              : 'Cadence: off',
+            `Decay rate: ${currentConfig.memory.decayRate}`,
+          ].join('\n');
+
+        if (!sub || sub === 'status' || sub === 'info' || sub === 'help') {
+          return infoCommand(
+            'Dream Status',
+            [formatDreamStatus(), '', 'Usage: `dream on|off|now`'].join('\n'),
+          );
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          if (currentIntervalHours > 0) {
+            return plainCommand(
+              'Dream scheduling already enabled. Consolidation runs nightly and catches up after downtime.',
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 24;
+          });
+          return plainCommand(
+            'Dream scheduling enabled. Memory consolidation will run nightly and catch up on the next startup if a run was missed.',
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          if (currentIntervalHours <= 0) {
+            return plainCommand('Dream scheduling already disabled.');
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 0;
+          });
+          return plainCommand('Dream scheduling disabled.');
+        }
+
+        if (sub !== 'now' && sub !== 'run') {
+          return badCommand('Usage', 'Usage: `dream on|off|now`');
+        }
+
+        try {
+          const report = await runMemoryConsolidation({
+            trigger: 'manual',
+          });
+          if (!report) {
+            return plainCommand('Memory consolidation already running.');
+          }
+          return infoCommand(
+            'Memory Consolidated',
+            [
+              `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
+              `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
+              `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Model cleanups: ${formatCompactNumber(report.modelCleanups)}`,
+              `Fallbacks used: ${formatCompactNumber(report.fallbacksUsed)}`,
+              `Duration: ${formatDurationMs(report.durationMs)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          return badCommand(
+            'Memory Consolidation Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
       case 'status': {
         const status = await getGatewayStatus();
         const delegationStatus = delegationQueueStatus();
@@ -6785,6 +6907,7 @@ export async function handleGatewayCommand(
               ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
           ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
@@ -6799,6 +6922,11 @@ export async function handleGatewayCommand(
             : '🗄️ Cache: n/a (provider did not report cache stats)',
           `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
+          ...(activeSandboxSessionIds.length > 0
+            ? [
+                `🧱 Sandbox sessions: ${activeSandboxSessionIds.slice(0, 5).join(', ')}${activeSandboxSessionIds.length > 5 ? ` (+${activeSandboxSessionIds.length - 5} more)` : ''}`,
+              ]
+            : []),
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
@@ -6810,6 +6938,39 @@ export async function handleGatewayCommand(
       }
 
       case 'sessions': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (sub === 'active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions.');
+          }
+          return infoCommand(
+            'Active Sandbox Sessions',
+            [`Count: ${activeSessionIds.length}`, ...activeSessionIds].join(
+              '\n',
+            ),
+          );
+        }
+        if (sub === 'clear-active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions to stop.');
+          }
+          stopAllExecutions();
+          return infoCommand(
+            'Stopped Sandbox Sessions',
+            [
+              `Stopped ${activeSessionIds.length} active sandbox session${activeSessionIds.length === 1 ? '' : 's'}.`,
+              ...activeSessionIds,
+            ].join('\n'),
+          );
+        }
+        if (sub) {
+          return badCommand(
+            'Usage',
+            'Usage: `sessions`, `sessions active`, or `sessions clear-active`',
+          );
+        }
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
         const visibleSessions = sessions.slice(0, 20);
@@ -6825,7 +6986,20 @@ export async function handleGatewayCommand(
             return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
           })
           .join('\n');
-        return infoCommand('Sessions', list);
+        const activeSessionIds = getActiveExecutorSessionIds();
+        return infoCommand(
+          'Sessions',
+          [
+            ...(activeSessionIds.length > 0
+              ? [
+                  `Active sandbox sessions: ${activeSessionIds.length}`,
+                  'Use `sessions active` to inspect or `sessions clear-active` to stop them.',
+                  '',
+                ]
+              : []),
+            list,
+          ].join('\n'),
+        );
       }
 
       case 'usage': {
@@ -7452,6 +7626,28 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      }
+
+      case 'eval': {
+        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
+        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
+          return badCommand(
+            'Eval Restricted',
+            'The `eval` command is only available from local TUI, web, or CLI sessions.',
+          );
+        }
+
+        const evalModule = await import('../evals/eval-command.js');
+        const runtime = resolveAgentForRequest({ session });
+        return evalModule.handleEvalCommand({
+          args: req.args.slice(1),
+          channelId: req.channelId,
+          dataDir: DATA_DIR,
+          gatewayBaseUrl: GATEWAY_BASE_URL,
+          webApiToken: WEB_API_TOKEN,
+          effectiveAgentId: runtime.agentId,
+          effectiveModel: runtime.model,
+        });
       }
 
       default: {

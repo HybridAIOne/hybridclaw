@@ -181,6 +181,7 @@ export async function handleGatewayMessage(
   }
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
+    executionSessionId: req.executionSessionId,
     abortSignal: req.abortSignal,
   });
   const resolvedRequest = resolveAgentForRequest({
@@ -212,6 +213,10 @@ export async function handleGatewayMessage(
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
+  const autoApproveTools = req.autoApproveTools === true;
+  const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
+    ? req.neverAutoApproveTools
+    : FULLAUTO_NEVER_APPROVE_TOOLS;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
       sessionId: req.sessionId,
@@ -275,8 +280,17 @@ export async function handleGatewayMessage(
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   let provider = resolveModelProvider(model);
   let media = normalizeMediaContextItems(req.media);
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const workspaceBootstrap = ensureBootstrapFiles(agentId);
+  const workspacePath = path.resolve(
+    req.workspacePathOverride || agentWorkspaceDir(agentId),
+  );
+  const workspaceDisplayPath =
+    req.workspaceDisplayRootOverride?.trim() || workspacePath;
+  const workspaceBootstrap = req.workspacePathOverride
+    ? {
+        workspacePath,
+        workspaceInitialized: false,
+      }
+    : ensureBootstrapFiles(agentId);
   if (
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
@@ -381,6 +395,7 @@ export async function handleGatewayMessage(
       enableRag,
       model,
       channelId: req.channelId,
+      promptMode: req.promptMode,
       runId,
       turnIndex,
       userId: req.userId,
@@ -530,6 +545,7 @@ export async function handleGatewayMessage(
       enableRag,
       model,
       channelId: req.channelId,
+      promptMode: req.promptMode,
       runId,
       turnIndex,
       userId: req.userId,
@@ -633,6 +649,9 @@ export async function handleGatewayMessage(
     retrievedContext: pluginPromptSummary,
     history,
     currentUserContent: effectiveUserTurnContent,
+    promptMode: req.promptMode,
+    includePromptParts: req.includePromptParts,
+    omitPromptParts: req.omitPromptParts,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -643,7 +662,7 @@ export async function handleGatewayMessage(
       channelId: req.channelId,
       guildId: req.guildId,
       sessionContext,
-      workspacePath,
+      workspacePath: workspaceDisplayPath,
     },
     blockedTools: mediaPolicy.blockedTools,
   });
@@ -745,6 +764,7 @@ export async function handleGatewayMessage(
       }
       req.onTextDelta?.(delta);
     };
+    const emitTextDeltas = req.onTextDelta ? onTextDelta : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
       logger.debug(
         {
@@ -808,19 +828,27 @@ export async function handleGatewayMessage(
     }
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
-      sessionId: req.sessionId,
+      sessionId: req.executionSessionId || req.sessionId,
       messages,
       chatbotId,
       enableRag,
+      executorModeOverride: req.executorModeOverride,
       model,
       agentId,
+      workspacePathOverride: req.workspacePathOverride,
+      workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+      skipContainerSystemPrompt: req.promptMode === 'none',
+      maxTokens: req.maxTokens,
+      maxWallClockMs: req.maxWallClockMs,
+      inactivityTimeoutMs: req.inactivityTimeoutMs,
+      bashProxy: req.bashProxy,
       channelId: req.channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      fullAutoEnabled: autoApproveTools || isFullAutoEnabled(session),
+      fullAutoNeverApproveTools: neverAutoApproveTools,
       scheduledTasks,
       blockedTools: mediaPolicy.blockedTools,
-      onTextDelta,
+      onTextDelta: emitTextDeltas,
       onToolProgress,
       onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,
@@ -1054,6 +1082,7 @@ export async function handleGatewayMessage(
       enableRag,
       model,
       channelId: req.channelId,
+      promptMode: req.promptMode,
       runId,
       turnIndex,
       userId: req.userId,

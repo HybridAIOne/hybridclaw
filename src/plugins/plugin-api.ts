@@ -6,7 +6,14 @@ import {
 } from '../config/runtime-config.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import { getSessionById } from '../memory/db.js';
 import type { AIProvider } from '../providers/types.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { parseSessionKey } from '../session/session-key.js';
+import {
+  unsetPluginConfigValue,
+  writePluginConfigValue,
+} from './plugin-config.js';
 import type { PluginManager } from './plugin-manager.js';
 import type {
   HybridClawPluginApi,
@@ -60,6 +67,8 @@ export function createPluginApi(params: {
   );
   const config = deepFreezeClone(params.config);
   const pluginConfig = deepFreezeClone(params.pluginConfig);
+  const defaultAgentId =
+    String(params.config.agents?.defaultAgentId || 'main').trim() || 'main';
   const runtime: PluginRuntime = Object.freeze({
     cwd: params.cwd,
     homeDir: params.homeDir,
@@ -119,9 +128,37 @@ export function createPluginApi(params: {
       if (!normalized) return undefined;
       if (!declaredEnv.has(normalized)) return undefined;
       const value = process.env[normalized];
-      if (typeof value !== 'string') return undefined;
-      const trimmed = value.trim();
-      return trimmed || undefined;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) return trimmed;
+      }
+      const stored = readStoredRuntimeSecret(normalized);
+      return stored?.trim() || undefined;
+    },
+    async writeConfigValue(key: string, rawValue: string): Promise<void> {
+      await writePluginConfigValue(params.pluginId, key, rawValue);
+    },
+    async unsetConfigValue(key: string): Promise<void> {
+      await unsetPluginConfigValue(params.pluginId, key);
+    },
+    resolveSessionAgentId(sessionId: string): string {
+      const normalizedSessionId = String(sessionId || '').trim();
+      if (!normalizedSessionId) return defaultAgentId;
+
+      let sessionAgentId = '';
+      try {
+        sessionAgentId = String(
+          getSessionById(normalizedSessionId)?.agent_id || '',
+        ).trim();
+      } catch {
+        sessionAgentId = '';
+      }
+      if (sessionAgentId) return sessionAgentId;
+
+      const parsed = parseSessionKey(normalizedSessionId);
+      if (parsed?.agentId) return parsed.agentId;
+
+      return defaultAgentId;
     },
   });
 }

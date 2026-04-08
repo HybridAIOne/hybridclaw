@@ -218,6 +218,8 @@ export interface ContainerInput {
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
+  skipContainerSystemPrompt?: boolean;
+  streamTextDeltas?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
