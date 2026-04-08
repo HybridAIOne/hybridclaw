@@ -79,7 +79,16 @@ test('keeps the panel aligned with the wordmark right edge on wide terminals', (
   expect(lines[25]).toContain('╯');
   expect(lines[0]).toContain('◌');
   expect(leftSegmentWidth + boxWidth).toBe(titleWidth);
-  expect(lines).toContainEqual(expect.stringContaining('provider  Codex'));
+  expect(lines).toContainEqual(expect.stringContaining('Runtime (v0.8.0)'));
+  expect(lines).toContainEqual(
+    expect.stringContaining('model     openai-codex/gpt-5.4 (Codex)'),
+  );
+  expect(lines).toContainEqual(
+    expect.stringContaining('gateway   http://127.0.0.1:3000 (container mode)'),
+  );
+  expect(lines.some((line) => line.includes('provider  '))).toBe(false);
+  expect(lines.some((line) => line.includes('sandbox   '))).toBe(false);
+  expect(lines.some((line) => line.includes('version   '))).toBe(false);
   expect(lines.some((line) => line.includes('default   '))).toBe(false);
   expect(lines.some((line) => line.includes('hybridai  '))).toBe(false);
   expect(lines).toContainEqual(
@@ -212,7 +221,19 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     palette,
   }).map(stripAnsi);
 
-  expect(lines).toContainEqual(expect.stringContaining('provider  HybridAI'));
+  expect(lines).toContainEqual(expect.stringContaining('Runtime (v0.8.0)'));
+  expect(lines).toContainEqual(
+    expect.stringContaining('model     hybridai-default'),
+  );
+  expect(lines).toContainEqual(expect.stringContaining('(HybridAI)'));
+  expect(lines.some((line) => line.includes('provider  '))).toBe(false);
+  expect(lines).toContainEqual(
+    expect.stringContaining('gateway   http://127.0.0.1'),
+  );
+  expect(lines).toContainEqual(expect.stringContaining(':3000 (host'));
+  expect(lines).toContainEqual(expect.stringContaining('mode)'));
+  expect(lines.some((line) => line.includes('sandbox   '))).toBe(false);
+  expect(lines.some((line) => line.includes('version   '))).toBe(false);
   expect(lines.some((line) => line.includes('default   '))).toBe(false);
   expect(lines.some((line) => line.includes('hybridai  '))).toBe(false);
   expect(lines).toContainEqual(

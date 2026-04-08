@@ -325,18 +325,19 @@ function renderPanel(
   };
 
   pushBorder('╭', '─', '╮');
-  pushRow('Runtime', `${palette.bold}${palette.gold}`);
+  pushRow(`Runtime (v${info.version})`, `${palette.bold}${palette.gold}`);
   for (const line of [
     ...wrapValue(
-      'provider',
-      resolveProviderLabel(info.currentModel),
+      'model',
+      `${info.currentModel} (${resolveProviderLabel(info.currentModel)})`,
       innerWidth,
     ),
-    ...wrapValue('model', info.currentModel, innerWidth),
     ...wrapValue('bot', info.chatbotId, innerWidth),
-    ...wrapValue('sandbox', info.sandboxMode, innerWidth),
-    ...wrapValue('gateway', info.gatewayBaseUrl, innerWidth),
-    ...wrapValue('version', `v${info.version}`, innerWidth),
+    ...wrapValue(
+      'gateway',
+      `${info.gatewayBaseUrl} (${info.sandboxMode} mode)`,
+      innerWidth,
+    ),
   ]) {
     pushRow(line);
   }
