@@ -3932,7 +3932,13 @@
       void uploadSelectedFiles(attachmentInputEl.files);
     });
     document.getElementById('newChat').addEventListener('click', newChat);
-    document.getElementById('sidebarToggle').addEventListener('click', () => {
+    const sidebarToggleBtn = document.getElementById('sidebarToggle');
+    const mobileSidebarMedia = window.matchMedia('(max-width: 900px)');
+    sidebarToggleBtn.addEventListener('click', () => {
+      if (mobileSidebarMedia.matches) {
+        closeMobileSidebar();
+        return;
+      }
       layoutEl.classList.toggle('is-sidebar-collapsed');
     });
 
