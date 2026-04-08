@@ -1117,6 +1117,42 @@
       pointer-events: none;
     }
 
+    /* mobile-only elements – hidden on desktop */
+    .mobile-sidebar-backdrop {
+      display: none;
+    }
+
+    .mobile-brand {
+      display: none;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .mobile-brand img {
+      width: 26px;
+      height: 26px;
+      display: block;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: none;
+      background: transparent;
+      color: #526277;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .mobile-menu-btn svg {
+      width: 22px;
+      height: 22px;
+    }
+
     /* ── mobile: compact header + slide-out sidebar overlay ── */
     @media (max-width: 900px) {
       .layout {
@@ -1201,42 +1237,6 @@
       .empty-greeting {
         font-size: clamp(22px, 6.8vw, 34px);
       }
-    }
-
-    /* mobile-only elements – hidden on desktop */
-    .mobile-sidebar-backdrop {
-      display: none;
-    }
-
-    .mobile-brand {
-      display: none;
-      align-items: center;
-      flex-shrink: 0;
-    }
-
-    .mobile-brand img {
-      width: 26px;
-      height: 26px;
-      display: block;
-    }
-
-    .mobile-menu-btn {
-      display: none;
-      align-items: center;
-      justify-content: center;
-      width: 34px;
-      height: 34px;
-      border: none;
-      background: transparent;
-      color: #526277;
-      cursor: pointer;
-      padding: 0;
-      flex-shrink: 0;
-    }
-
-    .mobile-menu-btn svg {
-      width: 22px;
-      height: 22px;
     }
   </style>
 </head>
