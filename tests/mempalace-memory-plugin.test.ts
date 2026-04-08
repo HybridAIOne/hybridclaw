@@ -34,11 +34,17 @@ function installBundledPlugin(cwd: string): void {
 
 function writeMempalaceStub(rootDir: string): string {
   const scriptPath = path.join(rootDir, 'mock-mempalace.mjs');
+  const commandLogPath = path.join(rootDir, 'mempalace-command-log.jsonl');
   fs.writeFileSync(
     scriptPath,
     [
       '#!/usr/bin/env node',
+      'import fs from "node:fs";',
+      `const commandLogPath = ${JSON.stringify(commandLogPath)};`,
       'const argv = process.argv.slice(2);',
+      'function appendLog(entry) {',
+      '  fs.appendFileSync(commandLogPath, JSON.stringify(entry) + "\\n", "utf8");',
+      '}',
       'let index = 0;',
       'let palacePath = "";',
       'while (index < argv.length && argv[index] === "--palace") {',
@@ -63,6 +69,7 @@ function writeMempalaceStub(rootDir: string): string {
       '}',
       'if (command === "search") {',
       '  const query = String(args[0] || "");',
+      '  appendLog({ command, args, palacePath });',
       '  console.log("============================================================");',
       '  console.log("  Results for: \\"" + query + "\\"");',
       '  console.log("============================================================");',
@@ -82,6 +89,27 @@ function writeMempalaceStub(rootDir: string): string {
   );
   fs.chmodSync(scriptPath, 0o755);
   return scriptPath;
+}
+
+function readMempalaceCommandLog(rootDir: string): Array<{
+  command: string;
+  args: string[];
+  palacePath: string;
+}> {
+  const logPath = path.join(rootDir, 'mempalace-command-log.jsonl');
+  if (!fs.existsSync(logPath)) return [];
+  return fs
+    .readFileSync(logPath, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          command: string;
+          args: string[];
+          palacePath: string;
+        },
+    );
 }
 
 afterEach(() => {
@@ -160,4 +188,59 @@ test('mempalace-memory injects wake-up and search context and exposes a command'
       userId: 'user-1',
     }),
   ).resolves.toContain('Palace ready at');
+});
+
+test('mempalace-memory truncates long automatic search queries before invoking mempalace', async () => {
+  const homeDir = makeTempDir('hybridclaw-mempalace-home-');
+  const cwd = makeTempDir('hybridclaw-mempalace-project-');
+  installBundledPlugin(cwd);
+  const mempalaceCommand = writeMempalaceStub(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mempalace-memory',
+      enabled: true,
+      config: {
+        command: mempalaceCommand,
+        searchEnabled: true,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+  const longQuery = `Decision log:\n${'auth-migration '.repeat(120)}`.trim();
+  await manager.collectPromptContext({
+    sessionId: 'session-long-query',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-long-query',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: longQuery,
+        created_at: '2026-04-08T10:00:00.000Z',
+      },
+    ],
+  });
+
+  const searchEntry = readMempalaceCommandLog(cwd).find(
+    (entry) => entry.command === 'search',
+  );
+  expect(searchEntry).toBeDefined();
+  const query = searchEntry?.args[0] || '';
+  expect(query.length).toBeLessThanOrEqual(800);
+  expect(query).not.toContain('\n');
+  expect(query.endsWith('…')).toBe(true);
 });
