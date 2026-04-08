@@ -220,6 +220,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
   configModuleError?: Error | null;
@@ -836,6 +837,31 @@ async function importFreshCli(options?: {
     persistRuntimeConfigState();
     return structuredClone(runtimeConfigState);
   });
+  const setRuntimeConfigSecretInput = vi.fn(
+    (secretPath: string, value: unknown, _meta?: Record<string, unknown>) => {
+      const draft = getRuntimeConfig() as Record<string, unknown>;
+      if (secretPath === 'email.password') {
+        const email = (draft.email as Record<string, unknown>) || {};
+        draft.email = email;
+        email.password = value;
+      } else if (secretPath === 'imessage.password') {
+        const imessage = (draft.imessage as Record<string, unknown>) || {};
+        draft.imessage = imessage;
+        imessage.password = value;
+      } else if (secretPath === 'local.backends.vllm.apiKey') {
+        const local = (draft.local as Record<string, unknown>) || {};
+        draft.local = local;
+        const backends = (local.backends as Record<string, unknown>) || {};
+        local.backends = backends;
+        const vllm = (backends.vllm as Record<string, unknown>) || {};
+        backends.vllm = vllm;
+        vllm.apiKey = value;
+      }
+      runtimeConfigState = draft as typeof runtimeConfigState;
+      persistRuntimeConfigState();
+      return structuredClone(runtimeConfigState);
+    },
+  );
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -857,6 +883,24 @@ async function importFreshCli(options?: {
       activeContainers: 0,
       defaultModel: 'gpt-4.1-mini',
       ragDefault: true,
+      sandbox: options?.gatewayStatusSandboxMode
+        ? {
+            mode: options.gatewayStatusSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
       timestamp: new Date().toISOString(),
     };
   });
@@ -949,6 +993,7 @@ async function importFreshCli(options?: {
     getRuntimeConfigRevision,
     deleteRuntimeConfigRevision,
     clearRuntimeConfigRevisions,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
@@ -1136,6 +1181,7 @@ async function importFreshCli(options?: {
     restoreRuntimeConfigRevision,
     runtimeConfigPath,
     runtimeConfigRevisionPath,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
@@ -2892,6 +2938,7 @@ describe('CLI hybridai commands', () => {
       cli,
       readlineCreateInterface,
       saveRuntimeSecrets,
+      setRuntimeConfigSecretInput,
       updateRuntimeConfig,
     } = await importFreshCli({
       promptResponses: [
@@ -2914,6 +2961,17 @@ describe('CLI hybridai commands', () => {
     expect(saveRuntimeSecrets).toHaveBeenCalledWith({
       EMAIL_PASSWORD: 'app-password-123',
     });
+    expect(setRuntimeConfigSecretInput).toHaveBeenCalledWith(
+      'email.password',
+      {
+        source: 'store',
+        id: 'EMAIL_PASSWORD',
+      },
+      {
+        route: 'cli.channels.email.setup-secret-ref',
+        source: 'user',
+      },
+    );
     const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
       email: {
         address: string;
@@ -2997,9 +3055,31 @@ describe('CLI hybridai commands', () => {
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
-    expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('API key: configured');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
+  });
+
+  it('prints configured instead of a partial Codex access token in status output', async () => {
+    const { cli } = await importFreshCli({
+      codexStatus: {
+        authenticated: true,
+        path: '/tmp/codex-auth.json',
+        source: 'browser-pkce',
+        accountId: 'acct_test',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        maskedAccessToken: 'codex-…7890',
+        reloginRequired: false,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'codex']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Source: browser-pkce');
+    expect(logSpy).toHaveBeenCalledWith('Account: acct_test');
+    expect(logSpy).toHaveBeenCalledWith('Access token: configured');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -3407,7 +3487,7 @@ describe('CLI hybridai commands', () => {
     expect(readlineCreateInterface).toHaveBeenCalled();
     expect(readlineQuestion).toHaveBeenCalledWith('Microsoft Teams app id: ');
     expect(readlineQuestion).toHaveBeenCalledWith(
-      'Microsoft Teams app password: ',
+      '🔒 Paste Microsoft Teams app password: ',
     );
     expect(readlineQuestion).toHaveBeenCalledWith(
       'Microsoft Teams tenant id (optional): ',
@@ -3455,6 +3535,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['auth', 'status', 'msteams']);
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('App password: configured');
     expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
     expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
@@ -3573,6 +3654,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'openrouter']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3669,6 +3751,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'mistral']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3813,6 +3896,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'huggingface']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -4152,6 +4236,36 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the reachable gateway sandbox mode for tui preflight', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'container',
+        gatewayStatusSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'host',
+        gatewayStatusSandboxMode: 'container',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {

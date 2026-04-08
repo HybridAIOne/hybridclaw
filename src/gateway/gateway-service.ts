@@ -1556,7 +1556,7 @@ function buildHybridAIAuthStatusLines(): string[] {
   return [
     `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
     ...(status.authenticated
-      ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
+      ? [`Source: ${status.source}`, 'API key: configured']
       : []),
     `Config: ${runtimeConfigPath()}`,
     `Base URL: ${config.hybridai.baseUrl}`,
@@ -1618,15 +1618,6 @@ function normalizeGatewayAuthStatusProvider(
   return null;
 }
 
-function maskGatewaySecret(value: string): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '***';
-  if (normalized.length <= 8) {
-    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
-  }
-  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
-}
-
 function resolveRuntimeCredentialStatus(
   storedSecretName: string,
   envValues: Array<string | undefined>,
@@ -1660,9 +1651,7 @@ function buildOpenRouterAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.openrouter.baseUrl}`,
@@ -1679,9 +1668,7 @@ function buildMistralAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.mistral.baseUrl}`,
@@ -1699,9 +1686,7 @@ function buildHuggingFaceAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.huggingface.baseUrl}`,
@@ -1719,7 +1704,7 @@ function buildCodexAuthStatusLines(): string[] {
       ? [
           `Source: ${status.source}`,
           `Account: ${status.accountId}`,
-          `Access token: ${status.maskedAccessToken}`,
+          'Access token: configured',
           `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
         ]
       : []),
@@ -1757,9 +1742,7 @@ function buildMSTeamsAuthStatusLines(): string[] {
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`App password: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['App password: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`,
     `App ID: ${appId || '(not set)'}`,

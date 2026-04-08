@@ -99,7 +99,9 @@ leak into the saved revision metadata.
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
-- `email.pollIntervalMs` for inbound email polling; it defaults to `30000`
+- `email.*` for the IMAP/SMTP transport; prefer storing the password as
+  `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
+  config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
@@ -154,7 +156,8 @@ credential checks run.
   `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
   plaintext values
 - current built-in SecretRef surfaces include `ops.webApiToken`,
-  `ops.gatewayApiToken`, `imessage.password`, and `local.backends.vllm.apiKey`
+  `ops.gatewayApiToken`, `email.password`, `imessage.password`, and
+  `local.backends.vllm.apiKey`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the
@@ -162,6 +165,8 @@ credential checks run.
   through `container.binds` or `container.additionalMounts`
 - prefer storing BlueBubbles credentials as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext `imessage.password`
+- prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed
+  `email.password` value instead of plaintext config
 - keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
   secret-bearing files)
 - prefer low-privilege tokens

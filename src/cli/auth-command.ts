@@ -47,6 +47,7 @@ const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
 );
+const CONFIGURED_SECRET_STATUS = 'configured';
 
 async function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
   return hybridAIAuthApiState.ensure();
@@ -595,15 +596,6 @@ function parseUnifiedProviderArgs(args: string[]): {
   };
 }
 
-function maskSecret(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) return '';
-  if (normalized.length <= 8) {
-    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
-  }
-  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
-}
-
 function isLocalProviderModel(modelName: string): boolean {
   return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
 }
@@ -628,7 +620,7 @@ function printOpenRouterStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
@@ -661,7 +653,7 @@ function printMistralStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`);
@@ -697,7 +689,7 @@ function printHuggingFaceStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`);
@@ -762,7 +754,7 @@ function printHybridAIStatus(): void {
   console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
   if (status.authenticated) {
     console.log(`Source: ${status.source}`);
-    console.log(`API key: ${status.maskedApiKey}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Base URL: ${config.hybridai.baseUrl}`);
@@ -812,7 +804,7 @@ function printMSTeamsStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (appPassword) {
-    console.log(`App password: ${maskSecret(appPassword)}`);
+    console.log(`App password: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`);
@@ -1478,10 +1470,12 @@ async function resolveInteractiveMSTeamsLogin(params: {
     );
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     appId = await promptWithDefault({
@@ -1489,12 +1483,13 @@ async function resolveInteractiveMSTeamsLogin(params: {
       question: 'Microsoft Teams app id',
       defaultValue: appId || undefined,
     });
-    appPassword = await promptWithDefault({
-      rl,
-      question: 'Microsoft Teams app password',
-      defaultValue: appPassword || undefined,
-      secret: true,
-    });
+    rl.close();
+    appPassword =
+      (appPassword || '').trim() ||
+      (await promptForSecretInput({
+        prompt: 'Microsoft Teams app password: ',
+      }));
+    rl = createPromptInterface();
     const tenantId = await promptWithDefault({
       rl,
       question: 'Microsoft Teams tenant id (optional)',
@@ -1650,7 +1645,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     if (status.authenticated) {
       console.log(`Source: ${status.source}`);
       console.log(`Account: ${status.accountId}`);
-      console.log(`Access token: ${status.maskedAccessToken}`);
+      console.log(`Access token: ${CONFIGURED_SECRET_STATUS}`);
       console.log(
         `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
       );

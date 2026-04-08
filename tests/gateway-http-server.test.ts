@@ -5116,6 +5116,8 @@ describe('gateway HTTP server', () => {
         action: 'reply',
         channelId: '123',
         content: 'hello',
+        inReplyTo: ' <msg-1@example.com> ',
+        references: [' <ref-1@example.com> ', '<msg-1@example.com>'],
       },
     });
     const res = makeResponse();
@@ -5129,6 +5131,8 @@ describe('gateway HTTP server', () => {
         action: 'send',
         channelId: '123',
         content: 'hello',
+        inReplyTo: '<msg-1@example.com>',
+        references: ['<ref-1@example.com>', '<msg-1@example.com>'],
       }),
     );
     expect(res.statusCode).toBe(200);
@@ -5156,6 +5160,30 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Invalid `cc` email address: not-an-email',
+    });
+  });
+
+  test('rejects malformed references for message actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: {
+        action: 'reply',
+        channelId: 'ops@example.com',
+        content: 'hello',
+        references: 7,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: '`references` must be a string or array of strings.',
     });
   });
 

@@ -84,7 +84,8 @@ The gateway auto-connects configured channels:
 - Microsoft Teams when `msteams.enabled` is true and
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set
-- Email when `email.enabled` is true and `EMAIL_PASSWORD` is saved
+- Email when `email.enabled` is true and an email password is configured,
+  typically through the stored `EMAIL_PASSWORD` secret
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
 
 For the setup commands and step-by-step flows, see

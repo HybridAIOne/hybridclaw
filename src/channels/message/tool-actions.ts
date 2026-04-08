@@ -191,15 +191,47 @@ function normalizeEmailRecipientList(
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeOptionalThreadMessageId(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('inReplyTo must be a string.');
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function normalizeThreadReferenceList(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('references must be an array of strings.');
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new Error('references must contain only strings.');
+    }
+    const candidate = entry.trim();
+    if (!candidate) continue;
+    normalized.push(candidate);
+  }
+
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
 function buildEmailSendResultMeta(params: {
   subject: string | null;
   cc: string[] | undefined;
   bcc: string[] | undefined;
+  inReplyTo?: string;
+  references?: string[];
 }): Record<string, unknown> {
   return {
     ...(params.subject ? { subject: params.subject } : {}),
     ...(params.cc ? { cc: params.cc } : {}),
     ...(params.bcc ? { bcc: params.bcc } : {}),
+    ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+    ...(params.references ? { references: params.references } : {}),
   };
 }
 
@@ -260,7 +292,15 @@ async function runEmailMessageSendAction(
   const subject = String(request.subject || '').trim() || null;
   const cc = normalizeEmailRecipientList(request.cc, 'cc');
   const bcc = normalizeEmailRecipientList(request.bcc, 'bcc');
-  const emailMeta = buildEmailSendResultMeta({ subject, cc, bcc });
+  const inReplyTo = normalizeOptionalThreadMessageId(request.inReplyTo);
+  const references = normalizeThreadReferenceList(request.references);
+  const emailMeta = buildEmailSendResultMeta({
+    subject,
+    cc,
+    bcc,
+    inReplyTo,
+    references,
+  });
   if (!content && !filePath) {
     throw new Error(
       'content is required for email send unless filePath is provided.',
@@ -278,6 +318,8 @@ async function runEmailMessageSendAction(
       subject,
       cc,
       bcc,
+      inReplyTo,
+      references,
     });
     return {
       ok: true,
@@ -294,6 +336,8 @@ async function runEmailMessageSendAction(
     subject,
     cc,
     bcc,
+    inReplyTo,
+    references,
   });
   return {
     ok: true,
