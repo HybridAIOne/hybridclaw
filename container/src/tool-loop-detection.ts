@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-const GUARDED_TOOL_NAMES = new Set(['read', 'glob', 'grep', 'bash']);
+const GUARDED_TOOL_NAMES = new Set(['read', 'glob', 'grep']);
 
 export const TOOL_CALL_HISTORY_SIZE = 24;
 export const NO_PROGRESS_REPEAT_THRESHOLD = 4;

@@ -114,3 +114,48 @@ test('readOutput enforces a hard deadline despite repeated activity', async () =
     }),
   );
 });
+
+test('readOutput does not time out when inactivity and wall-clock timeouts are disabled', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { ensureSessionDirs, readOutput } = await import('../src/infra/ipc.ts');
+
+  ensureSessionDirs('session-1');
+  const outputPath = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'sessions',
+    'session-1',
+    'ipc',
+    'output.json',
+  );
+
+  setTimeout(() => {
+    fs.writeFileSync(
+      outputPath,
+      JSON.stringify({
+        status: 'success',
+        result: 'ok',
+        toolsUsed: [],
+      }),
+    );
+  }, 500);
+
+  const outputPromise = readOutput('session-1', null, {
+    maxWallClockMs: null,
+  });
+
+  await vi.advanceTimersByTimeAsync(500);
+
+  await expect(outputPromise).resolves.toEqual(
+    expect.objectContaining({
+      status: 'success',
+      result: 'ok',
+    }),
+  );
+});

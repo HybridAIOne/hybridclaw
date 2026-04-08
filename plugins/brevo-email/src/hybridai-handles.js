@@ -1,3 +1,5 @@
+import { normalizeLower } from './normalize.js';
+
 function normalizeBaseUrl(value) {
   const trimmed = String(value || '')
     .trim()
@@ -5,25 +7,10 @@ function normalizeBaseUrl(value) {
   return trimmed || 'https://hybridai.one';
 }
 
-function parseErrorMessage(payload, fallback) {
-  if (!payload) return fallback;
-  if (typeof payload === 'string') return payload || fallback;
-  if (typeof payload !== 'object') return fallback;
+const HYBRIDAI_HANDLES_TIMEOUT_MS = 10_000;
 
-  const record = payload;
-  if (typeof record.message === 'string' && record.message.trim()) {
-    return record.message.trim();
-  }
-  if (typeof record.error === 'string' && record.error.trim()) {
-    return record.error.trim();
-  }
-  if (record.error && typeof record.error === 'object') {
-    const nested = record.error;
-    if (typeof nested.message === 'string' && nested.message.trim()) {
-      return nested.message.trim();
-    }
-  }
-  return fallback;
+function parseErrorMessage(payload, fallback) {
+  return payload?.message || payload?.error?.message || fallback;
 }
 
 async function readResponsePayload(response) {
@@ -43,22 +30,13 @@ async function readResponsePayload(response) {
 function normalizeHandleEntry(input) {
   if (!input || typeof input !== 'object') return null;
 
-  const handle = String(input.handle || '')
-    .trim()
-    .toLowerCase();
+  const handle = normalizeLower(input.handle);
   if (!handle) return null;
 
   return {
-    id: Number.isFinite(Number(input.id)) ? Number(input.id) : null,
     handle,
     label: String(input.label || '').trim() || null,
-    instanceId: Number.isFinite(Number(input.instance_id))
-      ? Number(input.instance_id)
-      : null,
-    status:
-      String(input.status || '')
-        .trim()
-        .toLowerCase() || 'unknown',
+    status: normalizeLower(input.status) || 'unknown',
   };
 }
 
@@ -77,6 +55,7 @@ export async function listHybridAIHandles(options) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: AbortSignal.timeout(HYBRIDAI_HANDLES_TIMEOUT_MS),
     });
   } catch (error) {
     throw new Error(
@@ -100,8 +79,6 @@ export async function listHybridAIHandles(options) {
 
   return {
     handles,
-    count: Number.isFinite(Number(payload?.count))
-      ? Number(payload.count)
-      : handles.length,
+    count: handles.length,
   };
 }

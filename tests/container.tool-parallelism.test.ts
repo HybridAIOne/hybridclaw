@@ -41,12 +41,12 @@ describe('isLoopGuardedToolName', () => {
     'read',
     'glob',
     'grep',
-    'bash',
   ])('marks %s as loop-guarded', (toolName) => {
     expect(isLoopGuardedToolName(toolName)).toBe(true);
   });
 
   test.each([
+    'bash',
     'session_search',
     'vision_analyze',
     'message',

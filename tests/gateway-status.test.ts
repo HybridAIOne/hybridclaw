@@ -248,6 +248,64 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('status command includes active sandbox session ids when present', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/agent/executor.js')>();
+    return {
+      ...actual,
+      getActiveExecutorSessionIds: vi.fn(() => [
+        'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+        'agent:main:channel:openai:chat:dm:peer:1111222233334444',
+      ]),
+      getSandboxDiagnostics: vi.fn(() => ({
+        mode: 'host' as const,
+        modeExplicit: true,
+        runningInsideContainer: false,
+        image: null,
+        network: null,
+        memory: null,
+        memorySwap: null,
+        cpus: null,
+        securityFlags: ['workspace fencing'],
+        mountAllowlistPath: '/tmp/mount-allowlist.json',
+        additionalMountsConfigured: 0,
+        activeSessions: 2,
+        activeSessionIds: [
+          'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+          'agent:main:channel:openai:chat:dm:peer:1111222233334444',
+        ],
+        warning: 'Running in host mode without container isolation.',
+      })),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-sandbox',
+    guildId: null,
+    channelId: 'tui',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Sandbox sessions:');
+  expect(result.text).toContain(
+    'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+  );
+});
+
 test('sessions command includes abbreviated first and last message snippets', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -300,6 +358,61 @@ test('sessions command includes abbreviated first and last message snippets', as
   expect(result.text).toContain('"First prompt that should appear as an..."');
   expect(result.text).toContain('"Final assistant reply that should als..."');
   expect(result.text).toContain('" ... "');
+});
+
+test('sessions active lists active sandbox sessions and clear-active stops them', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const stopAllExecutionsMock = vi.fn();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/agent/executor.js')>();
+    return {
+      ...actual,
+      getActiveExecutorSessionIds: vi.fn(() => [
+        'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+        'agent:main:channel:openai:chat:dm:peer:1111222233334444',
+      ]),
+      stopAllExecutions: stopAllExecutionsMock,
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const activeResult = await handleGatewayCommand({
+    sessionId: 'session-active-sandbox',
+    guildId: null,
+    channelId: 'tui',
+    args: ['sessions', 'active'],
+  });
+  expect(activeResult.kind).toBe('info');
+  if (activeResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${activeResult.kind}`);
+  }
+  expect(activeResult.title).toBe('Active Sandbox Sessions');
+  expect(activeResult.text).toContain('Count: 2');
+  expect(activeResult.text).toContain(
+    'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+  );
+
+  const clearResult = await handleGatewayCommand({
+    sessionId: 'session-active-sandbox',
+    guildId: null,
+    channelId: 'tui',
+    args: ['sessions', 'clear-active'],
+  });
+  expect(clearResult.kind).toBe('info');
+  if (clearResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${clearResult.kind}`);
+  }
+  expect(clearResult.title).toBe('Stopped Sandbox Sessions');
+  expect(clearResult.text).toContain('Stopped 2 active sandbox sessions.');
+  expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
 });
 
 test('auth status hybridai shows local HybridAI auth details', async () => {

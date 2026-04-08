@@ -43,12 +43,17 @@ function asTrimmedString(value: unknown): string | null {
 function parseProviderErrorRecord(
   value: Record<string, unknown>,
 ): ParsedProviderErrorBody {
-  let message = asTrimmedString(value.message) ?? asTrimmedString(value.error);
+  let message =
+    asTrimmedString(value.message) ??
+    asTrimmedString(value.detail) ??
+    asTrimmedString(value.error);
   let type = asTrimmedString(value.type);
   const nested = value.error;
   if (isRecord(nested)) {
     message ||=
-      asTrimmedString(nested.message) ?? asTrimmedString(nested.error);
+      asTrimmedString(nested.message) ??
+      asTrimmedString(nested.detail) ??
+      asTrimmedString(nested.error);
     type ||= asTrimmedString(nested.type);
   }
   return { message, type };
