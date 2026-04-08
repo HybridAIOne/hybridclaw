@@ -80,6 +80,7 @@ export function MetricCard(props: {
 export function SegmentedToggle(props: {
   ariaLabel: string;
   value: string;
+  className?: string;
   options: Array<{
     value: string;
     label: string;
@@ -89,7 +90,12 @@ export function SegmentedToggle(props: {
   disabled?: boolean;
 }) {
   return (
-    <fieldset className="binary-toggle" aria-label={props.ariaLabel}>
+    <fieldset
+      className={
+        props.className ? `binary-toggle ${props.className}` : 'binary-toggle'
+      }
+      aria-label={props.ariaLabel}
+    >
       {props.options.map((option) => {
         const active = option.value === props.value;
         return (
@@ -153,6 +159,7 @@ export function BooleanToggle(props: {
 }) {
   return (
     <SegmentedToggle
+      className="boolean-toggle"
       ariaLabel={props.ariaLabel}
       value={props.value ? 'true' : 'false'}
       options={[

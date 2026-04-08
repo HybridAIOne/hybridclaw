@@ -44,6 +44,8 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
@@ -64,6 +66,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -186,6 +189,7 @@ import {
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
   readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -1621,25 +1625,54 @@ function normalizeGatewayAuthStatusProvider(
 function resolveRuntimeCredentialStatus(
   storedSecretName: string,
   envValues: Array<string | undefined>,
+  storedValue?: string,
 ): {
   value: string;
   source: 'env' | 'runtime-secrets' | null;
 } {
-  const storedValue = readStoredRuntimeSecret(storedSecretName);
+  const resolvedStoredValue =
+    typeof storedValue === 'string'
+      ? storedValue.trim()
+      : readStoredRuntimeSecret(storedSecretName);
   const envValue =
     envValues
       .map((value) => String(value || '').trim())
       .find((value) => value.length > 0) || '';
   const source = envValue
-    ? storedValue && envValue === storedValue
+    ? resolvedStoredValue && envValue === resolvedStoredValue
       ? 'runtime-secrets'
       : 'env'
-    : storedValue
+    : resolvedStoredValue
       ? 'runtime-secrets'
       : null;
   return {
-    value: envValue || storedValue || '',
+    value: envValue || resolvedStoredValue || '',
     source,
+  };
+}
+
+function resolveGatewayPasswordStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['email']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      passwordConfigured: Boolean(credential.value),
+      passwordSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    passwordConfigured: Boolean(configValue),
+    passwordSource: configValue ? 'config' : null,
   };
 }
 
@@ -2487,10 +2520,14 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
-    localBackendsProbe.get(),
-    hybridAIProbe.get(),
-  ]);
+  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
+    await Promise.allSettled([
+      localBackendsProbe.get(),
+      hybridAIProbe.get(),
+      getWhatsAppAuthStatus(),
+    ]);
+  const runtimeConfig = getRuntimeConfig();
+  const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2499,6 +2536,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
       : { reachable: false, error: 'probe failed', latencyMs: 0 };
+  const whatsappAuth =
+    whatsappAuthResult.status === 'fulfilled'
+      ? whatsappAuthResult.value
+      : { linked: false, jid: null };
+  const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
@@ -2519,6 +2561,27 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const discordCredential = resolveRuntimeCredentialStatus(
+    'DISCORD_TOKEN',
+    [process.env.DISCORD_TOKEN],
+    storedSecrets.DISCORD_TOKEN,
+  );
+  const discord = {
+    tokenConfigured: Boolean(discordCredential.value),
+    tokenSource: discordCredential.source,
+  } as NonNullable<GatewayStatus['discord']>;
+  const email = resolveGatewayPasswordStatus({
+    storedSecretName: 'EMAIL_PASSWORD',
+    envValues: [process.env.EMAIL_PASSWORD],
+    configValue: runtimeConfig.email.password,
+    storedValue: storedSecrets.EMAIL_PASSWORD,
+  });
+  const imessage = resolveGatewayPasswordStatus({
+    storedSecretName: 'IMESSAGE_PASSWORD',
+    envValues: [process.env.IMESSAGE_PASSWORD],
+    configValue: runtimeConfig.imessage.password,
+    storedValue: storedSecrets.IMESSAGE_PASSWORD,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -2527,7 +2590,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
-    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
+    defaultAgentId: resolveDefaultAgentId(runtimeConfig),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -2545,6 +2608,14 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     observability: getObservabilityIngestState(),
     scheduler: {
       jobs: getSchedulerStatus(),
+    },
+    discord,
+    email,
+    imessage,
+    whatsapp: {
+      ...whatsappAuth,
+      pairingQrText: whatsappPairing.pairingQrText,
+      pairingUpdatedAt: whatsappPairing.updatedAt,
     },
     providerHealth,
     localBackends,
@@ -6085,6 +6156,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(
             `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
           );
@@ -6108,6 +6180,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: null });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
         }
 
