@@ -1261,7 +1261,7 @@
           <td>Skill system</td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>54 bundled + Skills Hub</span></td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>53 bundled + ClawHub</span></td>
-          <td><span class="compare-text">27 bundled + 7 hubs</span></td>
+          <td><span class="compare-text">32 bundled + 7 import sources</span></td>
         </tr>
         <tr>
           <td>Skill standard</td>
@@ -1389,6 +1389,10 @@
       <p>Gateway start/restart accepts <code>--log-requests</code> to persist best-effort redacted prompts, responses, and tool payloads in SQLite <code>request_log</code> for operator debugging. Typed browser input is always redacted.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Local Eval Workflows</h3>
+      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>tau2</code> and native <code>terminal-bench-2.0</code> runs, detached logs, and progress summaries under <code>~/.hybridclaw/data/evals/</code>.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
       <p>Trust-model acceptance is required during onboarding, execution uses container or host sandbox modes with runtime guardrails, user-directed browser auth-flow testing is supported, and TUI blocks when runtime instruction copies drift from installed defaults.</p>
     </div>
@@ -1402,7 +1406,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, iMessage, WhatsApp, email, web, and terminal channels.</p>
+      <p>Persistent workspace memory, nightly dream consolidation with startup catch-up, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, iMessage, WhatsApp, email, web, and terminal channels.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">SQLite Reliability</h3>
@@ -1422,7 +1426,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>HybridClaw ships with 27 bundled skills and also supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
+      <p>HybridClaw ships with 32 bundled skills, category-aware catalog and admin authoring flows, and OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery with prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Agent Packaging</h3>
@@ -1454,7 +1458,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Plugin Extensibility</h3>
-      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install the repo-shipped <code>qmd-memory</code> plugin for external markdown retrieval.</p>
+      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install the repo-shipped <code>qmd-memory</code> or <code>brevo-email</code> plugins for external retrieval and per-agent email routing.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
@@ -1805,7 +1809,7 @@ function switchQsTab(tab) {
     </div>
     <div class="faq-item">
       <div class="faq-q">Is there a web-based admin interface?</div>
-      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a live browser terminal at <code>/admin/terminal</code>, a web chat at <code>/chat</code>, and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. The Skills page can create local skills from a form or ZIP upload and review adaptive-skill amendments. There is also a live browser terminal at <code>/admin/terminal</code>, a web chat at <code>/chat</code>, and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

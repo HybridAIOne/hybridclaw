@@ -33,12 +33,28 @@ Skill roots include:
 - required: `name`, `description`
 - optional: `user-invocable`, `disable-model-invocation`, `always`,
   `requires.*`, `metadata.hybridclaw.*`
+- `metadata.hybridclaw.category` groups `skill list`, TUI, and admin catalog
+  views under one normalized label
+- `metadata.hybridclaw.short_description`, `tags`, `related_skills`, and
+  `install` feed operator-facing summaries, related-skill hints, and install
+  helpers
 
 ## Invocation Paths
 
 - `/skill <name> [input]`
 - `/skill:<name> [input]`
 - `/<name> [input]` if `user-invocable: true`
+
+## Catalog And Admin Surfaces
+
+- `hybridclaw skill list` and `/skill list` group skills by category, show
+  `available` / `disabled` / missing-dependency state, and mark
+  higher-precedence foreign-source overrides with `*`
+- the admin `Skills` page shows the same catalog metadata alongside
+  adaptive-skill health and amendment review
+- the admin `Skills` page can create a local skill from a form or upload a
+  `.zip` containing a `SKILL.md`; both flows publish into the project
+  `skills/` directory only after the scanner approves the contents
 
 ## Availability Controls
 
@@ -56,7 +72,8 @@ Operator surfaces:
 - `hybridclaw skill disable <name> [--channel <kind>]`
 - `hybridclaw skill toggle [--channel <kind>]` for the interactive checklist
 - TUI `/skill config` for the same checklist over the gateway
-- admin `Skills` page for the current disabled list plus adaptive-skill review
+- admin `Skills` page for the current disabled list, local skill authoring,
+  ZIP upload, and adaptive-skill review
 
 `--channel teams` is normalized to `msteams`.
 

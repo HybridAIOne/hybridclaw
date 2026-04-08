@@ -2,6 +2,36 @@
 
 ## [Coming up]
 
+### Added
+
+- **Managed local eval workflows**: Added top-level `hybridclaw eval` plus
+  local `/eval` support, loopback OpenAI-compatible eval environment helpers,
+  detached benchmark command launching, managed `tau2` lifecycle flows, and a
+  native `terminal-bench-2.0` runner with progress updates and run logs.
+- **Dream memory consolidation controls**: Added local `dream on|off|now`
+  commands with nightly scheduling, startup catch-up after downtime, and
+  on-demand workspace memory consolidation summaries.
+- **Admin skill authoring surfaces**: Added admin-console and HTTP support for
+  creating local skills from a form or uploading ZIP archives, with scanner
+  checks and staged publish flow before writing into project `skills/`.
+- **Brevo email plugin channel**: Added the repo-shipped `brevo-email` plugin
+  for per-agent email addresses, inbound webhook parsing, outbound SMTP relay,
+  address management commands, and configurable `fromName` /
+  `fromAddress` overrides.
+- **Knowledge-management skills**: Added bundled `llm-wiki` and
+  `zettelkasten` skills for persistent wiki maintenance, linked-note capture,
+  and long-lived research workflows.
+
+### Changed
+
+- **Skill catalog and operator UX**: Added normalized category metadata across
+  bundled and community skills, grouped `skill list` output, richer TUI/admin
+  skills views, and refreshed bundled-skill guidance around knowledge and
+  install-helper workflows.
+- **Scheduler and console review flow**: Improved the admin scheduler board so
+  one-shot jobs surface full outputs and review state more reliably, while the
+  embedded console handles compact mobile navigation more cleanly.
+
 ## [0.11.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.11.0)
 
 ### Added

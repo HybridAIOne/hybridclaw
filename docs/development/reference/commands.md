@@ -17,6 +17,10 @@ hybridclaw gateway status
 hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway reset [yes|no]
+hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
+hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
 hybridclaw --resume <sessionId>
@@ -42,6 +46,33 @@ recent active tail, and `gateway reset [yes|no]` clears history plus the
 current workspace after confirmation.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
+
+## Local Eval Workflows
+
+`hybridclaw eval` and local `/eval` commands point benchmark harnesses at
+HybridClaw's loopback OpenAI-compatible API.
+
+```bash
+hybridclaw eval list
+hybridclaw eval env
+hybridclaw eval tau2 setup
+hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
+hybridclaw eval terminal-bench-2.0 setup
+hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
+```
+
+- local-only surface from CLI, TUI, or embedded web chat; it is not intended
+  for Discord, Teams, WhatsApp, email, or other remote chat channels
+- managed suites today: `tau2` and `terminal-bench-2.0`
+- `swebench-verified`, `agentbench`, and `gaia` currently print starter
+  recipes and setup guidance rather than a native managed runner
+- the default eval mode keeps the current agent workspace but opens a fresh
+  OpenAI-compatible session per request
+- `--fresh-agent` uses a temporary template-seeded agent workspace for each
+  eval request
+- detached run logs and summaries are stored under
+  `~/.hybridclaw/data/evals/`
 
 ## Auth And Providers
 
@@ -192,6 +223,11 @@ the same gateway command surface used by TUI and web chat.
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
   alongside the existing runtime commands
+- local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
+  memory-consolidation status, scheduler toggling, and manual runs
+- local TUI and web chat expose `/eval ...`, mirroring the CLI eval helper and
+  surfacing progress for managed runs such as `tau2` and
+  `terminal-bench-2.0`
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,
