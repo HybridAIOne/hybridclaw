@@ -11,7 +11,7 @@
 
 <img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
 
-## The enterprise operating layer for open agents.
+## All of the Claw, None of the Chaos - The enterprise operating layer for open agents.
 
 Self-hosted, controllable, and built for real business workflows.
 
