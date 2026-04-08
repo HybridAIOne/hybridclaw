@@ -92,9 +92,7 @@ export function SegmentedToggle(props: {
   return (
     <fieldset
       className={
-        props.className
-          ? `binary-toggle ${props.className}`
-          : 'binary-toggle'
+        props.className ? `binary-toggle ${props.className}` : 'binary-toggle'
       }
       aria-label={props.ariaLabel}
     >
