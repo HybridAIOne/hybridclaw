@@ -41,13 +41,51 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
     },
     discord: {
       prefix: '!claw',
-      respondToAllMessages: false,
+      guildMembersIntent: false,
+      presenceIntent: false,
       commandsOnly: false,
+      commandMode: 'public',
+      commandAllowedUserIds: [],
+      commandUserId: '',
       groupPolicy: 'open',
+      sendPolicy: 'open',
+      sendAllowedChannelIds: [],
+      freeResponseChannels: [],
+      textChunkLimit: 2000,
+      maxLinesPerMessage: 17,
+      humanDelay: {
+        mode: 'natural',
+        minMs: 800,
+        maxMs: 2500,
+      },
       typingMode: 'thinking',
+      presence: {
+        enabled: true,
+        intervalMs: 30000,
+        healthyText: 'Watching the channels',
+        degradedText: 'Thinking slowly...',
+        exhaustedText: 'Taking a break',
+        activityType: 'watching',
+      },
+      lifecycleReactions: {
+        enabled: true,
+        removeOnComplete: true,
+        phases: {
+          queued: '⏳',
+          thinking: '🤔',
+          toolUse: '⚙️',
+          streaming: '✍️',
+          done: '✅',
+          error: '❌',
+        },
+      },
       debounceMs: 2500,
       ackReaction: '👀',
+      ackReactionScope: 'group-mentions',
+      removeAckAfterReply: true,
       rateLimitPerUser: 0,
+      rateLimitExemptRoles: [],
+      suppressPatterns: ['/stop', '/pause', 'brb', 'afk'],
       maxConcurrentPerChannel: 2,
       guilds: {},
     },
@@ -165,6 +203,10 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     const gatewayStatus = {
+      discord: {
+        tokenConfigured: false,
+        tokenSource: null,
+      },
       email: {
         passwordConfigured: false,
         passwordSource: null,
@@ -176,6 +218,8 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
       },
     };
     useAuthMock.mockReturnValue({
@@ -273,6 +317,113 @@ describe('ChannelsPage', () => {
     expect(whatsappButton.textContent || '').not.toContain('pairing');
   });
 
+  it('shows Discord as available when the token is not configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    const discordButton = await screen.findByRole('button', {
+      name: /Discord/i,
+    });
+    expect(discordButton.textContent || '').toContain('available');
+    expect(discordButton.textContent || '').not.toContain('active');
+  });
+
+  it('shows Discord as active in command-only mode when the token is configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        discord: {
+          ...makeConfig().discord,
+          commandsOnly: true,
+          groupPolicy: 'disabled',
+        },
+      }),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      discord: {
+        tokenConfigured: true,
+        tokenSource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const discordButton = await screen.findByRole('button', {
+      name: /Discord/i,
+    });
+    expect(discordButton.textContent || '').toContain('active');
+  });
+
+  it('renders the live WhatsApp pairing QR on the channel page', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: '▄▄\n██',
+        pairingUpdatedAt: new Date().toISOString(),
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /WhatsApp/i });
+    fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
+
+    expect(
+      screen.getByRole('img', { name: 'WhatsApp pairing QR' }).textContent,
+    ).toBe('▄▄\n██');
+  });
+
   it('does not show email as active when the password is not configured', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',
@@ -305,6 +456,8 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
       },
     });
 
@@ -350,6 +503,8 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
       },
     });
 
@@ -425,6 +580,78 @@ describe('ChannelsPage', () => {
         expect.objectContaining({
           discord: expect.objectContaining({
             groupPolicy: 'disabled',
+          }),
+        }),
+      );
+    });
+  });
+
+  it('saves Discord command and send settings through the config endpoint', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Discord/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Commands only' })).getByRole(
+        'button',
+        { name: 'on' },
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Command mode'), {
+      target: { value: 'restricted' },
+    });
+    fireEvent.change(screen.getByLabelText('Allowed command user IDs'), {
+      target: { value: '123\n456' },
+    });
+    fireEvent.change(screen.getByLabelText('Send policy'), {
+      target: { value: 'allowlist' },
+    });
+    fireEvent.change(screen.getByLabelText('Allowed outbound channel IDs'), {
+      target: { value: '111,222' },
+    });
+    fireEvent.change(screen.getByLabelText('Free response channel IDs'), {
+      target: { value: '333' },
+    });
+    fireEvent.change(screen.getByLabelText('Text chunk limit'), {
+      target: { value: '1500' },
+    });
+    fireEvent.change(screen.getByLabelText('Max lines per message'), {
+      target: { value: '25' },
+    });
+    fireEvent.click(
+      within(
+        screen.getByRole('group', { name: 'Remove ack after reply' }),
+      ).getByRole('button', { name: 'off' }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel settings' }),
+    );
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          discord: expect.objectContaining({
+            commandsOnly: true,
+            commandMode: 'restricted',
+            commandAllowedUserIds: ['123', '456'],
+            sendPolicy: 'allowlist',
+            sendAllowedChannelIds: ['111', '222'],
+            freeResponseChannels: ['333'],
+            textChunkLimit: 1500,
+            maxLinesPerMessage: 25,
+            removeAckAfterReply: false,
           }),
         }),
       );
@@ -517,6 +744,8 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
       },
     });
     useAuthMock.mockReturnValue({
@@ -533,6 +762,8 @@ describe('ChannelsPage', () => {
         whatsapp: {
           linked: false,
           jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
         },
       },
     });
@@ -559,6 +790,93 @@ describe('ChannelsPage', () => {
     });
 
     screen.getByText('Password updated in encrypted runtime secrets.');
+  });
+
+  it('updates Discord tokens through encrypted runtime secrets', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    setRuntimeSecretMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'stored',
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      discord: {
+        tokenConfigured: true,
+        tokenSource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        discord: {
+          tokenConfigured: true,
+          tokenSource: 'runtime-secrets',
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Discord/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    expect(screen.queryByLabelText('New token')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change token' }));
+    fireEvent.change(screen.getByLabelText('New token'), {
+      target: { value: 'replacement-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save token' }));
+
+    await waitFor(() => {
+      expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'DISCORD_TOKEN',
+        'replacement-token',
+      );
+    });
+
+    screen.getByText('Token updated in encrypted runtime secrets.');
   });
 
   it('shows change password when passwordConfigured is true without a source', async () => {
@@ -593,6 +911,8 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
       },
     });
 

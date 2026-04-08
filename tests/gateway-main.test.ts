@@ -28,6 +28,7 @@ function createGatewayMainTestState(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -73,6 +74,10 @@ function createGatewayMainTestState(options?: {
         enabled: options?.imessageEnabled ?? false,
         backend: 'bluebubbles',
         webhookPath: '/api/imessage/webhook',
+      },
+      whatsapp: {
+        dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
+        groupPolicy: 'disabled',
       },
       local: { enabled: false },
       memory: {
@@ -193,6 +198,7 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  whatsappEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -691,11 +697,27 @@ describe('gateway bootstrap', () => {
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
   });
 
-  test('starts WhatsApp integration automatically when linked auth exists', async () => {
-    const state = await importFreshGatewayMain({ whatsappLinked: true });
+  test('starts WhatsApp integration automatically when the transport is enabled', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: false });
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('does not start WhatsApp integration when the transport is disabled', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        whatsapp: false,
+      }),
+    );
   });
 
   test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
@@ -915,7 +937,7 @@ describe('gateway bootstrap', () => {
         discord: false,
         msteams: true,
         email: false,
-        whatsapp: false,
+        whatsapp: true,
       }),
     );
   });

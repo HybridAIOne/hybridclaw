@@ -816,6 +816,26 @@ th {
   background: var(--panel-muted);
 }
 
+.whatsapp-pairing-field {
+  align-content: start;
+}
+
+.whatsapp-pairing-qr {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: #111827;
+  font-family:
+    ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.68rem;
+  line-height: 1;
+  white-space: pre;
+}
+
 .field textarea,
 .code-editor {
   resize: vertical;

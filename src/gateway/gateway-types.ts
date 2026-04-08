@@ -376,6 +376,10 @@ export interface GatewayStatus {
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
   };
+  discord?: {
+    tokenConfigured: boolean;
+    tokenSource: 'env' | 'runtime-secrets' | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -387,6 +391,8 @@ export interface GatewayStatus {
   whatsapp?: {
     linked: boolean;
     jid: string | null;
+    pairingQrText: string | null;
+    pairingUpdatedAt: string | null;
   };
   providerHealth?: Partial<
     Record<

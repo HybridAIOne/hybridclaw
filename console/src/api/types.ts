@@ -46,6 +46,10 @@ export interface GatewayStatus {
       consecutiveErrors: number;
     }>;
   };
+  discord?: {
+    tokenConfigured: boolean;
+    tokenSource: 'env' | 'runtime-secrets' | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -57,6 +61,8 @@ export interface GatewayStatus {
   whatsapp?: {
     linked: boolean;
     jid: string | null;
+    pairingQrText: string | null;
+    pairingUpdatedAt: string | null;
   };
   providerHealth?: Record<
     string,
@@ -214,13 +220,56 @@ export interface AdminConfig {
   };
   discord: {
     prefix: string;
-    respondToAllMessages: boolean;
+    guildMembersIntent: boolean;
+    presenceIntent: boolean;
     commandsOnly: boolean;
+    commandMode: 'public' | 'restricted';
+    commandAllowedUserIds: string[];
+    commandUserId: string;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
+    sendPolicy: 'open' | 'allowlist' | 'disabled';
+    sendAllowedChannelIds: string[];
+    freeResponseChannels: string[];
+    textChunkLimit: number;
+    maxLinesPerMessage: number;
+    humanDelay: {
+      mode: 'off' | 'natural' | 'custom';
+      minMs: number;
+      maxMs: number;
+    };
     typingMode: 'instant' | 'thinking' | 'streaming' | 'never';
+    presence: {
+      enabled: boolean;
+      intervalMs: number;
+      healthyText: string;
+      degradedText: string;
+      exhaustedText: string;
+      activityType:
+        | 'playing'
+        | 'watching'
+        | 'listening'
+        | 'competing'
+        | 'custom';
+    };
+    lifecycleReactions: {
+      enabled: boolean;
+      removeOnComplete: boolean;
+      phases: {
+        queued: string;
+        thinking: string;
+        toolUse: string;
+        streaming: string;
+        done: string;
+        error: string;
+      };
+    };
     debounceMs: number;
     ackReaction: string;
+    ackReactionScope: 'all' | 'group-mentions' | 'direct' | 'off';
+    removeAckAfterReply: boolean;
     rateLimitPerUser: number;
+    rateLimitExemptRoles: string[];
+    suppressPatterns: string[];
     maxConcurrentPerChannel: number;
     guilds: Record<
       string,

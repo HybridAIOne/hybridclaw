@@ -19,7 +19,8 @@ import {
 } from './channels-catalog';
 
 type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
-type PasswordSource = 'config' | 'env' | 'runtime-secrets' | null;
+type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
+
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
 }
@@ -30,7 +31,9 @@ function parseInteger(value: string): number {
 }
 
 function isDiscordEnabled(config: AdminConfig): boolean {
-  return config.discord.groupPolicy !== 'disabled';
+  return (
+    config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled'
+  );
 }
 
 function isWhatsAppEnabled(config: AdminConfig): boolean {
@@ -62,12 +65,17 @@ function ListField(props: {
   );
 }
 
-function ManagedPasswordField(props: {
+function capitalizeLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function ManagedSecretField(props: {
   label: string;
-  secretName: 'EMAIL_PASSWORD' | 'IMESSAGE_PASSWORD';
-  configValue: string;
-  passwordConfigured: boolean;
-  passwordSource: PasswordSource;
+  secretName: 'DISCORD_TOKEN' | 'EMAIL_PASSWORD' | 'IMESSAGE_PASSWORD';
+  secretLabel: 'token' | 'password';
+  configValue?: string;
+  configured: boolean;
+  source: SecretSource;
   token: string;
   onSecretSaved: () => void;
 }) {
@@ -75,11 +83,13 @@ function ManagedPasswordField(props: {
   const [nextValue, setNextValue] = useState('');
   const [hasStoredSecretOverride, setHasStoredSecretOverride] = useState(false);
   const hasExistingPassword =
-    props.passwordSource !== null ||
+    props.source !== null ||
     hasStoredSecretOverride ||
-    props.passwordConfigured ||
-    props.configValue.trim().length > 0;
-  const actionLabel = hasExistingPassword ? 'Change password' : 'Set password';
+    props.configured ||
+    String(props.configValue || '').trim().length > 0;
+  const actionLabel = hasExistingPassword
+    ? `Change ${props.secretLabel}`
+    : `Set ${props.secretLabel}`;
   const saveSecretMutation = useMutation({
     mutationFn: async (value: string) => {
       return setRuntimeSecret(props.token, props.secretName, value);
@@ -114,7 +124,7 @@ function ManagedPasswordField(props: {
       {isEditing ? (
         <div className="managed-secret-editor">
           <label className="field">
-            <span>New password</span>
+            <span>{`New ${props.secretLabel}`}</span>
             <input
               type="password"
               value={nextValue}
@@ -130,7 +140,9 @@ function ManagedPasswordField(props: {
               disabled={!nextValue.trim() || saveSecretMutation.isPending}
               onClick={() => saveSecretMutation.mutate(nextValue)}
             >
-              {saveSecretMutation.isPending ? 'Saving...' : 'Save password'}
+              {saveSecretMutation.isPending
+                ? 'Saving...'
+                : `Save ${props.secretLabel}`}
             </button>
             <button
               className="ghost-button"
@@ -150,14 +162,14 @@ function ManagedPasswordField(props: {
 
       {saveSecretMutation.isSuccess ? (
         <p className="success-banner">
-          Password updated in encrypted runtime secrets.
+          {`${capitalizeLabel(props.secretLabel)} updated in encrypted runtime secrets.`}
         </p>
       ) : null}
       {saveSecretMutation.isError ? (
         <p className="error-banner">
           {saveSecretMutation.error instanceof Error
             ? saveSecretMutation.error.message
-            : 'Failed to update password.'}
+            : `Failed to update ${props.secretLabel}.`}
         </p>
       ) : null}
     </div>
@@ -167,6 +179,10 @@ function ManagedPasswordField(props: {
 function DiscordChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
+  tokenConfigured: boolean;
+  tokenSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
 }) {
   return (
     <>
@@ -181,14 +197,27 @@ function DiscordChannelEditor(props: {
             discord: {
               ...current.discord,
               groupPolicy:
-                enabled && current.discord.groupPolicy === 'disabled'
+                enabled &&
+                current.discord.groupPolicy === 'disabled' &&
+                !current.discord.commandsOnly
                   ? 'open'
                   : enabled
                     ? current.discord.groupPolicy
                     : 'disabled',
+              commandsOnly: enabled ? current.discord.commandsOnly : false,
             },
           }))
         }
+      />
+
+      <ManagedSecretField
+        label="Bot token"
+        secretName="DISCORD_TOKEN"
+        secretLabel="token"
+        configured={props.tokenConfigured}
+        source={props.tokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
       />
 
       <div className="field-grid">
@@ -228,6 +257,112 @@ function DiscordChannelEditor(props: {
           </select>
         </label>
       </div>
+
+      <BooleanField
+        label="Commands only"
+        value={props.draft.discord.commandsOnly}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(commandsOnly) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              commandsOnly,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Command mode</span>
+          <select
+            value={props.draft.discord.commandMode}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  commandMode: event.target
+                    .value as AdminConfig['discord']['commandMode'],
+                },
+              }))
+            }
+          >
+            <option value="public">public</option>
+            <option value="restricted">restricted</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Send policy</span>
+          <select
+            value={props.draft.discord.sendPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  sendPolicy: event.target
+                    .value as AdminConfig['discord']['sendPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed command user IDs"
+        value={props.draft.discord.commandAllowedUserIds}
+        rows={3}
+        placeholder="comma or newline separated"
+        onChange={(commandAllowedUserIds) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              commandAllowedUserIds,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed outbound channel IDs"
+        value={props.draft.discord.sendAllowedChannelIds}
+        rows={3}
+        placeholder="comma or newline separated"
+        onChange={(sendAllowedChannelIds) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              sendAllowedChannelIds,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Free response channel IDs"
+        value={props.draft.discord.freeResponseChannels}
+        rows={3}
+        placeholder="comma or newline separated"
+        onChange={(freeResponseChannels) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              freeResponseChannels,
+            },
+          }))
+        }
+      />
 
       <div className="field-grid">
         <label className="field">
@@ -271,6 +406,46 @@ function DiscordChannelEditor(props: {
 
       <div className="field-grid">
         <label className="field">
+          <span>Ack reaction scope</span>
+          <select
+            value={props.draft.discord.ackReactionScope}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  ackReactionScope: event.target
+                    .value as AdminConfig['discord']['ackReactionScope'],
+                },
+              }))
+            }
+          >
+            <option value="all">all</option>
+            <option value="group-mentions">group-mentions</option>
+            <option value="direct">direct</option>
+            <option value="off">off</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.discord.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
           <span>Debounce ms</span>
           <input
             type="number"
@@ -287,6 +462,25 @@ function DiscordChannelEditor(props: {
           />
         </label>
         <label className="field">
+          <span>Max lines per message</span>
+          <input
+            type="number"
+            value={String(props.draft.discord.maxLinesPerMessage)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  maxLinesPerMessage: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
           <span>Rate limit per user</span>
           <input
             type="number"
@@ -302,25 +496,39 @@ function DiscordChannelEditor(props: {
             }
           />
         </label>
+        <label className="field">
+          <span>Max concurrent per channel</span>
+          <input
+            type="number"
+            value={String(props.draft.discord.maxConcurrentPerChannel)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  maxConcurrentPerChannel: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
       </div>
 
-      <label className="field">
-        <span>Max concurrent per channel</span>
-        <input
-          type="number"
-          value={String(props.draft.discord.maxConcurrentPerChannel)}
-          onChange={(event) =>
-            props.updateDraft((current) => ({
-              ...current,
-              discord: {
-                ...current.discord,
-                maxConcurrentPerChannel: parseInteger(event.target.value),
-              },
-            }))
-          }
-        />
-      </label>
-
+      <BooleanField
+        label="Remove ack after reply"
+        value={props.draft.discord.removeAckAfterReply}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(removeAckAfterReply) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              removeAckAfterReply,
+            },
+          }))
+        }
+      />
       <p className="muted-copy">
         Discord guild defaults and explicit per-channel overrides stay intact.
         This page edits the transport defaults that apply across the space.
@@ -332,6 +540,8 @@ function DiscordChannelEditor(props: {
 function WhatsAppChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
+  linked: boolean;
+  pairingQrText: string | null;
 }) {
   return (
     <>
@@ -400,6 +610,25 @@ function WhatsAppChannelEditor(props: {
           </select>
         </label>
       </div>
+
+      {isWhatsAppEnabled(props.draft) && !props.linked ? (
+        <div className="field whatsapp-pairing-field">
+          <span>Pairing QR</span>
+          {props.pairingQrText ? (
+            <pre
+              className="whatsapp-pairing-qr"
+              role="img"
+              aria-label="WhatsApp pairing QR"
+            >
+              {props.pairingQrText}
+            </pre>
+          ) : (
+            <p className="muted-copy">
+              Waiting for a fresh QR from the gateway.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <ListField
         label="Allowed DM senders"
@@ -525,7 +754,7 @@ function EmailChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
   passwordConfigured: boolean;
-  passwordSource: PasswordSource;
+  passwordSource: SecretSource;
   token: string;
   onSecretSaved: () => void;
 }) {
@@ -564,12 +793,13 @@ function EmailChannelEditor(props: {
             placeholder="bot@example.com"
           />
         </label>
-        <ManagedPasswordField
+        <ManagedSecretField
           label="Password"
           secretName="EMAIL_PASSWORD"
+          secretLabel="password"
           configValue={props.draft.email.password}
-          passwordConfigured={props.passwordConfigured}
-          passwordSource={props.passwordSource}
+          configured={props.passwordConfigured}
+          source={props.passwordSource}
           token={props.token}
           onSecretSaved={props.onSecretSaved}
         />
@@ -1012,7 +1242,7 @@ function IMessageChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
   passwordConfigured: boolean;
-  passwordSource: PasswordSource;
+  passwordSource: SecretSource;
   token: string;
   onSecretSaved: () => void;
 }) {
@@ -1074,12 +1304,13 @@ function IMessageChannelEditor(props: {
                 }
               />
             </label>
-            <ManagedPasswordField
+            <ManagedSecretField
               label="Password"
               secretName="IMESSAGE_PASSWORD"
+              secretLabel="password"
               configValue={props.draft.imessage.password}
-              passwordConfigured={props.passwordConfigured}
-              passwordSource={props.passwordSource}
+              configured={props.passwordConfigured}
+              source={props.passwordSource}
               token={props.token}
               onSecretSaved={props.onSecretSaved}
             />
@@ -1307,30 +1538,54 @@ function renderSelectedEditor(
   draft: AdminConfig,
   updateDraft: ConfigUpdater,
   token: string,
-  passwordStatus: {
+  secretStatus: {
+    discord: {
+      configured: boolean;
+      source: SecretSource;
+    };
     email: {
       configured: boolean;
-      source: PasswordSource;
+      source: SecretSource;
     };
     imessage: {
       configured: boolean;
-      source: PasswordSource;
+      source: SecretSource;
     };
+  },
+  whatsappStatus: {
+    linked: boolean;
+    pairingQrText: string | null;
   },
   onSecretSaved: () => void,
 ) {
   switch (kind) {
     case 'discord':
-      return <DiscordChannelEditor draft={draft} updateDraft={updateDraft} />;
+      return (
+        <DiscordChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          tokenConfigured={secretStatus.discord.configured}
+          tokenSource={secretStatus.discord.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
     case 'whatsapp':
-      return <WhatsAppChannelEditor draft={draft} updateDraft={updateDraft} />;
+      return (
+        <WhatsAppChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          linked={whatsappStatus.linked}
+          pairingQrText={whatsappStatus.pairingQrText}
+        />
+      );
     case 'email':
       return (
         <EmailChannelEditor
           draft={draft}
           updateDraft={updateDraft}
-          passwordConfigured={passwordStatus.email.configured}
-          passwordSource={passwordStatus.email.source}
+          passwordConfigured={secretStatus.email.configured}
+          passwordSource={secretStatus.email.source}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -1342,8 +1597,8 @@ function renderSelectedEditor(
         <IMessageChannelEditor
           draft={draft}
           updateDraft={updateDraft}
-          passwordConfigured={passwordStatus.imessage.configured}
-          passwordSource={passwordStatus.imessage.source}
+          passwordConfigured={secretStatus.imessage.configured}
+          passwordSource={secretStatus.imessage.source}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -1365,6 +1620,7 @@ export function ChannelsPage() {
     queryKey: ['status', auth.token],
     queryFn: () => validateToken(auth.token),
     initialData: auth.gatewayStatus,
+    refetchInterval: 3_000,
   });
 
   const saveMutation = useMutation({
@@ -1384,6 +1640,7 @@ export function ChannelsPage() {
 
   const catalog = draft
     ? buildChannelCatalog(draft, {
+        discordTokenConfigured: statusQuery.data?.discord?.tokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
@@ -1418,7 +1675,11 @@ export function ChannelsPage() {
   const isDirty = configQuery.data
     ? JSON.stringify(draft) !== JSON.stringify(configQuery.data.config)
     : false;
-  const passwordStatus = {
+  const secretStatus = {
+    discord: {
+      configured: statusQuery.data?.discord?.tokenConfigured ?? false,
+      source: statusQuery.data?.discord?.tokenSource ?? null,
+    },
     email: {
       configured: statusQuery.data?.email?.passwordConfigured ?? false,
       source: statusQuery.data?.email?.passwordSource ?? null,
@@ -1427,6 +1688,10 @@ export function ChannelsPage() {
       configured: statusQuery.data?.imessage?.passwordConfigured ?? false,
       source: statusQuery.data?.imessage?.passwordSource ?? null,
     },
+  };
+  const whatsappStatus = {
+    linked: statusQuery.data?.whatsapp?.linked ?? false,
+    pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
   };
 
   return (
@@ -1477,7 +1742,8 @@ export function ChannelsPage() {
                   draft,
                   updateDraft,
                   auth.token,
-                  passwordStatus,
+                  secretStatus,
+                  whatsappStatus,
                   () => {
                     void queryClient.invalidateQueries({
                       queryKey: ['status', auth.token],

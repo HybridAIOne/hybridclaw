@@ -45,6 +45,7 @@ import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
@@ -2539,6 +2540,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     whatsappAuthResult.status === 'fulfilled'
       ? whatsappAuthResult.value
       : { linked: false, jid: null };
+  const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
@@ -2559,6 +2561,15 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const discordCredential = resolveRuntimeCredentialStatus(
+    'DISCORD_TOKEN',
+    [process.env.DISCORD_TOKEN],
+    storedSecrets.DISCORD_TOKEN,
+  );
+  const discord = {
+    tokenConfigured: Boolean(discordCredential.value),
+    tokenSource: discordCredential.source,
+  } as NonNullable<GatewayStatus['discord']>;
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
     envValues: [process.env.EMAIL_PASSWORD],
@@ -2598,9 +2609,14 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    discord,
     email,
     imessage,
-    whatsapp: whatsappAuth,
+    whatsapp: {
+      ...whatsappAuth,
+      pairingQrText: whatsappPairing.pairingQrText,
+      pairingUpdatedAt: whatsappPairing.updatedAt,
+    },
     providerHealth,
     localBackends,
     pluginCommands: listLoadedPluginCommands(),

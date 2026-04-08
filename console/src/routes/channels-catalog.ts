@@ -16,6 +16,7 @@ export interface ChannelCatalogItem {
 }
 
 interface ChannelCatalogOptions {
+  discordTokenConfigured?: boolean;
   whatsappLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
@@ -49,12 +50,19 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function describeDiscord(config: AdminConfig): ChannelCatalogItem {
+function describeDiscord(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
   const guildCount = countDiscordGuilds(config);
   const overrideCount = countDiscordOverrides(config);
-  const enabled = config.discord.groupPolicy !== 'disabled';
-  const configured = guildCount > 0 || overrideCount > 0;
-  const statusTone = enabled
+  const enabled =
+    config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled';
+  const tokenConfigured = options.discordTokenConfigured === true;
+  const active = enabled && tokenConfigured;
+  const configured =
+    active || tokenConfigured || guildCount > 0 || overrideCount > 0;
+  const statusTone = active
     ? 'active'
     : configured
       ? 'configured'
@@ -217,7 +225,7 @@ export function buildChannelCatalog(
   options: ChannelCatalogOptions = {},
 ): ChannelCatalogItem[] {
   return [
-    describeDiscord(config),
+    describeDiscord(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),
     describeMSTeams(config),
