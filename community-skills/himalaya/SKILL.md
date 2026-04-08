@@ -4,6 +4,7 @@ description: Manage email with the Himalaya CLI: configure accounts, list folder
 user-invocable: true
 metadata:
   hybridclaw:
+    short_description: Terminal email workflows.
     category: communication
     tags:
       - email

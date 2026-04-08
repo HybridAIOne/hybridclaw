@@ -4,6 +4,7 @@ description: Use for DataLion workflows such as listing, reading, creating, or e
 user-invocable: true
 metadata:
   hybridclaw:
+    short_description: Datalion analytics workflows.
     category: business
     tags:
       - datalion

@@ -4,6 +4,8 @@ description: Build and maintain a persistent markdown wiki from raw sources usin
 user-invocable: true
 metadata:
   hybridclaw:
+    category: memory
+    short_description: Persistent markdown wiki.
     tags:
       - wiki
       - knowledge-base
