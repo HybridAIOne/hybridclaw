@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-honcho-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory plugin for Honcho session sync and recall",
+  "engines": {
+    "node": "22.x"
+  }
+}
