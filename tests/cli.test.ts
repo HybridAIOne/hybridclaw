@@ -220,6 +220,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
   configModuleError?: Error | null;
@@ -857,6 +858,24 @@ async function importFreshCli(options?: {
       activeContainers: 0,
       defaultModel: 'gpt-4.1-mini',
       ragDefault: true,
+      sandbox: options?.gatewayStatusSandboxMode
+        ? {
+            mode: options.gatewayStatusSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
       timestamp: new Date().toISOString(),
     };
   });
@@ -4178,6 +4197,36 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the reachable gateway sandbox mode for tui preflight', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'container',
+        gatewayStatusSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'host',
+        gatewayStatusSandboxMode: 'container',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {
