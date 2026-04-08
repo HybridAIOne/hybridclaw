@@ -96,6 +96,8 @@ export interface DiscordToolActionRequest {
   subject?: string;
   cc?: string[];
   bcc?: string[];
+  inReplyTo?: string;
+  references?: string[];
   filePath?: string;
   components?: unknown;
   contextChannelId?: string;

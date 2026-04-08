@@ -644,6 +644,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   EMAIL_SMTP_PORT = Math.max(1, Math.min(65_535, config.email.smtpPort));
   EMAIL_SMTP_SECURE = config.email.smtpSecure;
   EMAIL_ADDRESS = config.email.address;
+  EMAIL_PASSWORD =
+    readRuntimeSecretValue(
+      ['EMAIL_PASSWORD'],
+      'EMAIL_PASSWORD',
+      storedSecrets,
+    ) || config.email.password;
   EMAIL_POLL_INTERVAL_MS = Math.max(1_000, config.email.pollIntervalMs);
   EMAIL_FOLDERS = [...config.email.folders];
   EMAIL_ALLOW_FROM = [...config.email.allowFrom];

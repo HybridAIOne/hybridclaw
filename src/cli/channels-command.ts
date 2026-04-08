@@ -728,10 +728,12 @@ async function resolveInteractiveEmailSetup(params: {
     );
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     address = await promptWithDefault({
@@ -815,11 +817,11 @@ async function resolveInteractiveEmailSetup(params: {
     });
 
     if (!password) {
-      password = await promptWithDefault({
-        rl,
-        question: 'Email password or app password',
-        secret: true,
+      rl.close();
+      password = await promptForSecretInput({
+        prompt: 'Email password or app password: ',
       });
+      rl = createPromptInterface();
       passwordSource = 'prompt';
     }
 
@@ -955,13 +957,27 @@ async function configureEmailChannel(args: string[]): Promise<void> {
 
   const shouldSavePassword =
     resolved.passwordSource === 'prompt' || Boolean(parsed.password?.trim());
+  const hasStoredPassword = Boolean(readStoredRuntimeSecret('EMAIL_PASSWORD'));
   const secretsPath = shouldSavePassword
     ? saveRuntimeSecrets({ EMAIL_PASSWORD: resolved.password })
     : runtimeSecretsPath();
 
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}`);
+  if (shouldSavePassword || hasStoredPassword) {
+    setRuntimeConfigSecretInput(
+      'email.password',
+      {
+        source: 'store',
+        id: 'EMAIL_PASSWORD',
+      },
+      {
+        route: 'cli.channels.email.setup-secret-ref',
+        source: 'user',
+      },
+    );
+  }
   if (shouldSavePassword) {
-    console.log(`Saved email password to ${secretsPath}.`);
+    console.log(`Saved email password to ${secretsPath}`);
   } else {
     console.log(`Email password unchanged. Secrets path: ${secretsPath}`);
   }

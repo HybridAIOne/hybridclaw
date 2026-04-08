@@ -1470,10 +1470,12 @@ async function resolveInteractiveMSTeamsLogin(params: {
     );
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     appId = await promptWithDefault({
@@ -1481,12 +1483,13 @@ async function resolveInteractiveMSTeamsLogin(params: {
       question: 'Microsoft Teams app id',
       defaultValue: appId || undefined,
     });
-    appPassword = await promptWithDefault({
-      rl,
-      question: 'Microsoft Teams app password',
-      defaultValue: appPassword || undefined,
-      secret: true,
-    });
+    rl.close();
+    appPassword =
+      (appPassword || '').trim() ||
+      (await promptForSecretInput({
+        prompt: 'Microsoft Teams app password: ',
+      }));
+    rl = createPromptInterface();
     const tenantId = await promptWithDefault({
       rl,
       question: 'Microsoft Teams tenant id (optional)',

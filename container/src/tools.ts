@@ -2470,6 +2470,8 @@ async function executeToolInternal(
           readStringValue(args.subject) || readStringValue(args.title);
         const cc = readStringListValue(args.cc);
         const bcc = readStringListValue(args.bcc);
+        const inReplyTo = readStringValue(args.inReplyTo);
+        const references = readStringListValue(args.references);
         const filePath =
           readStringValue(args.filePath) ||
           readStringValue(args.attachmentPath) ||
@@ -2510,6 +2512,8 @@ async function executeToolInternal(
         if (subject) payload.subject = subject;
         if (cc) payload.cc = cc;
         if (bcc) payload.bcc = bcc;
+        if (inReplyTo) payload.inReplyTo = inReplyTo;
+        if (references) payload.references = references;
         if (filePath) payload.filePath = filePath;
         if (components !== undefined) payload.components = components;
 
@@ -3282,7 +3286,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channelId: {
             type: 'string',
             description:
-              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
+              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, email addresses, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
           },
           guildId: {
             type: 'string',
@@ -3354,6 +3358,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             },
             description:
               'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+          },
+          inReplyTo: {
+            type: 'string',
+            description:
+              'Optional email Message-ID for the parent message being replied to on action="send" when channelId/to targets an email address. Use the latest message in the thread.',
+          },
+          references: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional ordered email Message-ID chain for the References header on action="send" when channelId/to targets an email address. End the list with the same parent message used for inReplyTo.',
           },
           filePath: {
             type: 'string',
@@ -3427,12 +3444,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           target: {
             type: 'string',
             description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
           to: {
             type: 'string',
             description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
         },
         required: ['action'],
