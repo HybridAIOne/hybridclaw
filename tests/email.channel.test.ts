@@ -538,6 +538,46 @@ describe('email delivery helpers', () => {
     });
   });
 
+  test('defaults explicit references from inReplyTo when omitted', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-explicit-parent@example.com>',
+      })),
+    };
+
+    const result = await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: '<msg-1@example.com>',
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'agent@example.com',
+        to: 'boss@example.com',
+        subject: 'Quarterly plan',
+        inReplyTo: '<msg-1@example.com>',
+        references: '<msg-1@example.com>',
+        text: 'Here is the update.',
+      }),
+    );
+    expect(result.threadContext).toEqual({
+      subject: 'Quarterly plan',
+      messageId: '<sent-explicit-parent@example.com>',
+      references: ['<msg-1@example.com>'],
+    });
+  });
+
   test('extracts inline subject prefixes and attaches files', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',

@@ -134,9 +134,12 @@ test('promptForSecretInput pauses stdin again after hidden tty input completes w
     process.stdin.pause = originalPause;
     process.stdin.on = originalOn;
     process.stdin.off = originalOff;
-    process.stdin.isPaused = originalIsPaused;
     Object.defineProperty(process.stdin, 'isRaw', {
       value: originalIsRaw,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdin, 'readableFlowing', {
+      value: originalReadableFlowing,
       configurable: true,
     });
     writeSpy.mockRestore();
@@ -254,6 +257,7 @@ test('promptForSecretInput prefers raw tty input over readline when available', 
   const originalOff = process.stdin.off;
   const originalIsPaused = process.stdin.isPaused;
   const originalIsRaw = process.stdin.isRaw;
+  const originalReadableFlowing = process.stdin.readableFlowing;
 
   let dataHandler: ((chunk: string | Buffer) => void) | undefined;
   const writes: string[] = [];

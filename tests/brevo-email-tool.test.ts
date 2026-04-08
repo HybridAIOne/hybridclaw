@@ -157,6 +157,50 @@ test('send_email forwards optional threading headers', async () => {
   });
 });
 
+test('send_email defaults references from inReplyTo when omitted', async () => {
+  const send = vi.fn();
+  const handler = createSendEmailToolHandler(
+    {
+      config: {
+        agents: {
+          defaultAgentId: 'main',
+        },
+      },
+      resolveSessionAgentId: vi.fn(() => 'writer'),
+    } as never,
+    {
+      domain: 'agent.hybridai.one',
+      fromName: '',
+      fromAddress: '',
+      agentHandles: {
+        writer: 'writer-handle',
+      },
+    } as never,
+    send,
+  );
+
+  await handler(
+    {
+      to: 'friend@example.com',
+      subject: 'Re: Hello',
+      body: 'Follow-up',
+      inReplyTo: ' <msg-1@example.com> ',
+    },
+    {
+      sessionId: 'session-1',
+    },
+  );
+
+  expect(send).toHaveBeenCalledWith({
+    from: 'writer-handle@agent.hybridai.one',
+    to: 'friend@example.com',
+    subject: 'Re: Hello',
+    body: 'Follow-up',
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<msg-1@example.com>'],
+  });
+});
+
 test('send_email validates threading header argument types', async () => {
   const send = vi.fn();
   const handler = createSendEmailToolHandler(

@@ -46,15 +46,26 @@ function normalizeOptionalStringList(field, value) {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function resolveThreadReferences(inReplyTo, references) {
+  const normalized = references ? [...new Set(references)] : [];
+  if (normalized.length > 0) {
+    if (inReplyTo && !normalized.includes(inReplyTo)) {
+      normalized.push(inReplyTo);
+    }
+    return normalized;
+  }
+  return inReplyTo ? [inReplyTo] : undefined;
+}
+
 export function createSendEmailToolHandler(api, config, send) {
   return async (args, context) => {
     const to = requireEmailAddress('to', args.to);
     const cc = args.cc ? requireEmailAddress('cc', args.cc) : undefined;
     const bcc = args.bcc ? requireEmailAddress('bcc', args.bcc) : undefined;
     const inReplyTo = normalizeOptionalString('inReplyTo', args.inReplyTo);
-    const references = normalizeOptionalStringList(
-      'references',
-      args.references,
+    const references = resolveThreadReferences(
+      inReplyTo,
+      normalizeOptionalStringList('references', args.references),
     );
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
     const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
