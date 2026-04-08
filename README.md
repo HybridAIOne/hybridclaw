@@ -11,7 +11,8 @@
 
 <img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
 
-## All of the Claw, None of the Chaos - The enterprise operating layer for open agents.
+## All of the Claw, None of the Chaos
+### Your enterprise operating layer for open agents
 
 Self-hosted, controllable, and built for real business workflows.
 
@@ -21,12 +22,12 @@ HybridClaw is optimized for enterprise deployment:
 - controlled execution
 - shared knowledge
 - observability
-- repeatable workflows
+- repeatable enterprise workflows
 - local-first deployment
 
 ## HybridAI Platform Advantage
 
-HybridClaw is the runtime. HybridAI is the platform layer around it.
+HybridClaw is the runtime. HybridAI is the (optional) platform layer around it.
 
 HybridAI adds:
 
@@ -34,6 +35,8 @@ HybridAI adds:
 - enterprise shared RAG / knowledge
 - access to current models from Anthropic, OpenAI, Google, xAI, and others
 - observability across multiple agents
+- built-in email addresses for your agents
+- ready-to-run virtual coworkers
 
 ## Get running in 2 minutes
 
@@ -73,6 +76,7 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin`
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
+- or connect Whatsapp, Discord, MS Teams, Email
 
 ## How HybridClaw compares
 
@@ -100,8 +104,8 @@ Once the gateway is running, open HybridClaw locally:
 
 - encrypted secrets
 - approvals
-- audit trails
-- config versioning
+- audit trails with hash chain
+- config versioning and backup/rollback
 - observability
 
 ## Built for real workflows
@@ -115,7 +119,7 @@ Once the gateway is running, open HybridClaw locally:
 ## Built for rollout and migration
 
 - import from OpenClaw / Hermes
-- portable `.claw` packages
+- portable `.claw` packages with bundled knowledge and skills
 - local-first to cloud-ready path
 
 ## Architecture
