@@ -1385,6 +1385,9 @@ export function ChannelsPage() {
   const catalog = draft
     ? buildChannelCatalog(draft, {
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
+        emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
+        imessagePasswordConfigured:
+          statusQuery.data?.imessage?.passwordConfigured,
       })
     : [];
 

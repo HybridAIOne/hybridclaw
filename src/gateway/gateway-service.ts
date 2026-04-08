@@ -44,8 +44,8 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
-import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -188,6 +188,7 @@ import {
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
   readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -1623,24 +1624,28 @@ function normalizeGatewayAuthStatusProvider(
 function resolveRuntimeCredentialStatus(
   storedSecretName: string,
   envValues: Array<string | undefined>,
+  storedValue?: string,
 ): {
   value: string;
   source: 'env' | 'runtime-secrets' | null;
 } {
-  const storedValue = readStoredRuntimeSecret(storedSecretName);
+  const resolvedStoredValue =
+    typeof storedValue === 'string'
+      ? storedValue.trim()
+      : readStoredRuntimeSecret(storedSecretName);
   const envValue =
     envValues
       .map((value) => String(value || '').trim())
       .find((value) => value.length > 0) || '';
   const source = envValue
-    ? storedValue && envValue === storedValue
+    ? resolvedStoredValue && envValue === resolvedStoredValue
       ? 'runtime-secrets'
       : 'env'
-    : storedValue
+    : resolvedStoredValue
       ? 'runtime-secrets'
       : null;
   return {
-    value: envValue || storedValue || '',
+    value: envValue || resolvedStoredValue || '',
     source,
   };
 }
@@ -1649,10 +1654,12 @@ function resolveGatewayPasswordStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
   configValue: string;
+  storedValue?: string;
 }): NonNullable<GatewayStatus['email']> {
   const credential = resolveRuntimeCredentialStatus(
     params.storedSecretName,
     params.envValues,
+    params.storedValue,
   );
   if (credential.source) {
     return {
@@ -2519,6 +2526,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       getWhatsAppAuthStatus(),
     ]);
   const runtimeConfig = getRuntimeConfig();
+  const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2555,11 +2563,13 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     storedSecretName: 'EMAIL_PASSWORD',
     envValues: [process.env.EMAIL_PASSWORD],
     configValue: runtimeConfig.email.password,
+    storedValue: storedSecrets.EMAIL_PASSWORD,
   });
   const imessage = resolveGatewayPasswordStatus({
     storedSecretName: 'IMESSAGE_PASSWORD',
     envValues: [process.env.IMESSAGE_PASSWORD],
     configValue: runtimeConfig.imessage.password,
+    storedValue: storedSecrets.IMESSAGE_PASSWORD,
   });
   return {
     status: 'ok',

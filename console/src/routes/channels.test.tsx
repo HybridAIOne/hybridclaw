@@ -273,6 +273,95 @@ describe('ChannelsPage', () => {
     expect(whatsappButton.textContent || '').not.toContain('pairing');
   });
 
+  it('does not show email as active when the password is not configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        email: {
+          ...makeConfig().email,
+          password: '',
+        },
+      }),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const emailButton = await screen.findByRole('button', { name: /Email/i });
+    expect(emailButton.textContent || '').toContain('configured');
+    expect(emailButton.textContent || '').not.toContain('active');
+  });
+
+  it('does not show remote iMessage as active when the password is not configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        imessage: {
+          ...makeConfig().imessage,
+          enabled: true,
+          backend: 'bluebubbles',
+          serverUrl: 'https://bluebubbles.example.com',
+          webhookPath: '/api/imessage/webhook',
+        },
+      }),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      email: {
+        passwordConfigured: true,
+        passwordSource: 'config',
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const imessageButton = await screen.findByRole('button', {
+      name: /iMessage/i,
+    });
+    expect(imessageButton.textContent || '').toContain('available');
+    expect(imessageButton.textContent || '').not.toContain('active');
+  });
+
   it('shows partially set up iMessage as available instead of configured', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',

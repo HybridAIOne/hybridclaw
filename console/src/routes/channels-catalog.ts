@@ -17,6 +17,8 @@ export interface ChannelCatalogItem {
 
 interface ChannelCatalogOptions {
   whatsappLinked?: boolean;
+  emailPasswordConfigured?: boolean;
+  imessagePasswordConfigured?: boolean;
 }
 
 function countKeys(value: Record<string, unknown>): number {
@@ -103,9 +105,14 @@ function describeWhatsApp(
   };
 }
 
-function describeEmail(config: AdminConfig): ChannelCatalogItem {
+function describeEmail(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const passwordConfigured = options.emailPasswordConfigured === true;
   const active =
     config.email.enabled &&
+    passwordConfigured &&
     !!config.email.address &&
     !!config.email.imapHost &&
     !!config.email.smtpHost;
@@ -169,10 +176,15 @@ function describeMSTeams(config: AdminConfig): ChannelCatalogItem {
   };
 }
 
-function describeIMessage(config: AdminConfig): ChannelCatalogItem {
+function describeIMessage(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
   const isRemote = config.imessage.backend === 'bluebubbles';
+  const passwordConfigured = options.imessagePasswordConfigured === true;
   const active = isRemote
     ? config.imessage.enabled &&
+      passwordConfigured &&
       !!config.imessage.serverUrl &&
       !!config.imessage.webhookPath
     : config.imessage.enabled &&
@@ -207,9 +219,9 @@ export function buildChannelCatalog(
   return [
     describeDiscord(config),
     describeWhatsApp(config, options),
-    describeEmail(config),
+    describeEmail(config, options),
     describeMSTeams(config),
-    describeIMessage(config),
+    describeIMessage(config, options),
   ].sort((left, right) => {
     const scoreDelta = scoreStatus(right) - scoreStatus(left);
     return scoreDelta !== 0
