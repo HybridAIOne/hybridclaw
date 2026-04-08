@@ -1,3 +1,4 @@
+import { APPROVE_COMMAND_USAGE } from './approval-commands.js';
 import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
 
 export interface CanonicalTuiMenuPresentation {
@@ -15,6 +16,13 @@ export interface CanonicalTuiMenuEntryDefinition {
   depth?: number;
 }
 
+export type LocalSessionSurface = 'tui' | 'web';
+
+export interface LocalSessionSlashHelpEntry {
+  command: string;
+  description: string;
+}
+
 export interface CanonicalSlashCommandDefinition {
   name: string;
   description: string;
@@ -22,6 +30,7 @@ export interface CanonicalSlashCommandDefinition {
   tuiMenu?: CanonicalTuiMenuPresentation;
   tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
   tuiOnly?: boolean;
+  localSurfaces?: LocalSessionSurface[];
 }
 
 export type CanonicalSlashStringOptionDefinition = {
@@ -54,6 +63,13 @@ export interface CanonicalSlashInteractionInput {
 export interface PluginSlashCommandCatalogEntry {
   name: string;
   description?: string;
+}
+
+interface LocalSessionHelpPresentation {
+  command?: string;
+  description?: string;
+  surfaces?: LocalSessionSurface[];
+  commandBySurface?: Partial<Record<LocalSessionSurface, string>>;
 }
 
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
@@ -147,8 +163,110 @@ const CONCIERGE_PROFILE_CHOICES = [
   { name: 'no_hurry', value: 'no_hurry' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
+  string,
+  LocalSessionHelpPresentation
+> = {
+  agent: {
+    command: '/agent [info|list|switch|create|model] [id] [--model <model>]',
+    description: 'Inspect or manage agents',
+  },
+  approve: {
+    command: APPROVE_COMMAND_USAGE,
+    description: 'View/respond to pending approvals',
+  },
+  audit: {
+    command: '/audit [sessionId]',
+    description: 'Show recent structured audit events',
+  },
+  auth: {
+    command: '/auth status <provider>',
+    description: 'Show local provider auth and config status',
+  },
+  bot: {
+    command: '/bot [info|list|set <id|name>|clear]',
+    description: 'Manage the chatbot for this session',
+  },
+  concierge: {
+    command:
+      '/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]',
+    description: 'Configure concierge routing',
+  },
+  config: {
+    command: '/config [check|reload|set <key> <value>]',
+    description: 'Show or update local runtime config',
+  },
+  export: {
+    command: '/export session [sessionId] | /export trace [sessionId|all]',
+    description: 'Export session snapshot or trace JSONL',
+  },
+  fullauto: {
+    command: '/fullauto [status|off|on [prompt]|prompt]',
+    description: 'Enable or inspect session full-auto mode',
+  },
+  help: {
+    command: '/help',
+    description: 'Show this help',
+  },
+  info: {
+    command: '/info',
+    description: 'Show current settings',
+  },
+  mcp: {
+    command: '/mcp [list|add|toggle|remove|reconnect] [name] [json]',
+    description: 'Manage MCP servers',
+  },
+  model: {
+    command:
+      '/model [<name>|info|list [provider]|set <name>|clear|default [name]]',
+    description: 'Inspect or set session/default model',
+  },
+  plugin: {
+    command:
+      '/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]',
+    description: 'Manage installed plugins',
+  },
+  ralph: {
+    command: '/ralph [info|on|off|set n]',
+    description: 'Configure Ralph loop',
+  },
+  schedule: {
+    command: '/schedule add "<cron>" <prompt>',
+    description: 'Add a scheduled task',
+  },
+  secret: {
+    command: '/secret [list|set|show|unset|route]',
+    description: 'Manage stored secrets and URL auth routes',
+  },
+  skill: {
+    command:
+      '/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+    description: 'Manage skill config, health, runs, amendments, and imports',
+  },
+  usage: {
+    command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
+    description: 'Show usage',
+  },
+};
+
 function tokenizeFreeformText(value: string): string[] {
   return value.match(/"[^"]*"|\S+/g) ?? [];
+}
+
+function isAvailableOnLocalSurface(
+  definition: CanonicalSlashCommandDefinition,
+  surface: LocalSessionSurface,
+): boolean {
+  return (
+    !definition.localSurfaces || definition.localSurfaces.includes(surface)
+  );
+}
+
+function compareCommandLabels(left: string, right: string): number {
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
 }
 
 function normalizeStringOption(
@@ -1847,6 +1965,12 @@ function buildSlashCommandCatalogDefinitions(
       tuiOnly: true,
     },
     {
+      name: 'paste',
+      description: 'Attach a copied file or clipboard image',
+      tuiOnly: true,
+      localSurfaces: ['tui'],
+    },
+    {
       name: 'stop',
       description: 'Interrupt the current request and disable full-auto',
       tuiMenu: {
@@ -1861,6 +1985,7 @@ function buildSlashCommandCatalogDefinitions(
         aliases: ['quit', 'q'],
       },
       tuiOnly: true,
+      localSurfaces: ['tui'],
     },
   ];
 }
@@ -1890,6 +2015,35 @@ export function buildTuiSlashCommandDefinitions(
     known.add(name);
   }
   return definitions;
+}
+
+export function buildLocalSessionSlashHelpEntries(
+  surface: LocalSessionSurface,
+): LocalSessionSlashHelpEntry[] {
+  return buildTuiSlashCommandDefinitions([])
+    .flatMap((definition) => {
+      if (!isAvailableOnLocalSurface(definition, surface)) {
+        return [];
+      }
+      const presentation = LOCAL_SESSION_HELP_PRESENTATIONS[definition.name];
+      if (presentation?.surfaces && !presentation.surfaces.includes(surface)) {
+        return [];
+      }
+      return [
+        {
+          command:
+            presentation?.commandBySurface?.[surface] ??
+            presentation?.command ??
+            `/${definition.name}`,
+          description: presentation?.description ?? definition.description,
+        },
+      ];
+    })
+    .sort((left, right) => {
+      const commandCompare = compareCommandLabels(left.command, right.command);
+      if (commandCompare !== 0) return commandCompare;
+      return compareCommandLabels(left.description, right.description);
+    });
 }
 
 export function parseCanonicalSlashCommandArgs(

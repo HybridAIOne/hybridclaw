@@ -6,6 +6,7 @@ import {
   type CanonicalSlashStringOptionDefinition,
   type CanonicalSlashSubcommandOptionDefinition,
   type CanonicalTuiMenuEntryDefinition,
+  type LocalSessionSurface,
   type PluginSlashCommandCatalogEntry,
 } from './command-registry.js';
 import { renderTuiSlashMenuLines } from './tui-slash-menu-render.js';
@@ -289,6 +290,30 @@ function dedupeTuiSlashMenuEntries(
   return deduped;
 }
 
+function compareSlashMenuEntries(
+  left: TuiSlashMenuEntry,
+  right: TuiSlashMenuEntry,
+): number {
+  const labelCompare = left.label.localeCompare(right.label, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (labelCompare !== 0) return labelCompare;
+  const insertTextCompare = left.insertText.localeCompare(
+    right.insertText,
+    undefined,
+    {
+      numeric: true,
+      sensitivity: 'base',
+    },
+  );
+  if (insertTextCompare !== 0) return insertTextCompare;
+  return left.id.localeCompare(right.id, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
 function subsequenceScore(query: string, target: string): number | null {
   if (!query) return 0;
   if (!target) return null;
@@ -369,8 +394,15 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
 
 export function buildTuiSlashMenuEntries(
   pluginCommands: PluginSlashCommandCatalogEntry[] = [],
+  surface: LocalSessionSurface = 'tui',
 ): TuiSlashMenuEntry[] {
-  const definitions = buildTuiSlashCommandDefinitions([], pluginCommands);
+  const definitions = buildTuiSlashCommandDefinitions(
+    [],
+    pluginCommands,
+  ).filter(
+    (definition) =>
+      !definition.localSurfaces || definition.localSurfaces.includes(surface),
+  );
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 
@@ -418,7 +450,12 @@ export function buildTuiSlashMenuEntries(
     entries.push(...childEntries);
   }
 
-  return dedupeTuiSlashMenuEntries(entries);
+  return dedupeTuiSlashMenuEntries(entries)
+    .sort(compareSlashMenuEntries)
+    .map((entry, sortIndex) => ({
+      ...entry,
+      sortIndex,
+    }));
 }
 
 export function rankTuiSlashMenuEntries(

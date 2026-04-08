@@ -4048,13 +4048,22 @@ describe('gateway HTTP server', () => {
     expect(state.listLoadedPluginCommands).toHaveBeenCalledTimes(1);
     const body = JSON.parse(res.body);
     expect(body.commands.length).toBeGreaterThan(0);
+    expect(body.commands.map((cmd: { label: string }) => cmd.label)).toEqual(
+      [...body.commands.map((cmd: { label: string }) => cmd.label)].sort(
+        (left: string, right: string) =>
+          left.localeCompare(right, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          }),
+      ),
+    );
     expect(body.commands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'status',
-          label: '/status',
-          insertText: '/status',
-          description: 'Show HybridClaw runtime status (only visible to you)',
+          id: 'demo_status',
+          label: '/demo_status',
+          insertText: '/demo_status',
+          description: 'Run the demo plugin status command',
           depth: 1,
         }),
       ]),
