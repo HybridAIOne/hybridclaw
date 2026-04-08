@@ -6,10 +6,25 @@ import {
   runMempalaceCommandText,
 } from './mempalace-process.js';
 
+const MAX_SEARCH_QUERY_CHARS = 800;
+
 function truncateText(value, maxChars) {
   const normalized = String(value || '').trim();
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function normalizeSearchQuery(value) {
+  const normalized = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized.length < 3) return '';
+  if (normalized.length <= MAX_SEARCH_QUERY_CHARS) {
+    return normalized;
+  }
+  return `${normalized
+    .slice(0, Math.max(0, MAX_SEARCH_QUERY_CHARS - 1))
+    .trimEnd()}…`;
 }
 
 function getLatestUserQuery(recentMessages) {
@@ -29,8 +44,7 @@ function getLatestUserQuery(recentMessages) {
       latestMessage = message;
     }
   }
-  const content = String(latestMessage?.content || '').trim();
-  return content.length >= 3 ? content : '';
+  return normalizeSearchQuery(latestMessage?.content);
 }
 
 function buildSearchArgs(query, config) {
