@@ -4192,6 +4192,25 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 
+  it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
+    const {
+      cli,
+      ensureContainerImageReady,
+      ensureHostRuntimeReady,
+      runTui,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'host',
+      gatewayStatusSandboxMode: 'container',
+    });
+
+    await cli.main(['tui']);
+
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
   it('fails before starting tui when host runtime dependencies are missing', async () => {
     const startupError = new Error(
       'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
