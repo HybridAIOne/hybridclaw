@@ -44,7 +44,9 @@ async function readHiddenSecretFromTty(
 ): Promise<string> {
   ttyOutput.write(prompt);
   const previousRawMode = ttyInput.isRaw;
-  const wasPaused = ttyInput.isPaused();
+  // `isPaused()` can still report `false` before the stream has entered
+  // flowing mode, so key cleanup off the previous flowing state instead.
+  const previousFlowingState = ttyInput.readableFlowing;
   ttyInput.setRawMode(true);
   ttyInput.resume();
 
@@ -54,7 +56,7 @@ async function readHiddenSecretFromTty(
     const cleanup = () => {
       ttyInput.off('data', handleData);
       ttyInput.setRawMode(previousRawMode ?? false);
-      if (wasPaused) {
+      if (previousFlowingState !== true) {
         ttyInput.pause();
       }
       ttyOutput.write('\n');
