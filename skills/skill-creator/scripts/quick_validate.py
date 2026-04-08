@@ -24,7 +24,6 @@ MAX_DESCRIPTION_LENGTH = 1024
 ALLOWED_FRONTMATTER_KEYS = {
     "name",
     "description",
-    "category",
     "user-invocable",
     "disable-model-invocation",
     "always",
@@ -164,16 +163,6 @@ def validate_frontmatter(frontmatter: Dict[str, Any]) -> Tuple[List[str], List[s
             )
         if "[TODO" in trimmed:
             warnings.append("Description still contains TODO marker")
-
-    category = frontmatter.get("category")
-    if not isinstance(category, str) or not category.strip():
-        errors.append("Missing or invalid frontmatter field: category")
-    else:
-        normalized_category = category.strip()
-        if not re.match(r"^[a-z0-9-]+$", normalized_category):
-            errors.append(
-                f"Skill category '{normalized_category}' must be lowercase hyphen-case (a-z, 0-9, -)"
-            )
 
     return errors, warnings
 

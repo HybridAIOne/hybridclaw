@@ -237,7 +237,9 @@ npm run tui                          # tsx src/cli.ts tui
    ---
    name: my-skill
    description: One-line description
-   category: development
+   metadata:
+     hybridclaw:
+       category: development
    user-invocable: true  # optional, enables /<name> invocation
    ---
    ```

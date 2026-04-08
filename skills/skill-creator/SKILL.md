@@ -51,7 +51,7 @@ Target sizes:
 Required:
 
 - `SKILL.md`
-- YAML frontmatter with `name`, `description`, and a top-level `category`
+- YAML frontmatter with `name`, `description`, and `metadata.hybridclaw.category`
 
 Recommended:
 
@@ -69,7 +69,7 @@ Optional:
 Use this taxonomy to keep skills maintainable:
 
 - `SKILL.md`: trigger semantics, decision flow, command contract, minimal examples
-- Frontmatter `category`: short top-level bucket like `development`, `office`, `apple`, or `memory`
+- `metadata.hybridclaw.category`: short bucket like `development`, `office`, `apple`, or `memory`
 - `references/`: long docs, schemas, framework variants, advanced patterns
 - `scripts/`: executable deterministic helpers
 - `assets/`: output resources that should not be read into context by default

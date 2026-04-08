@@ -24,7 +24,9 @@ ALLOWED_RESOURCES = {"scripts", "references", "assets"}
 SKILL_TEMPLATE = """---
 name: {skill_name}
 description: "[TODO: Describe what this skill does and when to use it. Include concrete trigger phrases.]"
-category: "[TODO: Top category like development, office, apple, or memory.]"
+metadata:
+  hybridclaw:
+    category: "[TODO: Top category like development, office, apple, or memory.]"
 ---
 
 # {skill_title}
