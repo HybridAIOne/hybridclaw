@@ -4174,16 +4174,12 @@ describe('CLI hybridai commands', () => {
   });
 
   it('uses the reachable gateway sandbox mode for tui preflight', async () => {
-    const {
-      cli,
-      ensureContainerImageReady,
-      ensureHostRuntimeReady,
-      runTui,
-    } = await importFreshCli({
-      gatewayReachable: true,
-      sandboxMode: 'container',
-      gatewayStatusSandboxMode: 'host',
-    });
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'container',
+        gatewayStatusSandboxMode: 'host',
+      });
 
     await cli.main(['tui']);
 
@@ -4193,16 +4189,12 @@ describe('CLI hybridai commands', () => {
   });
 
   it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
-    const {
-      cli,
-      ensureContainerImageReady,
-      ensureHostRuntimeReady,
-      runTui,
-    } = await importFreshCli({
-      gatewayReachable: true,
-      sandboxMode: 'host',
-      gatewayStatusSandboxMode: 'container',
-    });
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'host',
+        gatewayStatusSandboxMode: 'container',
+      });
 
     await cli.main(['tui']);
 
