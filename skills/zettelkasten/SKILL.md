@@ -1,16 +1,17 @@
 ---
 name: zettelkasten
-description: A living idea garden with an active gardener. Capture, connect, and synthesize ideas using Zettelkasten principles but with an AI agent that actively tends the garden, surfaces surprising connections, challenges assumptions, and enriches seeds with research. Use when the user shares an idea, observation, or inspiration; when reviewing or connecting existing notes; when synthesizing patterns; or during heartbeats to tend the garden.
+description: Maintain a Luhmann-style Zettelkasten. Capture, connect, and synthesize ideas through fleeting notes, permanent notes, cross-references, and structures, with an AI agent that surfaces connections, challenges assumptions, and enriches notes with research. Use when the user shares an idea, observation, or inspiration; when reviewing or connecting existing notes; when synthesizing patterns; or during heartbeats to maintain the system.
+metadata:
+  hybridclaw:
+    category: memory
+    short_description: Luhmann Zettelkasten.
 ---
 
-# Zettelkasten - The Living Garden
+# Zettelkasten
 
-Not an archive. A garden with a gardener.
-
-Luhmann's Zettelkasten was brilliant but inert - it waited for him. Ours
-doesn't wait. The agent lives inside it: noticing connections, challenging
-ideas, enriching seeds with research, surfacing surprises. Less filing
-cabinet, more conversation partner with a memory.
+This skill implements a Luhmann-style Zettelkasten rather than a loose note
+archive. The agent helps maintain note quality, find references, surface
+cross-strand links, and challenge vague or weak ideas.
 
 ## Storage
 
@@ -23,8 +24,8 @@ All notes in `memory/zettelkasten/`:
 - `archive/` - Dormant ideas (never deleted - Luhmann's rule)
 - `INDEX.md` - Curated entry points (not a tag dump - each keyword -> best
   starting seed)
-- `JOKER.md` - Meta-note: how this specific garden works, its quirks, what's
-  growing
+- `JOKER.md` - Meta-note: how this specific Zettelkasten works, its quirks, and
+  its active strands
 
 ## Note Format
 
@@ -32,7 +33,7 @@ All notes in `memory/zettelkasten/`:
 # [Title]
 **ID:** YYYYMMDD-NNN
 **Date:** YYYY-MM-DD
-**Status:** 🌱 seed | 🌿 growing | 🌳 mature | 🔥 actionable | 💤 dormant
+**Status:** permanent | active | mature | actionable | dormant
 **Tags:** #tag1 #tag2
 **Source:** [where it came from]
 **Strand:** [parent ID if branching from another note]
@@ -47,7 +48,7 @@ All notes in `memory/zettelkasten/`:
 - **Near** (same strand): [[ID]] - [relationship]
 - **Far** (cross-strand): [[ID]] - [why these distant ideas connect]
 
-## Gardener's Notes
+## Agent Notes
 [Agent observations, challenges, enrichments added over time]
 ```
 
@@ -66,22 +67,21 @@ All notes in `memory/zettelkasten/`:
 - **Far (Fernverweis):** Cross-strand surprises. The magic ones. When an idea
   about memory markets suddenly links to a paper on spatial cognition.
 
-## The Alive Layer
+## Operational Layer
 
 What makes this different from every other Zettelkasten guide:
 
-### 1. Active Gardening (during heartbeats)
+### 1. Active Maintenance (during heartbeats)
 
-Don't just check - tend:
+Don't just check, maintain:
 
 - Re-read seeds >7 days old without connections. Try harder. Research if
   needed.
-- Notice contradictions between notes. Flag them - contradictions are where
-  ideas grow.
+- Notice contradictions between notes. Flag them.
 - Enrich seeds: if a raw idea mentioned a concept, look it up, add context to
-  Gardener's Notes.
+  Agent Notes.
 - Update `INDEX.md` when new clusters emerge.
-- Update `JOKER.md` with observations about the garden's shape.
+- Update `JOKER.md` with observations about the system's shape.
 
 ### 2. Surprise Delivery
 
@@ -92,8 +92,8 @@ these proactively.
 ### 3. Challenge & Provoke
 
 If a new seed contradicts an existing one, say so. If an idea is vague, push
-back. The garden grows through friction, not just collection. Add devil's
-advocate notes in Gardener's Notes.
+back. Friction matters more than passive accumulation. Add devil's advocate
+notes in Agent Notes.
 
 ### 4. Strand Awareness
 
@@ -101,14 +101,14 @@ Track argument threads across seeds. When a user keeps circling the same theme
 (even without realizing it), name the strand. "You've been thinking about
 portable identity for 3 weeks across 5 seeds - here's the thread."
 
-### 5. Seasonal Review
+### 5. Periodic Review
 
-Periodically (weekly during heartbeats), write a brief "garden report":
+Periodically (weekly during heartbeats), write a brief review report:
 
-- What's growing (active strands)
+- Active strands
 - What's dormant (seeds with no connections after 2+ weeks)
 - What surprised you (unexpected connections found)
-- What's ready to harvest (clusters mature enough to become structures)
+- Which clusters are mature enough to become structures
 
 ## Workflows
 
@@ -125,11 +125,11 @@ Periodically (weekly during heartbeats), write a brief "garden report":
 ### Process Inbox (during heartbeats or on request)
 
 1. Review `inbox/` items
-2. For each: rephrase in own words, decide if it's seed-worthy or discard
+2. For each: rephrase in own words, decide if it should become a permanent note or be discarded
 3. Promote to `seeds/` with proper format, or leave with a note on why it's
    not ready
 
-### Connect (active gardening)
+### Connect (active maintenance)
 
 1. Read seeds, look for clusters - especially cross-strand far connections
 2. Create connection note in `connections/` explaining the emergent pattern
@@ -141,7 +141,7 @@ Periodically (weekly during heartbeats), write a brief "garden report":
 1. Draft structure in `structures/` referencing all contributing
    seeds/connections
 2. Include framework, open questions, and next steps
-3. Present to user - this is harvest time
+3. Present the synthesis to the user
 
 ### Prune (on request only)
 

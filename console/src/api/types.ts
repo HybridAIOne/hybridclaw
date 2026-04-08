@@ -470,6 +470,8 @@ export interface AdminAuditResponse {
 export interface AdminSkill {
   name: string;
   description: string;
+  category: string;
+  shortDescription?: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -485,6 +487,23 @@ export interface AdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
   skills: AdminSkill[];
+}
+
+export interface AdminCreateSkillFile {
+  path: string;
+  content: string;
+}
+
+export interface AdminCreateSkillPayload {
+  name: string;
+  description: string;
+  category?: string;
+  shortDescription?: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  tags?: string[];
+  body: string;
+  files?: AdminCreateSkillFile[];
 }
 
 export interface AdminPlugin {

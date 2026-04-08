@@ -1,4 +1,5 @@
 import type { BaseMessageOptions } from 'discord.js';
+import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
@@ -144,6 +145,22 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayChatRequest {
   sessionId: GatewayChatRequestBody['sessionId'];
+  executionSessionId?: string;
+  executorModeOverride?: 'host' | 'container';
+  autoApproveTools?: boolean;
+  neverAutoApproveTools?: string[];
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  maxTokens?: number;
+  maxWallClockMs?: number | null;
+  inactivityTimeoutMs?: number | null;
+  bashProxy?:
+    | {
+        mode: 'docker-exec';
+        containerName: string;
+        cwd?: string;
+      }
+    | undefined;
   sessionMode?: GatewayChatRequestBody['sessionMode'];
   guildId: GatewayChatRequestBody['guildId'];
   channelId: GatewayChatRequestBody['channelId'];
@@ -155,6 +172,9 @@ export interface GatewayChatRequest {
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
+  promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -339,6 +359,7 @@ export interface GatewayStatus {
     mountAllowlistPath: string;
     additionalMountsConfigured: number;
     activeSessions: number;
+    activeSessionIds?: string[];
     warning: string | null;
   };
   observability?: {
@@ -683,6 +704,8 @@ export interface GatewayAdminAuditResponse {
 export interface GatewayAdminSkill {
   name: string;
   description: string;
+  category: string;
+  shortDescription?: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -772,5 +795,5 @@ export interface GatewayAdminToolsResponse {
 
 export function renderGatewayCommand(result: GatewayCommandResult): string {
   if (!result.title) return result.text;
-  return `${result.title}\n${result.text}`;
+  return `${result.title}\n\n${result.text}`;
 }

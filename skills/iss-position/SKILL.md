@@ -1,8 +1,11 @@
 ---
 name: iss-position
 description: Fetch the current ISS latitude and longitude from the WhereTheISS API and return standardized payloads.
+metadata:
+  hybridclaw:
+    category: misc
+    short_description: "Current ISS position."
 ---
-
 # ISS Position
 
 Fetch the ISS latitude and longitude with a deterministic Python script that matches this repository's existing `get_iss_position` tool behavior.

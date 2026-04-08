@@ -17,6 +17,8 @@ Use the CLI to install a plugin from a local directory or npm package:
 hybridclaw plugin list
 hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
+hybridclaw plugin install ./plugins/qmd-memory
+hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -61,6 +63,21 @@ Use `plugin config <plugin-id> [key] [value|--unset]` when you want to inspect
 or change one top-level `plugins.list[].config` key without editing
 `~/.hybridclaw/config.json` by hand.
 
+## Repo-Shipped Examples
+
+- `qmd-memory` injects external markdown retrieval context into prompts
+- `brevo-email` provides per-agent email addresses through a Brevo inbound
+  webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
+  `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,
+  `fromName`, `fromAddress`, and `agentHandles`
+
+Example config writes:
+
+```bash
+hybridclaw plugin config brevo-email domain agent.hybridai.one
+hybridclaw plugin config brevo-email fromName "HybridClaw Agent"
+```
+
 When a reply uses plugin-provided prompt context, the TUI shows a footer such
 as `🪼 plugins: qmd-memory`. For deeper verification, inspect
 `~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval appears under
@@ -102,6 +119,9 @@ from the repo working tree.
 
 - Use `/plugin list` first to separate discovery/config problems from retrieval
   problems.
+- For `brevo-email`, keep the required Brevo secrets in the encrypted runtime
+  store or declared plugin credentials instead of hardcoding them in tracked
+  config files.
 - If a plugin is enabled but appears unused, inspect
   `~/.hybridclaw/data/last_prompt.jsonl` rather than guessing. Prompt-injection
   plugins leave evidence there even when the final answer is poor.

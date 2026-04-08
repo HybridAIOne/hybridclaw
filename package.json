@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "repository": {
@@ -116,6 +116,7 @@
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.0",
     "@vitest/coverage-v8": "4.0.18",
+    "html-to-text": "9.0.5",
     "husky": "9.1.7",
     "tsx": "4.21.0",
     "typescript": "5.9.3",

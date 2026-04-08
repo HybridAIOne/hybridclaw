@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
@@ -10,7 +12,9 @@ import {
 import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
+  stopAllExecutions,
 } from '../agent/executor.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -34,6 +38,7 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { safeExtractZip } from '../agents/claw-security.js';
 import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
@@ -48,6 +53,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -92,6 +98,7 @@ import {
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
+  getRecentMessages,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -206,14 +213,8 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from '../skills/adaptive-skills-types.js';
-import { parseSkillImportArgs } from '../skills/skill-import-args.js';
-import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { loadSkillCatalog } from '../skills/skills.js';
+import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -314,6 +315,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -321,6 +323,7 @@ import {
   isSessionShowMode,
   normalizeSessionShowMode,
 } from './show-mode.js';
+import { handleSkillCommand } from './skill-commands.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -2056,6 +2059,7 @@ export function recordSuccessfulTurn(opts: {
   enableRag: boolean;
   model: string;
   channelId: string;
+  promptMode?: PromptMode;
   runId: string;
   turnIndex: number;
   userId: string;
@@ -2137,6 +2141,7 @@ export function recordSuccessfulTurn(opts: {
     enableRag: opts.enableRag,
     model: opts.model,
     channelId: opts.channelId,
+    promptMode: opts.promptMode,
   }).catch((err) => {
     logger.warn(
       { sessionId: opts.sessionId, err },
@@ -2283,81 +2288,6 @@ function formatHttpRequestAuthRule(
         : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
-}
-
-function formatRatioAsPercent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
-}
-
-function formatSkillHealthMetrics(metrics: SkillHealthMetrics): string {
-  const lines = [
-    `Skill: ${metrics.skill_name}`,
-    `Executions: ${metrics.total_executions}`,
-    `Success rate: ${formatRatioAsPercent(metrics.success_rate)}`,
-    `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-    `Positive feedback: ${metrics.positive_feedback_count}`,
-    `Negative feedback: ${metrics.negative_feedback_count}`,
-    `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
-  ];
-  if (metrics.degradation_reasons.length > 0) {
-    lines.push(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
-  }
-  if (metrics.error_clusters.length > 0) {
-    lines.push(
-      `Error clusters: ${metrics.error_clusters
-        .map((cluster) =>
-          cluster.sample_detail
-            ? `${cluster.category}=${cluster.count} (${cluster.sample_detail})`
-            : `${cluster.category}=${cluster.count}`,
-        )
-        .join('; ')}`,
-    );
-  }
-  return lines.join('\n');
-}
-
-function formatSkillAmendment(amendment: SkillAmendment): string {
-  const lines = [
-    `Version: ${amendment.version}`,
-    `Status: ${amendment.status}`,
-    `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
-    `Runs since apply: ${amendment.runs_since_apply}`,
-    `Created: ${amendment.created_at}`,
-  ];
-  if (amendment.reviewed_by) {
-    lines.push(`Reviewed by: ${amendment.reviewed_by}`);
-  }
-  if (amendment.rationale) {
-    lines.push(`Rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    lines.push(`Diff: ${amendment.diff_summary}`);
-  }
-  return lines.join('\n');
-}
-
-function formatSkillObservationRun(observation: SkillObservation): string {
-  const lines = [
-    `Run: ${observation.run_id}`,
-    `Outcome: ${observation.outcome}`,
-    `Observed: ${observation.created_at}`,
-    `Duration: ${observation.duration_ms}ms`,
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  ];
-  if (observation.feedback_sentiment) {
-    lines.push(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    lines.push(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    lines.push(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    lines.push(`Error detail: ${observation.error_detail}`);
-  }
-  return lines.join('\n');
 }
 
 function formatSessionModelOverride(model: string | null | undefined): string {
@@ -2887,13 +2817,13 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       );
     })
     .map((session) => ({
+      output: collectRecentAssistantOutputs(session.sessionId),
       sessionId: session.sessionId,
       agentId: session.agentId,
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
       lastAnswer: session.lastAnswer,
-      output: session.output,
     }));
 
   const agentIds = Array.from(
@@ -2913,6 +2843,26 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
     }),
     sessions,
   };
+}
+
+function collectRecentAssistantOutputs(
+  sessionId: string,
+  limit = 12,
+): string[] {
+  const outputs: string[] = [];
+  const seen = new Set<string>();
+  const messages = getRecentMessages(sessionId, limit);
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (String(message.role || '').toLowerCase() !== 'assistant') continue;
+    const content = String(message.content || '').trim();
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    outputs.unshift(content);
+  }
+
+  return outputs;
 }
 
 export function getGatewayAdminSessions(): GatewayAdminSession[] {
@@ -3445,6 +3395,8 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     skills: loadSkillCatalog().map((skill) => ({
       name: skill.name,
       description: skill.description,
+      category: skill.category,
+      shortDescription: skill.metadata.hybridclaw.shortDescription,
       source: String(skill.source),
       available: skill.available,
       enabled: skill.enabled,
@@ -3487,6 +3439,366 @@ export function setGatewayAdminSkillEnabled(input: {
   });
 
   return getGatewayAdminSkills();
+}
+
+function normalizeCreatedSkillCategory(raw: string | undefined): string {
+  const normalized = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'uncategorized';
+}
+
+function assertGatewayAdminSkillAllowed(
+  skillName: string,
+  skillPath: string,
+): void {
+  const guardDecision = guardSkillDirectory({
+    skillName,
+    skillPath,
+    sourceTag: 'workspace',
+  });
+  if (guardDecision.allowed) {
+    return;
+  }
+  throw new GatewayRequestError(
+    400,
+    `Skill \`${skillName}\` was blocked by the security scanner: ${guardDecision.reason}.`,
+  );
+}
+
+export function createGatewayAdminSkill(input: {
+  name: string;
+  description: string;
+  category?: string;
+  shortDescription?: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  tags?: string[];
+  body: string;
+  files?: Array<{ path: string; content: string }>;
+}): GatewayAdminSkillsResponse {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new GatewayRequestError(400, 'Expected non-empty skill `name`.');
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+    throw new GatewayRequestError(
+      400,
+      'Skill name must be lowercase alphanumeric with hyphens (e.g. "my-skill").',
+    );
+  }
+  if (name.length > 64) {
+    throw new GatewayRequestError(
+      400,
+      'Skill name must be 64 characters or fewer.',
+    );
+  }
+  const description = String(input.description || '').trim();
+  if (!description) {
+    throw new GatewayRequestError(
+      400,
+      'Expected non-empty skill `description`.',
+    );
+  }
+  const category = normalizeCreatedSkillCategory(input.category);
+  const shortDescription = String(input.shortDescription || '').trim();
+
+  const projectSkillsDir = path.join(process.cwd(), 'skills');
+  const skillDir = path.join(projectSkillsDir, name);
+
+  if (fs.existsSync(skillDir)) {
+    throw new GatewayRequestError(
+      409,
+      `Skill \`${name}\` already exists at ${skillDir}.`,
+    );
+  }
+
+  const userInvocable =
+    input.userInvocable !== undefined ? input.userInvocable : true;
+  const disableModelInvocation =
+    input.disableModelInvocation !== undefined
+      ? input.disableModelInvocation
+      : false;
+  const tags = Array.isArray(input.tags) ? input.tags : [];
+
+  const frontmatterLines = [
+    '---',
+    `name: ${name}`,
+    `description: ${JSON.stringify(description)}`,
+    `user-invocable: ${userInvocable}`,
+    `disable-model-invocation: ${disableModelInvocation}`,
+  ];
+  if (category || shortDescription || tags.length > 0) {
+    frontmatterLines.push('metadata:');
+    frontmatterLines.push('  hybridclaw:');
+    frontmatterLines.push(`    category: ${JSON.stringify(category)}`);
+    if (shortDescription) {
+      frontmatterLines.push(
+        `    short_description: ${JSON.stringify(shortDescription)}`,
+      );
+    }
+    if (tags.length > 0) {
+      frontmatterLines.push('    tags:');
+      for (const tag of tags) {
+        frontmatterLines.push(`      - ${JSON.stringify(String(tag))}`);
+      }
+    }
+  }
+  frontmatterLines.push('---');
+
+  const body = String(input.body || '').trim();
+  const content = `${frontmatterLines.join('\n')}\n\n${body}\n`;
+
+  // Validate all file paths before writing anything to disk
+  const files = Array.isArray(input.files) ? input.files : [];
+  const resolvedFiles: Array<{ relativePath: string; content: string }> = [];
+  for (const file of files) {
+    const filePath = String(file.path || '').trim();
+    if (!filePath) {
+      throw new GatewayRequestError(
+        400,
+        'Skill file paths must be non-empty and include a filename.',
+      );
+    }
+    if (filePath.endsWith('/') || filePath.endsWith(path.sep)) {
+      throw new GatewayRequestError(
+        400,
+        `File path \`${filePath}\` must include a filename.`,
+      );
+    }
+    const resolved = path.resolve(skillDir, filePath);
+    if (!resolved.startsWith(skillDir + path.sep)) {
+      throw new GatewayRequestError(
+        400,
+        `File path \`${filePath}\` escapes the skill directory.`,
+      );
+    }
+    resolvedFiles.push({
+      relativePath: path.relative(skillDir, resolved),
+      content: file.content || '',
+    });
+  }
+
+  // Stage outside skills/ so catalog scans never see partial skill directories.
+  fs.mkdirSync(projectSkillsDir, { recursive: true });
+  const stagedSkillDir = fs.mkdtempSync(
+    path.join(process.cwd(), `.${name}.create-`),
+  );
+  try {
+    fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
+    for (const file of resolvedFiles) {
+      const stagedFilePath = path.join(stagedSkillDir, file.relativePath);
+      fs.mkdirSync(path.dirname(stagedFilePath), { recursive: true });
+      fs.writeFileSync(stagedFilePath, file.content, 'utf-8');
+    }
+    assertGatewayAdminSkillAllowed(name, stagedSkillDir);
+    try {
+      fs.renameSync(stagedSkillDir, skillDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        code === 'EEXIST' ||
+        code === 'ENOTEMPTY' ||
+        fs.existsSync(skillDir)
+      ) {
+        throw new GatewayRequestError(
+          409,
+          `Skill \`${name}\` already exists at ${skillDir}.`,
+        );
+      }
+      throw error;
+    }
+  } catch (error) {
+    fs.rmSync(stagedSkillDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return getGatewayAdminSkills();
+}
+
+const SKILL_ZIP_MAX_BYTES = 10 * 1024 * 1024;
+const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+const SKILL_ZIP_MAX_FILES = 200;
+const SKILL_ZIP_IGNORED_TOP_LEVEL_FILES = new Set(['.DS_Store', 'Thumbs.db']);
+const SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES = new Set(['__MACOSX']);
+const SKILL_ZIP_SERVER_ERROR_CODES = new Set([
+  'EACCES',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENFILE',
+  'ENOENT',
+  'ENOSPC',
+  'EPERM',
+  'EROFS',
+]);
+
+function toSkillZipArchiveRequestError(error: unknown): GatewayRequestError {
+  if (error instanceof GatewayRequestError) {
+    return error;
+  }
+  const code =
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : '';
+  if (SKILL_ZIP_SERVER_ERROR_CODES.has(code)) {
+    throw error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new GatewayRequestError(
+    400,
+    message.startsWith('ZIP ')
+      ? message
+      : 'Uploaded file is not a valid skill ZIP archive.',
+  );
+}
+
+function isIgnoredSkillZipTopLevelEntry(entry: fs.Dirent): boolean {
+  return entry.isDirectory()
+    ? SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES.has(entry.name)
+    : SKILL_ZIP_IGNORED_TOP_LEVEL_FILES.has(entry.name);
+}
+
+function resolveUploadedSkillZipRoot(extractedDir: string): string {
+  if (fs.existsSync(path.join(extractedDir, 'SKILL.md'))) {
+    return extractedDir;
+  }
+
+  const topEntries = fs
+    .readdirSync(extractedDir, { withFileTypes: true })
+    .filter((entry) => !isIgnoredSkillZipTopLevelEntry(entry));
+
+  if (topEntries.length === 1 && topEntries[0].isDirectory()) {
+    return path.join(extractedDir, topEntries[0].name);
+  }
+
+  return extractedDir;
+}
+
+export async function uploadGatewayAdminSkillZip(
+  zipBuffer: Buffer,
+): Promise<GatewayAdminSkillsResponse> {
+  if (zipBuffer.length === 0) {
+    throw new GatewayRequestError(400, 'Uploaded file is empty.');
+  }
+  if (zipBuffer.length > SKILL_ZIP_MAX_BYTES) {
+    throw new GatewayRequestError(
+      413,
+      `Skill ZIP exceeds the ${SKILL_ZIP_MAX_BYTES} byte limit.`,
+    );
+  }
+
+  // Write buffer to a temp file for yauzl
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
+  const tmpZipPath = path.join(tmpDir, 'upload.zip');
+  const tmpExtractDir = path.join(tmpDir, 'extracted');
+  try {
+    fs.writeFileSync(tmpZipPath, zipBuffer);
+
+    // safeExtractZip handles structural security: symlinks, path traversal,
+    // encrypted entries, null bytes, absolute paths
+    try {
+      await safeExtractZip(tmpZipPath, tmpExtractDir);
+    } catch (error) {
+      throw toSkillZipArchiveRequestError(error);
+    }
+
+    // Enforce skill-specific size and file count limits (safeExtractZip's
+    // 512MB / 10k-entry budget is for CLAW archives — too generous here)
+    let totalBytes = 0;
+    let fileCount = 0;
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name));
+        } else {
+          fileCount += 1;
+          totalBytes += fs.statSync(path.join(dir, entry.name)).size;
+        }
+        if (fileCount > SKILL_ZIP_MAX_FILES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_FILES} file limit.`,
+          );
+        }
+        if (totalBytes > SKILL_ZIP_MAX_UNCOMPRESSED_BYTES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
+          );
+        }
+      }
+    };
+    walk(tmpExtractDir);
+
+    // ZIP may contain a top-level wrapper directory plus archive metadata
+    // such as __MACOSX/ or .DS_Store — ignore those when unwrapping.
+    const skillRoot = resolveUploadedSkillZipRoot(tmpExtractDir);
+
+    // Validate SKILL.md exists
+    const manifestPath = path.join(skillRoot, 'SKILL.md');
+    if (!fs.existsSync(manifestPath)) {
+      throw new GatewayRequestError(
+        400,
+        'ZIP archive does not contain a SKILL.md file at the root.',
+      );
+    }
+
+    // Extract skill name from frontmatter
+    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+    const nameMatch = manifestContent.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
+    const skillName = nameMatch
+      ? nameMatch[1].trim().replace(/^["']|["']$/g, '')
+      : '';
+    if (!skillName) {
+      throw new GatewayRequestError(
+        400,
+        'SKILL.md is missing a `name` field in its frontmatter.',
+      );
+    }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(skillName)) {
+      throw new GatewayRequestError(
+        400,
+        `Skill name "${skillName}" must be lowercase alphanumeric with hyphens.`,
+      );
+    }
+    if (skillName.length > 64) {
+      throw new GatewayRequestError(
+        400,
+        'Skill name must be 64 characters or fewer.',
+      );
+    }
+    assertGatewayAdminSkillAllowed(skillName, skillRoot);
+
+    const projectSkillsDir = path.join(process.cwd(), 'skills');
+    const targetDir = path.join(projectSkillsDir, skillName);
+    if (fs.existsSync(targetDir)) {
+      throw new GatewayRequestError(
+        409,
+        `Skill \`${skillName}\` already exists at ${targetDir}.`,
+      );
+    }
+
+    // Copy extracted skill to project skills directory (copy instead of
+    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
+    fs.mkdirSync(projectSkillsDir, { recursive: true });
+    fs.cpSync(skillRoot, targetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+
+    return getGatewayAdminSkills();
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 function resolveBootstrapAutostartChannelId(
@@ -5064,6 +5376,11 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
+            command: 'dream',
+            description: 'Run memory consolidation across agent workspaces now',
+            scope: 'slash',
+          },
+          {
             command: 'status',
             description:
               'Show runtime status (Discord slash command, private to caller)',
@@ -5091,8 +5408,9 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'sessions',
-            description: 'List active sessions',
+            command: 'sessions [active|clear-active]',
+            description:
+              'List chat sessions, inspect active sandbox sessions, or stop them all',
             scope: 'bare',
           },
           {
@@ -5182,6 +5500,11 @@ export async function handleGatewayCommand(
             command: 'schedule toggle <id>',
             description: 'Enable/disable a task',
             scope: 'bare',
+          },
+          {
+            command: 'eval [list|env|<suite>|<command...>]',
+            description: 'Local-only eval recipes and detached benchmark runs',
+            scope: 'both',
           },
         ];
         const help = helpEntries.flatMap(({ command, description, scope }) => {
@@ -6749,6 +7072,90 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'dream': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Dream Restricted',
+            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const currentConfig = getRuntimeConfig();
+        const currentIntervalHours = Math.max(
+          0,
+          Math.trunc(currentConfig.memory.consolidationIntervalHours),
+        );
+        const formatDreamStatus = (): string =>
+          [
+            `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
+            currentIntervalHours > 0
+              ? 'Cadence: nightly, with startup catch-up if a run was missed'
+              : 'Cadence: off',
+            `Decay rate: ${currentConfig.memory.decayRate}`,
+          ].join('\n');
+
+        if (!sub || sub === 'status' || sub === 'info' || sub === 'help') {
+          return infoCommand(
+            'Dream Status',
+            [formatDreamStatus(), '', 'Usage: `dream on|off|now`'].join('\n'),
+          );
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          if (currentIntervalHours > 0) {
+            return plainCommand(
+              'Dream scheduling already enabled. Consolidation runs nightly and catches up after downtime.',
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 24;
+          });
+          return plainCommand(
+            'Dream scheduling enabled. Memory consolidation will run nightly and catch up on the next startup if a run was missed.',
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          if (currentIntervalHours <= 0) {
+            return plainCommand('Dream scheduling already disabled.');
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 0;
+          });
+          return plainCommand('Dream scheduling disabled.');
+        }
+
+        if (sub !== 'now' && sub !== 'run') {
+          return badCommand('Usage', 'Usage: `dream on|off|now`');
+        }
+
+        try {
+          const report = await runMemoryConsolidation({
+            trigger: 'manual',
+          });
+          if (!report) {
+            return plainCommand('Memory consolidation already running.');
+          }
+          return infoCommand(
+            'Memory Consolidated',
+            [
+              `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
+              `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
+              `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Model cleanups: ${formatCompactNumber(report.modelCleanups)}`,
+              `Fallbacks used: ${formatCompactNumber(report.fallbacksUsed)}`,
+              `Duration: ${formatDurationMs(report.durationMs)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          return badCommand(
+            'Memory Consolidation Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
       case 'status': {
         const status = await getGatewayStatus();
         const delegationStatus = delegationQueueStatus();
@@ -6785,6 +7192,7 @@ export async function handleGatewayCommand(
               ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
           ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
@@ -6799,6 +7207,11 @@ export async function handleGatewayCommand(
             : '🗄️ Cache: n/a (provider did not report cache stats)',
           `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
+          ...(activeSandboxSessionIds.length > 0
+            ? [
+                `🧱 Sandbox sessions: ${activeSandboxSessionIds.slice(0, 5).join(', ')}${activeSandboxSessionIds.length > 5 ? ` (+${activeSandboxSessionIds.length - 5} more)` : ''}`,
+              ]
+            : []),
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
@@ -6810,6 +7223,39 @@ export async function handleGatewayCommand(
       }
 
       case 'sessions': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (sub === 'active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions.');
+          }
+          return infoCommand(
+            'Active Sandbox Sessions',
+            [`Count: ${activeSessionIds.length}`, ...activeSessionIds].join(
+              '\n',
+            ),
+          );
+        }
+        if (sub === 'clear-active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions to stop.');
+          }
+          stopAllExecutions();
+          return infoCommand(
+            'Stopped Sandbox Sessions',
+            [
+              `Stopped ${activeSessionIds.length} active sandbox session${activeSessionIds.length === 1 ? '' : 's'}.`,
+              ...activeSessionIds,
+            ].join('\n'),
+          );
+        }
+        if (sub) {
+          return badCommand(
+            'Usage',
+            'Usage: `sessions`, `sessions active`, or `sessions clear-active`',
+          );
+        }
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
         const visibleSessions = sessions.slice(0, 20);
@@ -6825,7 +7271,20 @@ export async function handleGatewayCommand(
             return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
           })
           .join('\n');
-        return infoCommand('Sessions', list);
+        const activeSessionIds = getActiveExecutorSessionIds();
+        return infoCommand(
+          'Sessions',
+          [
+            ...(activeSessionIds.length > 0
+              ? [
+                  `Active sandbox sessions: ${activeSessionIds.length}`,
+                  'Use `sessions active` to inspect or `sessions clear-active` to stop them.',
+                  '',
+                ]
+              : []),
+            list,
+          ].join('\n'),
+        );
       }
 
       case 'usage': {
@@ -7038,284 +7497,13 @@ export async function handleGatewayCommand(
       }
 
       case 'skill': {
-        const sub = (req.args[1] || '').trim().toLowerCase();
-        if (!sub) {
-          return badCommand(
-            'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
-          );
-        }
-
-        if (sub === 'list') {
-          const catalog = loadSkillCatalog();
-          if (catalog.length === 0) {
-            return plainCommand('No skills are available.');
-          }
-          const lines = catalog.map((skill) => {
-            const availability = skill.available
-              ? skill.enabled
-                ? 'available'
-                : 'disabled'
-              : skill.missing.join(', ');
-            const description = skill.description
-              ? ` — ${skill.description}`
-              : '';
-            return `${skill.name} [${availability}]${description}`;
-          });
-          return infoCommand('Skills', lines.join('\n'));
-        }
-
-        if (sub === 'inspect') {
-          const inspectionModule = await import(
-            '../skills/skills-inspection.js'
-          );
-          const target = String(req.args[2] || '').trim();
-          if (!target) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill inspect <name>` or `skill inspect --all`',
-            );
-          }
-          if (target === '--all' || target.toLowerCase() === 'all') {
-            const metricsList = inspectionModule.inspectAllSkills();
-            if (metricsList.length === 0) {
-              return plainCommand(
-                'No observed skills found in the current inspection window.',
-              );
-            }
-            return infoCommand(
-              'Skill Health',
-              metricsList.map(formatSkillHealthMetrics).join('\n\n'),
-            );
-          }
-
-          const metrics = inspectionModule.inspectSkill(target);
-          if (metrics.total_executions === 0) {
-            return plainCommand(`No observations found for \`${target}\`.`);
-          }
-          return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
-        }
-
-        if (sub === 'learn') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill learn <name> [--apply|--reject|--rollback]`',
-            );
-          }
-
-          const actions = new Set(
-            req.args
-              .slice(3)
-              .map((entry) =>
-                String(entry || '')
-                  .trim()
-                  .toLowerCase(),
-              )
-              .filter(Boolean),
-          );
-          const hasApply = actions.has('--apply') || actions.has('apply');
-          const hasReject = actions.has('--reject') || actions.has('reject');
-          const hasRollback =
-            actions.has('--rollback') || actions.has('rollback');
-          const selectedActions = [hasApply, hasReject, hasRollback].filter(
-            Boolean,
-          ).length;
-          if (selectedActions > 1) {
-            return badCommand(
-              'Usage',
-              'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
-            );
-          }
-
-          const dbModule = await import('../memory/db.js');
-          const amendmentModule = await import('../skills/skills-amendment.js');
-          const evaluationModule = await import(
-            '../skills/skills-evaluation.js'
-          );
-          const inspectionModule = await import(
-            '../skills/skills-inspection.js'
-          );
-
-          if (hasApply) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'staged',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No staged amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = await amendmentModule.applyAmendment({
-              amendmentId: amendment.id,
-              reviewedBy: 'gateway-command',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Apply Failed',
-                result.reason || 'Failed to apply amendment.',
-              );
-            }
-            return plainCommand(
-              `Applied staged amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          if (hasReject) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'staged',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No staged amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = amendmentModule.rejectAmendment({
-              amendmentId: amendment.id,
-              reviewedBy: 'gateway-command',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Reject Failed',
-                result.reason || 'Failed to reject amendment.',
-              );
-            }
-            return plainCommand(
-              `Rejected staged amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          if (hasRollback) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'applied',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No applied amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = await evaluationModule.rollbackAmendment({
-              amendmentId: amendment.id,
-              reason: 'Rollback requested via gateway command.',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Rollback Failed',
-                result.reason || 'Failed to roll back amendment.',
-              );
-            }
-            return plainCommand(
-              `Rolled back amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          const metrics = inspectionModule.inspectSkill(skillName);
-          if (metrics.total_executions === 0) {
-            return plainCommand(
-              `No observations found for \`${skillName}\`; run the skill first before proposing an amendment.`,
-            );
-          }
-          const amendment = await amendmentModule.proposeAmendment({
-            skillName,
-            metrics,
-            agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
-          });
-          return infoCommand(
-            `Skill Amendment (${skillName})`,
-            formatSkillAmendment(amendment),
-          );
-        }
-
-        if (sub === 'history') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand('Usage', 'Usage: `skill history <name>`');
-          }
-          const dbModule = await import('../memory/db.js');
-          const history = dbModule.getAmendmentHistory(skillName);
-          if (history.length === 0) {
-            return plainCommand(
-              `No amendment history found for \`${skillName}\`.`,
-            );
-          }
-          return infoCommand(
-            `Skill History (${skillName})`,
-            history.map(formatSkillAmendment).join('\n\n'),
-          );
-        }
-
-        if (sub === 'runs') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand('Usage', 'Usage: `skill runs <name>`');
-          }
-          const { getSkillExecutionRuns } = await import(
-            '../skills/skills-management.js'
-          );
-          const runs = getSkillExecutionRuns(skillName);
-          if (runs.length === 0) {
-            return plainCommand(`No observations found for \`${skillName}\`.`);
-          }
-          return infoCommand(
-            `Skill Runs (${skillName})`,
-            runs.map(formatSkillObservationRun).join('\n\n'),
-          );
-        }
-
-        if (sub === 'import') {
-          const { source, force, skipSkillScan } = parseSkillImportArgs(
-            req.args.slice(2),
-            {
-              commandPrefix: 'skill',
-              commandName: 'import',
-              allowForce: true,
-            },
-          );
-
-          const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, {
-            force,
-            skipGuard: skipSkillScan,
-          });
-          const lines = [
-            ...buildGuardWarningLines(result),
-            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
-            `Installed to ${result.skillDir}`,
-          ];
-          return infoCommand('Skill Import', lines.join('\n'));
-        }
-
-        if (sub === 'sync') {
-          const { source, skipSkillScan } = parseSkillImportArgs(
-            req.args.slice(2),
-            {
-              commandPrefix: 'skill',
-              commandName: 'sync',
-              allowForce: false,
-            },
-          );
-
-          const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, {
-            force: true,
-            skipGuard: skipSkillScan,
-          });
-          const lines = [
-            ...buildGuardWarningLines(result),
-            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
-            `Installed to ${result.skillDir}`,
-          ];
-          return infoCommand('Skill Sync', lines.join('\n'));
-        }
-
-        return badCommand(
-          'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
-        );
+        return await handleSkillCommand({
+          args: req.args,
+          sessionAgentId: resolveSessionAgentId(session),
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+        });
       }
 
       case 'schedule': {
@@ -7452,6 +7640,28 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      }
+
+      case 'eval': {
+        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
+        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
+          return badCommand(
+            'Eval Restricted',
+            'The `eval` command is only available from local TUI, web, or CLI sessions.',
+          );
+        }
+
+        const evalModule = await import('../evals/eval-command.js');
+        const runtime = resolveAgentForRequest({ session });
+        return evalModule.handleEvalCommand({
+          args: req.args.slice(1),
+          channelId: req.channelId,
+          dataDir: DATA_DIR,
+          gatewayBaseUrl: GATEWAY_BASE_URL,
+          webApiToken: WEB_API_TOKEN,
+          effectiveAgentId: runtime.agentId,
+          effectiveModel: runtime.model,
+        });
       }
 
       default: {

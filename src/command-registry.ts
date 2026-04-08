@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'dream',
   'secret',
   'concierge',
   'rag',
@@ -73,6 +74,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
+  'eval',
   'channel',
   'ralph',
   'mcp',
@@ -360,6 +362,15 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
+    case 'dream': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['dream'];
+      if (sub === 'on' || sub === 'off' || sub === 'now' || sub === 'status') {
+        return ['dream', sub];
+      }
+      return ['dream', ...parts.slice(1)];
+    }
+
     case 'compact':
       return ['compact'];
 
@@ -388,6 +399,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
+
+    case 'eval':
+      return ['eval', ...parts.slice(1)];
 
     case 'stop':
     case 'abort':
@@ -509,6 +523,48 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'dream',
+      description: 'Control nightly memory consolidation and run it on demand',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'dream.now',
+          label: '/dream now',
+          insertText: '/dream now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          id: 'dream.on',
+          label: '/dream on',
+          insertText: '/dream on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          id: 'dream.off',
+          label: '/dream off',
+          insertText: '/dream off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
     },
     {
       name: 'channel-mode',
@@ -1389,7 +1445,7 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'sessions',
-      description: 'List active sessions',
+      description: 'List chat sessions or inspect active sandbox sessions',
     },
     {
       name: 'audit',
@@ -1450,6 +1506,127 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
+        },
+      ],
+    },
+    {
+      name: 'eval',
+      description:
+        'Local eval recipes and detached benchmark runs via the OpenAI-compatible gateway',
+      tuiOnly: true,
+      tuiMenu: {
+        label: '/eval [list|env|<suite>|<command...>]',
+        insertText: '/eval ',
+      },
+      tuiMenuEntries: [
+        {
+          id: 'eval.list',
+          label: '/eval list',
+          insertText: '/eval list',
+          description: 'List supported eval suites and starter recipes',
+        },
+        {
+          id: 'eval.env',
+          label: '/eval env',
+          insertText: '/eval env',
+          description:
+            'Show the injected OpenAI-compatible base URL and model without exposing tokens',
+        },
+        {
+          id: 'eval.swebench-verified',
+          label: '/eval swebench-verified',
+          insertText: '/eval swebench-verified',
+          description: 'Stub entry for a planned SWE-bench Verified runner',
+        },
+        {
+          id: 'eval.terminal-bench-2.0',
+          label: '/eval terminal-bench-2.0',
+          insertText: '/eval terminal-bench-2.0',
+          description: 'Show the Terminal-Bench 2.0 starter recipe',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.setup',
+          label: '/eval terminal-bench-2.0 setup',
+          insertText: '/eval terminal-bench-2.0 setup',
+          description:
+            'Install the native Terminal-Bench dataset helper into the local eval workspace',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.run',
+          label: '/eval terminal-bench-2.0 run --num-tasks 10',
+          insertText: '/eval terminal-bench-2.0 run --num-tasks 10',
+          description:
+            'Run 10 Terminal-Bench tasks through the native HybridClaw harness',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.results',
+          label: '/eval terminal-bench-2.0 results',
+          insertText: '/eval terminal-bench-2.0 results',
+          description: 'Show the latest Terminal-Bench summary and score',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.logs',
+          label: '/eval terminal-bench-2.0 logs',
+          insertText: '/eval terminal-bench-2.0 logs',
+          description:
+            'Show tailed stdout/stderr for the latest Terminal-Bench job',
+        },
+        {
+          id: 'eval.tau2',
+          label: '/eval tau2',
+          insertText: '/eval tau2',
+          description: 'Show managed tau2 eval commands',
+        },
+        {
+          id: 'eval.tau2.setup',
+          label: '/eval tau2 setup',
+          insertText: '/eval tau2 setup',
+          description: 'Clone and install tau2 into the local eval workspace',
+        },
+        {
+          id: 'eval.tau2.run',
+          label:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          insertText:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          description:
+            'Run a 10-task telecom tau2 sample with default eval models',
+        },
+        {
+          id: 'eval.tau2.status',
+          label: '/eval tau2 status',
+          insertText: '/eval tau2 status',
+          description: 'Show tau2 install state and latest managed run',
+        },
+        {
+          id: 'eval.tau2.results',
+          label: '/eval tau2 results',
+          insertText: '/eval tau2 results',
+          description: 'Show the latest tau2 run log tail and result paths',
+        },
+        {
+          id: 'eval.agentbench',
+          label: '/eval agentbench',
+          insertText: '/eval agentbench',
+          description: 'Stub entry for a planned AgentBench runner',
+        },
+        {
+          id: 'eval.gaia',
+          label: '/eval gaia',
+          insertText: '/eval gaia',
+          description: 'Stub entry for a planned GAIA runner',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'target',
+          description: 'list, env, run, or a supported eval suite',
+        },
+        {
+          kind: 'string',
+          name: 'args',
+          description: 'Optional shell command tail for `run`',
         },
       ],
     },
@@ -1790,6 +1967,14 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'dream': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'now' || subcommand === 'on' || subcommand === 'off') {
+        return ['dream', subcommand];
+      }
+      return subcommand ? null : ['dream'];
+    }
 
     case 'channel-mode': {
       const mode = normalizeStringOption(interaction, 'mode', true);

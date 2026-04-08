@@ -4,6 +4,8 @@ description: Investigate Stripe customers, subscriptions, payments, webhooks, da
 user-invocable: true
 metadata:
   hybridclaw:
+    category: business
+    short_description: "Stripe customer and payment ops."
     tags:
       - stripe
       - payments
@@ -14,7 +16,6 @@ metadata:
       - feature-planning
       - code-review
 ---
-
 # Stripe
 
 Use this skill for Stripe Dashboard, Stripe API, Stripe CLI, and

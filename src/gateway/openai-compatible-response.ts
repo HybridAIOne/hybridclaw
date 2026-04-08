@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http';
+import type { ToolCall } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
 
 function sendJson(
@@ -77,7 +78,9 @@ export function buildOpenAICompatibleCompletionResponse(params: {
   completionId: string;
   created: number;
   model: string;
-  content: string;
+  content: string | null;
+  toolCalls?: ToolCall[];
+  finishReason?: string;
   tokenUsage?: TokenUsageStats;
 }): Record<string, unknown> {
   return {
@@ -91,8 +94,15 @@ export function buildOpenAICompatibleCompletionResponse(params: {
         message: {
           role: 'assistant',
           content: params.content,
+          ...(params.toolCalls && params.toolCalls.length > 0
+            ? { tool_calls: params.toolCalls }
+            : {}),
         },
-        finish_reason: 'stop',
+        finish_reason:
+          params.finishReason ||
+          (params.toolCalls && params.toolCalls.length > 0
+            ? 'tool_calls'
+            : 'stop'),
       },
     ],
     usage: mapOpenAICompatibleUsage(params.tokenUsage),
@@ -157,6 +167,7 @@ export function buildOpenAICompatibleStreamStopChunk(params: {
   completionId: string;
   created: number;
   model: string;
+  finishReason?: string;
 }): Record<string, unknown> {
   return {
     id: params.completionId,
@@ -167,7 +178,38 @@ export function buildOpenAICompatibleStreamStopChunk(params: {
       {
         index: 0,
         delta: {},
-        finish_reason: 'stop',
+        finish_reason: params.finishReason || 'stop',
+      },
+    ],
+  };
+}
+
+export function buildOpenAICompatibleStreamToolCallsChunk(params: {
+  completionId: string;
+  created: number;
+  model: string;
+  toolCalls: ToolCall[];
+}): Record<string, unknown> {
+  return {
+    id: params.completionId,
+    object: 'chat.completion.chunk',
+    created: params.created,
+    model: params.model,
+    choices: [
+      {
+        index: 0,
+        delta: {
+          tool_calls: params.toolCalls.map((toolCall, index) => ({
+            index,
+            id: toolCall.id,
+            type: toolCall.type,
+            function: {
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments,
+            },
+          })),
+        },
+        finish_reason: null,
       },
     ],
   };

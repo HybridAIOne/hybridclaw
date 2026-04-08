@@ -4,6 +4,8 @@ description: Use Sokosumi with API-key auth, direct agent hires, coworker tasks,
 user-invocable: true
 metadata:
   hybridclaw:
+    category: agents
+    short_description: "Sokosumi API workflow."
     tags:
       - sokosumi
       - marketplace
@@ -14,7 +16,6 @@ metadata:
       - project-manager
       - feature-planning
 ---
-
 # Sokosumi
 
 Use this skill to operate Sokosumi from non-interactive agentic environments.

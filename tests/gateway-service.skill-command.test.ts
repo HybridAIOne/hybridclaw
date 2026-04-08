@@ -18,7 +18,109 @@ afterEach(() => {
   context?.cleanup();
   context = null;
   vi.doUnmock('../src/skills/skills-import.js');
+  vi.doUnmock('../src/skills/skills.js');
   vi.resetModules();
+});
+
+test('skill list groups skills by category in the gateway command output', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'apple-music',
+        description:
+          'Control Apple Music playback with a deliberately long description that should be truncated in the skill list output.',
+        category: 'apple',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Play music on Apple Music.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/apple-music/SKILL.md',
+        baseDir: '/tmp/apple-music',
+        source: 'bundled',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+      {
+        name: 'obsidian',
+        description: 'Read and organize notes.',
+        category: 'memory',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Read and organize notes.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/obsidian/SKILL.md',
+        baseDir: '/tmp/obsidian',
+        source: 'codex',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
+      {
+        name: 'pdf',
+        description: 'Extract text from PDFs.',
+        category: 'office',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Extract text from PDFs.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/pdf/SKILL.md',
+        baseDir: '/tmp/pdf',
+        source: 'bundled',
+        available: false,
+        enabled: true,
+        missing: ['bin:node'],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: context.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'list'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skills');
+  expect(result.text).toContain('Apple:\n  apple-music [available]');
+  expect(result.text).toContain('Play music on Apple Music.');
+  expect(result.text).not.toContain('deliberately long description');
+  expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
+  expect(result.text).toContain('Office:\n  pdf [bin:node]');
+  expect(result.text).toContain('* foreign skill source');
 });
 
 test('skill inspect command reports observed skill health', async () => {

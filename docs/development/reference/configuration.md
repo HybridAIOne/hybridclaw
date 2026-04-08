@@ -29,6 +29,8 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
 - `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
+- `~/.hybridclaw/data/memory-consolidation-state.json` for the last successful
+  dream-consolidation timestamp
 - `~/.hybridclaw/data/browser-profiles/` for shared browser login state
 - `~/.hybridclaw/data/agents/` for agent workspaces, session files, and related
   runtime state
@@ -83,6 +85,10 @@ leak into the saved revision metadata.
   `per-channel-peer` mode keeps DMs isolated by transport and peer identity,
   while `per-linked-identity` plus `sessionRouting.identityLinks` collapses
   verified aliases onto one shared main session
+- `memory.decayRate`, `memory.consolidationIntervalHours`, and
+  `memory.consolidationLanguage` for nightly "dream" consolidation and cleanup;
+  `0` disables scheduled runs, `24` matches `dream on`, and `dream now`
+  triggers an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
 - `skills.disabled` and `skills.channelDisabled.*` for skill availability

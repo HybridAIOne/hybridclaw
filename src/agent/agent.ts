@@ -50,7 +50,9 @@ export async function runAgent(
   const media = params.media;
   const allowedTools = params.allowedTools;
   const blockedTools = mergeBlockedToolNames({ explicit: params.blockedTools });
-  const workspaceRoot = getExecutor().getWorkspacePath(agentId);
+  const executor = getExecutor(params.executorModeOverride);
+  const workspaceRoot =
+    params.workspacePathOverride || executor.getWorkspacePath(agentId);
   const preparedMessages = await injectPdfContextMessages({
     sessionId,
     messages: params.messages,
@@ -66,13 +68,20 @@ export async function runAgent(
     allowedTools,
     blockedTools,
   );
-  return getExecutor().exec({
+  return executor.exec({
     ...params,
     sessionId,
     messages: preparedMessages,
     chatbotId,
     model,
     agentId,
+    workspacePathOverride: params.workspacePathOverride,
+    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+    skipContainerSystemPrompt: params.skipContainerSystemPrompt,
+    maxTokens: params.maxTokens,
+    maxWallClockMs: params.maxWallClockMs,
+    inactivityTimeoutMs: params.inactivityTimeoutMs,
+    bashProxy: params.bashProxy,
     channelId,
     media,
     blockedTools,

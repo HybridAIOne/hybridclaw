@@ -72,7 +72,7 @@ describe('runUpdateCommand', () => {
       if (command === 'npm' && args[0] === 'view') {
         return {
           status: 0,
-          stdout: '0.11.0\n',
+          stdout: '0.12.0\n',
           stderr: '',
         };
       }

@@ -11,10 +11,14 @@ afterEach(() => {
 });
 
 test('registers plugin as a slash/text command', async () => {
-  const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
-    await importCommandRegistry();
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+  } = await importCommandRegistry();
   expect(isRegisteredTextCommandName('plugin')).toBe(true);
   expect(isRegisteredTextCommandName('concierge')).toBe(true);
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
     expect.arrayContaining([
@@ -77,6 +81,32 @@ test('registers plugin as a slash/text command', async () => {
           expect.objectContaining({
             kind: 'subcommand',
             name: 'uninstall',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'dream',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'now',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'on',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'off',
           }),
         ]),
       }),
@@ -209,6 +239,40 @@ test('registers auth as a local slash/text command', async () => {
   expect(
     mapCanonicalCommandToGatewayArgs(['auth', 'status', 'hybridai']),
   ).toEqual(['auth', 'status', 'hybridai']);
+});
+
+test('registers eval as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('eval')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'eval',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'eval',
+        tuiMenuEntries: expect.arrayContaining([
+          expect.objectContaining({
+            label: '/eval list',
+          }),
+          expect.objectContaining({
+            label: '/eval swebench-verified',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(mapCanonicalCommandToGatewayArgs(['eval', 'gaia'])).toEqual([
+    'eval',
+    'gaia',
+  ]);
 });
 
 test('registers config as a local slash/text command', async () => {
@@ -384,6 +448,48 @@ test('parses /plugin reload into gateway args', async () => {
       getSubcommand: () => 'reload',
     }),
   ).toEqual(['plugin', 'reload']);
+});
+
+test('registers dream as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(
+    buildTuiSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'dream',
+      getString: () => null,
+      getSubcommand: () => 'now',
+    }),
+  ).toEqual(['dream', 'now']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream'])).toEqual(['dream']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'on'])).toEqual([
+    'dream',
+    'on',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'off'])).toEqual([
+    'dream',
+    'off',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'now'])).toEqual([
+    'dream',
+    'now',
+  ]);
 });
 
 test('maps bot clear and bot auto to the clear gateway command', async () => {

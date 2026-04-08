@@ -1,9 +1,11 @@
 ---
 name: datalion
-description: Use this skill when the user wants DataLion workflows such as listing, reading, creating, or editing projects, inspecting data sources, importing Excel or CSV data, working with reports and report tabs and codebooks, reading chart tables, or coordinating dashboard and export work through a configured datalion MCP server and related API or UI paths.
+description: Use for DataLion workflows such as listing, reading, creating, or editing projects, inspecting data sources, importing Excel or CSV data, working with reports and report tabs and codebooks, reading chart tables, or coordinating dashboard and export work through a configured datalion MCP server and related API or UI paths.
 user-invocable: true
 metadata:
   hybridclaw:
+    short_description: Datalion analytics workflows.
+    category: business
     tags:
       - datalion
       - analytics

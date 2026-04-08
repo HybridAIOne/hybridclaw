@@ -141,4 +141,45 @@ describe.sequential('container glob tool', () => {
     expect(result).not.toContain('files/result-54.txt');
     expect(result).toContain('Results truncated due to result limit (50)');
   });
+
+  test('treats missing task-sandbox search roots as empty results instead of timeouts', async () => {
+    workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-glob-workspace-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'task-sandbox');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/app');
+    const spawnSync = vi.fn((_command: string, args: string[]) => {
+      const shellCommand = String(args.at(-1) || '');
+      expect(shellCommand).toContain('else true');
+      return {
+        status: 0,
+        stdout: '',
+        stderr: '',
+      };
+    });
+    vi.doMock('node:child_process', async () => {
+      const actual =
+        await vi.importActual<typeof import('node:child_process')>(
+          'node:child_process',
+        );
+      return {
+        ...actual,
+        spawnSync,
+      };
+    });
+
+    const { executeTool } = await import('../container/src/tools.js');
+    const result = await executeTool(
+      'glob',
+      JSON.stringify({
+        pattern: '/app/missing/**/*.ts',
+      }),
+    );
+
+    expect(result).toBe('No files matched pattern: /app/missing/**/*.ts');
+    expect(result).not.toContain('timed out');
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+  });
 });

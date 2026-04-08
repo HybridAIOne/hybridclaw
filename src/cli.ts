@@ -12,6 +12,7 @@ import {
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
   printDoctorUsage,
+  printEvalUsage,
   printGatewayUsage,
   printHelpTopic,
   printHelpUsage,
@@ -951,6 +952,12 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
+      if ((status.sandbox?.activeSessionIds?.length || 0) > 0) {
+        console.log('Active sandbox sessions:');
+        for (const sessionId of status.sandbox?.activeSessionIds || []) {
+          console.log(`  - ${sessionId}`);
+        }
+      }
     } catch (err) {
       console.log(
         `Gateway status fetch failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1069,7 +1076,45 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'eval') {
+    console.error('Use top-level eval commands: `hybridclaw eval ...`');
+    process.exitCode = 1;
+    return;
+  }
+
   await runGatewayApiCommand(normalized);
+}
+
+async function handleEvalCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printEvalUsage();
+    return;
+  }
+
+  const { initDatabase, isDatabaseInitialized } = await import(
+    './memory/db.js'
+  );
+  const { initAgentRegistry } = await import('./agents/agent-registry.js');
+  const { handleGatewayCommand, renderGatewayCommand } = await import(
+    './gateway/gateway-service.js'
+  );
+
+  if (!isDatabaseInitialized()) {
+    initDatabase({ quiet: true });
+  }
+  initAgentRegistry(getRuntimeConfig().agents);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'cli:eval',
+    guildId: null,
+    channelId: 'cli',
+    args: ['eval', ...normalized],
+  });
+
+  const rendered = renderGatewayCommand(result).trim();
+  if (rendered) console.log(rendered);
+  if (result.kind === 'error') process.exitCode = 1;
 }
 
 async function handleConfigCommand(args: string[]): Promise<void> {
@@ -1417,6 +1462,24 @@ export async function main(
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
+    case 'eval':
+      await handleEvalCommand(subargs);
+      break;
+    case '__eval-terminal-bench-native': {
+      const { initDatabase, isDatabaseInitialized } = await import(
+        './memory/db.js'
+      );
+      const { initAgentRegistry } = await import('./agents/agent-registry.js');
+      const { runTerminalBenchNativeCli } = await import(
+        './evals/terminal-bench-native.js'
+      );
+      if (!isDatabaseInitialized()) {
+        initDatabase({ quiet: true });
+      }
+      initAgentRegistry(getRuntimeConfig().agents);
+      await runTerminalBenchNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;

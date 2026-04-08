@@ -17,6 +17,11 @@ async function loadConsolidationModule(
         id,
       })),
     ),
+    resolveAgentForRequest: vi.fn((params?: { agentId?: string }) => ({
+      agentId: params?.agentId || 'main',
+      model: 'gpt-5-nano',
+      chatbotId: '',
+    })),
   }));
   vi.doMock('../src/infra/ipc.js', () => ({
     agentWorkspaceDir: vi.fn((agentId: string) => workspaceMap[agentId]),
@@ -25,6 +30,17 @@ async function loadConsolidationModule(
     logger: {
       warn: vi.fn(),
     },
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: vi.fn(async () => ({
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      content: JSON.stringify({
+        facts: [],
+        decisions: [],
+        patterns: [],
+      }),
+    })),
   }));
   return import('../src/memory/memory-consolidation.js');
 }
@@ -41,6 +57,7 @@ describe.sequential('memory consolidation', () => {
     vi.resetModules();
     vi.doUnmock('../src/agents/agent-registry.js');
     vi.doUnmock('../src/infra/ipc.js');
+    vi.doUnmock('../src/providers/auxiliary.js');
   });
 
   test('compiles older daily memory files into MEMORY.md and skips today', async () => {
@@ -99,6 +116,64 @@ describe.sequential('memory consolidation', () => {
     expect(memoryContent).toContain(`### ${yesterdayStamp}`);
     expect(memoryContent).toContain('User prefers release updates by Friday.');
     expect(memoryContent).not.toContain('Still in progress today.');
+  });
+
+  test('treats today according to USER.md timezone when selecting daily files', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-04-07T00:30:00.000Z'));
+
+      const workspaceDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-timezone-'),
+      );
+      const dailyDir = path.join(workspaceDir, 'memory');
+      fs.mkdirSync(dailyDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, 'USER.md'),
+        '# USER.md\n\n- **Timezone:** America/Los_Angeles\n',
+        'utf-8',
+      );
+
+      const { MemoryConsolidationEngine, currentDateStamp } =
+        await loadConsolidationModule(workspaceDir);
+      const laToday = currentDateStamp(
+        new Date('2026-04-07T00:30:00.000Z'),
+        'America/Los_Angeles',
+      );
+      const laYesterday = currentDateStamp(
+        new Date('2026-04-06T00:30:00.000Z'),
+        'America/Los_Angeles',
+      );
+
+      fs.writeFileSync(
+        path.join(dailyDir, `${laYesterday}.md`),
+        '- Durable memory from yesterday.\n',
+        'utf-8',
+      );
+      fs.writeFileSync(
+        path.join(dailyDir, `${laToday}.md`),
+        '- Still active in the user timezone.\n',
+        'utf-8',
+      );
+
+      const engine = new MemoryConsolidationEngine(makeBackend(), {
+        decayRate: 0.1,
+        staleAfterDays: 7,
+        minConfidence: 0.1,
+      });
+
+      const report = engine.consolidate();
+      const memoryContent = fs.readFileSync(
+        path.join(workspaceDir, 'MEMORY.md'),
+        'utf-8',
+      );
+
+      expect(report.dailyFilesCompiled).toBe(1);
+      expect(memoryContent).toContain('Durable memory from yesterday.');
+      expect(memoryContent).not.toContain('Still active in the user timezone.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('ignores prose-only daily memory files instead of synthesizing digest bullets', async () => {
@@ -229,6 +304,233 @@ describe.sequential('memory consolidation', () => {
     ).toHaveLength(1);
     expect(memoryContent.match(/Use small targeted patches\./g)).toHaveLength(
       1,
+    );
+  });
+
+  test('model-backed cleanup rewrites MEMORY.md without the daily digest block', async () => {
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-llm-'),
+    );
+    const dailyDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(dailyDir, { recursive: true });
+
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import(
+      '../src/providers/auxiliary.js'
+    );
+    const older = new Date();
+    older.setDate(older.getDate() - 1);
+    const olderStamp = currentDateStamp(older);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'MEMORY.md'),
+      [
+        '# MEMORY.md - Session Memory',
+        '',
+        '## Facts',
+        '- Test runner is Jest.',
+        '',
+        '## Decisions',
+        '- Keep broad refactors.',
+        '',
+        '## Patterns',
+        '- Replies should stay long.',
+        '',
+        '<!-- BEGIN DAILY MEMORY DIGEST -->',
+        'stale digest',
+        '<!-- END DAILY MEMORY DIGEST -->',
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(dailyDir, `${olderStamp}.md`),
+      [
+        '- Test runner is Vitest.',
+        '- Keep changes tightly scoped.',
+        '- User prefers concise replies.',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      content: JSON.stringify({
+        facts: ['Test runner is Vitest.'],
+        decisions: ['Keep changes tightly scoped.'],
+        patterns: ['User prefers concise replies.'],
+      }),
+    });
+
+    const engine = new MemoryConsolidationEngine(makeBackend(4), {
+      decayRate: 0.1,
+      staleAfterDays: 7,
+      minConfidence: 0.1,
+    });
+
+    const report = await engine.consolidateWithCleanup();
+    const memoryContent = fs.readFileSync(
+      path.join(workspaceDir, 'MEMORY.md'),
+      'utf-8',
+    );
+
+    expect(report.memoriesDecayed).toBe(4);
+    expect(report.dailyFilesCompiled).toBe(1);
+    expect(report.workspacesUpdated).toBe(1);
+    expect(report.modelCleanups).toBe(1);
+    expect(report.fallbacksUsed).toBe(0);
+    expect(memoryContent).toContain('Test runner is Vitest.');
+    expect(memoryContent).not.toContain('Test runner is Jest.');
+    expect(memoryContent).toContain('Keep changes tightly scoped.');
+    expect(memoryContent).toContain('User prefers concise replies.');
+    expect(memoryContent).not.toContain('BEGIN DAILY MEMORY DIGEST');
+  });
+
+  test('model-backed cleanup requests English output by default', async () => {
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-language-'),
+    );
+    const dailyDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(dailyDir, { recursive: true });
+
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import(
+      '../src/providers/auxiliary.js'
+    );
+    const older = new Date();
+    older.setDate(older.getDate() - 1);
+    const olderStamp = currentDateStamp(older);
+
+    fs.writeFileSync(
+      path.join(dailyDir, `${olderStamp}.md`),
+      '- The test suite should stay deterministic.\n',
+      'utf-8',
+    );
+
+    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      content: JSON.stringify({
+        facts: ['The test suite should stay deterministic.'],
+        decisions: [],
+        patterns: [],
+      }),
+    });
+
+    const engine = new MemoryConsolidationEngine(makeBackend(1), {
+      decayRate: 0.1,
+      staleAfterDays: 7,
+      minConfidence: 0.1,
+    });
+
+    await engine.consolidateWithCleanup();
+
+    expect(callAuxiliaryModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxTokens: 2048,
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: expect.stringContaining(
+              'Write every returned item in language code "en".',
+            ),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  test('model-backed cleanup falls back to deterministic digest when the model fails', async () => {
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-fallback-'),
+    );
+    const dailyDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(dailyDir, { recursive: true });
+
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import(
+      '../src/providers/auxiliary.js'
+    );
+    const older = new Date();
+    older.setDate(older.getDate() - 1);
+    const olderStamp = currentDateStamp(older);
+
+    fs.writeFileSync(
+      path.join(dailyDir, `${olderStamp}.md`),
+      '- Durable fallback memory.\n',
+      'utf-8',
+    );
+
+    vi.mocked(callAuxiliaryModel).mockRejectedValueOnce(
+      new Error('model offline'),
+    );
+
+    const engine = new MemoryConsolidationEngine(makeBackend(), {
+      decayRate: 0.1,
+      staleAfterDays: 7,
+      minConfidence: 0.1,
+    });
+
+    const report = await engine.consolidateWithCleanup();
+    const memoryContent = fs.readFileSync(
+      path.join(workspaceDir, 'MEMORY.md'),
+      'utf-8',
+    );
+
+    expect(report.modelCleanups).toBe(0);
+    expect(report.fallbacksUsed).toBe(1);
+    expect(memoryContent).toContain('## Daily Memory Digest');
+    expect(memoryContent).toContain('Durable fallback memory.');
+  });
+
+  test('logs a fallback reason when model cleanup returns unusable output', async () => {
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-fallback-log-'),
+    );
+    const dailyDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(dailyDir, { recursive: true });
+
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
+    const { logger } = await import('../src/logger.js');
+    const { callAuxiliaryModel } = await import(
+      '../src/providers/auxiliary.js'
+    );
+    const older = new Date();
+    older.setDate(older.getDate() - 1);
+    const olderStamp = currentDateStamp(older);
+
+    fs.writeFileSync(
+      path.join(dailyDir, `${olderStamp}.md`),
+      '- Durable fallback memory.\n',
+      'utf-8',
+    );
+
+    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({
+      provider: 'openai-codex',
+      model: 'openai-codex/gpt-5-codex',
+      content: 'not valid json',
+    });
+
+    const engine = new MemoryConsolidationEngine(makeBackend(), {
+      decayRate: 0.1,
+      staleAfterDays: 7,
+      minConfidence: 0.1,
+    });
+
+    const report = await engine.consolidateWithCleanup();
+
+    expect(report.fallbacksUsed).toBe(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'main',
+        workspaceDir,
+        fallbackReason: 'invalid_model_output',
+      }),
+      'Model-backed memory cleanup returned unusable output; falling back to deterministic consolidation',
     );
   });
 
