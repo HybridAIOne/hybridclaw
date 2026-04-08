@@ -102,8 +102,10 @@ with linked-identity routing available when operators want shared continuity.
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
 chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
-Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills,
-Plugins, Tools, and Config pages.
+Gateway, Sessions, Jobs, Channels, Bindings, Models, Scheduler, MCP, Audit,
+Skills, Plugins, Tools, and Config pages. The Channels page centralizes
+transport status, managed secrets, and setup controls for Discord, WhatsApp,
+email, Microsoft Teams, and iMessage.
 
 ## Can I extend HybridClaw with plugins?
 

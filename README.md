@@ -50,8 +50,9 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin`
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
+- OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
@@ -74,7 +75,7 @@ Imports compatible skills, memory, config, and optional secrets.
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin`
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Whatsapp, Discord, MS Teams, Email
 

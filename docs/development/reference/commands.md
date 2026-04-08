@@ -237,6 +237,8 @@ the same gateway command surface used by TUI and web chat.
 
 ## In Session
 
+- `/help` shows the same canonical slash-command list in TUI and embedded web
+  chat, filtered per surface and kept in a consistent alphabetical order
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
