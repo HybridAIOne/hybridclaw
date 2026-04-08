@@ -101,6 +101,15 @@ test('does not duplicate slash menu rows that resolve to the same command text',
   expect(duplicates).toEqual([]);
 });
 
+test('hides TUI-only slash menu entries from the web surface', () => {
+  const labels = buildTuiSlashMenuEntries([], 'web').map(
+    (entry) => entry.label,
+  );
+
+  expect(labels).not.toContain('/exit');
+  expect(labels).not.toContain('/paste');
+});
+
 test('root entries with subcommands include arg hints in labels', () => {
   const entries = buildTuiSlashMenuEntries();
   const rootEntries = entries.filter((entry) => entry.depth === 1);

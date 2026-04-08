@@ -6,6 +6,7 @@ import {
   type CanonicalSlashStringOptionDefinition,
   type CanonicalSlashSubcommandOptionDefinition,
   type CanonicalTuiMenuEntryDefinition,
+  type LocalSessionSurface,
   type PluginSlashCommandCatalogEntry,
 } from './command-registry.js';
 import { renderTuiSlashMenuLines } from './tui-slash-menu-render.js';
@@ -369,8 +370,15 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
 
 export function buildTuiSlashMenuEntries(
   pluginCommands: PluginSlashCommandCatalogEntry[] = [],
+  surface: LocalSessionSurface = 'tui',
 ): TuiSlashMenuEntry[] {
-  const definitions = buildTuiSlashCommandDefinitions([], pluginCommands);
+  const definitions = buildTuiSlashCommandDefinitions(
+    [],
+    pluginCommands,
+  ).filter(
+    (definition) =>
+      !definition.localSurfaces || definition.localSurfaces.includes(surface),
+  );
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 

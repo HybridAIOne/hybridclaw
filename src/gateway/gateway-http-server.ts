@@ -2097,6 +2097,7 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
       name: command.name,
       description: command.description,
     })),
+    'web',
   );
   cachedSlashMenuPluginKey = pluginKey;
   return cachedSlashMenuEntries;
