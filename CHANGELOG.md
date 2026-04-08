@@ -2,6 +2,33 @@
 
 ## [Coming up]
 
+### Added
+
+- **Loopback OpenAI-compatible gateway API**: Exposed `/v1/models` and
+  `/v1/chat/completions` on the local gateway so eval harnesses and other local
+  tools can drive HybridClaw through an OpenAI-compatible HTTP surface.
+
+### Changed
+
+- **Threaded email replies across built-in and Brevo delivery**: Outbound email
+  sends now accept explicit `In-Reply-To` and `References` headers through the
+  `message` tool/API and the repo-shipped `brevo-email` plugin, keeping
+  follow-up replies inside the existing mail thread.
+- **Email credential wiring**: Email setup and runtime config now support
+  `email.password` as a SecretRef-backed field so stored `EMAIL_PASSWORD`
+  secrets can stay referenced from config without falling back to plaintext
+  values.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **Secret-handling UX**: Hidden secret prompts now restore terminal state
+  correctly after earlier readline prompts, and `auth status` surfaces report
+  sensitive credentials as `configured` instead of printing partial tokens or
+  keys.
+
 ## [0.12.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.0)
 
 ### Added

@@ -74,6 +74,24 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 - detached run logs and summaries are stored under
   `~/.hybridclaw/data/evals/`
 
+The same loopback surface is available directly from the running gateway:
+
+```bash
+curl http://127.0.0.1:9090/v1/models
+
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <WEB_API_TOKEN>' \
+  -d '{"model":"hybridai/gpt-4.1-mini","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+- `/v1/models` and `/v1/chat/completions` use the same local gateway process;
+  they are not a separate service
+- if `WEB_API_TOKEN` is unset, loopback requests from the same host can omit
+  the `Authorization` header; otherwise send `Bearer <WEB_API_TOKEN>`
+- these endpoints are intended for local tooling and eval harnesses rather than
+  public exposure
+
 ## Auth And Providers
 
 ```bash
