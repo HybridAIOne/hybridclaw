@@ -1,7 +1,6 @@
 ---
 name: pptx
 description: Create and edit `.pptx` presentations safely, export thumbnails for QA, and build polished decks with pptxgenjs plus OOXML editing.
-category: office
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -9,6 +8,8 @@ requires:
     - node
 metadata:
   hybridclaw:
+    category: office
+    short_description: "PPTX deck editing."
     tags:
       - office
       - presentation
@@ -18,7 +19,6 @@ metadata:
       - xlsx
       - docx
 ---
-
 # PPTX
 
 Use this skill whenever the user asks to create, revise, template, or review a `.pptx` presentation.

@@ -1,11 +1,12 @@
 ---
 name: pdf
 description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
-category: office
 user-invocable: true
 disable-model-invocation: false
 metadata:
   hybridclaw:
+    category: office
+    short_description: "PDF text, forms, and overlays."
     tags:
       - pdf
       - documents
@@ -22,7 +23,6 @@ metadata:
         bins: ["qpdf"]
         label: Install qpdf (brew)
 ---
-
 # PDF
 
 Use this skill whenever the user mentions a `.pdf` file or asks to inspect, extract, summarize, render, or fill one.

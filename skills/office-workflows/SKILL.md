@@ -1,11 +1,12 @@
 ---
 name: office-workflows
 description: Coordinate cross-format office workflows across CSV/TSV, XLSX, DOCX, and PPTX deliverables.
-category: office
 user-invocable: true
 disable-model-invocation: false
 metadata:
   hybridclaw:
+    category: office
+    short_description: "Cross-format office workflows."
     tags:
       - office
       - workflow
@@ -15,7 +16,6 @@ metadata:
       - docx
       - pptx
 ---
-
 # Office Workflows
 
 Use this skill when the task spans multiple office formats or involves both analysis and polished deliverables.

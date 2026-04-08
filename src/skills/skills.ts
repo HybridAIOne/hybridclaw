@@ -67,6 +67,7 @@ interface SkillCandidate {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -90,6 +91,7 @@ export interface Skill {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -498,12 +500,21 @@ function resolveCompatibleMetadataRecord(
 }
 
 function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
+  shortDescription?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
   const record = resolveCompatibleMetadataRecord(raw);
+  const rawShortDescription =
+    typeof record.short_description === 'string'
+      ? record.short_description
+      : typeof record.shortDescription === 'string'
+        ? record.shortDescription
+        : null;
+  const shortDescription = rawShortDescription?.trim() || undefined;
   return {
+    ...(shortDescription ? { shortDescription } : {}),
     tags: normalizeStringList(record.tags),
     relatedSkills: Array.from(
       new Set([
@@ -683,6 +694,7 @@ function parseRequiresFromFrontmatter(
 }
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
+  shortDescription?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
@@ -700,6 +712,14 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     ? tryParseJsonArray(installSection.inline)
     : null;
   return {
+    shortDescription:
+      stripQuotes(
+        metadataLookup.compatibleSectionFields.get('short_description')
+          ?.inline ||
+          metadataLookup.compatibleSectionFields.get('shortDescription')
+            ?.inline ||
+          '',
+      ) || undefined,
     tags: parseSectionStringList(
       metadataLookup.compatibleSectionFields.get('tags'),
     ),
@@ -1591,6 +1611,7 @@ export interface SkillCatalogEntry {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];

@@ -1,10 +1,11 @@
 ---
 name: 1password
 description: Install and use 1Password CLI (`op`) to sign in, inspect vault items, read secrets safely, and inject secrets into commands.
-category: security
 user-invocable: true
 metadata:
   hybridclaw:
+    category: security
+    short_description: "1Password CLI access."
     tags:
       - secrets
       - enterprise
@@ -16,7 +17,6 @@ metadata:
         bins: ["op"]
         label: Install 1Password CLI (brew)
 ---
-
 # 1Password CLI
 
 Use this skill for host-side secret workflows with 1Password CLI.

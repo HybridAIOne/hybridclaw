@@ -1,10 +1,11 @@
 ---
 name: trello
 description: Inspect Trello boards, lists, and cards; create or move tasks; and manage Kanban workflows through the Trello API.
-category: productivity
 user-invocable: true
 metadata:
   hybridclaw:
+    category: productivity
+    short_description: "Trello boards and cards."
     tags:
       - trello
       - kanban
@@ -14,7 +15,6 @@ metadata:
       - project-manager
       - notion
 ---
-
 # Trello
 
 Use Trello's REST API for boards, lists, and cards.

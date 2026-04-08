@@ -1,7 +1,6 @@
 ---
 name: docx
 description: Create, inspect, and edit `.docx` files safely, including comments and OOXML-preserving changes.
-category: office
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -9,6 +8,8 @@ requires:
     - node
 metadata:
   hybridclaw:
+    category: office
+    short_description: "DOCX editing."
     tags:
       - office
       - document
@@ -16,7 +17,6 @@ metadata:
     related_skills:
       - xlsx
 ---
-
 # DOCX
 
 Use this skill whenever the user asks to create, revise, comment on, or inspect a `.docx` document.

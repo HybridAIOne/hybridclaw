@@ -76,7 +76,7 @@ function makeResponse(): GatewayAdminSkillsResponse {
       {
         name: 'gamma',
         description: 'Gamma skill',
-        category: 'utility',
+        category: 'misc',
         source: 'workspace',
         available: false,
         enabled: true,

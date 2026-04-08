@@ -1,10 +1,11 @@
 ---
 name: feature-planning
 description: Break features into implementation plans, acceptance criteria, and sequenced tasks.
-category: planning
 user-invocable: true
 metadata:
   hybridclaw:
+    category: productivity
+    short_description: "Feature implementation plans."
     tags:
       - planning
       - engineering
@@ -14,7 +15,6 @@ metadata:
       - project-manager
       - github-pr-workflow
 ---
-
 # Feature Planning
 
 Use this skill to turn a feature request into an implementation plan that is

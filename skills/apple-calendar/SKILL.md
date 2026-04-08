@@ -1,10 +1,11 @@
 ---
 name: apple-calendar
 description: View Apple Calendar schedules, draft or import `.ics` files, and coordinate host-side calendar actions on macOS.
-category: apple
 user-invocable: true
 metadata:
   hybridclaw:
+    category: apple
+    short_description: "Apple Calendar and ICS."
     tags:
       - apple
       - calendar
@@ -14,7 +15,6 @@ metadata:
       - google-workspace
       - current-time
 ---
-
 # Apple Calendar
 
 Use this skill for macOS Calendar.app and `.ics` workflows.

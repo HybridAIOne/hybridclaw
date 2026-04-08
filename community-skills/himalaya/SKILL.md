@@ -1,9 +1,10 @@
 ---
 name: himalaya
-description: Use this skill when the user wants to manage email with the Himalaya CLI: configure accounts, list folders, read or search messages, draft replies, send mail, or download attachments from the terminal.
+description: Manage email with the Himalaya CLI: configure accounts, list folders, read or search messages, draft replies, send mail, or download attachments from the terminal.
 user-invocable: true
 metadata:
   hybridclaw:
+    category: communication
     tags:
       - email
       - imap

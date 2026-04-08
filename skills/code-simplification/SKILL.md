@@ -1,10 +1,11 @@
 ---
 name: code-simplification
 description: Refactor code to reduce complexity and duplication without changing behavior.
-category: development
 user-invocable: false
 metadata:
   hybridclaw:
+    category: development
+    short_description: "Behavior-safe refactors."
     tags:
       - engineering
       - refactoring
@@ -14,7 +15,6 @@ metadata:
       - code-review
       - feature-planning
 ---
-
 # Code Simplification
 
 Use this skill for deeper code simplification work while preserving current

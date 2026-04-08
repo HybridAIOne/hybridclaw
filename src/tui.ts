@@ -60,6 +60,7 @@ import {
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import type { TuiStartupBannerSkillCategory } from './tui-banner.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
   isProbablyWsl,
@@ -127,6 +128,8 @@ interface TuiPalette {
   green: string;
   lightGreen: string;
   red: string;
+  activeSkill: string;
+  inactiveSkill: string;
 }
 
 const DARK_PALETTE: TuiPalette = {
@@ -136,6 +139,8 @@ const DARK_PALETTE: TuiPalette = {
   green: '\x1b[38;2;16;185;129m',
   lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;239;68;68m',
+  activeSkill: '\x1b[38;2;236;239;244m',
+  inactiveSkill: '\x1b[38;2;170;184;204m',
 };
 
 const LIGHT_PALETTE: TuiPalette = {
@@ -145,6 +150,8 @@ const LIGHT_PALETTE: TuiPalette = {
   green: '\x1b[38;2;0;130;92m',
   lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;185;28;28m',
+  activeSkill: '\x1b[38;2;16;24;40m',
+  inactiveSkill: '\x1b[38;2;120;128;140m',
 };
 
 function inferThemeFromColorFgBg(): TuiTheme | null {
@@ -487,6 +494,7 @@ function printBanner(
     defaultModel: string;
   },
   sandboxMode: 'container' | 'host',
+  skillCategories: TuiStartupBannerSkillCategory[],
 ): void {
   clearTuiSlashMenu();
   console.log();
@@ -500,6 +508,7 @@ function printBanner(
       hybridAIBaseUrl: HYBRIDAI_BASE_URL,
       chatbotId: HYBRIDAI_CHATBOT_ID || 'unset',
       version: APP_VERSION,
+      skillCategories,
     },
     palette: {
       reset: RESET,
@@ -508,12 +517,68 @@ function printBanner(
       teal: TEAL,
       gold: GOLD,
       green: GREEN,
+      activeSkill: PALETTE.activeSkill,
+      inactiveSkill: PALETTE.inactiveSkill,
       wordmarkRamp: WORDMARK_RAMP,
     },
   })) {
     console.log(line);
   }
   console.log();
+}
+
+function formatSkillCategoryLabel(category: string): string {
+  const parts = String(category || '')
+    .trim()
+    .split(/[-_\s]+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'Uncategorized';
+  return parts.map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+}
+
+function buildStartupSkillCategories(
+  skills: Array<{
+    name: string;
+    category: string;
+    available: boolean;
+    enabled: boolean;
+  }>,
+): TuiStartupBannerSkillCategory[] {
+  const grouped = new Map<string, TuiStartupBannerSkillCategory['skills']>();
+
+  for (const skill of skills) {
+    const category = formatSkillCategoryLabel(skill.category);
+    const entry = {
+      name: skill.name,
+      active: skill.enabled && skill.available,
+    };
+    const existing = grouped.get(category);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      grouped.set(category, [entry]);
+    }
+  }
+
+  return Array.from(grouped.entries()).map(([category, groupedSkills]) => ({
+    category,
+    skills: groupedSkills,
+  }));
+}
+
+async function fetchStartupSkillCategories(): Promise<
+  TuiStartupBannerSkillCategory[]
+> {
+  try {
+    const response = await fetchGatewayAdminSkills();
+    return buildStartupSkillCategories(response.skills);
+  } catch (error) {
+    logger.debug(
+      { error },
+      'Failed to load active skills for TUI startup banner',
+    );
+    return [];
+  }
 }
 
 function printHelp(): void {
@@ -2041,7 +2106,8 @@ async function main(): Promise<void> {
   const modelInfo = await fetchSessionAndDefaultModel();
   tuiFullAutoState = await fetchInitialFullAutoState();
   tuiShowMode = await fetchInitialShowMode();
-  printBanner(modelInfo, status.sandbox?.mode || 'container');
+  const skillCategories = await fetchStartupSkillCategories();
+  printBanner(modelInfo, status.sandbox?.mode || 'container', skillCategories);
 
   const rl = readline.createInterface({
     input: process.stdin,

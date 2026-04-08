@@ -7,6 +7,7 @@ requires:
     - python3
 metadata:
   hybridclaw:
+    category: creativity
     tags:
       - creative
       - memes

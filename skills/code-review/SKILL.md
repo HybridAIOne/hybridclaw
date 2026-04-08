@@ -1,10 +1,11 @@
 ---
 name: code-review
 description: Review diffs and change sets for bugs, regressions, risks, and missing tests.
-category: development
 user-invocable: true
 metadata:
   hybridclaw:
+    category: development
+    short_description: "Diff and regression review."
     tags:
       - engineering
       - review
@@ -14,7 +15,6 @@ metadata:
       - github-pr-workflow
       - feature-planning
 ---
-
 # Code Review
 
 Use this skill to review local changes or an existing GitHub pull request for

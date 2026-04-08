@@ -1,10 +1,11 @@
 ---
 name: project-manager
 description: Plan sprints, milestones, roadmaps, risks, dependencies, and stakeholder updates for team delivery.
-category: planning
 user-invocable: true
 metadata:
   hybridclaw:
+    category: productivity
+    short_description: "Delivery plans and roadmaps."
     tags:
       - planning
       - management
@@ -14,7 +15,6 @@ metadata:
       - notion
       - trello
 ---
-
 # Project Management
 
 Use this skill for delivery planning and team-facing coordination artifacts.

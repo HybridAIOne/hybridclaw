@@ -1,10 +1,11 @@
 ---
 name: wordpress
 description: Draft posts and pages, coordinate wp-admin work, use WP-CLI, inspect themes or plugins, and publish safely.
-category: publishing
 user-invocable: true
 metadata:
   hybridclaw:
+    category: publishing
+    short_description: "WordPress drafting and publishing."
     tags:
       - wordpress
       - cms
@@ -20,7 +21,6 @@ metadata:
       - write-blog-post
       - stripe
 ---
-
 # WordPress
 
 Use this skill for WordPress content, admin, and site-maintenance workflows.

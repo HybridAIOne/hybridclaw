@@ -1,11 +1,13 @@
 ---
 name: skill-creator
 description: "Create and update SKILL.md-based skills with strong trigger metadata, lean docs, and reliable init, validate, package, and publish workflows."
-category: development
 user-invocable: true
 disable-model-invocation: false
+metadata:
+  hybridclaw:
+    category: development
+    short_description: "Create and update skills."
 ---
-
 # Skill Creator
 
 Build high-quality skills that are clear to trigger, cheap in context, and reliable in execution.

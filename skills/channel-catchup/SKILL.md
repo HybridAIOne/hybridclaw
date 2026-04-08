@@ -1,11 +1,12 @@
 ---
 name: channel-catchup
 description: Summarize recent activity across Discord, ingested email threads, WhatsApp, and TUI channels.
-category: communication
 user-invocable: true
 disable-model-invocation: false
 metadata:
   hybridclaw:
+    category: communication
+    short_description: "Cross-channel catch-up."
     tags:
       - channels
       - summary
@@ -13,10 +14,9 @@ metadata:
       - discord
       - email
 ---
-
 # Channel Catchup
 
-Use this skill when the user wants a concise catch-up or summary of channel content.
+Creating a concise catch-up or summary of channel content.
 
 Examples:
 

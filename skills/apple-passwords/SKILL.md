@@ -1,10 +1,11 @@
 ---
 name: apple-passwords
 description: Open macOS Passwords or Keychain entries, locate saved logins, and read specific credentials safely.
-category: apple
 user-invocable: true
 metadata:
   hybridclaw:
+    category: apple
+    short_description: "macOS Passwords access."
     tags:
       - apple
       - passwords
@@ -13,7 +14,6 @@ metadata:
     related_skills:
       - 1password
 ---
-
 # Apple Passwords
 
 Use this skill for Passwords.app and Keychain-backed secret workflows on macOS.

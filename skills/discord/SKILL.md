@@ -1,10 +1,11 @@
 ---
 name: discord
 description: Read, send, react to, edit, pin, and thread Discord messages with HybridClaw's `message` tool.
-category: communication
 user-invocable: true
 metadata:
   hybridclaw:
+    category: communication
+    short_description: "Discord message actions."
     tags:
       - discord
       - messaging
@@ -12,7 +13,6 @@ metadata:
     related_skills:
       - channel-catchup
 ---
-
 # Discord Operations
 
 Use HybridClaw's `message` tool for Discord work. This skill is for actions, not long-form catchups.
