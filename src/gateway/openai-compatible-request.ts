@@ -1,7 +1,12 @@
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
+import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
+import type {
+  OpenAICompatibleToolChoice,
+  OpenAICompatibleToolDefinition,
+} from './openai-compatible-model.js';
 
 const MAX_REQUEST_BYTES = 1_000_000;
 
@@ -38,12 +43,30 @@ export interface ParsedOpenAICompatibleChatRequest {
   user: string;
   wantsStream: boolean;
   includeUsage: boolean;
+  usesClientTools: boolean;
+  evalProfile?: string;
+  messages: ChatMessage[];
+  tools: OpenAICompatibleToolDefinition[];
+  toolChoice?: OpenAICompatibleToolChoice;
   priorMessages: Array<{
     role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;
   }>;
   prompt: string;
   media: MediaContextItem[];
+}
+
+function normalizeEvalProfileHeader(
+  value: string | string[] | undefined,
+): string {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = normalizeOptionalString(entry);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return normalizeOptionalString(value) || '';
 }
 
 export class OpenAICompatibleRequestError extends Error {
@@ -144,23 +167,6 @@ function normalizeRequestedChoiceCount(value: unknown): void {
       code: 'unsupported_value',
     },
   );
-}
-
-function assertNoClientToolConfig(body: OpenAIChatCompletionRequestBody): void {
-  if (
-    body.tools !== undefined ||
-    body.tool_choice !== undefined ||
-    body.functions !== undefined ||
-    body.function_call !== undefined
-  ) {
-    throw new OpenAICompatibleRequestError(
-      400,
-      'Client-defined tools/functions are not supported on `/v1/chat/completions`.',
-      {
-        code: 'unsupported_feature',
-      },
-    );
-  }
 }
 
 function normalizeIncludeUsage(value: unknown): boolean {
@@ -431,6 +437,256 @@ async function parseMessageContent(params: {
     media,
   };
 }
+
+async function normalizeMessageContent(
+  message: OpenAIChatCompletionMessage,
+  index: number,
+): Promise<ChatMessage['content']> {
+  const content = message.content;
+  if (content == null) return null;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Invalid \`messages[${index}].content\`.`,
+      {
+        param: `messages[${index}].content`,
+      },
+    );
+  }
+
+  const normalizedParts: NonNullable<ChatMessage['content']> = [];
+  for (const [partIndex, entry] of content.entries()) {
+    if (!entry || typeof entry !== 'object') {
+      throw new OpenAICompatibleRequestError(
+        400,
+        `Invalid \`messages[${index}].content[${partIndex}]\`.`,
+        {
+          param: `messages[${index}].content[${partIndex}]`,
+        },
+      );
+    }
+    const part = entry as OpenAIChatCompletionContentPart;
+    const type = normalizeOptionalString(part.type);
+    if (type === 'text') {
+      normalizedParts.push({
+        type: 'text',
+        text: typeof part.text === 'string' ? part.text : '',
+      });
+      continue;
+    }
+    if (type === 'image_url') {
+      const mediaItem = await buildRemoteMediaItem({
+        rawUrl: (part.image_url as { url?: unknown } | undefined)?.url,
+        type: 'image_url',
+        paramPrefix: `messages[${index}].content[${partIndex}].image_url`,
+        mediaIndex: partIndex + 1,
+      });
+      normalizedParts.push({
+        type: 'image_url',
+        image_url: {
+          url: mediaItem.url || '',
+        },
+      });
+      continue;
+    }
+    if (type === 'audio_url') {
+      const mediaItem = await buildRemoteMediaItem({
+        rawUrl: (part.audio_url as { url?: unknown } | undefined)?.url,
+        type: 'audio_url',
+        paramPrefix: `messages[${index}].content[${partIndex}].audio_url`,
+        mediaIndex: partIndex + 1,
+      });
+      normalizedParts.push({
+        type: 'audio_url',
+        audio_url: {
+          url: mediaItem.url || '',
+        },
+      });
+      continue;
+    }
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Unsupported \`messages[${index}].content[${partIndex}].type\`: ${type || '(empty)'}.`,
+      {
+        param: `messages[${index}].content[${partIndex}].type`,
+      },
+    );
+  }
+
+  return normalizedParts;
+}
+
+function normalizeToolCall(value: unknown, paramPrefix: string): ToolCall {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new OpenAICompatibleRequestError(400, `Invalid \`${paramPrefix}\`.`, {
+      param: paramPrefix,
+    });
+  }
+  const record = value as {
+    id?: unknown;
+    type?: unknown;
+    function?: { name?: unknown; arguments?: unknown } | unknown;
+  };
+  const functionValue =
+    record.function && typeof record.function === 'object'
+      ? (record.function as { name?: unknown; arguments?: unknown })
+      : null;
+  const name = normalizeOptionalString(functionValue?.name);
+  if (!name) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      `Missing \`${paramPrefix}.function.name\`.`,
+      {
+        param: `${paramPrefix}.function.name`,
+      },
+    );
+  }
+  return {
+    id: normalizeOptionalString(record.id) || '',
+    type: 'function',
+    function: {
+      name,
+      arguments:
+        typeof functionValue?.arguments === 'string'
+          ? functionValue.arguments
+          : JSON.stringify(functionValue?.arguments || {}),
+    },
+  };
+}
+
+function normalizeToolDefinitions(
+  body: OpenAIChatCompletionRequestBody,
+): OpenAICompatibleToolDefinition[] {
+  const sources = [body.tools, body.functions].filter(
+    (value) => value !== undefined,
+  );
+  if (sources.length === 0) return [];
+  if (sources.length > 1) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      'Use either `tools` or `functions`, not both.',
+      {
+        code: 'unsupported_value',
+      },
+    );
+  }
+  const rawDefinitions = sources[0];
+  if (!Array.isArray(rawDefinitions)) {
+    throw new OpenAICompatibleRequestError(
+      400,
+      'Invalid tool/function definition array.',
+      {
+        code: 'invalid_type',
+      },
+    );
+  }
+
+  return rawDefinitions.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        `Invalid tool/function definition at index ${index}.`,
+        {
+          param: `tools[${index}]`,
+        },
+      );
+    }
+    const record = entry as {
+      type?: unknown;
+      function?:
+        | {
+            name?: unknown;
+            description?: unknown;
+            parameters?: unknown;
+          }
+        | unknown;
+      name?: unknown;
+      description?: unknown;
+      parameters?: unknown;
+    };
+    const functionValue =
+      record.function && typeof record.function === 'object'
+        ? (record.function as {
+            name?: unknown;
+            description?: unknown;
+            parameters?: unknown;
+          })
+        : record;
+    const name = normalizeOptionalString(functionValue.name);
+    if (!name) {
+      throw new OpenAICompatibleRequestError(
+        400,
+        `Missing tool/function name at index ${index}.`,
+        {
+          param: `tools[${index}].function.name`,
+        },
+      );
+    }
+    return {
+      type: 'function',
+      function: {
+        name,
+        ...(typeof functionValue.description === 'string' &&
+        functionValue.description.trim()
+          ? { description: functionValue.description }
+          : {}),
+        ...(functionValue.parameters &&
+        typeof functionValue.parameters === 'object' &&
+        !Array.isArray(functionValue.parameters)
+          ? {
+              parameters: functionValue.parameters as Record<string, unknown>,
+            }
+          : {}),
+      },
+    };
+  });
+}
+
+function normalizeToolChoice(
+  body: OpenAIChatCompletionRequestBody,
+): OpenAICompatibleToolChoice | undefined {
+  const rawToolChoice =
+    body.tool_choice !== undefined ? body.tool_choice : body.function_call;
+  if (rawToolChoice === undefined) return undefined;
+  if (
+    rawToolChoice === 'auto' ||
+    rawToolChoice === 'none' ||
+    rawToolChoice === 'required'
+  ) {
+    return rawToolChoice;
+  }
+  if (typeof rawToolChoice === 'string') {
+    if (rawToolChoice.trim().toLowerCase() === 'auto') return 'auto';
+    if (rawToolChoice.trim().toLowerCase() === 'none') return 'none';
+    if (rawToolChoice.trim().toLowerCase() === 'required') return 'required';
+  }
+  if (
+    rawToolChoice &&
+    typeof rawToolChoice === 'object' &&
+    !Array.isArray(rawToolChoice)
+  ) {
+    const record = rawToolChoice as {
+      type?: unknown;
+      function?: { name?: unknown } | unknown;
+      name?: unknown;
+    };
+    const functionValue =
+      record.function && typeof record.function === 'object'
+        ? (record.function as { name?: unknown })
+        : record;
+    const name = normalizeOptionalString(functionValue.name);
+    if (name) {
+      return {
+        type: 'function',
+        function: { name },
+      };
+    }
+  }
+  throw new OpenAICompatibleRequestError(400, 'Invalid tool/function choice.', {
+    param: body.tool_choice !== undefined ? 'tool_choice' : 'function_call',
+  });
+}
 function formatToolCallsForHistory(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) return [];
   const lines: string[] = [];
@@ -510,7 +766,9 @@ export async function readOpenAICompatibleChatRequest(
   }
 
   normalizeRequestedChoiceCount(body.n);
-  assertNoClientToolConfig(body);
+  const tools = normalizeToolDefinitions(body);
+  const toolChoice = normalizeToolChoice(body);
+  const usesClientTools = tools.length > 0 || toolChoice !== undefined;
   if (body.stream_options !== undefined && !wantsStream) {
     throw new OpenAICompatibleRequestError(
       400,
@@ -533,9 +791,32 @@ export async function readOpenAICompatibleChatRequest(
   }
 
   const parsedMessages = body.messages as OpenAIChatCompletionMessage[];
+  const normalizedMessages = await Promise.all(
+    parsedMessages.map(async (message, index) => {
+      const role = normalizeOpenAIRole(message.role, index);
+      const content = await normalizeMessageContent(message, index);
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? message.tool_calls.map((entry, toolIndex) =>
+            normalizeToolCall(
+              entry,
+              `messages[${index}].tool_calls[${toolIndex}]`,
+            ),
+          )
+        : undefined;
+      return {
+        role,
+        content,
+        ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        ...(role === 'tool' && normalizeOptionalString(message.tool_call_id)
+          ? { tool_call_id: normalizeOptionalString(message.tool_call_id) }
+          : {}),
+      } satisfies ChatMessage;
+    }),
+  );
   const finalIndex = parsedMessages.length - 1;
   const finalMessage = parsedMessages[finalIndex];
-  if (normalizeOpenAIRole(finalMessage?.role, finalIndex) !== 'user') {
+  const finalRole = normalizeOpenAIRole(finalMessage?.role, finalIndex);
+  if (!usesClientTools && finalRole !== 'user') {
     throw new OpenAICompatibleRequestError(
       400,
       'The final chat message must have role `user`.',
@@ -552,7 +833,7 @@ export async function readOpenAICompatibleChatRequest(
     extractMedia: true,
   });
   const prompt = current.text || buildMediaOnlyPrompt(current.media);
-  if (!prompt) {
+  if (!usesClientTools && !prompt) {
     throw new OpenAICompatibleRequestError(
       400,
       'The final `user` message must include text or supported media URLs.',
@@ -567,6 +848,17 @@ export async function readOpenAICompatibleChatRequest(
     user: normalizeOptionalString(body.user) || 'openai',
     wantsStream,
     includeUsage: normalizeIncludeUsage(body.stream_options),
+    usesClientTools,
+    ...(normalizeEvalProfileHeader(req.headers['x-hybridclaw-eval-profile'])
+      ? {
+          evalProfile: normalizeEvalProfileHeader(
+            req.headers['x-hybridclaw-eval-profile'],
+          ),
+        }
+      : {}),
+    messages: normalizedMessages,
+    tools,
+    ...(toolChoice ? { toolChoice } : {}),
     priorMessages: (
       await Promise.all(
         parsedMessages

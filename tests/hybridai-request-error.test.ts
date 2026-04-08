@@ -41,6 +41,23 @@ describe('HybridAIRequestError', () => {
     );
   });
 
+  test('surfaces top-level detail fields from provider error bodies', () => {
+    const error = new HybridAIRequestError(
+      400,
+      JSON.stringify({
+        detail: 'Stream must be set to true',
+      }),
+    );
+
+    expect(error.message).toBe(
+      'HybridAI API error 400: Stream must be set to true',
+    );
+    expect(error.parsedBody).toEqual({
+      message: 'Stream must be set to true',
+      type: null,
+    });
+  });
+
   test('preserves the original response body for debugging', () => {
     const body = JSON.stringify({
       error: {

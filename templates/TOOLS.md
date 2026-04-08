@@ -13,6 +13,12 @@ Things like:
 - Device nicknames
 - Anything environment-specific
 
+## Memory Workflow
+
+- Use the `memory` tool to append durable notes to today's `memory/YYYY-MM-DD.md` file.
+- Do not write directly to `MEMORY.md` with the `memory` tool.
+- `MEMORY.md` is cleaned up and rewritten only through dream consolidation (`/dream` and the nightly dream run).
+
 ## Why Separate?
 
 Skills are shared. Your setup is yours. Keeping them apart means you can update skills without losing your notes, and share skills without leaking your infrastructure.

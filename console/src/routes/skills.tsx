@@ -210,6 +210,7 @@ export function SkillsPage() {
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
     const haystack = [
       skill.name,
+      skill.category,
       skill.description,
       skill.source,
       ...(skill.tags || []),
@@ -629,6 +630,7 @@ export function SkillsPage() {
               <thead>
                 <tr>
                   <th>Skill</th>
+                  <th>Category</th>
                   <th>Source</th>
                   <th>Runtime</th>
                   <th>Adaptive</th>
@@ -653,6 +655,7 @@ export function SkillsPage() {
                         </button>
                         <small>{skill.description}</small>
                       </td>
+                      <td>{skill.category}</td>
                       <td>{skill.source}</td>
                       <td>
                         <BooleanPill
@@ -704,7 +707,7 @@ export function SkillsPage() {
                 })}
                 {filteredSkills.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       <div className="empty-state">
                         No skills match this filter.
                       </div>

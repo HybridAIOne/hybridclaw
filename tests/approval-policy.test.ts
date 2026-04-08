@@ -43,6 +43,22 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('green');
   });
 
+  test('pip install is classified as dependency installation', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'pip install pgmpy' }),
+      latestUserPrompt: 'Install pgmpy',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.actionKey).toBe('bash:install-deps');
+    expect(evaluation.reason).toBe('this changes the local dependency state');
+  });
+
   test('message read-only actions are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -217,6 +233,23 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.decision).toBe('approved_fullauto');
     expect(evaluation.tier).toBe('yellow');
     expect(evaluation.requestId).toBeUndefined();
+  });
+
+  test('full-auto mode auto-approves yellow mutating actions without interruption delay', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setFullAutoOptions({ enabled: true });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({ path: 'app/ars.R', contents: 'test' }),
+      latestUserPrompt: 'Write the file',
+    });
+
+    expect(evaluation.baseTier).toBe('yellow');
+    expect(evaluation.decision).toBe('approved_fullauto');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
   });
 
   test('full-auto mode still requires approval for tools on the never-approve list', () => {
@@ -828,6 +861,28 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: prompt,
     });
     expect(second.decision).toBe('approved_all');
+  });
+
+  test('bash workspace fence accepts the configured display root for task-container evals', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-approval-display-root-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.resetModules();
+
+    const { TrustedCoworkerApprovalRuntime: DisplayRootApprovalRuntime } =
+      await import('../container/src/approval-policy.js');
+
+    const runtime = new DisplayRootApprovalRuntime();
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'touch /app/ars.R' }),
+      latestUserPrompt: 'Create the R file',
+    });
+
+    expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
+    expect(evaluation.tier).toBe('yellow');
   });
 
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {

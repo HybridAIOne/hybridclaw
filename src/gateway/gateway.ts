@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
   getActiveExecutorCount,
   stopAllExecutions,
@@ -114,6 +115,13 @@ import {
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
+  getDreamTimezone,
+  hasDreamRunToday,
+  isMemoryConsolidationEnabled,
+  nextDreamRunAt,
+  runMemoryConsolidation,
+} from './memory-consolidation-runner.js';
+import {
   clearPendingApproval,
   getPendingApproval,
 } from './pending-approvals.js';
@@ -138,7 +146,7 @@ import {
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
-let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
+let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 const WHATSAPP_INTERRUPTED_REPLY =
@@ -153,6 +161,35 @@ const IMESSAGE_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const IMESSAGE_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
+
+function scheduleNextMemoryConsolidationRun(): void {
+  if (!isMemoryConsolidationEnabled()) {
+    logger.info('Memory consolidation scheduler disabled');
+    return;
+  }
+
+  const nextRunAt = nextDreamRunAt();
+  const delayMs = Math.max(1_000, nextRunAt.getTime() - Date.now());
+  memoryConsolidationTimer = setTimeout(() => {
+    memoryConsolidationTimer = null;
+    void runMemoryConsolidation({
+      trigger: 'nightly',
+      requireSchedulerEnabled: true,
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        scheduleNextMemoryConsolidationRun();
+      });
+  }, delayMs);
+
+  logger.info(
+    {
+      nextRunAt: nextRunAt.toISOString(),
+      timeZone: resolveEffectiveTimezone(getDreamTimezone()),
+    },
+    'Memory consolidation scheduled for next nightly run',
+  );
+}
 
 function logGatewayStartup(params: {
   status: Awaited<ReturnType<typeof getGatewayStatus>>;
@@ -1749,43 +1786,24 @@ function startOrRestartHeartbeat(): void {
 
 function stopMemoryConsolidationScheduler(): void {
   if (!memoryConsolidationTimer) return;
-  clearInterval(memoryConsolidationTimer);
+  clearTimeout(memoryConsolidationTimer);
   memoryConsolidationTimer = null;
 }
 
 function startOrRestartMemoryConsolidationScheduler(): void {
   stopMemoryConsolidationScheduler();
-  const intervalHours = Math.max(
-    0,
-    Math.trunc(getConfigSnapshot().memory.consolidationIntervalHours),
-  );
-  if (intervalHours <= 0) {
+  if (!isMemoryConsolidationEnabled()) {
     logger.info('Memory consolidation scheduler disabled');
     return;
   }
 
-  const intervalMs = intervalHours * 3_600_000;
-  memoryConsolidationTimer = setInterval(() => {
-    const { decayRate } = getConfigSnapshot().memory;
-    try {
-      memoryService.setConsolidationDecayRate(decayRate);
-      const report = memoryService.consolidateMemories();
-      if (report.memoriesDecayed > 0) {
-        logger.info(
-          {
-            decayed: report.memoriesDecayed,
-            durationMs: report.durationMs,
-            decayRate,
-          },
-          'Memory consolidation completed',
-        );
-      }
-    } catch (error) {
-      logger.warn({ error, decayRate }, 'Memory consolidation failed');
-    }
-  }, intervalMs);
-
-  logger.info({ intervalHours }, 'Memory consolidation scheduled');
+  if (!hasDreamRunToday()) {
+    void runMemoryConsolidation({
+      trigger: 'startup',
+      requireSchedulerEnabled: true,
+    }).catch(() => undefined);
+  }
+  scheduleNextMemoryConsolidationRun();
 }
 
 async function main(): Promise<void> {

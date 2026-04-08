@@ -21,6 +21,15 @@ export interface WorkerSignatureInput {
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?:
+    | {
+        mode: 'docker-exec';
+        containerName: string;
+        cwd?: string;
+      }
+    | undefined;
 }
 
 function normalizeHeaders(
@@ -75,5 +84,17 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
     taskModels,
+    workspacePathOverride: String(input.workspacePathOverride || '').trim(),
+    workspaceDisplayRootOverride: String(
+      input.workspaceDisplayRootOverride || '',
+    ).trim(),
+    bashProxy:
+      input.bashProxy?.mode === 'docker-exec'
+        ? {
+            mode: 'docker-exec',
+            containerName: String(input.bashProxy.containerName || '').trim(),
+            cwd: String(input.bashProxy.cwd || '').trim(),
+          }
+        : null,
   });
 }

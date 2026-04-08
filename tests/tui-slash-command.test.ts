@@ -210,6 +210,19 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
+  expect(mapTuiSlashCommandToGatewayArgs(['eval', 'list'])).toEqual([
+    'eval',
+    'list',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'eval',
+      'run',
+      'python',
+      '-m',
+      'swebench.harness.run_evaluation',
+    ]),
+  ).toEqual(['eval', 'run', 'python', '-m', 'swebench.harness.run_evaluation']);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {

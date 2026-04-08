@@ -517,6 +517,7 @@ export interface RuntimeConfig {
   memory: {
     decayRate: number;
     consolidationIntervalHours: number;
+    consolidationLanguage: string;
   };
   ops: {
     healthHost: string;
@@ -1004,6 +1005,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   memory: {
     decayRate: 0.1,
     consolidationIntervalHours: 24,
+    consolidationLanguage: 'en',
   },
   ops: {
     healthHost: '127.0.0.1',
@@ -1099,6 +1101,7 @@ let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let currentConfigSource: Record<string, unknown> = {};
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
+  containerMaxConcurrentExplicit: false,
 };
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3998,6 +4001,11 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.memory.consolidationIntervalHours,
         { min: 0, max: 24 * 30 },
       ),
+      consolidationLanguage: normalizeString(
+        rawMemory.consolidationLanguage,
+        DEFAULT_RUNTIME_CONFIG.memory.consolidationLanguage,
+        { allowEmpty: false },
+      ).toLowerCase(),
     },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
@@ -4350,6 +4358,7 @@ function loadRuntimeConfigFromSources(
   currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
+    containerMaxConcurrentExplicit: hasOwn(rawContainer, 'maxConcurrent'),
   };
   return normalizeRuntimeConfig(diskPatch);
 }
@@ -4617,6 +4626,10 @@ export function isContainerSandboxModeExplicit(): boolean {
   return currentConfigMetadata.containerSandboxModeExplicit;
 }
 
+export function isContainerMaxConcurrentExplicit(): boolean {
+  return currentConfigMetadata.containerMaxConcurrentExplicit;
+}
+
 export function onRuntimeConfigChange(
   listener: RuntimeConfigChangeListener,
 ): () => void {
@@ -4639,8 +4652,13 @@ export function saveRuntimeConfig(
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    currentConfigMetadata.containerMaxConcurrentExplicit ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
   const nextSource = buildSerializableConfig(
     normalized,
@@ -4672,8 +4690,13 @@ function saveRuntimeConfigSource(
     hasOwn(rawContainer, 'sandboxMode') ||
     normalized.container.sandboxMode !==
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    hasOwn(rawContainer, 'maxConcurrent') ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
   const nextSource = buildSerializableConfig(
     normalized,

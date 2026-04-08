@@ -92,14 +92,20 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       '../skills/skills-management.js'
     );
     const catalog = listSkillCatalogEntries();
+    let currentCategory = '';
     for (const skill of catalog) {
+      if (skill.category !== currentCategory) {
+        if (currentCategory) console.log('');
+        currentCategory = skill.category;
+        console.log(`${currentCategory}:`);
+      }
       const availability = skill.available
         ? 'available'
         : skill.missing.join(', ');
-      console.log(`${skill.name} [${availability}]`);
+      console.log(`  ${skill.name} [${availability}]`);
       for (const install of skill.installs) {
         const label = install.label ? ` — ${install.label}` : '';
-        console.log(`  ${install.id} (${install.kind})${label}`);
+        console.log(`    ${install.id} (${install.kind})${label}`);
       }
     }
     return;
@@ -173,7 +179,9 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
         !scopeDisabled.has(skill.name)
           ? ' (globally disabled)'
           : '';
-      console.log(`${index + 1}. ${marker} ${skill.name}${globalSuffix}`);
+      console.log(
+        `${index + 1}. ${marker} ${skill.name} (${skill.category})${globalSuffix}`,
+      );
     }
 
     const rl = readline.createInterface({

@@ -794,6 +794,7 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
       {
         name: 'workspace-risk',
         description: 'Workspace skill with a suspicious pattern',
+        category: 'security',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -818,6 +819,7 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
       {
         name: 'safe-skill',
         description: 'Safe skill',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -969,6 +971,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
       {
         name: 'fresh-skill',
         description: 'Recently used',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -993,6 +996,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
       {
         name: 'stale-skill',
         description: 'Used long ago',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -1088,6 +1092,7 @@ test('checkSkills warns on enabled skills with zero observations after sessions 
       {
         name: 'never-observed',
         description: 'Never observed',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,

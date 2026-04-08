@@ -4,6 +4,8 @@ description: Create branches, commit and push changes, open or update GitHub pul
 user-invocable: true
 metadata:
   hybridclaw:
+    category: development
+    short_description: "GitHub PR workflow."
     tags:
       - engineering
       - github
@@ -13,7 +15,6 @@ metadata:
       - code-review
       - feature-planning
 ---
-
 # GitHub PR Workflow
 
 Use this skill for the end-to-end pull request loop from branch creation through

@@ -4,6 +4,8 @@ description: Search, create, update, and organize Notion pages, databases, notes
 user-invocable: true
 metadata:
   hybridclaw:
+    category: memory
+    short_description: "Notion pages and databases."
     tags:
       - notion
       - workspace
@@ -14,7 +16,6 @@ metadata:
       - project-manager
       - trello
 ---
-
 # Notion Workspace Operations
 
 Use the Notion API for page, block, and data-source work.

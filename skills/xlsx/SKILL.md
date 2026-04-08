@@ -8,6 +8,8 @@ requires:
     - node
 metadata:
   hybridclaw:
+    category: office
+    short_description: "XLSX editing and analysis."
     tags:
       - office
       - spreadsheet
@@ -15,7 +17,6 @@ metadata:
     related_skills:
       - docx
 ---
-
 # XLSX
 
 Use this skill whenever the user asks to create, inspect, analyze, or edit an `.xlsx` workbook, or to turn delimited tabular data into a polished `.xlsx` file.

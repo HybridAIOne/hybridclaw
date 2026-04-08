@@ -470,6 +470,7 @@ export interface AdminAuditResponse {
 export interface AdminSkill {
   name: string;
   description: string;
+  category: string;
   source: string;
   available: boolean;
   enabled: boolean;

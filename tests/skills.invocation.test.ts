@@ -34,6 +34,7 @@ function makeTempSkill(skillName: string): Skill {
   return {
     name: skillName,
     description: 'Test skill',
+    category: 'apple',
     userInvocable: true,
     disableModelInvocation: false,
     always: false,

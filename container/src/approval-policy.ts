@@ -5,6 +5,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { classifyMcpTool } from './mcp/tool-classifier.js';
+import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import type { ChatMessage } from './types.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
@@ -92,10 +93,7 @@ export interface ToolApprovalEvaluation {
   hostHints: string[];
 }
 
-const WORKSPACE_ROOT_DISPLAY = '/workspace';
-const WORKSPACE_ROOT_ACTUAL = path.resolve(
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
-);
+const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
   '.hybridclaw',
@@ -160,7 +158,8 @@ const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
 const DELETE_RE = /\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const WRITE_INTENT_RE =
   /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
-const INSTALL_RE = /\b(npm|pnpm|yarn|bun)\s+(install|add)\b/i;
+const INSTALL_RE =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag)\b/i;
 const UNKNOWN_SCRIPT_RE =
@@ -1304,6 +1303,15 @@ export class TrustedCoworkerApprovalRuntime {
           hostHints: classified.hostHints,
         };
       }
+    }
+
+    if (
+      tier === 'yellow' &&
+      decision === 'auto' &&
+      this.fullAutoEnabled &&
+      !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
+    ) {
+      decision = 'approved_fullauto';
     }
 
     if (tier === 'yellow') {

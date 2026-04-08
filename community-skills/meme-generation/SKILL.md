@@ -7,6 +7,8 @@ requires:
     - python3
 metadata:
   hybridclaw:
+    short_description: Generate memes.
+    category: creativity
     tags:
       - creative
       - memes

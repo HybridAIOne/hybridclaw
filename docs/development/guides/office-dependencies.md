@@ -44,3 +44,7 @@ sh -lc 'command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 
 sh -lc 'command -v pdftoppm >/dev/null 2>&1 && echo pdftoppm_ok'
 sh -lc 'command -v pandoc >/dev/null 2>&1 && echo pandoc_ok'
 ```
+
+Without these tools, the office skills still create and edit `.docx`, `.xlsx`,
+and `.pptx` files, but some higher-quality QA and conversion paths are
+skipped.

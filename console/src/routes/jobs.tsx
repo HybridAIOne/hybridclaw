@@ -61,6 +61,7 @@ function trimText(raw: string | null | undefined, maxLength: number): string {
 }
 
 function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
+  if (job.sessionId) return job.sessionId;
   if (job.source === 'config') return `scheduler:${job.id}`;
   return job.sessionId || null;
 }
@@ -225,10 +226,10 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
 }
 
 function collectJobOutputs(item: JobBoardItem): string[] {
-  const values = [
-    ...(item.session?.output || []),
-    item.session?.lastAnswer || '',
-  ];
+  const values =
+    item.session?.output && item.session.output.length > 0
+      ? item.session.output
+      : [item.session?.lastAnswer || ''];
   const seen = new Set<string>();
   const outputs: string[] = [];
   for (const rawValue of values) {

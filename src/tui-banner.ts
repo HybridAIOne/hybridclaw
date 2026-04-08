@@ -7,7 +7,17 @@ export interface TuiBannerPalette {
   teal: string;
   gold: string;
   green: string;
+  activeSkill: string;
+  inactiveSkill: string;
   wordmarkRamp?: readonly string[];
+}
+
+export interface TuiStartupBannerSkillCategory {
+  category: string;
+  skills: Array<{
+    name: string;
+    active: boolean;
+  }>;
 }
 
 export interface TuiStartupBannerInfo {
@@ -18,6 +28,7 @@ export interface TuiStartupBannerInfo {
   hybridAIBaseUrl: string;
   chatbotId: string;
   version: string;
+  skillCategories: TuiStartupBannerSkillCategory[];
 }
 
 const SIDE_BY_SIDE_GAP = 4;
@@ -73,6 +84,7 @@ const SLASH_COMMANDS = [
   '/clear',
   '/compact',
   '/config',
+  '/dream',
   '/exit',
   '/export',
   '/fullauto',
@@ -167,29 +179,70 @@ function wrapValue(label: string, rawValue: string, width: number): string[] {
   return lines.length > 0 ? lines : [`${firstPrefix}unset`];
 }
 
-function wrapText(rawValue: string, width: number): string[] {
-  const safeValue = String(rawValue || '').trim() || 'unset';
-  const lines: string[] = [];
-  let remaining = safeValue;
+function buildSkillRows(params: {
+  categories: TuiStartupBannerSkillCategory[];
+  width: number;
+  palette: TuiBannerPalette;
+}): string[] {
+  const { categories, width, palette } = params;
+  const tokens: Array<{
+    visible: string;
+    colored: string;
+    wrappedVisible?: string;
+    wrappedColored?: string;
+  }> = [];
 
-  while (remaining) {
-    if (remaining.length <= width) {
-      lines.push(remaining);
-      break;
+  for (const [categoryIndex, category] of categories.entries()) {
+    const categoryLabel = `${category.category}:`;
+    tokens.push({
+      visible: categoryIndex === 0 ? categoryLabel : `- ${category.category}:`,
+      colored:
+        categoryIndex === 0
+          ? `${palette.gold}${category.category}:${palette.reset}`
+          : `- ${palette.gold}${category.category}:${palette.reset}`,
+      wrappedVisible: categoryLabel,
+      wrappedColored: `${palette.gold}${category.category}:${palette.reset}`,
+    });
+
+    if (category.skills.length === 0) {
+      tokens.push({
+        visible: 'none',
+        colored: `${palette.inactiveSkill}none${palette.reset}`,
+      });
+      continue;
     }
 
-    let sliceEnd = width;
-    while (sliceEnd > 0 && remaining[sliceEnd] && remaining[sliceEnd] !== ' ') {
-      sliceEnd -= 1;
+    for (const [skillIndex, skill] of category.skills.entries()) {
+      const visibleName =
+        skillIndex < category.skills.length - 1 ? `${skill.name},` : skill.name;
+      tokens.push({
+        visible: visibleName,
+        colored: `${skill.active ? palette.activeSkill : palette.inactiveSkill}${visibleName}${palette.reset}`,
+      });
     }
-    if (sliceEnd <= 0) sliceEnd = width;
-
-    const segment = remaining.slice(0, sliceEnd).trimEnd();
-    lines.push(segment);
-    remaining = remaining.slice(sliceEnd).trimStart();
   }
 
-  return lines.length > 0 ? lines : ['unset'];
+  const rows: string[] = [];
+  let current = '';
+  let currentVisible = 0;
+
+  for (const token of tokens) {
+    const space = current ? ' ' : '';
+    const nextVisible = currentVisible + space.length + token.visible.length;
+    if (current && nextVisible > width) {
+      rows.push(current);
+      current = token.wrappedColored || token.colored;
+      currentVisible = (token.wrappedVisible || token.visible).length;
+      continue;
+    }
+    current += `${space}${token.colored}`;
+    currentVisible = nextVisible;
+  }
+
+  if (current) {
+    rows.push(current);
+  }
+  return rows;
 }
 
 function chunkCommands(width: number): string[] {
@@ -271,37 +324,37 @@ function renderPanel(
     );
   };
 
-  const pushWrappedRow = (text: string, color = '') => {
-    for (const line of wrapText(text, innerWidth)) {
-      pushRow(line, color);
-    }
-  };
-
   pushBorder('╭', '─', '╮');
-  pushRow('Runtime', `${palette.bold}${palette.gold}`);
+  pushRow(`Runtime (v${info.version})`, `${palette.bold}${palette.gold}`);
   for (const line of [
     ...wrapValue(
-      'provider',
-      resolveProviderLabel(info.currentModel),
+      'model',
+      `${info.currentModel} (${resolveProviderLabel(info.currentModel)})`,
       innerWidth,
     ),
-    ...wrapValue('model', info.currentModel, innerWidth),
-    ...wrapValue('default', info.defaultModel, innerWidth),
     ...wrapValue('bot', info.chatbotId, innerWidth),
-    ...wrapValue('sandbox', info.sandboxMode, innerWidth),
-    ...wrapValue('gateway', info.gatewayBaseUrl, innerWidth),
-    ...wrapValue('hybridai', info.hybridAIBaseUrl, innerWidth),
-    ...wrapValue('version', `v${info.version}`, innerWidth),
+    ...wrapValue(
+      'gateway',
+      `${info.gatewayBaseUrl} (${info.sandboxMode} mode)`,
+      innerWidth,
+    ),
   ]) {
     pushRow(line);
   }
 
   pushBorder('├', '─', '┤');
-  pushRow('Controls', `${palette.bold}${palette.gold}`);
-  pushWrappedRow('TAB  accept slash suggestion');
-  pushWrappedRow('Ctrl-N/P  navigate slash menu');
-  pushWrappedRow('ESC  close menu or interrupt run');
-  pushWrappedRow('Context injection: @file @folder @diff @staged @git');
+  pushRow('Skills', `${palette.bold}${palette.gold}`);
+  if (info.skillCategories.length === 0) {
+    pushRow(`${palette.inactiveSkill}None${palette.reset}`);
+  } else {
+    for (const line of buildSkillRows({
+      categories: info.skillCategories,
+      width: innerWidth,
+      palette,
+    })) {
+      pushRow(line);
+    }
+  }
 
   pushBorder('├', '─', '┤');
   pushRow('Slash Commands', `${palette.bold}${palette.gold}`);

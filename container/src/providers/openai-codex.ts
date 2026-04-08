@@ -1,3 +1,7 @@
+import {
+  drainServerSentEventBlocks,
+  parseServerSentEventBlock,
+} from '../../shared/server-sent-events.js';
 import type {
   ChatCompletionResponse,
   ChatContentPart,
@@ -12,11 +16,6 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
-
-interface ServerSentEvent {
-  event: string | null;
-  data: string;
-}
 
 interface CodexAccumulatedContentPart {
   type: string;
@@ -166,12 +165,50 @@ function buildCodexRequestBody(
   };
 }
 
+function buildCodexSyntheticMessageOutput(
+  text: string,
+): Array<Record<string, unknown>> {
+  return [
+    {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text }],
+    },
+  ];
+}
+
+function extractCodexTopLevelOutputText(
+  record: Record<string, unknown>,
+): string {
+  return typeof record.output_text === 'string'
+    ? record.output_text.trim()
+    : '';
+}
+
+function normalizeCodexResponseOutput(
+  record: Record<string, unknown>,
+  fallbackOutput?: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const output = Array.isArray(record.output)
+    ? record.output.filter(
+        (entry): entry is Record<string, unknown> =>
+          !!entry && typeof entry === 'object' && !Array.isArray(entry),
+      )
+    : [];
+  if (output.length > 0) return output;
+  if (fallbackOutput && fallbackOutput.length > 0) return fallbackOutput;
+
+  const outputText = extractCodexTopLevelOutputText(record);
+  return outputText ? buildCodexSyntheticMessageOutput(outputText) : [];
+}
+
 function adaptCodexResponse(
   payload: unknown,
   fallbackModel: string,
+  fallbackOutput?: Array<Record<string, unknown>>,
 ): ChatCompletionResponse {
   const record = payload as Record<string, unknown>;
-  const output = Array.isArray(record.output) ? record.output : [];
+  const output = normalizeCodexResponseOutput(record, fallbackOutput);
   let role = 'assistant';
   const contentParts: Array<{ type: 'text'; text: string }> = [];
   const toolCalls: ToolCall[] = [];
@@ -251,34 +288,31 @@ function adaptCodexResponse(
   };
 }
 
-function parseServerSentEventBlock(block: string): ServerSentEvent | null {
-  const lines = block.split(/\r?\n/);
-  const dataLines: string[] = [];
-  let event: string | null = null;
+function isCodexEmptyVisibleCompletion(
+  response: ChatCompletionResponse,
+): boolean {
+  const choice = response.choices[0];
+  if (!choice) return true;
+  if ((choice.message.tool_calls || []).length > 0) return false;
+  return !normalizeMessageText(choice.message.content);
+}
 
-  for (const rawLine of lines) {
-    if (!rawLine || rawLine.startsWith(':')) continue;
-
-    const separatorIndex = rawLine.indexOf(':');
-    const field =
-      separatorIndex === -1 ? rawLine.trim() : rawLine.slice(0, separatorIndex);
-    const value =
-      separatorIndex === -1
-        ? ''
-        : rawLine.slice(separatorIndex + 1).replace(/^ /, '');
-
-    if (field === 'event') {
-      event = value || null;
-      continue;
-    }
-    if (field === 'data') dataLines.push(value);
-  }
-
-  if (dataLines.length === 0) return null;
-  return {
-    event,
-    data: dataLines.join('\n'),
-  };
+function assertNonEmptyCodexResponse(
+  response: ChatCompletionResponse,
+  fallbackModel: string,
+): void {
+  if (!isCodexEmptyVisibleCompletion(response)) return;
+  const choice = response.choices[0];
+  const content = choice?.message?.content ?? null;
+  const contentType = Array.isArray(content)
+    ? 'parts'
+    : content === null
+      ? 'null'
+      : typeof content;
+  logCodexTransport(
+    `empty completion model=${normalizeCodexModelName(fallbackModel)} responseModel=${response.model || '<missing>'} finish=${choice?.finish_reason || '<missing>'} contentType=${contentType}`,
+  );
+  throw new Error('Codex Responses API returned no output items');
 }
 
 function resolveCodexOutputIndex(
@@ -299,6 +333,12 @@ function ensureCodexMessageItem(
   outputIndex?: number,
   itemId?: string,
 ): CodexAccumulatedMessageItem {
+  if (outputIndex === undefined && !itemId) {
+    for (let index = output.length - 1; index >= 0; index -= 1) {
+      const existing = output[index];
+      if (existing?.type === 'message') return existing;
+    }
+  }
   const index = resolveCodexOutputIndex(output, outputIndex, itemId);
   const existing = output[index];
   if (existing && existing.type === 'message') {
@@ -321,6 +361,12 @@ function ensureCodexFunctionCallItem(
   outputIndex?: number,
   itemId?: string,
 ): CodexAccumulatedFunctionCallItem {
+  if (outputIndex === undefined && !itemId) {
+    for (let index = output.length - 1; index >= 0; index -= 1) {
+      const existing = output[index];
+      if (existing?.type === 'function_call') return existing;
+    }
+  }
   const index = resolveCodexOutputIndex(output, outputIndex, itemId);
   const existing = output[index];
   if (existing && existing.type === 'function_call') {
@@ -514,14 +560,19 @@ function buildCodexStreamResponse(
   state: CodexStreamAccumulator,
   fallbackModel: string,
 ): ChatCompletionResponse {
+  const fallbackOutput = serializeCodexOutput(state.output);
   if (state.completedResponse) {
-    return adaptCodexResponse(state.completedResponse, fallbackModel);
+    return adaptCodexResponse(
+      state.completedResponse,
+      fallbackModel,
+      fallbackOutput,
+    );
   }
   return adaptCodexResponse(
     {
       id: state.id || 'response',
       model: state.model || normalizeCodexModelName(fallbackModel),
-      output: serializeCodexOutput(state.output),
+      output: fallbackOutput,
       ...(state.usage ? { usage: state.usage } : {}),
     },
     fallbackModel,
@@ -556,8 +607,7 @@ function consumeCodexStreamPayload(
   if (
     type === 'error' ||
     type === 'response.failed' ||
-    type === 'response.error' ||
-    type === 'response.incomplete'
+    type === 'response.error'
   ) {
     throw new Error(parseCodexStreamError(payload));
   }
@@ -568,6 +618,14 @@ function consumeCodexStreamPayload(
 
   if (type === 'response.created' || type === 'response.in_progress') {
     return false;
+  }
+
+  if (type === 'response.incomplete') {
+    if (isRecord(payload.response)) {
+      state.completedResponse = payload.response;
+      updateCodexResponseMetadata(state, payload.response);
+    }
+    return true;
   }
 
   const outputIndex =
@@ -670,34 +728,13 @@ function consumeCodexStreamPayload(
 export async function callOpenAICodexProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const startedAt = Date.now();
-  logCodexTransport(
-    `request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
-  );
-  const response = await fetch(`${args.baseUrl}/responses`, {
-    method: 'POST',
-    headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
-    body: JSON.stringify(
-      buildCodexRequestBody(args.model, args.messages, args.tools),
-    ),
+  // The Codex backend currently requires `stream: true` even for callers that
+  // want a single final response body. Use the streaming transport internally
+  // and suppress text-delta callbacks for the non-streaming runtime path.
+  return callOpenAICodexProviderStream({
+    ...args,
+    onTextDelta: () => undefined,
   });
-  logCodexTransport(
-    `response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
-  }
-
-  const adapted = adaptCodexResponse(
-    (await response.json()) as unknown,
-    args.model,
-  );
-  logCodexTransport(
-    `request complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
-  );
-  return adapted;
 }
 
 export async function callOpenAICodexProviderStream(
@@ -738,6 +775,7 @@ export async function callOpenAICodexProviderStream(
       (await response.json()) as unknown,
       args.model,
     );
+    assertNonEmptyCodexResponse(adapted, args.model);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -747,6 +785,7 @@ export async function callOpenAICodexProviderStream(
       (await response.json()) as unknown,
       args.model,
     );
+    assertNonEmptyCodexResponse(adapted, args.model);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -769,10 +808,10 @@ export async function callOpenAICodexProviderStream(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() || '';
+      const drained = drainServerSentEventBlocks(buffer);
+      buffer = drained.remainder;
 
-      for (const block of blocks) {
+      for (const block of drained.blocks) {
         const event = parseServerSentEventBlock(block);
         if (!event) continue;
         sawPayload = true;
@@ -824,5 +863,7 @@ export async function callOpenAICodexProviderStream(
   logCodexTransport(
     `stream complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
   );
-  return buildCodexStreamResponse(streamState, args.model);
+  const adapted = buildCodexStreamResponse(streamState, args.model);
+  assertNonEmptyCodexResponse(adapted, args.model);
+  return adapted;
 }
