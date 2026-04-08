@@ -159,11 +159,16 @@ Notes:
 
 - `EMAIL_PASSWORD` is saved only when you pass `--password` or paste it
   interactively
+- when `EMAIL_PASSWORD` is already stored, CLI setup keeps `email.password`
+  pointed at that encrypted secret instead of writing the password into config
 - IMAP secure mode defaults to `true`
 - SMTP secure mode defaults to `false` on port `587`; use `--smtp-secure` for
   implicit TLS on port `465`
 - `--no-smtp-secure` is the expected setting for STARTTLS on port `587`
 - if `allowFrom` is empty, email stays outbound-only
+- outbound replies preserve thread context automatically, and tool/API callers
+  can pass explicit `inReplyTo` and `references` Message-ID headers when they
+  need to reply into an existing external thread
 
 TUI or web chat equivalent:
 
