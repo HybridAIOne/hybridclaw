@@ -8,6 +8,8 @@ requires:
     - node
 metadata:
   hybridclaw:
+    category: office
+    short_description: "PPTX deck editing."
     tags:
       - office
       - presentation
@@ -17,7 +19,6 @@ metadata:
       - xlsx
       - docx
 ---
-
 # PPTX
 
 Use this skill whenever the user asks to create, revise, template, or review a `.pptx` presentation.

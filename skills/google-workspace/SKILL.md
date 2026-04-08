@@ -4,6 +4,8 @@ description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser auto
 user-invocable: true
 metadata:
   hybridclaw:
+    category: productivity
+    short_description: "Gmail, Drive, Docs, and Sheets."
     tags:
       - google
       - workspace
@@ -13,7 +15,6 @@ metadata:
     related_skills:
       - himalaya
 ---
-
 # Google Workspace
 
 Use this skill for Google Workspace workflows that go beyond HybridClaw's built-in email and Discord channels.

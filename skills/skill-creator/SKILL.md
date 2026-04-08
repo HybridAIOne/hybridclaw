@@ -3,8 +3,11 @@ name: skill-creator
 description: "Create and update SKILL.md-based skills with strong trigger metadata, lean docs, and reliable init, validate, package, and publish workflows."
 user-invocable: true
 disable-model-invocation: false
+metadata:
+  hybridclaw:
+    category: development
+    short_description: "Create and update skills."
 ---
-
 # Skill Creator
 
 Build high-quality skills that are clear to trigger, cheap in context, and reliable in execution.
@@ -48,7 +51,7 @@ Target sizes:
 Required:
 
 - `SKILL.md`
-- YAML frontmatter with `name` and `description`
+- YAML frontmatter with `name`, `description`, and `metadata.hybridclaw.category`
 
 Recommended:
 
@@ -66,6 +69,7 @@ Optional:
 Use this taxonomy to keep skills maintainable:
 
 - `SKILL.md`: trigger semantics, decision flow, command contract, minimal examples
+- `metadata.hybridclaw.category`: short bucket like `development`, `office`, `apple`, or `memory`
 - `references/`: long docs, schemas, framework variants, advanced patterns
 - `scripts/`: executable deterministic helpers
 - `assets/`: output resources that should not be read into context by default

@@ -57,6 +57,7 @@ export interface SkillInstallSpec {
 interface SkillCandidate {
   name: string;
   description: string;
+  category: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -66,6 +67,7 @@ interface SkillCandidate {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -79,6 +81,7 @@ interface SkillCandidate {
 export interface Skill {
   name: string;
   description: string;
+  category: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -88,6 +91,7 @@ export interface Skill {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -187,6 +191,17 @@ function parseBool(raw: string | undefined, fallback: boolean): boolean {
   if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
   if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
   return fallback;
+}
+
+function normalizeSkillCategory(raw: string | undefined): string {
+  const normalized = (raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'uncategorized';
 }
 
 function escapeXml(text: string): string {
@@ -485,12 +500,21 @@ function resolveCompatibleMetadataRecord(
 }
 
 function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
+  shortDescription?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
   const record = resolveCompatibleMetadataRecord(raw);
+  const rawShortDescription =
+    typeof record.short_description === 'string'
+      ? record.short_description
+      : typeof record.shortDescription === 'string'
+        ? record.shortDescription
+        : null;
+  const shortDescription = rawShortDescription?.trim() || undefined;
   return {
+    ...(shortDescription ? { shortDescription } : {}),
     tags: normalizeStringList(record.tags),
     relatedSkills: Array.from(
       new Set([
@@ -670,6 +694,7 @@ function parseRequiresFromFrontmatter(
 }
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
+  shortDescription?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
@@ -687,6 +712,14 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     ? tryParseJsonArray(installSection.inline)
     : null;
   return {
+    shortDescription:
+      stripQuotes(
+        metadataLookup.compatibleSectionFields.get('short_description')
+          ?.inline ||
+          metadataLookup.compatibleSectionFields.get('shortDescription')
+            ?.inline ||
+          '',
+      ) || undefined,
     tags: parseSectionStringList(
       metadataLookup.compatibleSectionFields.get('tags'),
     ),
@@ -704,6 +737,47 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
       installInlineJson ?? parseSectionObjectList(installSection),
     ),
   };
+}
+
+function parseSkillCategory(frontmatter: FrontmatterParseResult): string {
+  const metadataLookup = resolveMetadataSectionLookup(frontmatter);
+  if (metadataLookup.inlineObject) {
+    const record = resolveCompatibleMetadataRecord(metadataLookup.inlineObject);
+    if (typeof record.category === 'string') {
+      return normalizeSkillCategory(record.category);
+    }
+  }
+  if (metadataLookup.compatibleInlineObject) {
+    const record = resolveCompatibleMetadataRecord(
+      metadataLookup.compatibleInlineObject,
+    );
+    if (typeof record.category === 'string') {
+      return normalizeSkillCategory(record.category);
+    }
+  }
+
+  const categorySection =
+    metadataLookup.compatibleSectionFields.get('category');
+  if (categorySection?.inline) {
+    return normalizeSkillCategory(categorySection.inline);
+  }
+  const sectionValue = categorySection?.children
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (sectionValue) {
+    return normalizeSkillCategory(sectionValue);
+  }
+
+  return normalizeSkillCategory(frontmatter.meta.category);
+}
+
+function compareSkillsByCategoryAndName(
+  left: { category: string; name: string },
+  right: { category: string; name: string },
+): number {
+  const categoryCompare = left.category.localeCompare(right.category);
+  if (categoryCompare !== 0) return categoryCompare;
+  return left.name.localeCompare(right.name);
 }
 
 export function hasBinary(binName: string): boolean {
@@ -859,6 +933,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         skills.push({
           name,
           description: (meta.description || '').trim(),
+          category: parseSkillCategory(frontmatter),
           userInvocable: parseBool(meta['user-invocable'], true),
           disableModelInvocation: parseBool(
             meta['disable-model-invocation'],
@@ -1526,6 +1601,7 @@ export function expandSkillInvocationWithResolution(
 export interface SkillCatalogEntry {
   name: string;
   description: string;
+  category: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -1535,6 +1611,7 @@ export interface SkillCatalogEntry {
   };
   metadata: {
     hybridclaw: {
+      shortDescription?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -1664,7 +1741,7 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
         missing: eligibility.missing,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(compareSkillsByCategoryAndName);
 }
 
 /**
@@ -1726,7 +1803,7 @@ export function loadSkills(
     }
   }
 
-  return resolved.sort((a, b) => a.name.localeCompare(b.name));
+  return resolved.sort(compareSkillsByCategoryAndName);
 }
 
 /**
@@ -1785,6 +1862,7 @@ export function buildSkillsPrompt(skills: Skill[]): string {
       const block = [
         '  <skill>',
         `    <name>${escapeXml(skill.name)}</name>`,
+        `    <category>${escapeXml(skill.category)}</category>`,
         `    <description>${escapeXml(skill.description || skill.name)}</description>`,
         `    <location>${escapeXml(skill.location)}</location>`,
         '  </skill>',

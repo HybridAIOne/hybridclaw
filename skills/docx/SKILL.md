@@ -8,6 +8,8 @@ requires:
     - node
 metadata:
   hybridclaw:
+    category: office
+    short_description: "DOCX editing."
     tags:
       - office
       - document
@@ -15,7 +17,6 @@ metadata:
     related_skills:
       - xlsx
 ---
-
 # DOCX
 
 Use this skill whenever the user asks to create, revise, comment on, or inspect a `.docx` document.

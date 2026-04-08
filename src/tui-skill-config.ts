@@ -294,7 +294,7 @@ function skillNotes(
   draft: TuiSkillConfigDraft,
   scope: TuiSkillConfigScope,
 ): string {
-  const notes: string[] = [];
+  const notes: string[] = [skill.category];
   if (scope !== 'global' && draft.disabled.has(skill.name)) {
     notes.push('global disable still applies');
   }
@@ -391,6 +391,7 @@ export function renderTuiSkillConfigLines(params: {
   if (selectedSkill) {
     const footerNotes = [
       selectedSkill.description || 'No description.',
+      selectedSkill.category ? `category: ${selectedSkill.category}` : '',
       selectedSkill.source ? `source: ${selectedSkill.source}` : '',
     ]
       .filter(Boolean)

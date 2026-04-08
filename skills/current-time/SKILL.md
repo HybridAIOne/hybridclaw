@@ -3,11 +3,14 @@ name: current-time
 description: Return the current system time and timezone by calling a tool instead of guessing.
 user-invocable: true
 disable-model-invocation: false
+metadata:
+  hybridclaw:
+    category: misc
+    short_description: "Current time and timezone."
 ---
-
 # Current Time
 
-Use this skill when the user asks for the current time, date, timezone, "right now", "what time is it", or similar.
+Use when the user asks for the current time, date, timezone, "right now", "what time is it", or similar.
 
 ## Workflow
 

@@ -9,6 +9,8 @@ const palette = {
   teal: '',
   gold: '',
   green: '',
+  activeSkill: '',
+  inactiveSkill: '',
 };
 
 function stripAnsi(value: string): string {
@@ -44,6 +46,23 @@ test('keeps the panel aligned with the wordmark right edge on wide terminals', (
       hybridAIBaseUrl: 'https://api.hybridai.com',
       chatbotId: 'bot-123',
       version: '0.8.0',
+      skillCategories: [
+        {
+          category: 'Office',
+          skills: [
+            { name: 'docx', active: true },
+            { name: 'pdf', active: false },
+            { name: 'xlsx', active: true },
+          ],
+        },
+        {
+          category: 'Memory',
+          skills: [
+            { name: 'notion', active: false },
+            { name: 'obsidian', active: true },
+          ],
+        },
+      ],
     },
     palette,
   }).map(stripAnsi);
@@ -60,7 +79,23 @@ test('keeps the panel aligned with the wordmark right edge on wide terminals', (
   expect(lines[25]).toContain('╯');
   expect(lines[0]).toContain('◌');
   expect(leftSegmentWidth + boxWidth).toBe(titleWidth);
-  expect(lines).toContainEqual(expect.stringContaining('provider  Codex'));
+  expect(lines).toContainEqual(expect.stringContaining('Runtime (v0.8.0)'));
+  expect(lines).toContainEqual(
+    expect.stringContaining('model     openai-codex/gpt-5.4 (Codex)'),
+  );
+  expect(lines).toContainEqual(
+    expect.stringContaining('gateway   http://127.0.0.1:3000 (container mode)'),
+  );
+  expect(lines.some((line) => line.includes('provider  '))).toBe(false);
+  expect(lines.some((line) => line.includes('sandbox   '))).toBe(false);
+  expect(lines.some((line) => line.includes('version   '))).toBe(false);
+  expect(lines.some((line) => line.includes('default   '))).toBe(false);
+  expect(lines.some((line) => line.includes('hybridai  '))).toBe(false);
+  expect(lines).toContainEqual(
+    expect.stringContaining(
+      'Office: docx, pdf, xlsx - Memory: notion, obsidian',
+    ),
+  );
   expect(lines).toContainEqual(expect.stringContaining('/channel-policy'));
   expect(lines).toContainEqual(expect.stringContaining('░██     ░██'));
   expect(lines.at(-1)).toContain('Powered by HybridAI  v0.8.0');
@@ -77,6 +112,23 @@ test('does not stretch the panel wider than the wordmark span on medium terminal
       hybridAIBaseUrl: 'https://api.hybridai.com',
       chatbotId: 'bot-123',
       version: '0.8.0',
+      skillCategories: [
+        {
+          category: 'Office',
+          skills: [
+            { name: 'docx', active: true },
+            { name: 'pdf', active: false },
+            { name: 'xlsx', active: true },
+          ],
+        },
+        {
+          category: 'Memory',
+          skills: [
+            { name: 'notion', active: false },
+            { name: 'obsidian', active: true },
+          ],
+        },
+      ],
     },
     palette,
   }).map(stripAnsi);
@@ -102,6 +154,23 @@ test('falls back to a stacked banner and compact title on narrow terminals', () 
       hybridAIBaseUrl: 'https://api.hybridai.com',
       chatbotId: 'unset',
       version: '0.8.0',
+      skillCategories: [
+        {
+          category: 'Office',
+          skills: [
+            { name: 'docx', active: true },
+            { name: 'pdf', active: false },
+            { name: 'xlsx', active: true },
+          ],
+        },
+        {
+          category: 'Memory',
+          skills: [
+            { name: 'notion', active: false },
+            { name: 'obsidian', active: true },
+          ],
+        },
+      ],
     },
     palette,
   }).map(stripAnsi);
@@ -124,21 +193,61 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
       hybridAIBaseUrl: 'https://api.hybridai.com',
       chatbotId: '',
       version: '0.8.0',
+      skillCategories: [
+        {
+          category: 'Office',
+          skills: [
+            { name: 'docx', active: true },
+            { name: 'pdf', active: false },
+            { name: 'xlsx', active: true },
+          ],
+        },
+        {
+          category: 'Memory',
+          skills: [
+            { name: 'notion', active: false },
+            { name: 'obsidian', active: true },
+          ],
+        },
+        {
+          category: 'Apple',
+          skills: [
+            { name: 'apple-calendar', active: false },
+            { name: 'apple-music', active: true },
+          ],
+        },
+      ],
     },
     palette,
   }).map(stripAnsi);
 
-  expect(lines).toContainEqual(expect.stringContaining('provider  HybridAI'));
-  expect(lines).toContainEqual(expect.stringContaining('TAB  accept slash'));
-  expect(lines).toContainEqual(expect.stringContaining('suggestion'));
-  expect(lines).toContainEqual(expect.stringContaining('ESC  close menu or'));
-  expect(lines).toContainEqual(expect.stringContaining('interrupt run'));
+  expect(lines).toContainEqual(expect.stringContaining('Runtime (v0.8.0)'));
   expect(lines).toContainEqual(
-    expect.stringContaining('Context injection: @file'),
+    expect.stringContaining('model     hybridai-default'),
+  );
+  expect(lines).toContainEqual(expect.stringContaining('(HybridAI)'));
+  expect(lines.some((line) => line.includes('provider  '))).toBe(false);
+  expect(lines).toContainEqual(
+    expect.stringContaining('gateway   http://127.0.0.1'),
+  );
+  expect(lines).toContainEqual(expect.stringContaining(':3000 (host'));
+  expect(lines).toContainEqual(expect.stringContaining('mode)'));
+  expect(lines.some((line) => line.includes('sandbox   '))).toBe(false);
+  expect(lines.some((line) => line.includes('version   '))).toBe(false);
+  expect(lines.some((line) => line.includes('default   '))).toBe(false);
+  expect(lines.some((line) => line.includes('hybridai  '))).toBe(false);
+  expect(lines).toContainEqual(
+    expect.stringContaining('Office: docx, pdf, xlsx'),
   );
   expect(lines).toContainEqual(
-    expect.stringContaining('@folder @diff @staged @git'),
+    expect.stringContaining('Memory: notion, obsidian'),
   );
+  expect(lines).toContainEqual(
+    expect.stringContaining('Apple: apple-calendar,'),
+  );
+  expect(lines).toContainEqual(expect.stringContaining('Apple:'));
+  expect(lines).toContainEqual(expect.stringContaining('apple-music'));
+  expect(lines.some((line) => line.includes('│ - '))).toBe(false);
   const slashHeaderIndex = lines.indexOf('│ Slash Commands             │');
   const bottomBorderIndex = lines.findIndex(
     (line, index) => index > slashHeaderIndex && line.includes('╰'),
@@ -187,6 +296,23 @@ test('applies the configured monochrome ramp to the large wordmark', () => {
       hybridAIBaseUrl: 'https://api.hybridai.com',
       chatbotId: 'bot-123',
       version: '0.8.0',
+      skillCategories: [
+        {
+          category: 'Office',
+          skills: [
+            { name: 'docx', active: true },
+            { name: 'pdf', active: false },
+            { name: 'xlsx', active: true },
+          ],
+        },
+        {
+          category: 'Memory',
+          skills: [
+            { name: 'notion', active: false },
+            { name: 'obsidian', active: true },
+          ],
+        },
+      ],
     },
     palette: {
       ...palette,
@@ -194,6 +320,8 @@ test('applies the configured monochrome ramp to the large wordmark', () => {
       gold: '\x1b[33m',
       muted: '\x1b[90m',
       teal: '\x1b[36m',
+      activeSkill: '\x1b[97m',
+      inactiveSkill: '\x1b[90m',
       wordmarkRamp: [
         '\x1b[31m',
         '\x1b[32m',
@@ -210,5 +338,12 @@ test('applies the configured monochrome ramp to the large wordmark', () => {
   expect(titleLines[0]).toContain('\x1b[31m');
   expect(titleLines[3]).toContain('\x1b[34m');
   expect(titleLines[6]).toContain('\x1b[37m');
+  expect(lines.some((line) => line.includes('\x1b[33mOffice:\x1b[0m'))).toBe(
+    true,
+  );
+  expect(lines.some((line) => line.includes('\x1b[97mdocx,\x1b[0m'))).toBe(
+    true,
+  );
+  expect(lines.some((line) => line.includes('\x1b[90mpdf,\x1b[0m'))).toBe(true);
   expect(lines.at(-1)).toContain('\x1b[90mPowered by HybridAI');
 });

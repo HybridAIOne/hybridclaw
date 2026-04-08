@@ -4,13 +4,14 @@ description: Control Apple Music playback, inspect now playing, start playlists,
 user-invocable: true
 metadata:
   hybridclaw:
+    category: apple
+    short_description: "Apple Music playback."
     tags:
       - apple
       - music
       - media
       - macos
 ---
-
 # Apple Music
 
 Use this skill for the macOS Music app and Apple Music playback workflows.

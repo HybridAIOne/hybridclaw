@@ -48,6 +48,7 @@ function makeResponse(): GatewayAdminSkillsResponse {
       {
         name: 'alpha',
         description: 'Alpha skill',
+        category: 'apple',
         source: 'bundled',
         available: true,
         enabled: false,
@@ -61,6 +62,7 @@ function makeResponse(): GatewayAdminSkillsResponse {
       {
         name: 'beta',
         description: 'Beta skill',
+        category: 'office',
         source: 'bundled',
         available: true,
         enabled: true,
@@ -74,6 +76,7 @@ function makeResponse(): GatewayAdminSkillsResponse {
       {
         name: 'gamma',
         description: 'Gamma skill',
+        category: 'misc',
         source: 'workspace',
         available: false,
         enabled: true,
