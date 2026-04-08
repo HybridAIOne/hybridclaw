@@ -61,6 +61,8 @@ With the gateway running locally:
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
+For access from another machine, keep the gateway on loopback and follow
+[Remote Access](../guides/remote-access.md).
 
 ## Ground A Prompt With Files Or Repo Context
 

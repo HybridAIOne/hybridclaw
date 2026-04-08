@@ -67,6 +67,15 @@ prompt text intact and adds a warning instead of silently broadening access.
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect
 Microsoft Teams, iMessage, WhatsApp, and email.
 
+## Can I reach HybridClaw from another machine?
+
+Yes. The supported pattern is to keep the gateway on loopback and expose it
+with an SSH tunnel or host-managed Tailscale proxy. Protect browser access with
+`ops.webApiToken`, and point remote CLI or TUI clients at the same gateway with
+`ops.gatewayBaseUrl` plus `ops.gatewayApiToken`. For the full runbook,
+including a persistent macOS LaunchAgent tunnel, see
+[Remote Access](../guides/remote-access.md).
+
 ## What AI models does it support?
 
 HybridClaw supports HybridAI models, OpenAI Codex models, OpenRouter models,
