@@ -214,6 +214,7 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import { loadSkillCatalog } from '../skills/skills.js';
+import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -3395,6 +3396,7 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       name: skill.name,
       description: skill.description,
       category: skill.category,
+      shortDescription: skill.metadata.hybridclaw.shortDescription,
       source: String(skill.source),
       available: skill.available,
       enabled: skill.enabled,
@@ -3439,9 +3441,40 @@ export function setGatewayAdminSkillEnabled(input: {
   return getGatewayAdminSkills();
 }
 
+function normalizeCreatedSkillCategory(raw: string | undefined): string {
+  const normalized = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'uncategorized';
+}
+
+function assertGatewayAdminSkillAllowed(
+  skillName: string,
+  skillPath: string,
+): void {
+  const guardDecision = guardSkillDirectory({
+    skillName,
+    skillPath,
+    sourceTag: 'workspace',
+  });
+  if (guardDecision.allowed) {
+    return;
+  }
+  throw new GatewayRequestError(
+    400,
+    `Skill \`${skillName}\` was blocked by the security scanner: ${guardDecision.reason}.`,
+  );
+}
+
 export function createGatewayAdminSkill(input: {
   name: string;
   description: string;
+  category?: string;
+  shortDescription?: string;
   userInvocable?: boolean;
   disableModelInvocation?: boolean;
   tags?: string[];
@@ -3471,6 +3504,8 @@ export function createGatewayAdminSkill(input: {
       'Expected non-empty skill `description`.',
     );
   }
+  const category = normalizeCreatedSkillCategory(input.category);
+  const shortDescription = String(input.shortDescription || '').trim();
 
   const projectSkillsDir = path.join(process.cwd(), 'skills');
   const skillDir = path.join(projectSkillsDir, name);
@@ -3497,12 +3532,20 @@ export function createGatewayAdminSkill(input: {
     `user-invocable: ${userInvocable}`,
     `disable-model-invocation: ${disableModelInvocation}`,
   ];
-  if (tags.length > 0) {
+  if (category || shortDescription || tags.length > 0) {
     frontmatterLines.push('metadata:');
     frontmatterLines.push('  hybridclaw:');
-    frontmatterLines.push('    tags:');
-    for (const tag of tags) {
-      frontmatterLines.push(`      - ${JSON.stringify(String(tag))}`);
+    frontmatterLines.push(`    category: ${JSON.stringify(category)}`);
+    if (shortDescription) {
+      frontmatterLines.push(
+        `    short_description: ${JSON.stringify(shortDescription)}`,
+      );
+    }
+    if (tags.length > 0) {
+      frontmatterLines.push('    tags:');
+      for (const tag of tags) {
+        frontmatterLines.push(`      - ${JSON.stringify(String(tag))}`);
+      }
     }
   }
   frontmatterLines.push('---');
@@ -3512,7 +3555,7 @@ export function createGatewayAdminSkill(input: {
 
   // Validate all file paths before writing anything to disk
   const files = Array.isArray(input.files) ? input.files : [];
-  const resolvedFiles: Array<{ resolved: string; content: string }> = [];
+  const resolvedFiles: Array<{ relativePath: string; content: string }> = [];
   for (const file of files) {
     const filePath = String(file.path || '').trim();
     if (!filePath) {
@@ -3534,19 +3577,43 @@ export function createGatewayAdminSkill(input: {
         `File path \`${filePath}\` escapes the skill directory.`,
       );
     }
-    resolvedFiles.push({ resolved, content: file.content || '' });
+    resolvedFiles.push({
+      relativePath: path.relative(skillDir, resolved),
+      content: file.content || '',
+    });
   }
 
-  // Write atomically — clean up on failure
-  fs.mkdirSync(skillDir, { recursive: true });
+  // Stage outside skills/ so catalog scans never see partial skill directories.
+  fs.mkdirSync(projectSkillsDir, { recursive: true });
+  const stagedSkillDir = fs.mkdtempSync(
+    path.join(process.cwd(), `.${name}.create-`),
+  );
   try {
-    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
+    fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
     for (const file of resolvedFiles) {
-      fs.mkdirSync(path.dirname(file.resolved), { recursive: true });
-      fs.writeFileSync(file.resolved, file.content, 'utf-8');
+      const stagedFilePath = path.join(stagedSkillDir, file.relativePath);
+      fs.mkdirSync(path.dirname(stagedFilePath), { recursive: true });
+      fs.writeFileSync(stagedFilePath, file.content, 'utf-8');
+    }
+    assertGatewayAdminSkillAllowed(name, stagedSkillDir);
+    try {
+      fs.renameSync(stagedSkillDir, skillDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        code === 'EEXIST' ||
+        code === 'ENOTEMPTY' ||
+        fs.existsSync(skillDir)
+      ) {
+        throw new GatewayRequestError(
+          409,
+          `Skill \`${name}\` already exists at ${skillDir}.`,
+        );
+      }
+      throw error;
     }
   } catch (error) {
-    fs.rmSync(skillDir, { recursive: true, force: true });
+    fs.rmSync(stagedSkillDir, { recursive: true, force: true });
     throw error;
   }
 
@@ -3556,6 +3623,64 @@ export function createGatewayAdminSkill(input: {
 const SKILL_ZIP_MAX_BYTES = 10 * 1024 * 1024;
 const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
 const SKILL_ZIP_MAX_FILES = 200;
+const SKILL_ZIP_IGNORED_TOP_LEVEL_FILES = new Set(['.DS_Store', 'Thumbs.db']);
+const SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES = new Set(['__MACOSX']);
+const SKILL_ZIP_SERVER_ERROR_CODES = new Set([
+  'EACCES',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENFILE',
+  'ENOENT',
+  'ENOSPC',
+  'EPERM',
+  'EROFS',
+]);
+
+function toSkillZipArchiveRequestError(error: unknown): GatewayRequestError {
+  if (error instanceof GatewayRequestError) {
+    return error;
+  }
+  const code =
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : '';
+  if (SKILL_ZIP_SERVER_ERROR_CODES.has(code)) {
+    throw error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new GatewayRequestError(
+    400,
+    message.startsWith('ZIP ')
+      ? message
+      : 'Uploaded file is not a valid skill ZIP archive.',
+  );
+}
+
+function isIgnoredSkillZipTopLevelEntry(entry: fs.Dirent): boolean {
+  return entry.isDirectory()
+    ? SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES.has(entry.name)
+    : SKILL_ZIP_IGNORED_TOP_LEVEL_FILES.has(entry.name);
+}
+
+function resolveUploadedSkillZipRoot(extractedDir: string): string {
+  if (fs.existsSync(path.join(extractedDir, 'SKILL.md'))) {
+    return extractedDir;
+  }
+
+  const topEntries = fs
+    .readdirSync(extractedDir, { withFileTypes: true })
+    .filter((entry) => !isIgnoredSkillZipTopLevelEntry(entry));
+
+  if (topEntries.length === 1 && topEntries[0].isDirectory()) {
+    return path.join(extractedDir, topEntries[0].name);
+  }
+
+  return extractedDir;
+}
 
 export async function uploadGatewayAdminSkillZip(
   zipBuffer: Buffer,
@@ -3579,7 +3704,11 @@ export async function uploadGatewayAdminSkillZip(
 
     // safeExtractZip handles structural security: symlinks, path traversal,
     // encrypted entries, null bytes, absolute paths
-    await safeExtractZip(tmpZipPath, tmpExtractDir);
+    try {
+      await safeExtractZip(tmpZipPath, tmpExtractDir);
+    } catch (error) {
+      throw toSkillZipArchiveRequestError(error);
+    }
 
     // Enforce skill-specific size and file count limits (safeExtractZip's
     // 512MB / 10k-entry budget is for CLAW archives — too generous here)
@@ -3609,15 +3738,9 @@ export async function uploadGatewayAdminSkillZip(
     };
     walk(tmpExtractDir);
 
-    // ZIP may contain a top-level wrapper directory — detect and unwrap it
-    const topEntries = fs.readdirSync(tmpExtractDir);
-    let skillRoot = tmpExtractDir;
-    if (
-      topEntries.length === 1 &&
-      fs.statSync(path.join(tmpExtractDir, topEntries[0])).isDirectory()
-    ) {
-      skillRoot = path.join(tmpExtractDir, topEntries[0]);
-    }
+    // ZIP may contain a top-level wrapper directory plus archive metadata
+    // such as __MACOSX/ or .DS_Store — ignore those when unwrapping.
+    const skillRoot = resolveUploadedSkillZipRoot(tmpExtractDir);
 
     // Validate SKILL.md exists
     const manifestPath = path.join(skillRoot, 'SKILL.md');
@@ -3652,6 +3775,7 @@ export async function uploadGatewayAdminSkillZip(
         'Skill name must be 64 characters or fewer.',
       );
     }
+    assertGatewayAdminSkillAllowed(skillName, skillRoot);
 
     const projectSkillsDir = path.join(process.cwd(), 'skills');
     const targetDir = path.join(projectSkillsDir, skillName);

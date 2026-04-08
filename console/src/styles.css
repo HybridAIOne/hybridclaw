@@ -568,6 +568,15 @@ code {
   gap: 6px;
 }
 
+.metric-card-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.metric-card-link:hover {
+  border-color: var(--line-strong);
+}
+
 .metric-card strong {
   font-size: 1.8rem;
   font-weight: 700;
@@ -636,6 +645,10 @@ code {
 
 .row-status-stack small {
   color: var(--muted-foreground);
+}
+
+.row-status-stack .row-status-note-danger {
+  color: var(--danger);
 }
 
 .selectable-row {
@@ -714,6 +727,13 @@ th {
   color: var(--text);
 }
 
+.field input,
+.field select,
+.compact-search {
+  height: 44px;
+  line-height: 1.25;
+}
+
 .field textarea,
 .code-editor {
   resize: vertical;
@@ -754,6 +774,12 @@ th {
   color: var(--muted-foreground);
 }
 
+.boolean-pill.is-off.tone-danger {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
 .boolean-pill-dot {
   width: 8px;
   height: 8px;
@@ -762,9 +788,14 @@ th {
 }
 
 .binary-toggle {
-  display: inline-flex;
-  align-items: center;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
   width: fit-content;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   overflow: hidden;
@@ -772,12 +803,19 @@ th {
 }
 
 .binary-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 8px 12px;
+  min-width: max-content;
   border: 0;
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
+  font-size: 0.9rem;
+  text-align: center;
   text-transform: lowercase;
+  white-space: nowrap;
 }
 
 .binary-toggle-button + .binary-toggle-button {

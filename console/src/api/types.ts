@@ -471,6 +471,7 @@ export interface AdminSkill {
   name: string;
   description: string;
   category: string;
+  shortDescription?: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -496,6 +497,8 @@ export interface AdminCreateSkillFile {
 export interface AdminCreateSkillPayload {
   name: string;
   description: string;
+  category?: string;
+  shortDescription?: string;
   userInvocable?: boolean;
   disableModelInvocation?: boolean;
   tags?: string[];

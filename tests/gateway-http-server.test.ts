@@ -3654,6 +3654,8 @@ describe('gateway HTTP server', () => {
       body: {
         name: 'my-skill',
         description: 'Create a test skill',
+        category: 'memory',
+        shortDescription: 'Quick summary',
         userInvocable: false,
         disableModelInvocation: true,
         tags: ['admin', 'tools'],
@@ -3668,10 +3670,12 @@ describe('gateway HTTP server', () => {
 
     expect(state.createGatewayAdminSkill).toHaveBeenCalledWith({
       body: '# My Skill',
+      category: 'memory',
       description: 'Create a test skill',
       disableModelInvocation: true,
       files: [{ path: 'scripts/run.mjs', content: 'console.log("ok");' }],
       name: 'my-skill',
+      shortDescription: 'Quick summary',
       tags: ['admin', 'tools'],
       userInvocable: false,
     });
@@ -3699,6 +3703,56 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Skill file paths must be non-empty and include a filename.',
+    });
+  });
+
+  test('returns 400 for malformed admin skill file entries', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills',
+      body: {
+        name: 'my-skill',
+        description: 'Create a test skill',
+        body: '# My Skill',
+        files: [{ content: 'console.log("ok");' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminSkill).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Expected each skill file to be an object with string `path` and optional string `content`.',
+    });
+  });
+
+  test('returns 400 when admin skill files is not an array', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills',
+      body: {
+        name: 'my-skill',
+        description: 'Create a test skill',
+        body: '# My Skill',
+        files: 'scripts/run.mjs',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminSkill).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Expected `files` to be an array of objects with string `path` and optional string `content`.',
     });
   });
 
@@ -3861,6 +3915,33 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(413);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Skill zip upload exceeds the maximum size of 10485760 bytes.',
+    });
+  });
+
+  test('returns 400 for invalid admin skill zip archives', async () => {
+    const state = await importFreshHealth();
+    state.uploadGatewayAdminSkillZip.mockImplementation(async () => {
+      throw new state.GatewayRequestError(
+        400,
+        'Uploaded file is not a valid skill ZIP archive.',
+      );
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/skills/upload',
+      body: Buffer.from('not-a-zip'),
+      headers: {
+        'content-type': 'application/zip',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded file is not a valid skill ZIP archive.',
     });
   });
 

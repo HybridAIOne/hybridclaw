@@ -2495,24 +2495,46 @@ async function handleApiAdminSkills(
     const body = (await readJsonBody(req)) as {
       name?: unknown;
       description?: unknown;
+      category?: unknown;
+      shortDescription?: unknown;
       userInvocable?: unknown;
       disableModelInvocation?: unknown;
       tags?: unknown;
       body?: unknown;
       files?: unknown;
     };
+    if (body.files != null && !Array.isArray(body.files)) {
+      sendJson(res, 400, {
+        error:
+          'Expected `files` to be an array of objects with string `path` and optional string `content`.',
+      });
+      return;
+    }
     const files = Array.isArray(body.files)
-      ? body.files
-          .filter(
-            (f): f is { path: string; content: string } =>
-              f != null &&
-              typeof f === 'object' &&
-              typeof (f as Record<string, unknown>).path === 'string',
-          )
-          .map((f) => ({
-            path: String(f.path),
-            content: String((f as Record<string, unknown>).content ?? ''),
-          }))
+      ? body.files.map((file) => {
+          if (
+            file == null ||
+            typeof file !== 'object' ||
+            Array.isArray(file) ||
+            typeof (file as Record<string, unknown>).path !== 'string'
+          ) {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          const content = (file as Record<string, unknown>).content;
+          if (content != null && typeof content !== 'string') {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          return {
+            path: file.path,
+            content: content ?? '',
+          };
+        })
       : undefined;
     if (
       files?.some((file) => {
@@ -2533,6 +2555,8 @@ async function handleApiAdminSkills(
       createGatewayAdminSkill({
         name: String(body.name || ''),
         description: String(body.description || ''),
+        category: String(body.category || ''),
+        shortDescription: String(body.shortDescription || ''),
         userInvocable:
           typeof body.userInvocable === 'boolean'
             ? body.userInvocable
