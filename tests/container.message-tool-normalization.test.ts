@@ -141,6 +141,38 @@ describe.sequential('container message tool normalization', () => {
     expect(payload.contextChannelId).toBe(CHANNEL_ID);
   });
 
+  test('send forwards email threading headers to the gateway', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: 'ops@example.com',
+    });
+    setGatewayContext('http://gateway.local', 'token', CHANNEL_ID);
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        channelId: 'ops@example.com',
+        content: 'hello',
+        inReplyTo: ' <msg-1@example.com> ',
+        references: [' <ref-1@example.com> ', '<msg-1@example.com>'],
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload.inReplyTo).toBe('<msg-1@example.com>');
+    expect(payload.references).toEqual([
+      '<ref-1@example.com>',
+      '<msg-1@example.com>',
+    ]);
+  });
+
   test('send payload includes filePath and sessionId for local uploads', async () => {
     const fetchMock = mockGatewayFetch({
       ok: true,

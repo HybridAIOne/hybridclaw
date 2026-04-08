@@ -39,3 +39,47 @@ test('createBrevoSmtpService fails startup when SMTP verification fails', async 
   );
   expect(closeMock).toHaveBeenCalledTimes(1);
 });
+
+test('createBrevoSmtpService forwards optional threading headers', async () => {
+  const sendMailMock = vi.fn();
+  const logger = {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  const createTransportMock = vi.fn(() => ({
+    verify: vi.fn(),
+    sendMail: sendMailMock,
+    close: vi.fn(),
+  }));
+
+  const { send } = createBrevoSmtpService(
+    {
+      smtpHost: 'smtp-relay.brevo.com',
+      smtpPort: 587,
+      smtpLogin: 'smtp-login',
+      smtpKey: 'smtp-key',
+    },
+    logger as never,
+    createTransportMock as never,
+  );
+
+  await send({
+    from: 'writer@example.com',
+    to: 'friend@example.com',
+    subject: 'Re: Hello',
+    body: 'Follow-up',
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<msg-0@example.com>', '<msg-1@example.com>'],
+  });
+
+  expect(sendMailMock).toHaveBeenCalledWith({
+    from: 'writer@example.com',
+    to: 'friend@example.com',
+    subject: 'Re: Hello',
+    text: 'Follow-up',
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<msg-0@example.com>', '<msg-1@example.com>'],
+  });
+});

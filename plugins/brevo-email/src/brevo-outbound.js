@@ -68,6 +68,8 @@ export function createBrevoSmtpService(
    * @property {string} body
    * @property {string} [cc]
    * @property {string} [bcc]
+   * @property {string} [inReplyTo]
+   * @property {string[]} [references]
    */
 
   /**
@@ -84,6 +86,8 @@ export function createBrevoSmtpService(
       text: opts.body,
       ...(opts.cc ? { cc: opts.cc } : {}),
       ...(opts.bcc ? { bcc: opts.bcc } : {}),
+      ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
+      ...(opts.references ? { references: opts.references } : {}),
     });
     logger.info(
       { from: opts.from, to: opts.to, subject: opts.subject },
