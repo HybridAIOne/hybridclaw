@@ -175,7 +175,6 @@ export function Sidebar({
           side={side}
           data-sidebar="sidebar"
           data-mobile="true"
-          className={styles.root}
           style={
             { '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties
           }

@@ -804,7 +804,7 @@ async function startGatewayBackend(
     ...(logRequests ? ['--log-requests'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
-  const child = spawn(process.execPath, childArgs, {
+  const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
     detached: true,
     stdio: ['ignore', out, err],
     cwd: process.cwd(),
