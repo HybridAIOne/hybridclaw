@@ -99,15 +99,10 @@
 
 /* Backdrop is now owned by Sheet */
 
-.sectionStack,
 .group,
 .groupContent,
 .footerMeta {
   display: grid;
-}
-
-.sectionStack {
-  gap: 14px;
 }
 
 .group,
@@ -270,24 +265,18 @@
 
 .footerActions {
   flex: 0 0 auto;
-  width: auto;
 }
 
 .footerMenu {
-  width: auto;
   flex-direction: row;
   gap: 6px;
 }
 
-.footerAction {
-  width: auto;
-}
 
 .footerButton {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: auto;
   min-height: 34px;
   padding: 7px 10px;
   border: 1px solid transparent;

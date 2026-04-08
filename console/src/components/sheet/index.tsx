@@ -165,18 +165,12 @@ export function SheetContent({
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps the accessible title and description. Pass `className="sr-only"`
- * (see styles.srOnly below) when the label should only be read by screen
- * readers, not shown visually.
+ * Wraps the accessible title and description. Always rendered visually
+ * hidden — its only purpose is to provide an accessible name and
+ * description for the dialog.
  */
-export function SheetHeader({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <div className={cx(styles.srOnly, className)}>{children}</div>;
+export function SheetHeader({ children }: { children: ReactNode }) {
+  return <div className={styles.srOnly}>{children}</div>;
 }
 
 /**
