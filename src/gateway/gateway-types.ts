@@ -376,6 +376,18 @@ export interface GatewayStatus {
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
   };
+  email?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  imessage?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  whatsapp?: {
+    linked: boolean;
+    jid: string | null;
+  };
   providerHealth?: Partial<
     Record<
       | 'hybridai'

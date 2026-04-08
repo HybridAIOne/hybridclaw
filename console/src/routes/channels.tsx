@@ -1,631 +1,1517 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { deleteChannel, fetchChannels, saveChannel } from '../api/client';
-import type {
-  AdminChannelEntry,
-  AdminChannelTransport,
-  AdminDiscordChannelConfig,
-  AdminMSTeamsChannelConfig,
-} from '../api/types';
+import {
+  fetchConfig,
+  saveConfig,
+  setRuntimeSecret,
+  validateToken,
+} from '../api/client';
+import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { ChannelLogo } from '../components/channel-logo';
+import { BooleanField, Panel } from '../components/ui';
 import { joinStringList, parseStringList } from '../lib/format';
+import {
+  buildChannelCatalog,
+  type ChannelKind,
+  countTeams,
+  countTeamsOverrides,
+} from './channels-catalog';
 
-interface ChannelDraft {
-  originalId: string | null;
-  transport: AdminChannelTransport;
-  guildId: string;
-  channelId: string;
-  mode: 'off' | 'mention' | 'free';
-  typingMode: 'instant' | 'thinking' | 'streaming' | 'never';
-  debounceMs: string;
-  ackReaction: string;
-  rateLimitPerUser: string;
-  maxConcurrentPerChannel: string;
-  allowSend: boolean;
-  suppressPatterns: string;
-  sendAllowedUserIds: string;
-  sendAllowedRoleIds: string;
-  requireMention: boolean;
-  replyStyle: 'thread' | 'top-level';
-  groupPolicy: 'open' | 'allowlist' | 'disabled';
-  requireMentionExplicit: boolean;
-  replyStyleExplicit: boolean;
-  groupPolicyExplicit: boolean;
-  allowFrom: string;
-  tools: string;
+type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
+type PasswordSource = 'config' | 'env' | 'runtime-secrets' | null;
+function cloneConfig<T>(value: T): T {
+  return structuredClone(value);
 }
 
-function isDiscordEntry(
-  entry?: AdminChannelEntry,
-): entry is Extract<AdminChannelEntry, { transport: 'discord' }> {
-  return entry?.transport === 'discord';
+function parseInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isMSTeamsEntry(
-  entry?: AdminChannelEntry,
-): entry is Extract<AdminChannelEntry, { transport: 'msteams' }> {
-  return entry?.transport === 'msteams';
+function isDiscordEnabled(config: AdminConfig): boolean {
+  return config.discord.groupPolicy !== 'disabled';
 }
 
-function createDraft(source?: AdminChannelEntry): ChannelDraft {
-  if (isMSTeamsEntry(source)) {
-    return {
-      originalId: source.id,
-      transport: 'msteams',
-      guildId: source.guildId,
-      channelId: source.channelId,
-      mode: 'mention',
-      typingMode: 'thinking',
-      debounceMs: '',
-      ackReaction: '',
-      rateLimitPerUser: '',
-      maxConcurrentPerChannel: '',
-      allowSend: false,
-      suppressPatterns: '',
-      sendAllowedUserIds: '',
-      sendAllowedRoleIds: '',
-      requireMention:
-        source.config.requireMention ?? source.defaultRequireMention,
-      replyStyle: source.config.replyStyle || source.defaultReplyStyle,
-      groupPolicy: source.config.groupPolicy ?? source.defaultGroupPolicy,
-      requireMentionExplicit: source.config.requireMention !== undefined,
-      replyStyleExplicit: source.config.replyStyle !== undefined,
-      groupPolicyExplicit: source.config.groupPolicy !== undefined,
-      allowFrom: joinStringList(source.config.allowFrom),
-      tools: joinStringList(source.config.tools),
-    };
-  }
-
-  return {
-    originalId: source?.id || null,
-    transport: 'discord',
-    guildId: source?.guildId || '',
-    channelId: source?.channelId || '',
-    mode: isDiscordEntry(source)
-      ? source.config.mode || source.defaultMode
-      : 'mention',
-    typingMode: isDiscordEntry(source)
-      ? source.config.typingMode || 'thinking'
-      : 'thinking',
-    debounceMs:
-      isDiscordEntry(source) && source.config.debounceMs != null
-        ? String(source.config.debounceMs)
-        : '',
-    ackReaction: isDiscordEntry(source) ? source.config.ackReaction || '' : '',
-    rateLimitPerUser:
-      isDiscordEntry(source) && source.config.rateLimitPerUser != null
-        ? String(source.config.rateLimitPerUser)
-        : '',
-    maxConcurrentPerChannel:
-      isDiscordEntry(source) && source.config.maxConcurrentPerChannel != null
-        ? String(source.config.maxConcurrentPerChannel)
-        : '',
-    allowSend: isDiscordEntry(source)
-      ? source.config.allowSend === true
-      : false,
-    suppressPatterns: isDiscordEntry(source)
-      ? joinStringList(source.config.suppressPatterns)
-      : '',
-    sendAllowedUserIds: isDiscordEntry(source)
-      ? joinStringList(source.config.sendAllowedUserIds)
-      : '',
-    sendAllowedRoleIds: isDiscordEntry(source)
-      ? joinStringList(source.config.sendAllowedRoleIds)
-      : '',
-    requireMention: true,
-    replyStyle: 'thread',
-    groupPolicy: 'allowlist',
-    requireMentionExplicit: false,
-    replyStyleExplicit: false,
-    groupPolicyExplicit: false,
-    allowFrom: '',
-    tools: '',
-  };
+function isWhatsAppEnabled(config: AdminConfig): boolean {
+  return (
+    config.whatsapp.dmPolicy !== 'disabled' ||
+    config.whatsapp.groupPolicy !== 'disabled'
+  );
 }
 
-function normalizeConfig(
-  draft: ChannelDraft,
-): AdminDiscordChannelConfig | AdminMSTeamsChannelConfig {
-  if (draft.transport === 'msteams') {
-    return {
-      ...(draft.requireMentionExplicit
-        ? { requireMention: draft.requireMention }
-        : {}),
-      ...(draft.replyStyleExplicit ? { replyStyle: draft.replyStyle } : {}),
-      ...(draft.groupPolicyExplicit ? { groupPolicy: draft.groupPolicy } : {}),
-      ...(parseStringList(draft.allowFrom).length > 0
-        ? { allowFrom: parseStringList(draft.allowFrom) }
-        : {}),
-      ...(parseStringList(draft.tools).length > 0
-        ? { tools: parseStringList(draft.tools) }
-        : {}),
-    };
-  }
-
-  return {
-    mode: draft.mode,
-    typingMode: draft.typingMode,
-    ...(draft.debounceMs.trim()
-      ? { debounceMs: Number.parseInt(draft.debounceMs, 10) || 0 }
-      : {}),
-    ...(draft.ackReaction.trim()
-      ? { ackReaction: draft.ackReaction.trim() }
-      : {}),
-    ...(draft.rateLimitPerUser.trim()
-      ? { rateLimitPerUser: Number.parseInt(draft.rateLimitPerUser, 10) || 0 }
-      : {}),
-    ...(draft.maxConcurrentPerChannel.trim()
-      ? {
-          maxConcurrentPerChannel:
-            Number.parseInt(draft.maxConcurrentPerChannel, 10) || 0,
+function ListField(props: {
+  label: string;
+  value: string[];
+  rows?: number;
+  placeholder?: string;
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <label className="field textarea-field">
+      <span>{props.label}</span>
+      <textarea
+        rows={props.rows ?? 3}
+        value={joinStringList(props.value)}
+        onChange={(event) =>
+          props.onChange(parseStringList(event.target.value))
         }
-      : {}),
-    ...(draft.allowSend ? { allowSend: true } : {}),
-    ...(parseStringList(draft.suppressPatterns).length > 0
-      ? { suppressPatterns: parseStringList(draft.suppressPatterns) }
-      : {}),
-    ...(parseStringList(draft.sendAllowedUserIds).length > 0
-      ? { sendAllowedUserIds: parseStringList(draft.sendAllowedUserIds) }
-      : {}),
-    ...(parseStringList(draft.sendAllowedRoleIds).length > 0
-      ? { sendAllowedRoleIds: parseStringList(draft.sendAllowedRoleIds) }
-      : {}),
-  };
+        placeholder={props.placeholder}
+      />
+    </label>
+  );
 }
 
-function summarizeEntry(entry: AdminChannelEntry): string {
-  if (entry.transport === 'msteams') {
-    return entry.config.replyStyle || entry.defaultReplyStyle;
+function ManagedPasswordField(props: {
+  label: string;
+  secretName: 'EMAIL_PASSWORD' | 'IMESSAGE_PASSWORD';
+  configValue: string;
+  passwordConfigured: boolean;
+  passwordSource: PasswordSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [nextValue, setNextValue] = useState('');
+  const [hasStoredSecretOverride, setHasStoredSecretOverride] = useState(false);
+  const hasExistingPassword =
+    props.passwordSource !== null ||
+    hasStoredSecretOverride ||
+    props.passwordConfigured ||
+    props.configValue.trim().length > 0;
+  const actionLabel = hasExistingPassword ? 'Change password' : 'Set password';
+  const saveSecretMutation = useMutation({
+    mutationFn: async (value: string) => {
+      return setRuntimeSecret(props.token, props.secretName, value);
+    },
+    onSuccess: () => {
+      setHasStoredSecretOverride(true);
+      props.onSecretSaved();
+      setIsEditing(false);
+      setNextValue('');
+    },
+  });
+
+  return (
+    <div className="field managed-secret-field">
+      <span>{props.label}</span>
+      {!isEditing ? (
+        <div className="button-row">
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => {
+              saveSecretMutation.reset();
+              setIsEditing(true);
+              setNextValue('');
+            }}
+          >
+            {actionLabel}
+          </button>
+        </div>
+      ) : null}
+
+      {isEditing ? (
+        <div className="managed-secret-editor">
+          <label className="field">
+            <span>New password</span>
+            <input
+              type="password"
+              value={nextValue}
+              autoComplete="new-password"
+              onChange={(event) => setNextValue(event.target.value)}
+            />
+          </label>
+
+          <div className="button-row">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!nextValue.trim() || saveSecretMutation.isPending}
+              onClick={() => saveSecretMutation.mutate(nextValue)}
+            >
+              {saveSecretMutation.isPending ? 'Saving...' : 'Save password'}
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              disabled={saveSecretMutation.isPending}
+              onClick={() => {
+                saveSecretMutation.reset();
+                setIsEditing(false);
+                setNextValue('');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {saveSecretMutation.isSuccess ? (
+        <p className="success-banner">
+          Password updated in encrypted runtime secrets.
+        </p>
+      ) : null}
+      {saveSecretMutation.isError ? (
+        <p className="error-banner">
+          {saveSecretMutation.error instanceof Error
+            ? saveSecretMutation.error.message
+            : 'Failed to update password.'}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function DiscordChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isDiscordEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discord: {
+              ...current.discord,
+              groupPolicy:
+                enabled && current.discord.groupPolicy === 'disabled'
+                  ? 'open'
+                  : enabled
+                    ? current.discord.groupPolicy
+                    : 'disabled',
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Prefix</span>
+          <input
+            value={props.draft.discord.prefix}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  prefix: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.discord.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  groupPolicy: event.target
+                    .value as AdminConfig['discord']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Typing mode</span>
+          <select
+            value={props.draft.discord.typingMode}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  typingMode: event.target
+                    .value as AdminConfig['discord']['typingMode'],
+                },
+              }))
+            }
+          >
+            <option value="instant">instant</option>
+            <option value="thinking">thinking</option>
+            <option value="streaming">streaming</option>
+            <option value="never">never</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Ack reaction</span>
+          <input
+            value={props.draft.discord.ackReaction}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  ackReaction: event.target.value,
+                },
+              }))
+            }
+            placeholder="👀"
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Debounce ms</span>
+          <input
+            type="number"
+            value={String(props.draft.discord.debounceMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  debounceMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Rate limit per user</span>
+          <input
+            type="number"
+            value={String(props.draft.discord.rateLimitPerUser)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                discord: {
+                  ...current.discord,
+                  rateLimitPerUser: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <label className="field">
+        <span>Max concurrent per channel</span>
+        <input
+          type="number"
+          value={String(props.draft.discord.maxConcurrentPerChannel)}
+          onChange={(event) =>
+            props.updateDraft((current) => ({
+              ...current,
+              discord: {
+                ...current.discord,
+                maxConcurrentPerChannel: parseInteger(event.target.value),
+              },
+            }))
+          }
+        />
+      </label>
+
+      <p className="muted-copy">
+        Discord guild defaults and explicit per-channel overrides stay intact.
+        This page edits the transport defaults that apply across the space.
+      </p>
+    </>
+  );
+}
+
+function WhatsAppChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isWhatsAppEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            whatsapp: {
+              ...current.whatsapp,
+              dmPolicy:
+                enabled && current.whatsapp.dmPolicy === 'disabled'
+                  ? 'pairing'
+                  : enabled
+                    ? current.whatsapp.dmPolicy
+                    : 'disabled',
+              groupPolicy: enabled ? current.whatsapp.groupPolicy : 'disabled',
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.whatsapp.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  dmPolicy: event.target
+                    .value as AdminConfig['whatsapp']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="pairing">pairing</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.whatsapp.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  groupPolicy: event.target
+                    .value as AdminConfig['whatsapp']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed DM senders"
+        value={props.draft.whatsapp.allowFrom}
+        rows={3}
+        placeholder="comma or newline separated"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            whatsapp: {
+              ...current.whatsapp,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed group senders"
+        value={props.draft.whatsapp.groupAllowFrom}
+        rows={3}
+        placeholder="comma or newline separated"
+        onChange={(groupAllowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            whatsapp: {
+              ...current.whatsapp,
+              groupAllowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Debounce ms</span>
+          <input
+            type="number"
+            value={String(props.draft.whatsapp.debounceMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  debounceMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Ack reaction</span>
+          <input
+            value={props.draft.whatsapp.ackReaction}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  ackReaction: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.whatsapp.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Media max MB</span>
+          <input
+            type="number"
+            value={String(props.draft.whatsapp.mediaMaxMb)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                whatsapp: {
+                  ...current.whatsapp,
+                  mediaMaxMb: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <BooleanField
+        label="Send read receipts"
+        value={props.draft.whatsapp.sendReadReceipts}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(sendReadReceipts) =>
+          props.updateDraft((current) => ({
+            ...current,
+            whatsapp: {
+              ...current.whatsapp,
+              sendReadReceipts,
+            },
+          }))
+        }
+      />
+    </>
+  );
+}
+
+function EmailChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  passwordConfigured: boolean;
+  passwordSource: PasswordSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.email.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            email: {
+              ...current.email,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Address</span>
+          <input
+            value={props.draft.email.address}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  address: event.target.value,
+                },
+              }))
+            }
+            placeholder="bot@example.com"
+          />
+        </label>
+        <ManagedPasswordField
+          label="Password"
+          secretName="EMAIL_PASSWORD"
+          configValue={props.draft.email.password}
+          passwordConfigured={props.passwordConfigured}
+          passwordSource={props.passwordSource}
+          token={props.token}
+          onSecretSaved={props.onSecretSaved}
+        />
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>IMAP host</span>
+          <input
+            value={props.draft.email.imapHost}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  imapHost: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>SMTP host</span>
+          <input
+            value={props.draft.email.smtpHost}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  smtpHost: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>IMAP port</span>
+          <input
+            type="number"
+            value={String(props.draft.email.imapPort)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  imapPort: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>SMTP port</span>
+          <input
+            type="number"
+            value={String(props.draft.email.smtpPort)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  smtpPort: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <BooleanField
+          label="IMAP secure"
+          value={props.draft.email.imapSecure}
+          trueLabel="on"
+          falseLabel="off"
+          onChange={(imapSecure) =>
+            props.updateDraft((current) => ({
+              ...current,
+              email: {
+                ...current.email,
+                imapSecure,
+              },
+            }))
+          }
+        />
+        <BooleanField
+          label="SMTP secure"
+          value={props.draft.email.smtpSecure}
+          trueLabel="on"
+          falseLabel="off"
+          onChange={(smtpSecure) =>
+            props.updateDraft((current) => ({
+              ...current,
+              email: {
+                ...current.email,
+                smtpSecure,
+              },
+            }))
+          }
+        />
+      </div>
+
+      <ListField
+        label="Folders"
+        value={props.draft.email.folders}
+        rows={3}
+        placeholder="INBOX, Support"
+        onChange={(folders) =>
+          props.updateDraft((current) => ({
+            ...current,
+            email: {
+              ...current.email,
+              folders,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed senders"
+        value={props.draft.email.allowFrom}
+        rows={3}
+        placeholder="name@example.com, *@example.com"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            email: {
+              ...current.email,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Poll interval ms</span>
+          <input
+            type="number"
+            value={String(props.draft.email.pollIntervalMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  pollIntervalMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.email.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <label className="field">
+        <span>Media max MB</span>
+        <input
+          type="number"
+          value={String(props.draft.email.mediaMaxMb)}
+          onChange={(event) =>
+            props.updateDraft((current) => ({
+              ...current,
+              email: {
+                ...current.email,
+                mediaMaxMb: parseInteger(event.target.value),
+              },
+            }))
+          }
+        />
+      </label>
+    </>
+  );
+}
+
+function TeamsChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+}) {
+  const teamCount = countTeams(props.draft);
+  const overrideCount = countTeamsOverrides(props.draft);
+
+  return (
+    <>
+      <div className="key-value-grid">
+        <div>
+          <span>Team defaults</span>
+          <strong>{String(teamCount)}</strong>
+          <small>Per-team rules preserved</small>
+        </div>
+        <div>
+          <span>Channel overrides</span>
+          <strong>{String(overrideCount)}</strong>
+          <small>Explicit Teams channel entries</small>
+        </div>
+      </div>
+
+      <BooleanField
+        label="Enabled"
+        value={props.draft.msteams.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            msteams: {
+              ...current.msteams,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>App ID</span>
+          <input
+            value={props.draft.msteams.appId}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  appId: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Tenant ID</span>
+          <input
+            value={props.draft.msteams.tenantId}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  tenantId: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Webhook path</span>
+          <input
+            value={props.draft.msteams.webhook.path}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  webhook: {
+                    ...current.msteams.webhook,
+                    path: event.target.value,
+                  },
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Webhook port</span>
+          <input
+            type="number"
+            value={String(props.draft.msteams.webhook.port)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  webhook: {
+                    ...current.msteams.webhook,
+                    port: parseInteger(event.target.value),
+                  },
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.msteams.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  dmPolicy: event.target
+                    .value as AdminConfig['msteams']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.msteams.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  groupPolicy: event.target
+                    .value as AdminConfig['msteams']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <BooleanField
+          label="Require mention"
+          value={props.draft.msteams.requireMention}
+          trueLabel="on"
+          falseLabel="off"
+          onChange={(requireMention) =>
+            props.updateDraft((current) => ({
+              ...current,
+              msteams: {
+                ...current.msteams,
+                requireMention,
+              },
+            }))
+          }
+        />
+        <label className="field">
+          <span>Reply style</span>
+          <select
+            value={props.draft.msteams.replyStyle}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  replyStyle: event.target
+                    .value as AdminConfig['msteams']['replyStyle'],
+                },
+              }))
+            }
+          >
+            <option value="thread">thread</option>
+            <option value="top-level">top-level</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed AAD object IDs"
+        value={props.draft.msteams.allowFrom}
+        rows={4}
+        placeholder="comma or newline separated"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            msteams: {
+              ...current.msteams,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.msteams.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Media max MB</span>
+          <input
+            type="number"
+            value={String(props.draft.msteams.mediaMaxMb)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  mediaMaxMb: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+    </>
+  );
+}
+
+function IMessageChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  passwordConfigured: boolean;
+  passwordSource: PasswordSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  const isRemote = props.draft.imessage.backend === 'bluebubbles';
+
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.imessage.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            imessage: {
+              ...current.imessage,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <label className="field">
+        <span>Backend</span>
+        <select
+          value={props.draft.imessage.backend}
+          onChange={(event) =>
+            props.updateDraft((current) => ({
+              ...current,
+              imessage: {
+                ...current.imessage,
+                backend: event.target
+                  .value as AdminConfig['imessage']['backend'],
+              },
+            }))
+          }
+        >
+          <option value="local">local</option>
+          <option value="bluebubbles">remote</option>
+        </select>
+      </label>
+
+      {isRemote ? (
+        <>
+          <div className="field-grid">
+            <label className="field">
+              <span>Server URL</span>
+              <input
+                value={props.draft.imessage.serverUrl}
+                onChange={(event) =>
+                  props.updateDraft((current) => ({
+                    ...current,
+                    imessage: {
+                      ...current.imessage,
+                      serverUrl: event.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+            <ManagedPasswordField
+              label="Password"
+              secretName="IMESSAGE_PASSWORD"
+              configValue={props.draft.imessage.password}
+              passwordConfigured={props.passwordConfigured}
+              passwordSource={props.passwordSource}
+              token={props.token}
+              onSecretSaved={props.onSecretSaved}
+            />
+          </div>
+
+          <label className="field">
+            <span>Webhook path</span>
+            <input
+              value={props.draft.imessage.webhookPath}
+              onChange={(event) =>
+                props.updateDraft((current) => ({
+                  ...current,
+                  imessage: {
+                    ...current.imessage,
+                    webhookPath: event.target.value,
+                  },
+                }))
+              }
+            />
+          </label>
+
+          <BooleanField
+            label="Allow private network"
+            value={props.draft.imessage.allowPrivateNetwork}
+            trueLabel="on"
+            falseLabel="off"
+            onChange={(allowPrivateNetwork) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  allowPrivateNetwork,
+                },
+              }))
+            }
+          />
+        </>
+      ) : (
+        <div className="field-grid">
+          <label className="field">
+            <span>CLI path</span>
+            <input
+              value={props.draft.imessage.cliPath}
+              onChange={(event) =>
+                props.updateDraft((current) => ({
+                  ...current,
+                  imessage: {
+                    ...current.imessage,
+                    cliPath: event.target.value,
+                  },
+                }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Database path</span>
+            <input
+              value={props.draft.imessage.dbPath}
+              onChange={(event) =>
+                props.updateDraft((current) => ({
+                  ...current,
+                  imessage: {
+                    ...current.imessage,
+                    dbPath: event.target.value,
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+      )}
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.imessage.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  dmPolicy: event.target
+                    .value as AdminConfig['imessage']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.imessage.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  groupPolicy: event.target
+                    .value as AdminConfig['imessage']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed DM senders"
+        value={props.draft.imessage.allowFrom}
+        rows={3}
+        placeholder="phone, email, or chat:id"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            imessage: {
+              ...current.imessage,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed group senders"
+        value={props.draft.imessage.groupAllowFrom}
+        rows={3}
+        placeholder="phone, email, or chat:id"
+        onChange={(groupAllowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            imessage: {
+              ...current.imessage,
+              groupAllowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>
+            {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
+          </span>
+          <input
+            type="number"
+            value={String(props.draft.imessage.pollIntervalMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  pollIntervalMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Debounce ms</span>
+          <input
+            type="number"
+            value={String(props.draft.imessage.debounceMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  debounceMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.imessage.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Media max MB</span>
+          <input
+            type="number"
+            value={String(props.draft.imessage.mediaMaxMb)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                imessage: {
+                  ...current.imessage,
+                  mediaMaxMb: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+    </>
+  );
+}
+
+function renderSelectedEditor(
+  kind: ChannelKind,
+  draft: AdminConfig,
+  updateDraft: ConfigUpdater,
+  token: string,
+  passwordStatus: {
+    email: {
+      configured: boolean;
+      source: PasswordSource;
+    };
+    imessage: {
+      configured: boolean;
+      source: PasswordSource;
+    };
+  },
+  onSecretSaved: () => void,
+) {
+  switch (kind) {
+    case 'discord':
+      return <DiscordChannelEditor draft={draft} updateDraft={updateDraft} />;
+    case 'whatsapp':
+      return <WhatsAppChannelEditor draft={draft} updateDraft={updateDraft} />;
+    case 'email':
+      return (
+        <EmailChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          passwordConfigured={passwordStatus.email.configured}
+          passwordSource={passwordStatus.email.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
+    case 'msteams':
+      return <TeamsChannelEditor draft={draft} updateDraft={updateDraft} />;
+    case 'imessage':
+      return (
+        <IMessageChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          passwordConfigured={passwordStatus.imessage.configured}
+          passwordSource={passwordStatus.imessage.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
   }
-  return entry.config.mode;
 }
 
 export function ChannelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ChannelDraft>(createDraft());
+  const [draft, setDraft] = useState<AdminConfig | null>(null);
+  const [selectedKind, setSelectedKind] = useState<ChannelKind | null>(null);
 
-  const channelsQuery = useQuery({
-    queryKey: ['channels', auth.token],
-    queryFn: () => fetchChannels(auth.token),
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+  });
+  const statusQuery = useQuery({
+    queryKey: ['status', auth.token],
+    queryFn: () => validateToken(auth.token),
+    initialData: auth.gatewayStatus,
   });
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      saveChannel(auth.token, {
-        transport: draft.transport,
-        guildId: draft.guildId,
-        channelId: draft.channelId,
-        config: normalizeConfig(draft),
-      }),
+    mutationFn: async (nextConfig: AdminConfig) => {
+      return saveConfig(auth.token, nextConfig);
+    },
     onSuccess: (payload) => {
-      queryClient.setQueryData(['channels', auth.token], payload);
-      const nextSelected =
-        payload.channels.find(
-          (entry) =>
-            entry.transport === draft.transport &&
-            entry.guildId === draft.guildId &&
-            entry.channelId === draft.channelId,
-        ) || null;
-      setSelectedId(nextSelected?.id || null);
-      setDraft(createDraft(nextSelected || undefined));
+      queryClient.setQueryData(['config', auth.token], payload);
+      setDraft(cloneConfig(payload.config));
     },
   });
-
-  const deleteMutation = useMutation({
-    mutationFn: () =>
-      deleteChannel(
-        auth.token,
-        draft.transport,
-        draft.guildId,
-        draft.channelId,
-      ),
-    onSuccess: (payload) => {
-      queryClient.setQueryData(['channels', auth.token], payload);
-      setSelectedId(null);
-      setDraft(createDraft());
-    },
-  });
-
-  const selectedChannel =
-    channelsQuery.data?.channels.find((entry) => entry.id === selectedId) ||
-    null;
 
   useEffect(() => {
-    if (selectedChannel) {
-      setDraft(createDraft(selectedChannel));
+    if (!configQuery.data || draft) return;
+    setDraft(cloneConfig(configQuery.data.config));
+  }, [configQuery.data, draft]);
+
+  const catalog = draft
+    ? buildChannelCatalog(draft, {
+        whatsappLinked: statusQuery.data?.whatsapp?.linked,
+      })
+    : [];
+
+  useEffect(() => {
+    const firstCatalogEntry = catalog[0];
+    if (!firstCatalogEntry) return;
+    if (selectedKind && catalog.some((entry) => entry.kind === selectedKind)) {
       return;
     }
-    if (!selectedId) {
-      setDraft(createDraft());
-    }
-  }, [selectedChannel, selectedId]);
+    setSelectedKind(firstCatalogEntry.kind);
+  }, [catalog, selectedKind]);
+
+  const updateDraft: ConfigUpdater = (updater) => {
+    saveMutation.reset();
+    setDraft((current) => (current ? updater(current) : current));
+  };
+
+  if (configQuery.isLoading && !draft) {
+    return <div className="empty-state">Loading channel settings...</div>;
+  }
+
+  if (!draft) {
+    return <div className="empty-state">Channel settings are unavailable.</div>;
+  }
+
+  const selectedChannel =
+    catalog.find((entry) => entry.kind === selectedKind) ?? catalog[0] ?? null;
+  const isDirty = configQuery.data
+    ? JSON.stringify(draft) !== JSON.stringify(configQuery.data.config)
+    : false;
+  const passwordStatus = {
+    email: {
+      configured: statusQuery.data?.email?.passwordConfigured ?? false,
+      source: statusQuery.data?.email?.passwordSource ?? null,
+    },
+    imessage: {
+      configured: statusQuery.data?.imessage?.passwordConfigured ?? false,
+      source: statusQuery.data?.imessage?.passwordSource ?? null,
+    },
+  };
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Bindings"
-        actions={
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => {
-              setSelectedId(null);
-              setDraft(createDraft());
-            }}
-          >
-            New binding
-          </button>
-        }
-      />
-
       <div className="two-column-grid channels-layout">
-        <Panel
-          title="Configured bindings"
-          subtitle={`Discord policy: ${channelsQuery.data?.groupPolicy || 'open'} · Teams policy: ${channelsQuery.data?.msteams.groupPolicy || 'open'}`}
-        >
-          {channelsQuery.isLoading ? (
-            <div className="empty-state">Loading bindings...</div>
-          ) : channelsQuery.data?.channels.length ? (
-            <div className="list-stack selectable-list">
-              {channelsQuery.data.channels.map((entry) => (
-                <button
-                  key={entry.id}
-                  className={
-                    entry.id === selectedId
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
-                  onClick={() => setSelectedId(entry.id)}
-                >
-                  <div>
-                    <strong>{entry.channelId}</strong>
-                    <small>
-                      {entry.transport} · {entry.guildId}
-                    </small>
+        <Panel>
+          <div className="list-stack selectable-list channel-catalog">
+            {catalog.map((entry) => (
+              <button
+                key={entry.kind}
+                className={
+                  entry.kind === selectedChannel?.kind
+                    ? 'selectable-row active channel-selectable-row'
+                    : 'selectable-row channel-selectable-row'
+                }
+                type="button"
+                onClick={() => setSelectedKind(entry.kind)}
+              >
+                <div className="channel-row-main">
+                  <ChannelLogo kind={entry.kind} />
+                  <div className="channel-row-copy">
+                    <strong>{entry.label}</strong>
+                    <small>{entry.summary}</small>
                   </div>
-                  <span>{summarizeEntry(entry)}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">No explicit bindings exist yet.</div>
-          )}
+                </div>
+                <div className="row-status-stack">
+                  <span
+                    className={`channel-status-badge channel-status-${entry.statusTone}`}
+                  >
+                    {entry.statusLabel}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
         </Panel>
 
-        <Panel title="Binding editor" accent="warm">
+        <Panel
+          title={
+            selectedChannel ? `${selectedChannel.label} settings` : 'Channels'
+          }
+          accent="warm"
+        >
           <div className="stack-form">
-            <label className="field">
-              <span>Transport</span>
-              <select
-                value={draft.transport}
-                onChange={(event) =>
-                  setDraft(() => ({
-                    ...createDraft(),
-                    transport: event.target.value as AdminChannelTransport,
-                  }))
-                }
-              >
-                <option value="discord">discord</option>
-                <option value="msteams">msteams</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>
-                {draft.transport === 'msteams' ? 'Team ID' : 'Guild ID'}
-              </span>
-              <input
-                value={draft.guildId}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    guildId: event.target.value,
-                  }))
-                }
-                placeholder="1234567890"
-              />
-            </label>
-            <label className="field">
-              <span>Channel ID</span>
-              <input
-                value={draft.channelId}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    channelId: event.target.value,
-                  }))
-                }
-                placeholder="0987654321"
-              />
-            </label>
-
-            {draft.transport === 'discord' ? (
-              <>
-                <div className="field-grid">
-                  <label className="field">
-                    <span>Mode</span>
-                    <select
-                      value={draft.mode}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          mode: event.target.value as ChannelDraft['mode'],
-                        }))
-                      }
-                    >
-                      <option value="off">off</option>
-                      <option value="mention">mention</option>
-                      <option value="free">free</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Typing mode</span>
-                    <select
-                      value={draft.typingMode}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          typingMode: event.target
-                            .value as ChannelDraft['typingMode'],
-                        }))
-                      }
-                    >
-                      <option value="instant">instant</option>
-                      <option value="thinking">thinking</option>
-                      <option value="streaming">streaming</option>
-                      <option value="never">never</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="field-grid">
-                  <label className="field">
-                    <span>Debounce ms</span>
-                    <input
-                      value={draft.debounceMs}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          debounceMs: event.target.value,
-                        }))
-                      }
-                      placeholder={String(
-                        channelsQuery.data?.defaultDebounceMs || 2500,
-                      )}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Ack reaction</span>
-                    <input
-                      value={draft.ackReaction}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ackReaction: event.target.value,
-                        }))
-                      }
-                      placeholder={
-                        channelsQuery.data?.defaultAckReaction || 'none'
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="field-grid">
-                  <label className="field">
-                    <span>Rate limit per user</span>
-                    <input
-                      value={draft.rateLimitPerUser}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          rateLimitPerUser: event.target.value,
-                        }))
-                      }
-                      placeholder={String(
-                        channelsQuery.data?.defaultRateLimitPerUser || 0,
-                      )}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Max concurrent</span>
-                    <input
-                      value={draft.maxConcurrentPerChannel}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          maxConcurrentPerChannel: event.target.value,
-                        }))
-                      }
-                      placeholder={String(
-                        channelsQuery.data?.defaultMaxConcurrentPerChannel || 2,
-                      )}
-                    />
-                  </label>
-                </div>
-                <label className="field textarea-field">
-                  <span>Suppress patterns</span>
-                  <textarea
-                    rows={3}
-                    value={draft.suppressPatterns}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        suppressPatterns: event.target.value,
-                      }))
-                    }
-                    placeholder="comma or newline separated"
-                  />
-                </label>
-                <div className="field-grid">
-                  <label className="field textarea-field">
-                    <span>Allowed user IDs</span>
-                    <textarea
-                      rows={3}
-                      value={draft.sendAllowedUserIds}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          sendAllowedUserIds: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="field textarea-field">
-                    <span>Allowed role IDs</span>
-                    <textarea
-                      rows={3}
-                      value={draft.sendAllowedRoleIds}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          sendAllowedRoleIds: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-                <BooleanField
-                  label="Send actions"
-                  value={draft.allowSend}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(allowSend) =>
-                    setDraft((current) => ({
-                      ...current,
-                      allowSend,
-                    }))
-                  }
-                />
-              </>
-            ) : (
-              <>
-                <div className="field-grid">
-                  <label className="field">
-                    <span>Reply style</span>
-                    <select
-                      value={draft.replyStyle}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          replyStyle: event.target
-                            .value as ChannelDraft['replyStyle'],
-                          replyStyleExplicit: true,
-                        }))
-                      }
-                    >
-                      <option value="thread">thread</option>
-                      <option value="top-level">top-level</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Group policy</span>
-                    <select
-                      value={draft.groupPolicy}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          groupPolicy: event.target
-                            .value as ChannelDraft['groupPolicy'],
-                          groupPolicyExplicit: true,
-                        }))
-                      }
-                    >
-                      <option value="open">open</option>
-                      <option value="allowlist">allowlist</option>
-                      <option value="disabled">disabled</option>
-                    </select>
-                  </label>
-                </div>
-                <label className="field textarea-field">
-                  <span>Allowed AAD object IDs</span>
-                  <textarea
-                    rows={4}
-                    value={draft.allowFrom}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        allowFrom: event.target.value,
-                      }))
-                    }
-                    placeholder="comma or newline separated"
-                  />
-                </label>
-                <label className="field textarea-field">
-                  <span>Allowed tools</span>
-                  <textarea
-                    rows={3}
-                    value={draft.tools}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        tools: event.target.value,
-                      }))
-                    }
-                    placeholder="comma or newline separated"
-                  />
-                </label>
-                <BooleanField
-                  label="Require mention"
-                  value={draft.requireMention}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(requireMention) =>
-                    setDraft((current) => ({
-                      ...current,
-                      requireMention,
-                      requireMentionExplicit: true,
-                    }))
-                  }
-                />
-                <p className="muted-copy">
-                  Teams defaults:{' '}
-                  {channelsQuery.data?.msteams.defaultReplyStyle || 'thread'}{' '}
-                  replies, mention requirement{' '}
-                  {channelsQuery.data?.msteams.defaultRequireMention
-                    ? 'on'
-                    : 'off'}
-                  .
-                </p>
-              </>
-            )}
+            {selectedChannel
+              ? renderSelectedEditor(
+                  selectedChannel.kind,
+                  draft,
+                  updateDraft,
+                  auth.token,
+                  passwordStatus,
+                  () => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ['status', auth.token],
+                    });
+                  },
+                )
+              : null}
 
             <div className="button-row">
               <button
                 className="primary-button"
                 type="button"
-                disabled={saveMutation.isPending}
-                onClick={() => saveMutation.mutate()}
+                disabled={!isDirty || saveMutation.isPending}
+                onClick={() => saveMutation.mutate(draft)}
               >
-                {saveMutation.isPending ? 'Saving...' : 'Save binding'}
+                {saveMutation.isPending ? 'Saving...' : 'Save channel settings'}
               </button>
               <button
                 className="ghost-button"
                 type="button"
-                disabled={!draft.originalId || deleteMutation.isPending}
+                disabled={!isDirty || !configQuery.data}
                 onClick={() => {
-                  const confirmed = window.confirm(
-                    `Remove explicit binding for ${draft.channelId}?`,
-                  );
-                  if (!confirmed) return;
-                  deleteMutation.mutate();
+                  if (!configQuery.data) return;
+                  saveMutation.reset();
+                  setDraft(cloneConfig(configQuery.data.config));
                 }}
               >
-                {deleteMutation.isPending ? 'Removing...' : 'Remove binding'}
+                Reset changes
               </button>
             </div>
+
             {saveMutation.isSuccess ? (
-              <p className="success-banner">Binding saved.</p>
+              <p className="success-banner">Channel settings saved.</p>
             ) : null}
             {saveMutation.isError ? (
               <p className="error-banner">
                 {(saveMutation.error as Error).message}
-              </p>
-            ) : null}
-            {deleteMutation.isError ? (
-              <p className="error-banner">
-                {(deleteMutation.error as Error).message}
               </p>
             ) : null}
           </div>

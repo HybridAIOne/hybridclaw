@@ -45,6 +45,7 @@ import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -64,6 +65,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -1643,6 +1645,29 @@ function resolveRuntimeCredentialStatus(
   };
 }
 
+function resolveGatewayPasswordStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+}): NonNullable<GatewayStatus['email']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+  );
+  if (credential.source) {
+    return {
+      passwordConfigured: Boolean(credential.value),
+      passwordSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    passwordConfigured: Boolean(configValue),
+    passwordSource: configValue ? 'config' : null,
+  };
+}
+
 function buildOpenRouterAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
@@ -2487,10 +2512,13 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
-    localBackendsProbe.get(),
-    hybridAIProbe.get(),
-  ]);
+  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
+    await Promise.allSettled([
+      localBackendsProbe.get(),
+      hybridAIProbe.get(),
+      getWhatsAppAuthStatus(),
+    ]);
+  const runtimeConfig = getRuntimeConfig();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2499,6 +2527,10 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
       : { reachable: false, error: 'probe failed', latencyMs: 0 };
+  const whatsappAuth =
+    whatsappAuthResult.status === 'fulfilled'
+      ? whatsappAuthResult.value
+      : { linked: false, jid: null };
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
@@ -2519,6 +2551,16 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const email = resolveGatewayPasswordStatus({
+    storedSecretName: 'EMAIL_PASSWORD',
+    envValues: [process.env.EMAIL_PASSWORD],
+    configValue: runtimeConfig.email.password,
+  });
+  const imessage = resolveGatewayPasswordStatus({
+    storedSecretName: 'IMESSAGE_PASSWORD',
+    envValues: [process.env.IMESSAGE_PASSWORD],
+    configValue: runtimeConfig.imessage.password,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -2527,7 +2569,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
-    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
+    defaultAgentId: resolveDefaultAgentId(runtimeConfig),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -2546,6 +2588,9 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    email,
+    imessage,
+    whatsapp: whatsappAuth,
     providerHealth,
     localBackends,
     pluginCommands: listLoadedPluginCommands(),
@@ -6085,6 +6130,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(
             `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
           );
@@ -6108,6 +6154,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: null });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
         }
 

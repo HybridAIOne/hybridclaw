@@ -46,6 +46,18 @@ export interface GatewayStatus {
       consecutiveErrors: number;
     }>;
   };
+  email?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  imessage?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  whatsapp?: {
+    linked: boolean;
+    jid: string | null;
+  };
   providerHealth?: Record<
     string,
     {
@@ -218,6 +230,81 @@ export interface AdminConfig {
       }
     >;
   };
+  msteams: {
+    enabled: boolean;
+    appId: string;
+    tenantId: string;
+    webhook: {
+      port: number;
+      path: string;
+    };
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    teams: Record<
+      string,
+      {
+        requireMention?: boolean;
+        tools?: string[];
+        replyStyle?: 'thread' | 'top-level';
+        groupPolicy?: 'open' | 'allowlist' | 'disabled';
+        allowFrom?: string[];
+        channels: Record<string, AdminMSTeamsChannelConfig>;
+      }
+    >;
+    requireMention: boolean;
+    textChunkLimit: number;
+    replyStyle: 'thread' | 'top-level';
+    mediaMaxMb: number;
+    dangerouslyAllowNameMatching: boolean;
+    mediaAllowHosts: string[];
+    mediaAuthAllowHosts: string[];
+  };
+  whatsapp: {
+    dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    debounceMs: number;
+    sendReadReceipts: boolean;
+    ackReaction: string;
+    mediaMaxMb: number;
+  };
+  imessage: {
+    enabled: boolean;
+    backend: 'local' | 'bluebubbles';
+    cliPath: string;
+    dbPath: string;
+    pollIntervalMs: number;
+    serverUrl: string;
+    password: string;
+    webhookPath: string;
+    allowPrivateNetwork: boolean;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    debounceMs: number;
+    mediaMaxMb: number;
+  };
+  email: {
+    enabled: boolean;
+    imapHost: string;
+    imapPort: number;
+    imapSecure: boolean;
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+    address: string;
+    password: string;
+    pollIntervalMs: number;
+    folders: string[];
+    allowFrom: string[];
+    textChunkLimit: number;
+    mediaMaxMb: number;
+  };
   container: {
     sandboxMode: 'container' | 'host';
     image: string;
@@ -246,6 +333,15 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminCommandResult {
+  kind: 'plain' | 'info' | 'error';
+  title?: string;
+  text: string;
+  sessionId?: string;
+  sessionKey?: string;
+  mainSessionKey?: string;
 }
 
 export interface AdminModelCatalogEntry {
