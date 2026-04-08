@@ -180,12 +180,13 @@ export async function runMempalace(subcommandArgs, config, options = {}) {
         return;
       }
       if (code !== 0) {
+        const stderrText = normalizeText(readCollectedOutput(stderrCollector));
+        const errorMessage = stderrText
+          ? `${stderrText}${stderrCollector.truncated ? '\n[stderr truncated]' : ''}`
+          : `MemPalace exited with code ${code}.`;
         finish({
           ok: false,
-          error: new Error(
-            normalizeText(readCollectedOutput(stderrCollector)) ||
-              `MemPalace exited with code ${code}.`,
-          ),
+          error: new Error(errorMessage),
         });
         return;
       }
