@@ -2,7 +2,6 @@ export { Admin } from './Admin';
 export { Agents } from './Agents';
 export { Icon, type IconProps } from './base';
 export { Audit } from './Audit';
-export { Icon, type IconProps } from './base';
 export { Channels } from './Channels';
 export { Chat } from './Chat';
 export { Cog } from './Cog';
