@@ -110,6 +110,17 @@ test('hides TUI-only slash menu entries from the web surface', () => {
   expect(labels).not.toContain('/paste');
 });
 
+test('keeps slash menu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+  const compareLabels = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(labels).toEqual([...labels].sort(compareLabels));
+});
+
 test('root entries with subcommands include arg hints in labels', () => {
   const entries = buildTuiSlashMenuEntries();
   const rootEntries = entries.filter((entry) => entry.depth === 1);

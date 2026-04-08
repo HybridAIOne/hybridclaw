@@ -625,6 +625,11 @@ test('builds local session help entries from the registry with surface filtering
 
   const tuiHelp = buildLocalSessionSlashHelpEntries('tui');
   const webHelp = buildLocalSessionSlashHelpEntries('web');
+  const compareCommands = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
 
   expect(tuiHelp).toEqual(
     expect.arrayContaining([
@@ -654,4 +659,10 @@ test('builds local session help entries from the registry with surface filtering
   );
   expect(webHelp.some((entry) => entry.command === '/paste')).toBe(false);
   expect(webHelp.some((entry) => entry.command === '/exit')).toBe(false);
+  expect(tuiHelp.map((entry) => entry.command)).toEqual(
+    [...tuiHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
+  expect(webHelp.map((entry) => entry.command)).toEqual(
+    [...webHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
 });

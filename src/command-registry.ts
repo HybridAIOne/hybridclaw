@@ -262,6 +262,13 @@ function isAvailableOnLocalSurface(
   );
 }
 
+function compareCommandLabels(left: string, right: string): number {
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
 function normalizeStringOption(
   interaction: CanonicalSlashInteractionInput,
   name: string,
@@ -2013,24 +2020,30 @@ export function buildTuiSlashCommandDefinitions(
 export function buildLocalSessionSlashHelpEntries(
   surface: LocalSessionSurface,
 ): LocalSessionSlashHelpEntry[] {
-  return buildTuiSlashCommandDefinitions([]).flatMap((definition) => {
-    if (!isAvailableOnLocalSurface(definition, surface)) {
-      return [];
-    }
-    const presentation = LOCAL_SESSION_HELP_PRESENTATIONS[definition.name];
-    if (presentation?.surfaces && !presentation.surfaces.includes(surface)) {
-      return [];
-    }
-    return [
-      {
-        command:
-          presentation?.commandBySurface?.[surface] ??
-          presentation?.command ??
-          `/${definition.name}`,
-        description: presentation?.description ?? definition.description,
-      },
-    ];
-  });
+  return buildTuiSlashCommandDefinitions([])
+    .flatMap((definition) => {
+      if (!isAvailableOnLocalSurface(definition, surface)) {
+        return [];
+      }
+      const presentation = LOCAL_SESSION_HELP_PRESENTATIONS[definition.name];
+      if (presentation?.surfaces && !presentation.surfaces.includes(surface)) {
+        return [];
+      }
+      return [
+        {
+          command:
+            presentation?.commandBySurface?.[surface] ??
+            presentation?.command ??
+            `/${definition.name}`,
+          description: presentation?.description ?? definition.description,
+        },
+      ];
+    })
+    .sort((left, right) => {
+      const commandCompare = compareCommandLabels(left.command, right.command);
+      if (commandCompare !== 0) return commandCompare;
+      return compareCommandLabels(left.description, right.description);
+    });
 }
 
 export function parseCanonicalSlashCommandArgs(

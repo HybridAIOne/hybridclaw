@@ -290,6 +290,30 @@ function dedupeTuiSlashMenuEntries(
   return deduped;
 }
 
+function compareSlashMenuEntries(
+  left: TuiSlashMenuEntry,
+  right: TuiSlashMenuEntry,
+): number {
+  const labelCompare = left.label.localeCompare(right.label, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (labelCompare !== 0) return labelCompare;
+  const insertTextCompare = left.insertText.localeCompare(
+    right.insertText,
+    undefined,
+    {
+      numeric: true,
+      sensitivity: 'base',
+    },
+  );
+  if (insertTextCompare !== 0) return insertTextCompare;
+  return left.id.localeCompare(right.id, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
 function subsequenceScore(query: string, target: string): number | null {
   if (!query) return 0;
   if (!target) return null;
@@ -426,7 +450,12 @@ export function buildTuiSlashMenuEntries(
     entries.push(...childEntries);
   }
 
-  return dedupeTuiSlashMenuEntries(entries);
+  return dedupeTuiSlashMenuEntries(entries)
+    .sort(compareSlashMenuEntries)
+    .map((entry, sortIndex) => ({
+      ...entry,
+      sortIndex,
+    }));
 }
 
 export function rankTuiSlashMenuEntries(
