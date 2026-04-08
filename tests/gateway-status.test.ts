@@ -451,7 +451,7 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   expect(result.title).toBe('HybridAI Auth Status');
   expect(result.text).toContain('Authenticated: yes');
   expect(result.text).toContain('Source: runtime-secrets');
-  expect(result.text).toContain('API key: hai-…abcd');
+  expect(result.text).toContain('API key: configured');
   expect(result.text).not.toContain('credentials.json');
   expect(result.text).not.toContain('Path:');
   expect(result.text).toContain('Base URL: https://hybridai.example');
@@ -524,16 +524,19 @@ test('auth status supports all configured providers from local sessions', async 
       provider: 'openrouter',
       expectedTitle: 'OpenRouter Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'mistral',
       expectedTitle: 'Mistral Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'huggingface',
       expectedTitle: 'Hugging Face Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'local',
@@ -544,6 +547,7 @@ test('auth status supports all configured providers from local sessions', async 
       provider: 'msteams',
       expectedTitle: 'Microsoft Teams Auth Status',
       expectedText: 'App ID: teams-app-id',
+      expectedSecretText: 'App password: configured',
     },
   ] as const;
 
@@ -561,6 +565,9 @@ test('auth status supports all configured providers from local sessions', async 
     }
     expect(result.title).toBe(entry.expectedTitle);
     expect(result.text).toContain(entry.expectedText);
+    if ('expectedSecretText' in entry) {
+      expect(result.text).toContain(entry.expectedSecretText);
+    }
     expect(result.text).not.toContain('Path:');
   }
 });

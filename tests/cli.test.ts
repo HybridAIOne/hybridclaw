@@ -2997,9 +2997,31 @@ describe('CLI hybridai commands', () => {
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
-    expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('API key: configured');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
+  });
+
+  it('prints configured instead of a partial Codex access token in status output', async () => {
+    const { cli } = await importFreshCli({
+      codexStatus: {
+        authenticated: true,
+        path: '/tmp/codex-auth.json',
+        source: 'browser-pkce',
+        accountId: 'acct_test',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        maskedAccessToken: 'codex-…7890',
+        reloginRequired: false,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'codex']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Source: browser-pkce');
+    expect(logSpy).toHaveBeenCalledWith('Account: acct_test');
+    expect(logSpy).toHaveBeenCalledWith('Access token: configured');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -3455,6 +3477,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['auth', 'status', 'msteams']);
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('App password: configured');
     expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
     expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
@@ -3573,6 +3596,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'openrouter']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3669,6 +3693,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'mistral']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3813,6 +3838,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'huggingface']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
