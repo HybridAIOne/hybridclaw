@@ -1,0 +1,58 @@
+id: mempalace-memory
+name: MemPalace Memory
+version: 0.1.0
+kind: memory
+description: Query a local MemPalace CLI for wake-up context and semantic recall.
+entrypoint: src/index.js
+requires:
+  bins:
+    - name: mempalace
+      configKey: command
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      default: mempalace
+    workingDirectory:
+      type: string
+    palacePath:
+      type: string
+    wakeUpEnabled:
+      type: boolean
+      default: true
+    wakeUpWing:
+      type: string
+    searchEnabled:
+      type: boolean
+      default: true
+    searchWing:
+      type: string
+    searchRoom:
+      type: string
+    maxResults:
+      type: number
+      default: 3
+      minimum: 1
+      maximum: 10
+    maxWakeUpChars:
+      type: number
+      default: 1200
+      minimum: 100
+      maximum: 6000
+    maxSearchChars:
+      type: number
+      default: 2800
+      minimum: 200
+      maximum: 12000
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 16000
+    timeoutMs:
+      type: number
+      default: 12000
+      minimum: 1000
+      maximum: 60000
