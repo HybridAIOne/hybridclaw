@@ -5,6 +5,8 @@ kind: memory
 memoryProvider: true
 description: Mirror HybridClaw conversations into Honcho, prefetch recall context, and expose Honcho memory tools.
 entrypoint: src/index.js
+credentials:
+  - HONCHO_API_KEY
 configSchema:
   type: object
   additionalProperties: false

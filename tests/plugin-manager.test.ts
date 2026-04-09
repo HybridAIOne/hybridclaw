@@ -196,6 +196,47 @@ function writeEnvRequirementPlugin(rootDir: string): void {
   );
 }
 
+function writeCredentialPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'credential-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: credential-plugin',
+      'name: Credential Plugin',
+      'kind: tool',
+      'credentials:',
+      '  - TEST_PLUGIN_API_KEY',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'credential-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'credential_status',",
+      "      description: 'Show optional credential status',",
+      '      handler() {',
+      "        return api.getCredential('TEST_PLUGIN_API_KEY') || 'missing';",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeMemoryWriteHookPlugin(rootDir: string): void {
   const pluginDir = path.join(
     rootDir,
@@ -890,6 +931,66 @@ test('plugin manager accepts required env vars from stored runtime secrets', asy
     expect(command).toBeDefined();
     if (!command) {
       throw new Error('Expected env_status command to be registered');
+    }
+    await expect(
+      Promise.resolve(
+        command.handler([], {
+          sessionId: 'session-1',
+          channelId: 'tui',
+        }),
+      ),
+    ).resolves.toBe('stored-secret');
+  } finally {
+    vi.doUnmock('../src/security/runtime-secrets.js');
+    vi.resetModules();
+  }
+});
+
+test('plugin manager exposes optional declared credentials from stored runtime secrets without gating plugin load', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeCredentialPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('../src/security/runtime-secrets.js')
+      >();
+    return {
+      ...actual,
+      readStoredRuntimeSecret: vi.fn((key: string) =>
+        key === 'TEST_PLUGIN_API_KEY' ? 'stored-secret' : null,
+      ),
+    };
+  });
+
+  try {
+    vi.resetModules();
+    const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+    const manager = new PluginManager({
+      homeDir,
+      cwd,
+      getRuntimeConfig: () => config,
+    });
+
+    await manager.ensureInitialized();
+
+    expect(manager.listPluginSummary()).toEqual([
+      expect.objectContaining({
+        id: 'credential-plugin',
+        enabled: true,
+        error: undefined,
+        commands: ['credential_status'],
+      }),
+    ]);
+
+    const command = manager.findCommand('credential_status');
+    expect(command).toBeDefined();
+    if (!command) {
+      throw new Error('Expected credential_status command to be registered');
     }
     await expect(
       Promise.resolve(

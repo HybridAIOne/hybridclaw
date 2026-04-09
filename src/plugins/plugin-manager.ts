@@ -422,6 +422,7 @@ function normalizeManifest(input: unknown): PluginManifest {
   if (!id) {
     throw new Error('Plugin manifest is missing `id`.');
   }
+  const credentials = normalizeStringArray(input.credentials);
 
   return {
     id,
@@ -439,6 +440,7 @@ function normalizeManifest(input: unknown): PluginManifest {
           node: normalizeTrimmedString(input.requires.node),
         }
       : undefined,
+    credentials: credentials.length > 0 ? credentials : undefined,
     install: normalizePluginInstallSpecs(input.install),
     pipDependencies: normalizePluginPackageDependencies(
       input.pipDependencies ?? input.pip_dependencies,
@@ -1125,6 +1127,7 @@ export class PluginManager {
         config,
         pluginConfig: validatedConfig,
         declaredEnv: candidate.manifest.requires?.env || [],
+        declaredCredentials: candidate.manifest.credentials || [],
         homeDir: this.homeDir,
         cwd: this.cwd,
       });

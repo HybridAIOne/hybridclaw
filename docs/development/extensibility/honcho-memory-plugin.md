@@ -38,6 +38,10 @@ Honcho receives:
 - optional identity and memory seed files from the agent workspace
 - explicit saved conclusions created through the `honcho_conclude` tool
 
+If you enable Honcho after a HybridClaw session already has stored turns, the
+plugin backfills that earlier local user and assistant history once before
+continuing normal turn sync.
+
 By default the plugin seeds these files once per Honcho session when they exist
 in the agent workspace:
 
@@ -58,8 +62,15 @@ For a local checkout:
 hybridclaw plugin install ./plugins/honcho-memory
 ```
 
-Then configure the plugin in either `config.json` or through the plugin config
-commands. The smallest managed Honcho setup looks like this:
+Then set the Honcho credential through `/secret`. The plugin can run on its
+built-in defaults without any extra config:
+
+```text
+/secret set HONCHO_API_KEY your-honcho-key
+```
+
+If you want to pin explicit settings in `config.json`, a small stable config
+looks like this:
 
 ```json
 {
@@ -70,7 +81,6 @@ commands. The smallest managed Honcho setup looks like this:
         "enabled": true,
         "config": {
           "baseUrl": "https://api.honcho.dev",
-          "apiKey": "honcho-key",
           "workspaceId": "hybridclaw",
           "sessionStrategy": "per-session",
           "recallMode": "hybrid",
@@ -82,21 +92,146 @@ commands. The smallest managed Honcho setup looks like this:
 }
 ```
 
-You can also provide the API key through the process environment before starting
-HybridClaw:
-
-```bash
-export HONCHO_API_KEY=honcho-key
-hybridclaw gateway
-```
+The plugin reads `HONCHO_API_KEY` from `/secret` first-class through
+`api.getCredential(...)`. A process environment variable with the same name also
+works, but `/secret` is the preferred operator path.
 
 For a self-hosted Honcho instance with auth disabled, point `baseUrl` at your
 server and omit `apiKey`.
 
+## Actual Defaults
+
+These are the real runtime defaults when you install the plugin and only set the
+secret:
+
+- `baseUrl`: `https://api.honcho.dev`
+- `workspaceId`: the current working directory name, normalized for Honcho
+- `sessionStrategy`: `platform`
+- `recallMode`: `hybrid`
+- `writeFrequency`: `async`
+- `limitToSession`: `true`
+
+In this repository, running TUI from the repo root means the default
+`workspaceId` becomes `hybridclaw`.
+
+With the default `platform` session strategy, each new HybridClaw session
+creates a new Honcho session under the same Honcho workspace and peers. Today,
+`platform` and `per-session` resolve to the same Honcho session key behavior;
+`per-session` is just the explicit version in config.
+
+## Quick Start
+
+This is the fastest way to get useful Honcho behavior in TUI without tuning
+anything else first.
+
+1. Start TUI from the workspace you want Honcho to learn about.
+
+   ```bash
+   hybridclaw tui
+   ```
+
+2. Inside TUI, set the secret and enable the bundled plugin.
+
+   ```text
+   /secret set HONCHO_API_KEY your-honcho-key
+   /plugin enable honcho-memory
+   /plugin list
+   /honcho setup
+   /honcho status
+   ```
+
+   If you are testing from a local checkout and want to refresh the local plugin
+   files, use `/plugin reinstall ./plugins/honcho-memory --yes` instead of
+   `/plugin enable honcho-memory`.
+
+3. Give the session a few turns of real information.
+
+   ```text
+   My name is Ben.
+   I prefer concise answers.
+   I mainly work in TypeScript.
+   I compare local implementations before changing runtime behavior.
+   ```
+
+4. Verify that Honcho can recall what it saw.
+
+   ```text
+   What do you know about me so far?
+   /honcho search concise
+   /honcho search TypeScript
+   /honcho identity --show
+   ```
+
+Expected result:
+
+- the normal assistant reply should mention the facts from the current session
+- `/honcho search ...` should find mirrored session content
+- `/honcho identity --show` should show the current user and AI peer state
+
+## TUI Examples
+
+Use these when you want to test specific behavior rather than just confirm basic
+connectivity.
+
+### Tools-Only Recall
+
+This verifies that Honcho tool calls work even when prompt injection is off.
+
+```text
+/plugin config honcho-memory recallMode tools
+/show tools
+Summarize what Honcho knows about me using Honcho tools.
+```
+
+Expected result: the model should rely on `honcho_profile`, `honcho_search`, or
+`honcho_context` instead of prompt-injected Honcho memory.
+
+### Deterministic Turn Sync
+
+This makes Honcho writes easier to observe while testing.
+
+```text
+/plugin config honcho-memory writeFrequency turn
+Remember zebra-lantern-42.
+/honcho search zebra-lantern-42
+```
+
+Expected result: the search result should include the latest turn immediately,
+because the flush happens synchronously at the end of the turn.
+
+### Buffered Session Sync
+
+This shows the difference between `turn` and `session` write behavior.
+
+```text
+/plugin config honcho-memory writeFrequency session
+Remember glacier-paperclip-19.
+/honcho search glacier-paperclip-19
+/honcho sync
+/honcho search glacier-paperclip-19
+```
+
+Expected result: the first search may miss the latest turn, while the second
+search should find it after `/honcho sync` flushes buffered messages.
+
+### Shared Honcho Thread Across Sessions
+
+This is useful when you want one durable Honcho thread instead of one thread per
+HybridClaw session.
+
+```text
+/plugin config honcho-memory sessionStrategy global
+/honcho status
+```
+
+Expected result: new HybridClaw sessions continue writing into the same Honcho
+session for the current workspace.
+
 ## Recommended Starting Config
 
-This configuration matches the full HybridClaw feature set without making
-prompt recall too noisy:
+This is a good explicit starting config for regular use. It is not a verbatim
+dump of literal defaults; it makes the important values visible and stable
+across environments without making prompt recall too noisy:
 
 ```json
 {
@@ -140,6 +275,10 @@ Honcho session IDs do not have to match HybridClaw session IDs exactly.
 - `per-directory`: use the current agent workspace directory name
 - `per-repo`: use the current git repository root name when one exists
 - `global`: use the configured Honcho `workspaceId`
+
+With the default `platform` strategy, a new HybridClaw session creates a new
+Honcho session. If you want continuity across many HybridClaw sessions, switch
+to `global`, `per-repo`, `per-directory`, or set a manual mapping.
 
 You can override this per workspace with:
 
@@ -189,7 +328,9 @@ sync path instead of being mirrored as synthetic Honcho messages.
 ## Prompt Recall
 
 The plugin prefetches Honcho recall in the background and caches it for later
-prompt construction. Prompt sections can include:
+prompt construction. If that background prefetch is not ready yet, the first
+prompt build still fetches and bakes a Honcho context block synchronously so the
+session does not miss first-turn recall. Prompt sections can include:
 
 - summary
 - user representation
@@ -294,7 +435,9 @@ Tool behavior:
 The usual first-run flow is:
 
 1. Install and enable the plugin.
-2. Configure `baseUrl`, `workspaceId`, and optionally `apiKey`.
+2. Set `HONCHO_API_KEY` through `/secret`, then override `baseUrl`,
+   `workspaceId`, or other plugin config only when you want non-default
+   behavior.
 3. Run `/honcho setup` in a session.
 4. Run `/honcho status` to confirm connectivity.
 5. Run `/honcho identity --show` to inspect the current user and AI peer
@@ -303,6 +446,26 @@ The usual first-run flow is:
 
 If you already have useful context in `SOUL.md`, `IDENTITY.md`, `USER.md`, or
 `MEMORY.md`, the setup step will seed that data into Honcho on demand.
+
+## Tips And Tricks
+
+- Use the defaults first. In most cases, `/secret set HONCHO_API_KEY ...` plus
+  `/honcho setup` is enough to get started.
+- Keep `writeFrequency: async` for normal use when you care more about latency
+  than immediate search visibility.
+- Switch to `writeFrequency: turn` when you are debugging or demoing Honcho and
+  want every turn to be searchable immediately.
+- Keep `sessionStrategy: platform` or `per-session` when you want isolated
+  memory threads for each chat session.
+- Use `sessionStrategy: global` or `/honcho map <name>` when you want long-lived
+  continuity across many sessions.
+- Give test workspaces their own `workspaceId` so experiments do not mix with
+  real memory.
+- Use `/honcho identity --show` when the model's recall feels off. It is the
+  quickest way to inspect what Honcho currently thinks about the user and AI
+  peer.
+- Use `/honcho sync` after a burst of conversation if you want to force a flush
+  and refresh prompt context immediately.
 
 ## Troubleshooting
 

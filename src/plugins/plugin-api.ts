@@ -56,6 +56,7 @@ export function createPluginApi(params: {
   config: RuntimeConfig;
   pluginConfig: Record<string, unknown>;
   declaredEnv: readonly string[];
+  declaredCredentials?: readonly string[];
   homeDir: string;
   cwd: string;
 }): HybridClawPluginApi {
@@ -64,6 +65,11 @@ export function createPluginApi(params: {
   }) as PluginLogger;
   const declaredEnv = new Set(
     params.declaredEnv
+      .map((key) => (typeof key === 'string' ? key.trim() : ''))
+      .filter((key) => key.length > 0),
+  );
+  const declaredCredentials = new Set(
+    (params.declaredCredentials || [])
       .map((key) => (typeof key === 'string' ? key.trim() : ''))
       .filter((key) => key.length > 0),
   );
@@ -147,7 +153,12 @@ export function createPluginApi(params: {
     getCredential(key: string): string | undefined {
       const normalized = String(key || '').trim();
       if (!normalized) return undefined;
-      if (!declaredEnv.has(normalized)) return undefined;
+      if (
+        !declaredEnv.has(normalized) &&
+        !declaredCredentials.has(normalized)
+      ) {
+        return undefined;
+      }
       const value = process.env[normalized];
       if (typeof value === 'string') {
         const trimmed = value.trim();
@@ -204,6 +215,15 @@ export function createPluginApi(params: {
         userId,
         workspacePath: agentWorkspaceDir(agentId),
       };
+    },
+    getSessionMessages(sessionId: string, limit?: number) {
+      const normalizedSessionId = String(sessionId || '').trim();
+      if (!normalizedSessionId) return [];
+      try {
+        return deepFreezeClone(getRecentMessages(normalizedSessionId, limit));
+      } catch {
+        return [];
+      }
     },
   });
 }

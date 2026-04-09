@@ -82,6 +82,7 @@ export interface PluginManifest {
     env?: string[];
     node?: string;
   };
+  credentials?: string[];
   install?: PluginInstallSpec[];
   pipDependencies?: PluginPackageDependency[];
   nodeDependencies?: PluginPackageDependency[];
@@ -429,6 +430,7 @@ export interface HybridClawPluginApi {
     userId: string | null;
     workspacePath: string;
   };
+  getSessionMessages(sessionId: string, limit?: number): StoredMessage[];
 }
 
 export interface HybridClawPluginDefinition {

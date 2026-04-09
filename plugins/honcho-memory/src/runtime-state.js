@@ -46,12 +46,16 @@ export function savePersistedState(statePath, state) {
 export function getSessionState(state, sessionId) {
   if (!state.sessions[sessionId]) {
     state.sessions[sessionId] = {
+      historyBackfilled: false,
       lastSyncedMessageId: 0,
       turnCount: 0,
       lastContextTurn: 0,
       lastDialecticTurn: 0,
       promptInjections: 0,
     };
+  }
+  if (typeof state.sessions[sessionId].historyBackfilled !== 'boolean') {
+    state.sessions[sessionId].historyBackfilled = false;
   }
   return state.sessions[sessionId];
 }

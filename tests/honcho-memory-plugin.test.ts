@@ -676,6 +676,207 @@ test('honcho-memory seeds workspace identity, mirrors turns once, and exposes Ho
   }
 });
 
+test('honcho-memory backfills stored session history once when activated mid-session', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const [{ PluginManager }, dbModule] = await Promise.all([
+    import('../src/plugins/plugin-manager.js'),
+    import('../src/memory/db.js'),
+  ]);
+
+  const priorMessages = [
+    {
+      id: 1,
+      session_id: 'session-backfill',
+      user_id: 'user-backfill',
+      username: 'alice',
+      role: 'user',
+      content: 'Earlier session context that Honcho should backfill.',
+      created_at: '2026-04-08T09:00:00.000Z',
+    },
+    {
+      id: 2,
+      session_id: 'session-backfill',
+      user_id: 'user-backfill',
+      username: 'assistant',
+      role: 'assistant',
+      content: 'Acknowledged. This should be preserved on activation.',
+      created_at: '2026-04-08T09:00:02.000Z',
+    },
+  ];
+
+  vi.spyOn(dbModule, 'getSessionById').mockReturnValue({
+    agent_id: 'main',
+  } as never);
+  vi.spyOn(dbModule, 'getRecentMessages').mockImplementation(
+    (sessionId: string) => {
+      if (sessionId === 'session-backfill') {
+        return priorMessages as never;
+      }
+      return [] as never;
+    },
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        writeFrequency: 'turn',
+        sessionStrategy: 'per-session',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  const currentTurn = [
+    {
+      id: 10,
+      session_id: 'session-backfill',
+      user_id: 'user-backfill',
+      username: 'alice',
+      role: 'user',
+      content: 'Continue from the earlier conversation.',
+      created_at: '2026-04-08T09:10:00.000Z',
+    },
+    {
+      id: 11,
+      session_id: 'session-backfill',
+      user_id: 'user-backfill',
+      username: 'assistant',
+      role: 'assistant',
+      content: 'Honcho is active and caught up now.',
+      created_at: '2026-04-08T09:10:01.000Z',
+    },
+  ];
+
+  try {
+    await manager.ensureInitialized();
+
+    await manager.notifyTurnComplete({
+      sessionId: 'session-backfill',
+      userId: 'user-backfill',
+      agentId: 'main',
+      messages: currentTurn,
+    });
+
+    const mirroredMessageIds = honcho.createdMessages
+      .map((message) => Number(message.metadata?.hybridclaw_message_id || 0))
+      .filter(Boolean);
+    expect(mirroredMessageIds).toEqual([1, 2, 10, 11]);
+
+    await manager.notifyTurnComplete({
+      sessionId: 'session-backfill',
+      userId: 'user-backfill',
+      agentId: 'main',
+      messages: currentTurn,
+    });
+
+    const dedupedMessageIds = honcho.createdMessages
+      .map((message) => Number(message.metadata?.hybridclaw_message_id || 0))
+      .filter(Boolean);
+    expect(dedupedMessageIds).toEqual([1, 2, 10, 11]);
+  } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
+test('honcho-memory guarantees first prompt context when prefetch is not ready yet', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        writeFrequency: 'turn',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  try {
+    await manager.ensureInitialized();
+
+    const promptContext = await manager.collectPromptContext({
+      sessionId: 'session-first-prompt',
+      userId: 'user-first-prompt',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [
+        {
+          id: 21,
+          session_id: 'session-first-prompt',
+          user_id: 'user-first-prompt',
+          username: 'alice',
+          role: 'user',
+          content: 'Tell me what you know about me.',
+          created_at: '2026-04-08T10:01:00.000Z',
+        },
+      ],
+    });
+
+    expect(promptContext.join('\n\n')).toContain('# Honcho Memory Context');
+    expect(honcho.contextRequests).toHaveLength(2);
+    expect(honcho.chatRequests).toHaveLength(0);
+
+    const contextRequestsBefore = honcho.contextRequests.length;
+    const promptContextAgain = await manager.collectPromptContext({
+      sessionId: 'session-first-prompt',
+      userId: 'user-first-prompt',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [
+        {
+          id: 21,
+          session_id: 'session-first-prompt',
+          user_id: 'user-first-prompt',
+          username: 'alice',
+          role: 'user',
+          content: 'Tell me what you know about me.',
+          created_at: '2026-04-08T10:01:00.000Z',
+        },
+      ],
+    });
+
+    expect(promptContextAgain.join('\n\n')).toContain('# Honcho Memory Context');
+    expect(honcho.contextRequests.length).toBe(contextRequestsBefore);
+  } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
 test('honcho-memory uses prefetched prompt context without fetching during prompt build', async () => {
   const honcho = createHonchoStubServer();
   const baseUrl = await honcho.listen();

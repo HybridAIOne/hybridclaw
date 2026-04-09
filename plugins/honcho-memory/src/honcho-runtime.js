@@ -224,6 +224,42 @@ function collectUserProfileConclusions(context) {
   return singleConclusion ? [singleConclusion] : [];
 }
 
+function numericMessageId(message) {
+  const value = Number(message?.id);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function minPositiveMessageId(messages) {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (const message of messages || []) {
+    const id = numericMessageId(message);
+    if (id > 0 && id < minimum) {
+      minimum = id;
+    }
+  }
+  return Number.isFinite(minimum) ? minimum : null;
+}
+
+function filterMirrorableMessages(messages, options = {}) {
+  const afterId = Number(options.afterId || 0);
+  const beforeIdExclusive =
+    typeof options.beforeIdExclusive === 'number' &&
+    Number.isFinite(options.beforeIdExclusive) &&
+    options.beforeIdExclusive > 0
+      ? Math.trunc(options.beforeIdExclusive)
+      : Number.POSITIVE_INFINITY;
+  return (messages || [])
+    .filter((message) => {
+      const role = normalizeString(message?.role).toLowerCase();
+      if (role !== 'user' && role !== 'assistant') return false;
+      const id = numericMessageId(message);
+      if (id <= afterId) return false;
+      if (id >= beforeIdExclusive) return false;
+      return true;
+    })
+    .sort((left, right) => numericMessageId(left) - numericMessageId(right));
+}
+
 export class HonchoRuntime {
   constructor(api, config, client) {
     this.api = api;
@@ -354,10 +390,29 @@ export class HonchoRuntime {
 
     const contextEntry = this.contextPrefetch.get(params.sessionId);
     const dialecticEntry = this.dialecticPrefetch.get(params.sessionId);
-    const payload =
-      contextEntry?.status === 'fulfilled' ? contextEntry.value : null;
+    let payload = contextEntry?.status === 'fulfilled' ? contextEntry.value : null;
     const dialectic =
       dialecticEntry?.status === 'fulfilled' ? dialecticEntry.value : '';
+    if (!payload && sessionState.promptInjections === 0) {
+      try {
+        const sessionContext = await this.prepareSession(params, {
+          seedWorkspace: true,
+        });
+        payload = await this.fetchPromptContextPayload(sessionContext);
+        this.contextPrefetch.set(params.sessionId, {
+          status: 'fulfilled',
+          value: payload,
+        });
+      } catch (error) {
+        this.api.logger.warn(
+          {
+            error,
+            sessionId: params.sessionId,
+          },
+          'Honcho first-turn prompt context bake failed',
+        );
+      }
+    }
     if (!payload && !dialectic) {
       void this.prepareSession(params, {
         seedWorkspace: true,
@@ -417,13 +472,60 @@ export class HonchoRuntime {
     return lines.join('\n');
   }
 
+  async backfillStoredSessionHistory(sessionContext, options = {}) {
+    const platformSessionId = normalizeString(sessionContext?.platformSessionId);
+    if (!platformSessionId) return;
+    const sessionState = getSessionState(this.persistedState, platformSessionId);
+    if (sessionState.historyBackfilled) return;
+
+    const storedMessages = this.api.getSessionMessages(platformSessionId);
+    const historyToMirror = filterMirrorableMessages(storedMessages, {
+      afterId: Number(sessionState.lastSyncedMessageId || 0),
+      beforeIdExclusive:
+        typeof options.beforeMessageIdExclusive === 'number' &&
+        Number.isFinite(options.beforeMessageIdExclusive)
+          ? Math.trunc(options.beforeMessageIdExclusive)
+          : undefined,
+    });
+
+    if (historyToMirror.length > 0) {
+      await this.client.syncMessages({
+        honchoSessionId: sessionContext.honchoSessionId,
+        userId: sessionContext.userId,
+        agentId: sessionContext.agentId,
+        messages: historyToMirror,
+      });
+      sessionState.lastSyncedMessageId = Math.max(
+        Number(sessionState.lastSyncedMessageId || 0),
+        ...historyToMirror.map((message) => numericMessageId(message)),
+      );
+      this.api.logger.debug(
+        {
+          sessionId: platformSessionId,
+          honchoSessionId: sessionContext.honchoSessionId,
+          backfilledCount: historyToMirror.length,
+        },
+        'Honcho backfilled stored session history',
+      );
+    }
+
+    sessionState.historyBackfilled = true;
+    this.persistState();
+  }
+
   async onTurnComplete(params) {
     const sessionState = getSessionState(this.persistedState, params.sessionId);
     sessionState.turnCount += 1;
+    const currentTurnStartId = minPositiveMessageId(params.messages);
+    const sessionContext = await this.prepareSession(params, {
+      seedWorkspace: true,
+      prewarm: false,
+      backfillBeforeMessageId: currentTurnStartId,
+    });
     const lastSyncedMessageId = Number(sessionState.lastSyncedMessageId || 0);
-    const unsyncedMessages = (params.messages || []).filter(
-      (message) => Number(message.id) > lastSyncedMessageId,
-    );
+    const unsyncedMessages = filterMirrorableMessages(params.messages, {
+      afterId: lastSyncedMessageId,
+    });
     if (unsyncedMessages.length === 0) {
       this.persistState();
       return;
@@ -433,10 +535,6 @@ export class HonchoRuntime {
     buffered.push(...unsyncedMessages);
     this.bufferedMessages.set(params.sessionId, buffered);
 
-    const sessionContext = await this.prepareSession(params, {
-      seedWorkspace: true,
-      prewarm: false,
-    });
     const latestQuery = latestUserQuery(unsyncedMessages);
 
     if (!this.config.saveMessages) {
@@ -566,6 +664,34 @@ export class HonchoRuntime {
     this.persistState();
   }
 
+  async fetchPromptContextPayload(sessionContext) {
+    const user = await this.client.getSessionContext({
+      ...sessionContext,
+      includeSummary: this.config.includeSummary,
+      limitToSession: this.config.limitToSession,
+      peerTargetId: sessionContext.userPeerId,
+      peerPerspectiveId: sessionContext.agentPeerId,
+    });
+    const ai =
+      this.config.includeAiPeerRepresentation || this.config.includeAiPeerCard
+        ? await this.client.getSessionContext({
+            ...sessionContext,
+            includeSummary: false,
+            limitToSession: this.config.limitToSession,
+            peerTargetId: sessionContext.agentPeerId,
+            peerPerspectiveId: sessionContext.userPeerId,
+          })
+        : null;
+    return {
+      user,
+      ai,
+      ids: {
+        userPeerId: sessionContext.userPeerId,
+        agentPeerId: sessionContext.agentPeerId,
+      },
+    };
+  }
+
   createContextPrefetch(sessionContext) {
     const entry = {
       status: 'pending',
@@ -574,33 +700,9 @@ export class HonchoRuntime {
     this.contextPrefetch.set(sessionContext.platformSessionId, entry);
     void (async () => {
       try {
-        const user = await this.client.getSessionContext({
-          ...sessionContext,
-          includeSummary: this.config.includeSummary,
-          limitToSession: this.config.limitToSession,
-          peerTargetId: sessionContext.userPeerId,
-          peerPerspectiveId: sessionContext.agentPeerId,
-        });
-        const ai =
-          this.config.includeAiPeerRepresentation ||
-          this.config.includeAiPeerCard
-            ? await this.client.getSessionContext({
-                ...sessionContext,
-                includeSummary: false,
-                limitToSession: this.config.limitToSession,
-                peerTargetId: sessionContext.agentPeerId,
-                peerPerspectiveId: sessionContext.userPeerId,
-              })
-            : null;
+        const payload = await this.fetchPromptContextPayload(sessionContext);
         entry.status = 'fulfilled';
-        entry.value = {
-          user,
-          ai,
-          ids: {
-            userPeerId: sessionContext.userPeerId,
-            agentPeerId: sessionContext.agentPeerId,
-          },
-        };
+        entry.value = payload;
       } catch (error) {
         entry.status = 'rejected';
         this.api.logger.warn(
@@ -702,6 +804,13 @@ export class HonchoRuntime {
     if (options.seedWorkspace) {
       await this.seedWorkspaceFiles(sessionContext);
     }
+    await this.backfillStoredSessionHistory(sessionContext, {
+      beforeMessageIdExclusive:
+        typeof options.backfillBeforeMessageId === 'number' &&
+        Number.isFinite(options.backfillBeforeMessageId)
+          ? Math.trunc(options.backfillBeforeMessageId)
+          : undefined,
+    });
     if (options.prewarm) {
       await this.schedulePrefetch(
         sessionContext,

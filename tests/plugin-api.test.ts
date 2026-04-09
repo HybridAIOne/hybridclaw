@@ -261,3 +261,45 @@ test('createPluginApi derives session info from stored session and recent user m
     workspacePath: '/tmp/home/data/agents/writer/workspace',
   });
 });
+
+test('createPluginApi exposes immutable stored session messages', () => {
+  vi.spyOn(db, 'getRecentMessages').mockReturnValue([
+    {
+      id: 1,
+      session_id: 'session-7',
+      role: 'user',
+      content: 'Earlier turn',
+    },
+  ] as never);
+
+  const api = createPluginApi({
+    manager: makePluginManagerStub(),
+    pluginId: 'demo-plugin',
+    pluginDir: '/tmp/demo-plugin',
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+
+  const messages = api.getSessionMessages('session-7');
+
+  expect(db.getRecentMessages).toHaveBeenCalledWith('session-7', undefined);
+  expect(messages).toEqual([
+    {
+      id: 1,
+      session_id: 'session-7',
+      role: 'user',
+      content: 'Earlier turn',
+    },
+  ]);
+  expect(() => {
+    (
+      messages as Array<{
+        content: string;
+      }>
+    )[0].content = 'Mutated';
+  }).toThrow(TypeError);
+});
