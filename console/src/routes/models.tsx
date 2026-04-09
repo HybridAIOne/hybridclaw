@@ -62,7 +62,9 @@ const PROVIDER_DISPLAY_ORDER = [
   'vllm',
 ] as const;
 
-function inferProviderName(model: Pick<ModelEntry, 'id' | 'backend'>): string | null {
+function inferProviderName(
+  model: Pick<ModelEntry, 'id' | 'backend'>,
+): string | null {
   if (model.backend) return model.backend;
   const normalized = model.id.trim().toLowerCase();
   if (normalized.startsWith('openai-codex/')) return 'codex';
@@ -96,12 +98,10 @@ function buildProviderSummaries(
     if (provider) providerNames.add(provider);
   }
 
-  return [...providerNames]
-    .sort(compareProviderNames)
-    .map((name) => ({
-      name,
-      status: payload?.providerStatus?.[name] || null,
-    }));
+  return [...providerNames].sort(compareProviderNames).map((name) => ({
+    name,
+    status: payload?.providerStatus?.[name] || null,
+  }));
 }
 
 const MODEL_SORTERS: Record<
@@ -247,11 +247,7 @@ export function ModelsPage() {
                           : 'status-dot'
                     }
                   />
-                  {status?.reachable
-                    ? 'healthy'
-                    : status
-                      ? 'down'
-                      : 'catalog'}
+                  {status?.reachable ? 'healthy' : status ? 'down' : 'catalog'}
                 </span>
               </div>
             ))}

@@ -15,9 +15,8 @@ const GATEWAY_RESTART_POLL_MS = 1000;
 export function GatewayPage() {
   const auth = useAuth();
   const live = useLiveEvents(auth.token);
-  const [polledStatus, setPolledStatus] = useState<typeof auth.gatewayStatus>(
-    null,
-  );
+  const [polledStatus, setPolledStatus] =
+    useState<typeof auth.gatewayStatus>(null);
   const [isRestarting, setIsRestarting] = useState(false);
   const status = live.status || polledStatus || auth.gatewayStatus;
   const providerEntries = Object.entries(
@@ -105,7 +104,9 @@ export function GatewayPage() {
               className="danger-button"
               disabled={!restartSupported || restartBusy}
               onClick={() => restartMutation.mutate()}
-              title={!restartSupported && !restartBusy ? restartReason : undefined}
+              title={
+                !restartSupported && !restartBusy ? restartReason : undefined
+              }
               aria-busy={restartBusy}
             >
               {restartBusy ? (

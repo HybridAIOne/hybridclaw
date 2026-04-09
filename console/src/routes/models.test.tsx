@@ -95,7 +95,9 @@ describe('ModelsPage', () => {
     renderModelsPage();
 
     expect(await screen.findByText('openrouter')).not.toBeNull();
-    expect(screen.getByText('Visible in catalog · no live health data')).not.toBeNull();
+    expect(
+      screen.getByText('Visible in catalog · no live health data'),
+    ).not.toBeNull();
     expect(screen.getByText('catalog')).not.toBeNull();
   });
 
@@ -164,7 +166,9 @@ describe('ModelsPage', () => {
 
     const rows = await screen.findAllByRole('row');
     const bodyRows = rows.slice(1, 4);
-    expect(within(bodyRows[0] as HTMLElement).getByText('gpt-5')).not.toBeNull();
+    expect(
+      within(bodyRows[0] as HTMLElement).getByText('gpt-5'),
+    ).not.toBeNull();
     expect(
       within(bodyRows[1] as HTMLElement).getByText(
         'openrouter/anthropic/claude-sonnet-4',
@@ -185,9 +189,7 @@ describe('ModelsPage', () => {
         'Provider catalogs are auto-discovered. Only the default model is configurable here.',
       ),
     ).not.toBeNull();
-    expect(
-      screen.queryByText('Configured HybridAI models'),
-    ).toBeNull();
+    expect(screen.queryByText('Configured HybridAI models')).toBeNull();
     expect(screen.queryByText('Configured Codex models')).toBeNull();
   });
 });
