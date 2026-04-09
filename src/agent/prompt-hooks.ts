@@ -345,6 +345,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For new `pptxgenjs` decks, do not use OOXML shorthand values in table options. Never set table-cell `valign: "mid"` and never emit raw `anchor: "mid"`. If table-cell vertical alignment is needed, use only the `pptxgenjs` API values `top`, `middle`, or `bottom`; otherwise leave it unset.',
     'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
+    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
     ...(channelMessageToolHints.length > 0
       ? ['', '### Message Tool Hints', ...channelMessageToolHints]
@@ -406,7 +407,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     'Example 2',
     'User: "Remind me tomorrow at 09:00 to submit report"',
-    'Tool call: `cron` {"action":"add","at":"<ISO-8601 timestamp>","prompt":"Reply with: submit report"}',
+    'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
