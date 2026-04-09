@@ -160,11 +160,7 @@ describe('plugin install', () => {
       runCommand,
     });
 
-    const installedDir = path.join(
-      homeDir,
-      'plugins',
-      'demo-plugin',
-    );
+    const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
     expect(result).toEqual({
       pluginId: 'demo-plugin',
       pluginDir: installedDir,
@@ -226,11 +222,7 @@ describe('plugin install', () => {
       runCommand,
     });
 
-    const installedDir = path.join(
-      homeDir,
-      'plugins',
-      'demo-plugin',
-    );
+    const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
     expect(result.pluginId).toBe('demo-plugin');
     expect(result.pluginDir).toBe(installedDir);
     expect(result.alreadyInstalled).toBe(false);
@@ -281,11 +273,7 @@ describe('plugin install', () => {
       runCommand,
     });
 
-    const installedDir = path.join(
-      homeDir,
-      'plugins',
-      'manifest-only-plugin',
-    );
+    const installedDir = path.join(homeDir, 'plugins', 'manifest-only-plugin');
     expect(result).toEqual({
       pluginId: 'manifest-only-plugin',
       pluginDir: installedDir,
@@ -342,11 +330,7 @@ describe('plugin install', () => {
     const sourceDir = path.join(cwd, 'demo-plugin');
     writePluginDir(sourceDir);
 
-    const installedDir = path.join(
-      homeDir,
-      'plugins',
-      'demo-plugin',
-    );
+    const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
     writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
     fs.writeFileSync(
       path.join(installedDir, 'stale.txt'),
@@ -391,11 +375,7 @@ describe('plugin install', () => {
   test('reinstalls an npm-spec plugin with a single staged fetch', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
-    const installedDir = path.join(
-      homeDir,
-      'plugins',
-      'demo-plugin',
-    );
+    const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
     writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
     fs.writeFileSync(
       path.join(installedDir, 'stale.txt'),
@@ -480,11 +460,7 @@ describe('plugin install', () => {
 
   test('uninstalls a home plugin and removes matching runtime config overrides', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
-    const pluginDir = path.join(
-      homeDir,
-      'plugins',
-      'demo-plugin',
-    );
+    const pluginDir = path.join(homeDir, 'plugins', 'demo-plugin');
     writePluginDir(pluginDir);
 
     let config = {
