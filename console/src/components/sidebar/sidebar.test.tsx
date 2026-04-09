@@ -353,7 +353,6 @@ describe('Sidebar — mobile overlay', () => {
     // desktop open state unchanged
     expect(captured.value?.open).toBe(true);
   });
-
 });
 
 describe('SidebarTrigger', () => {
@@ -393,7 +392,9 @@ describe('SidebarTrigger', () => {
 
   it('calls custom onClick before toggling', () => {
     setViewport(1440);
-    const onClick = vi.fn((e: { preventDefault(): void }) => e.preventDefault());
+    const onClick = vi.fn((e: { preventDefault(): void }) =>
+      e.preventDefault(),
+    );
     render(
       <SidebarProvider>
         <Sidebar>

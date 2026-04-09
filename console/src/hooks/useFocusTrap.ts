@@ -45,7 +45,7 @@ export function useFocusTrap(
     });
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return;
+      if (e.key !== 'Tab' || !container) return;
       if (!items.length) {
         e.preventDefault();
         return;
@@ -72,6 +72,7 @@ export function useFocusTrap(
     function onFocusOut() {
       requestAnimationFrame(() => {
         if (
+          container &&
           container.isConnected &&
           !container.contains(document.activeElement)
         ) {

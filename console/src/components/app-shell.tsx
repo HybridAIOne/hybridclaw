@@ -78,7 +78,11 @@ export function AppShell(props: { children: ReactNode }) {
                   {inner}
                 </span>
               ) : (
-                <a key={item.href} className="view-switch-link" href={item.href}>
+                <a
+                  key={item.href}
+                  className="view-switch-link"
+                  href={item.href}
+                >
                   {inner}
                 </a>
               );
