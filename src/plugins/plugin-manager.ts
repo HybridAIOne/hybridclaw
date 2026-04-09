@@ -21,6 +21,7 @@ import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import type { ToolExecution } from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
@@ -1578,6 +1579,15 @@ export class PluginManager {
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
     return result.sections;
+  }
+
+  getMcpServerConfig(name: string): McpServerConfig | null {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+    const config = this.getConfig();
+    const entry = config.mcpServers?.[normalized];
+    if (!entry) return null;
+    return structuredClone(entry);
   }
 
   async getMemoryLayerBehavior(): Promise<PluginMemoryBehavior> {

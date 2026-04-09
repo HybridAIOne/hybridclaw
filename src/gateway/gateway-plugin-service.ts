@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
@@ -29,6 +30,7 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { consumeCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
@@ -36,6 +38,7 @@ import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
+import { rememberPendingApproval } from './pending-approvals.js';
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
@@ -111,22 +114,113 @@ function buildMissingBinaryGuidanceLines(
   return lines;
 }
 
-function formatDependencyPlanDetails(plan: {
+interface PluginDependencyApprovalPlan {
   usesPackageJson: boolean;
   nodePackages: string[];
   pipPackages: string[];
+}
+
+interface PluginDependencyApprovalStep {
+  approvalId: string;
+  actionKey: string;
+  prompt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+}
+
+function buildPluginDependencyApprovalPrompt(params: {
+  approvalId: string;
+  intent: string;
+  reason: string;
+  consequenceIfDenied: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
 }): string {
-  const parts: string[] = [];
-  if (plan.usesPackageJson) {
-    parts.push('npm install from package.json');
+  const optionLines = [
+    'Reply `yes` to approve once.',
+    params.allowSession
+      ? 'Reply `yes for session` to trust this action for this session.'
+      : 'Reply `yes for session` is unavailable for this approval.',
+    params.allowAgent
+      ? 'Reply `yes for agent` to trust it for this agent.'
+      : 'Reply `yes for agent` is unavailable for this approval.',
+    params.allowAll
+      ? 'Reply `yes for all` to add this action to the workspace allowlist.'
+      : 'Reply `yes for all` is unavailable for this approval.',
+    'Reply `no` to deny.',
+  ];
+  return [
+    `I need your approval before I ${params.intent}.`,
+    `Why: ${params.reason}`,
+    `If you skip this, ${params.consequenceIfDenied.charAt(0).toLowerCase()}${params.consequenceIfDenied.slice(1)}`,
+    `Approval ID: ${params.approvalId}`,
+    ...optionLines,
+    'Approval expires in 120s.',
+  ].join('\n');
+}
+
+function resolveNextPluginDependencyApprovalStep(params: {
+  sessionId: string;
+  source: string;
+  plan: PluginDependencyApprovalPlan;
+}): PluginDependencyApprovalStep | null {
+  const steps: PluginDependencyApprovalStep[] = [];
+  if (params.plan.usesPackageJson || params.plan.nodePackages.length > 0) {
+    const approvalId = randomUUID();
+    const commandPreview =
+      params.plan.nodePackages.length > 0
+        ? `run \`npm install --ignore-scripts --omit=dev --no-package-lock --no-audit --no-fund ${params.plan.nodePackages.join(' ')}\` for plugin \`${params.source}\``
+        : `run \`npm install --ignore-scripts --omit=dev --no-audit --no-fund\` for plugin \`${params.source}\``;
+    steps.push({
+      approvalId,
+      actionKey: 'plugin-deps:npm',
+      prompt: buildPluginDependencyApprovalPrompt({
+        approvalId,
+        intent: commandPreview,
+        reason: 'this changes the local Node.js dependency state',
+        consequenceIfDenied: 'dependency installation will be skipped.',
+        allowSession: true,
+        allowAgent: false,
+        allowAll: false,
+      }),
+      allowSession: true,
+      allowAgent: false,
+      allowAll: false,
+    });
   }
-  if (plan.nodePackages.length > 0) {
-    parts.push(`npm packages: ${plan.nodePackages.join(', ')}`);
+  if (params.plan.pipPackages.length > 0) {
+    const approvalId = randomUUID();
+    steps.push({
+      approvalId,
+      actionKey: 'plugin-deps:pip',
+      prompt: buildPluginDependencyApprovalPrompt({
+        approvalId,
+        intent: `install Python packages for plugin \`${params.source}\`: ${params.plan.pipPackages.join(', ')}`,
+        reason: 'this changes the local Python dependency state',
+        consequenceIfDenied: 'dependency installation will be skipped.',
+        allowSession: true,
+        allowAgent: false,
+        allowAll: false,
+      }),
+      allowSession: true,
+      allowAgent: false,
+      allowAll: false,
+    });
   }
-  if (plan.pipPackages.length > 0) {
-    parts.push(`pip packages: ${plan.pipPackages.join(', ')}`);
+
+  for (const step of steps) {
+    if (
+      !consumeCommandApproval({
+        sessionId: params.sessionId,
+        actionKey: step.actionKey,
+      })
+    ) {
+      return step;
+    }
   }
-  return parts.join('; ');
+  return null;
 }
 
 function buildDependencyInstallLines(params: {
@@ -555,13 +649,13 @@ export async function handlePluginGatewayCommand(params: {
     if (!source) {
       return badCommand(
         'Usage',
-        'Usage: `plugin install <path|npm-spec> [--yes]`',
+        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
       );
     }
     if (yes && yes !== '--yes') {
       return badCommand(
         'Usage',
-        'Usage: `plugin install <path|npm-spec> [--yes]`',
+        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
       );
     }
     if (!isLocalSession(req)) {
@@ -596,14 +690,52 @@ export async function handlePluginGatewayCommand(params: {
       return infoCommand('Plugin Installed', lines.join('\n'));
     } catch (error) {
       if (isDependencyApprovalRequiredError(error)) {
-        return infoCommand(
-          'Plugin Install Approval Required',
-          [
-            'Plugin dependency installation requires explicit approval.',
-            `Planned actions: ${formatDependencyPlanDetails(error.plan)}`,
-            `Re-run this command with \`/plugin install ${source} --yes\`.`,
-          ].join('\n'),
-        );
+        const step = resolveNextPluginDependencyApprovalStep({
+          sessionId: req.sessionId,
+          source,
+          plan: error.plan,
+        });
+        if (!step) {
+          const result = await installPlugin(source, {
+            approveDependencyInstall: true,
+          });
+          const reloadResult = await reloadPluginRuntime();
+          const lines = [
+            result.alreadyInstalled
+              ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
+              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+            ...buildDependencyInstallLines(result),
+            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...buildMissingBinaryGuidanceLines(
+              result.pluginId,
+              result.missingRequiredBins,
+            ),
+            ...(result.requiresEnv.length > 0
+              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              : []),
+            result.requiredConfigKeys.length > 0
+              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
+              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
+            reloadResult.message,
+          ];
+          return infoCommand('Plugin Installed', lines.join('\n'));
+        }
+        await rememberPendingApproval({
+          sessionId: req.sessionId,
+          approvalId: step.approvalId,
+          prompt: step.prompt,
+          userId: String(req.userId || req.sessionId).trim() || req.sessionId,
+          commandAction: {
+            approveArgs: ['plugin', 'install', source],
+            actionKey: step.actionKey,
+            allowSession: step.allowSession,
+            allowAgent: step.allowAgent,
+            allowAll: step.allowAll,
+            denyTitle: 'Plugin Install Cancelled',
+            denyText: `Cancelled plugin install for \`${source}\`.`,
+          },
+        });
+        return infoCommand('Pending Approval', step.prompt);
       }
       return badCommand(
         'Plugin Install Failed',
@@ -618,13 +750,13 @@ export async function handlePluginGatewayCommand(params: {
     if (!source) {
       return badCommand(
         'Usage',
-        'Usage: `plugin reinstall <path|npm-spec> [--yes]`',
+        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
       );
     }
     if (yes && yes !== '--yes') {
       return badCommand(
         'Usage',
-        'Usage: `plugin reinstall <path|npm-spec> [--yes]`',
+        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
       );
     }
     if (!isLocalSession(req)) {
@@ -659,14 +791,52 @@ export async function handlePluginGatewayCommand(params: {
       return infoCommand('Plugin Reinstalled', lines.join('\n'));
     } catch (error) {
       if (isDependencyApprovalRequiredError(error)) {
-        return infoCommand(
-          'Plugin Reinstall Approval Required',
-          [
-            'Plugin dependency installation requires explicit approval.',
-            `Planned actions: ${formatDependencyPlanDetails(error.plan)}`,
-            `Re-run this command with \`/plugin reinstall ${source} --yes\`.`,
-          ].join('\n'),
-        );
+        const step = resolveNextPluginDependencyApprovalStep({
+          sessionId: req.sessionId,
+          source,
+          plan: error.plan,
+        });
+        if (!step) {
+          const result = await reinstallPlugin(source, {
+            approveDependencyInstall: true,
+          });
+          const reloadResult = await reloadPluginRuntime();
+          const lines = [
+            result.replacedExistingInstall
+              ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
+              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+            ...buildDependencyInstallLines(result),
+            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...buildMissingBinaryGuidanceLines(
+              result.pluginId,
+              result.missingRequiredBins,
+            ),
+            ...(result.requiresEnv.length > 0
+              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              : []),
+            result.requiredConfigKeys.length > 0
+              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
+              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
+            reloadResult.message,
+          ];
+          return infoCommand('Plugin Reinstalled', lines.join('\n'));
+        }
+        await rememberPendingApproval({
+          sessionId: req.sessionId,
+          approvalId: step.approvalId,
+          prompt: step.prompt,
+          userId: String(req.userId || req.sessionId).trim() || req.sessionId,
+          commandAction: {
+            approveArgs: ['plugin', 'reinstall', source],
+            actionKey: step.actionKey,
+            allowSession: step.allowSession,
+            allowAgent: step.allowAgent,
+            allowAll: step.allowAll,
+            denyTitle: 'Plugin Reinstall Cancelled',
+            denyText: `Cancelled plugin reinstall for \`${source}\`.`,
+          },
+        });
+        return infoCommand('Pending Approval', step.prompt);
       }
       return badCommand(
         'Plugin Reinstall Failed',
@@ -705,7 +875,7 @@ export async function handlePluginGatewayCommand(params: {
     if (!pluginId) {
       return badCommand(
         'Usage',
-        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec> [--yes]|reinstall <path|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
+        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
       );
     }
     try {
@@ -739,7 +909,7 @@ export async function handlePluginGatewayCommand(params: {
 
   return badCommand(
     'Usage',
-    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec> [--yes]|reinstall <path|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
+    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
   );
 }
 

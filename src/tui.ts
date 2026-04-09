@@ -409,9 +409,49 @@ function mapApprovalSelectionToCommand(
 
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
-    normalized,
+  return (
+    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
+      normalized,
+    ) ||
+    /^\/approve\s+(yes|once|always|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
+      normalized,
+    )
   );
+}
+
+function normalizeApprovalReplayForGateway(content: string): string {
+  const normalized = content.trim();
+  if (normalized.startsWith('/approve')) {
+    return normalized;
+  }
+  const allowMatch =
+    /^yes\s+(\S+)(?:\s+for\s+(session|always|agent|all))?$/iu.exec(normalized);
+  if (allowMatch) {
+    const approvalId = allowMatch[1];
+    const mode = (allowMatch[2] || '').toLowerCase();
+    if (mode === 'session' || mode === 'always') {
+      return `/approve session ${approvalId}`;
+    }
+    if (mode === 'agent') {
+      return `/approve agent ${approvalId}`;
+    }
+    if (mode === 'all') {
+      return `/approve all ${approvalId}`;
+    }
+    return `/approve yes ${approvalId}`;
+  }
+  const denyMatch = /^(?:skip|no)\s+(\S+)$/iu.exec(normalized);
+  if (denyMatch?.[1]) {
+    return `/approve no ${denyMatch[1]}`;
+  }
+  return normalized;
+}
+
+async function submitApprovalReplay(
+  content: string,
+  rl: readline.Interface,
+): Promise<void> {
+  await processMessage(normalizeApprovalReplayForGateway(content), rl);
 }
 
 function resolvePendingApproval(
@@ -838,6 +878,16 @@ function formatTuiOutput(text: string): string {
   return wrapTuiBlock(text, terminalColumns(), '  ');
 }
 
+export function formatTuiTitledCommandBlock(
+  title: string,
+  text: string,
+  width: number,
+): string[] {
+  const lines = wrapTuiBlock(title, width, '  ').split('\n');
+  if (!text.trim()) return lines;
+  return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
+}
+
 function isInactiveSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line);
 }
@@ -887,9 +937,15 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.title) {
     clearTuiSlashMenu();
     console.log();
-    console.log(`${GOLD}${result.title}${RESET}`);
-    console.log();
-    for (const line of formatTuiOutput(result.text).split('\n')) {
+    for (const line of formatTuiTitledCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
       console.log(`${GOLD}${line}${RESET}`);
     }
     console.log();
@@ -1364,6 +1420,32 @@ async function runGatewayCommand(
 ): Promise<void> {
   try {
     const result = await requestGatewayCommand(args);
+    const pendingApproval =
+      result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
+    if (pendingApproval) {
+      const summary = formatTuiApprovalSummary(pendingApproval);
+      tuiPendingApproval = {
+        requestId: pendingApproval.approvalId,
+        summary,
+        intent: pendingApproval.intent,
+        reason: pendingApproval.reason,
+        allowSession: pendingApproval.allowSession,
+        allowAgent: pendingApproval.allowAgent,
+        allowAll: pendingApproval.allowAll,
+      };
+      printResponse(summary);
+      const approvalCommand = await promptApprovalSelection(
+        rl,
+        pendingApproval.approvalId,
+        pendingApproval.allowSession,
+        pendingApproval.allowAgent,
+        pendingApproval.allowAll,
+      );
+      if (approvalCommand) {
+        await submitApprovalReplay(approvalCommand, rl);
+      }
+      return;
+    }
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
@@ -1681,7 +1763,7 @@ async function handleSlashCommand(
         printInfo('No pending approval request is available to approve.');
         return true;
       }
-      await processMessage(approvalResult.message, rl);
+      await submitApprovalReplay(approvalResult.message, rl);
       return true;
     }
     case 'skill': {
@@ -1870,7 +1952,7 @@ async function processMessage(
         pendingApproval.allowAll,
       );
       if (approvalCommand) {
-        await processMessage(approvalCommand, rl);
+        await submitApprovalReplay(approvalCommand, rl);
       }
     } else {
       if (isApprovalResponseContent(content)) {
@@ -1968,7 +2050,7 @@ async function processFullAutoSteeringMessage(
           pendingApproval.allowAll,
         );
         if (approvalCommand) {
-          await processMessage(approvalCommand, rl);
+          await submitApprovalReplay(approvalCommand, rl);
         }
         return;
       }

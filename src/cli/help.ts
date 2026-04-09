@@ -499,8 +499,8 @@ Commands:
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin enable <plugin-id>
   hybridclaw plugin disable <plugin-id>
-  hybridclaw plugin install <path|npm-spec> [--yes]
-  hybridclaw plugin reinstall <path|npm-spec> [--yes]
+  hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]
+  hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]
   hybridclaw plugin check <plugin-id>
   hybridclaw plugin uninstall <plugin-id>
 
@@ -510,6 +510,7 @@ Examples:
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
   hybridclaw plugin install ./plugins/example-plugin --yes
+  hybridclaw plugin install mempalace-memory --yes
   hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
   hybridclaw plugin reinstall ./plugins/example-plugin --yes
   hybridclaw plugin check example-plugin
@@ -518,6 +519,7 @@ Examples:
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
+  - Bare plugin ids resolve to \`./plugins/<plugin-id>\` when that directory exists in the current project.
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.

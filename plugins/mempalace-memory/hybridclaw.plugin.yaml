@@ -23,6 +23,9 @@ configSchema:
       type: string
     palacePath:
       type: string
+    mcpServerName:
+      type: string
+      default: mempalace
     sessionExportDir:
       type: string
     wakeUpEnabled:

@@ -652,7 +652,10 @@ function installPreparedPlugin(
     fs.renameSync(stageDir, pluginDir);
     cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
     installedPluginDir = true;
-    const pluginDependencyPlan = planPluginDependencyInstall(pluginDir, manifest);
+    const pluginDependencyPlan = planPluginDependencyInstall(
+      pluginDir,
+      manifest,
+    );
     const dependencySummary = hasInstallablePluginDependencies(
       pluginDependencyPlan,
     )

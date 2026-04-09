@@ -28,6 +28,27 @@ function normalizeSearchQuery(value) {
     .trimEnd()}…`;
 }
 
+function stripMatchingQuotes(value) {
+  const normalized = String(value || '').trim();
+  if (normalized.length < 2) return normalized;
+  const first = normalized[0];
+  const last = normalized.at(-1);
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+function normalizeManualCommandArgs(args) {
+  if (!Array.isArray(args) || args.length === 0) return ['status'];
+  const command = String(args[0] || '').trim();
+  if (command !== 'search') {
+    return args.map((arg) => String(arg || '').trim()).filter(Boolean);
+  }
+  const query = stripMatchingQuotes(args.slice(1).join(' '));
+  return query ? ['search', query] : ['search'];
+}
+
 function getLatestUserQuery(recentMessages) {
   let latestMessage = null;
   for (const message of recentMessages) {
@@ -268,7 +289,11 @@ function createAutoSaveBuffer(config, api) {
   };
 }
 
-async function buildPromptContext(config, recentMessages) {
+async function buildPromptContext(api, config, recentMessages) {
+  const mcpPromptContext = buildMcpPromptContext(api, config);
+  if (mcpPromptContext) {
+    return mcpPromptContext;
+  }
   const sections = [];
 
   if (config.wakeUpEnabled) {
@@ -314,6 +339,41 @@ async function buildPromptContext(config, recentMessages) {
   return truncateText(sections.join('\n\n'), config.maxInjectedChars);
 }
 
+function getConfiguredMcpServer(api, config) {
+  const serverName = String(config.mcpServerName || '').trim();
+  if (!serverName) return null;
+  const server = api.getMcpServerConfig(serverName);
+  if (!server) return null;
+  return { name: serverName, config: server };
+}
+
+function getActiveMcpServer(api, config) {
+  const server = getConfiguredMcpServer(api, config);
+  if (!server || server.config.enabled === false) {
+    return null;
+  }
+  return server;
+}
+
+function buildMcpToolName(serverName, toolName) {
+  return `${serverName}__${toolName}`;
+}
+
+function buildMcpPromptContext(api, config) {
+  const server = getActiveMcpServer(api, config);
+  if (!server) return null;
+  const statusTool = buildMcpToolName(server.name, 'mempalace_status');
+  const searchTool = buildMcpToolName(server.name, 'mempalace_search');
+  const graphTool = buildMcpToolName(server.name, 'mempalace_kg_query');
+  const taxonomyTool = buildMcpToolName(server.name, 'mempalace_get_taxonomy');
+  return [
+    'MemPalace MCP tools are enabled for this session.',
+    `Use \`${statusTool}\` when you need the palace overview, AAAK dialect, and memory protocol.`,
+    `Before answering questions about past people, projects, preferences, or events, prefer \`${searchTool}\` or \`${graphTool}\` instead of relying on injected CLI recall.`,
+    `Use \`${taxonomyTool}\` when you need the palace structure of wings and rooms.`,
+  ].join('\n');
+}
+
 function formatCommandFailure(error, config, args) {
   const message =
     error instanceof Error ? error.message : String(error || 'Unknown error');
@@ -325,6 +385,34 @@ function formatCommandFailure(error, config, args) {
     ...(args.length > 0 ? [`Arguments: ${args.join(' ')}`] : []),
     '',
     message,
+  ].join('\n');
+}
+
+function describePalaceLocation(config) {
+  if (config.palacePath) {
+    return `Configured palace path: ${config.palacePath}`;
+  }
+  return 'Configured palace path: (not set; using MemPalace default, usually ~/.mempalace/palace)';
+}
+
+function describeMcpMode(api, config) {
+  const server = getConfiguredMcpServer(api, config);
+  const serverName = String(config.mcpServerName || '').trim() || 'mempalace';
+  if (!server) {
+    return `Configured MCP server: ${serverName} (not configured; plugin uses CLI recall)`;
+  }
+  if (server.config.enabled === false) {
+    return `Configured MCP server: ${server.name} (disabled; plugin uses CLI recall)`;
+  }
+  return `Configured MCP server: ${server.name} (enabled; prompt recall uses MCP tools)`;
+}
+
+function formatStatusOutput(output, api, config) {
+  return [
+    describePalaceLocation(config),
+    describeMcpMode(api, config),
+    '',
+    output,
   ].join('\n');
 }
 
@@ -369,6 +457,7 @@ export default {
       async getContextForPrompt({ recentMessages }) {
         try {
           const promptContext = await buildPromptContext(
+            api,
             config,
             recentMessages,
           );
@@ -376,6 +465,7 @@ export default {
             {
               wakeUpEnabled: config.wakeUpEnabled,
               searchEnabled: config.searchEnabled,
+              mcpServerName: config.mcpServerName,
               workingDirectory: config.workingDirectory,
             },
             promptContext
@@ -441,20 +531,33 @@ export default {
     api.registerCommand({
       name: 'mempalace',
       description: 'Run MemPalace CLI commands (defaults to status)',
-      async handler(args) {
-        const normalizedArgs = args
-          .map((arg) => String(arg || '').trim())
-          .filter(Boolean);
+      async handler(args, context) {
+        const normalizedArgs = normalizeManualCommandArgs(args);
         const commandArgs =
           normalizedArgs.length > 0 ? normalizedArgs : ['status'];
+        if (
+          context.sessionId &&
+          (commandArgs[0] === 'status' ||
+            commandArgs[0] === 'wake-up' ||
+            commandArgs[0] === 'search')
+        ) {
+          await autoSave.flushSession(
+            context.sessionId,
+            `manual mempalace ${commandArgs[0]}`,
+          );
+        }
         try {
-          return await runMempalaceCommandText(commandArgs, config, {
+          const output = await runMempalaceCommandText(commandArgs, config, {
             maxChars: 8000,
             timeoutMs:
               commandArgs[0] === 'status' || commandArgs[0] === 'wake-up'
                 ? config.timeoutMs
                 : Math.max(config.timeoutMs, 30_000),
           });
+          if (commandArgs[0] === 'status') {
+            return formatStatusOutput(output, api, config);
+          }
+          return output;
         } catch (error) {
           return formatCommandFailure(error, config, commandArgs);
         }
@@ -465,6 +568,7 @@ export default {
       {
         wakeUpEnabled: config.wakeUpEnabled,
         searchEnabled: config.searchEnabled,
+        mcpServerName: config.mcpServerName,
         palacePath: config.palacePath || null,
         sessionExportDir: config.sessionExportDir,
         saveEveryMessages: config.saveEveryMessages,

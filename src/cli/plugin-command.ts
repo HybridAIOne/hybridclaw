@@ -366,14 +366,14 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     if (!source) {
       printPluginUsage();
       throw new Error(
-        'Missing plugin source for `hybridclaw plugin install <path|npm-spec> [--yes]`.',
+        'Missing plugin source for `hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]`.',
       );
     }
     const yes = normalized[2];
     if (normalized.length > 3 || (yes && yes !== '--yes')) {
       printPluginUsage();
       throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin install <path|npm-spec> [--yes]`.',
+        'Unexpected extra arguments for `hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]`.',
       );
     }
 
@@ -436,14 +436,14 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     if (!source) {
       printPluginUsage();
       throw new Error(
-        'Missing plugin source for `hybridclaw plugin reinstall <path|npm-spec> [--yes]`.',
+        'Missing plugin source for `hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]`.',
       );
     }
     const yes = normalized[2];
     if (normalized.length > 3 || (yes && yes !== '--yes')) {
       printPluginUsage();
       throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin reinstall <path|npm-spec> [--yes]`.',
+        'Unexpected extra arguments for `hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]`.',
       );
     }
 
@@ -569,6 +569,6 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
   printPluginUsage();
   throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin enable <plugin-id>\`, \`hybridclaw plugin disable <plugin-id>\`, \`hybridclaw plugin install <path|npm-spec> [--yes]\`, \`hybridclaw plugin reinstall <path|npm-spec> [--yes]\`, \`hybridclaw plugin check <plugin-id>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin enable <plugin-id>\`, \`hybridclaw plugin disable <plugin-id>\`, \`hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin check <plugin-id>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
   );
 }

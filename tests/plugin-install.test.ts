@@ -635,7 +635,9 @@ describe('plugin install', () => {
           'utf-8',
         )
         .split('\n')[0],
-    ).toBe(`#!${path.join(homeDir, 'plugins', 'pip-plugin', '.venv', 'bin', 'python')}`);
+    ).toBe(
+      `#!${path.join(homeDir, 'plugins', 'pip-plugin', '.venv', 'bin', 'python')}`,
+    );
 
     const checkResult = await checkPlugin('pip-plugin', {
       homeDir,

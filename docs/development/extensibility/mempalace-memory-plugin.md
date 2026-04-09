@@ -14,9 +14,8 @@ and adds MemPalace recall and auto-save on top of HybridClaw's built-in memory
 for normal chat turns. With the plugin enabled, HybridClaw can:
 
 - run `mempalace status` as a startup health check
-- run `mempalace wake-up` before prompts to inject MemPalace wake-up context
-- run `mempalace search "<latest user question>"` before prompts to recall
-  relevant memories
+- run `mempalace wake-up` and `mempalace search` before prompts when no
+  MemPalace MCP server is enabled
 - buffer recent HybridClaw turns and periodically run
   `mempalace mine ... --mode convos` so new turns are written back into
   MemPalace automatically
@@ -56,9 +55,14 @@ Important distinction:
   `search`, and `mine`.
 - The `/mempalace` command is a generic CLI passthrough, so it can forward
   other MemPalace subcommands too.
+- If you separately enable a `mempalace` MCP server, the plugin keeps using the
+  CLI for startup checks and auto-save mining, but it switches prompt-time
+  recall to MCP-oriented guidance instead of injecting CLI `wake-up` and
+  `search` output.
 - MemPalace features documented outside the CLI, such as the MCP server, the
   19 `mempalace_*` MCP tools, Gemini/Claude hook setup, knowledge-graph tools,
-  and diary tools, are not implemented by this HybridClaw plugin.
+  and diary tools, are not implemented by this HybridClaw plugin itself. If
+  you want the MCP tool surface, add the MemPalace MCP server separately.
 
 ## Before You Activate It
 
@@ -74,6 +78,16 @@ pip install mempalace
 mempalace init ~/projects/myapp
 mempalace mine ~/projects/myapp
 ```
+
+The important invariant is:
+
+- `mempalace status` must succeed for the palace you actually want to use.
+- HybridClaw's `mempalace-memory` plugin must point at that same palace.
+
+If you leave the plugin `palacePath` unset, HybridClaw uses MemPalace's
+default palace location, usually `~/.mempalace/palace`. If your real palace is
+somewhere else, set `palacePath` explicitly or HybridClaw will search and mine
+the wrong palace.
 
 If your memories come from chats instead of source code, MemPalace also
 documents:
@@ -111,6 +125,9 @@ If your palace is not at MemPalace's default location, configure that too:
 hybridclaw plugin config mempalace-memory palacePath ~/.mempalace/palace
 ```
 
+To avoid ambiguity, setting `palacePath` explicitly is recommended even when
+you are using MemPalace's default location.
+
 Reload or restart HybridClaw after changing plugin config:
 
 ```bash
@@ -135,12 +152,102 @@ If needed, set the palace location explicitly:
 /plugin reload
 ```
 
+To avoid ambiguity, setting `palacePath` explicitly is recommended even when
+you are using MemPalace's default location.
+
 If `mempalace` is not already discoverable from `PATH`, point the plugin at the
 binary directly:
 
 ```text
 /plugin config mempalace-memory command /absolute/path/to/mempalace
 /plugin reload
+```
+
+## Optional: Add the MemPalace MCP Server
+
+The plugin and the MemPalace MCP server solve different problems:
+
+- the plugin handles automatic `wake-up`, `search`, transcript mining, and
+  mirroring of native HybridClaw memory writes
+- the MCP server exposes MemPalace's 19 `mempalace_*` tools to the model,
+  including taxonomy, knowledge-graph, navigation, and diary tools
+
+If you want those MCP tools in HybridClaw too, add the MemPalace MCP server
+separately after installing the plugin.
+
+Once that `mempalace` MCP server is enabled, the plugin automatically prefers
+the MCP tool path for prompt-time recall. In other words:
+
+- reads move to MemPalace MCP tools
+- CLI `wake-up` and automatic CLI `search` stop being injected into prompts
+- CLI-based auto-save and native-memory mirroring continue unchanged
+
+For stdio MCP servers that depend on host binaries, run the gateway in host
+sandbox mode first. See [TUI MCP Quickstart](../guides/tui-mcp.md).
+
+Important:
+
+- use absolute paths in MCP config JSON, not `~`
+- point the MCP server at the same palace as the plugin
+- by default, the plugin looks for an MCP server named `mempalace`
+- if you later change plugin `palacePath`, update the MCP server too
+- if you use a different MCP server name, set
+  `plugin config mempalace-memory mcpServerName <name>` too
+
+### Local TUI or web session
+
+If you installed `mempalace` into the plugin-local `.venv`, add the MCP server
+like this:
+
+```text
+/mcp add mempalace {"transport":"stdio","command":"/absolute/path/to/.hybridclaw/plugins/mempalace-memory/.venv/bin/python","args":["-m","mempalace.mcp_server"],"env":{"MEMPALACE_PALACE_PATH":"/absolute/path/to/palace"},"enabled":true}
+/mcp list
+```
+
+Replace the placeholders with real absolute paths on your machine.
+
+If you installed MemPalace into a global Python environment instead of the
+plugin-local `.venv`, use that interpreter instead:
+
+```text
+/mcp add mempalace {"transport":"stdio","command":"python3","args":["-m","mempalace.mcp_server"],"env":{"MEMPALACE_PALACE_PATH":"/absolute/path/to/palace"},"enabled":true}
+```
+
+Expected:
+
+- `/mcp list` shows a `mempalace` stdio server as enabled
+- the model can use tools such as
+  `mempalace__mempalace_status` and
+  `mempalace__mempalace_get_taxonomy`
+- `/mempalace status` reports that the configured MCP server is enabled and
+  prompt recall is using MCP tools
+
+These are model tools, not slash commands. To use them, ask in normal chat, for
+example:
+
+```text
+Use MemPalace to show me the current taxonomy of wings and rooms.
+```
+
+### Config file alternative
+
+You can also add the same server directly under `mcpServers` in
+`~/.hybridclaw/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mempalace": {
+      "transport": "stdio",
+      "command": "/absolute/path/to/.hybridclaw/plugins/mempalace-memory/.venv/bin/python",
+      "args": ["-m", "mempalace.mcp_server"],
+      "env": {
+        "MEMPALACE_PALACE_PATH": "/absolute/path/to/palace"
+      },
+      "enabled": true
+    }
+  }
+}
 ```
 
 ## Local TUI Test Protocol
@@ -178,8 +285,11 @@ binary directly:
    /mempalace search "a fact you already know exists in your palace"
    ```
 
-   Expected: `status` succeeds, `wake-up` returns context, and `search`
-   returns known memories.
+   Expected: `status` succeeds, shows the configured palace path you intended
+   to use, `wake-up` returns context, and `search` returns known memories.
+   If `status` says `Configured palace path: (not set; using MemPalace
+   default...)` or `No palace found ...`, the plugin is not pointed at a ready
+   palace yet.
 
 4. Test automatic recall in a normal chat turn.
 
@@ -191,7 +301,8 @@ binary directly:
    ```
 
    Expected: the answer reflects MemPalace recall without you manually running
-   `/mempalace search`.
+   `/mempalace search`. If the `mempalace` MCP server is enabled, this should
+   happen through the MCP tool path rather than injected CLI search text.
 
 5. Test additive behavior with native HybridClaw memory still active.
 
@@ -256,14 +367,18 @@ binary directly:
 Once enabled, the plugin works in the background on every turn:
 
 1. On startup, it runs `mempalace status`.
-2. Before a prompt, it optionally runs `mempalace wake-up`.
-3. It then optionally runs `mempalace search` using the latest user message.
-4. That MemPalace output is added alongside HybridClaw's normal prompt-memory
-   sections for the turn.
-5. After turns complete, the plugin buffers recent exchanges in memory.
-6. Once the configured threshold is reached, HybridClaw exports the buffered
+2. If no enabled `mempalace` MCP server is configured, it optionally runs
+   `mempalace wake-up`.
+3. If no enabled `mempalace` MCP server is configured, it optionally runs
+   `mempalace search` using the latest user message.
+4. With CLI recall mode, that MemPalace output is added alongside
+   HybridClaw's normal prompt-memory sections for the turn.
+5. With MCP recall mode, the plugin injects a short instruction telling the
+   model to use the MemPalace MCP tools instead.
+6. After turns complete, the plugin buffers recent exchanges in memory.
+7. Once the configured threshold is reached, HybridClaw exports the buffered
    transcript batch and runs `mempalace mine <export-dir> --mode convos`.
-7. If the session is about to compact, reset, or stop before that threshold is
+8. If the session is about to compact, reset, or stop before that threshold is
    reached, the plugin flushes the pending buffer early through plugin hooks.
 
 This means normal usage is just asking HybridClaw questions. You do not need to
@@ -282,6 +397,53 @@ The last example works because `/mempalace` forwards arbitrary MemPalace CLI
 arguments, but mining and repair operations are still MemPalace operations, not
 native HybridClaw features.
 
+## Quick Setup Checklist
+
+Use this sequence if you want the shortest path to a working setup:
+
+1. Install the plugin and approve dependency setup:
+
+   ```text
+   /plugin install ./plugins/mempalace-memory --yes
+   ```
+
+2. Make sure MemPalace itself has a real palace with data in it:
+
+   ```bash
+   mempalace status
+   mempalace search "something you know should already exist"
+   ```
+
+3. Point HybridClaw at that same palace:
+
+   ```text
+   /plugin config mempalace-memory palacePath ~/.mempalace/palace
+   /plugin reload
+   ```
+
+4. Verify the plugin is using the expected palace:
+
+   ```text
+   /mempalace status
+   ```
+
+   Expected: it shows the configured palace path and does not report `No palace
+   found`.
+
+5. Verify recall:
+
+   ```text
+   /mempalace search "something you know should already exist"
+   ```
+
+6. Verify HybridClaw can still use built-in memory and mirror writes into
+   MemPalace:
+
+   ```text
+   Remember that my favorite test color is teal.
+   /mempalace search "favorite test color teal"
+   ```
+
 ## Recommended Config
 
 If you want tighter retrieval around one project or palace wing, add a
@@ -297,6 +459,7 @@ If you want tighter retrieval around one project or palace wing, add a
         "config": {
           "command": "mempalace",
           "palacePath": "~/.mempalace/palace",
+          "mcpServerName": "mempalace",
           "sessionExportDir": ".hybridclaw/mempalace-turns",
           "wakeUpWing": "hybridclaw",
           "searchWing": "hybridclaw",
@@ -320,6 +483,8 @@ Supported config keys:
 - `command`: path to the MemPalace executable. Defaults to `mempalace`.
 - `workingDirectory`: cwd used when HybridClaw spawns MemPalace.
 - `palacePath`: optional override for `--palace`.
+- `mcpServerName`: MCP server name to detect for prompt-time MemPalace tool
+  usage. Defaults to `mempalace`.
 - `sessionExportDir`: where HybridClaw writes buffered conversation exports
   before mining them into MemPalace.
 - `wakeUpEnabled`: enable or disable automatic `wake-up` injection.
@@ -346,8 +511,9 @@ This plugin is intentionally narrow. It does not:
 
 - initialize a palace or perform first-time project/chat backfills automatically
 - disable HybridClaw's built-in canonical, semantic, or file-backed memory
-- run `python -m mempalace.mcp_server`
-- expose MemPalace's MCP tool names such as `mempalace_search`
+- install or manage the MemPalace MCP server for you
+- expose MemPalace's MCP tool names itself; it only detects and prefers them
+  when you add that MCP server separately
 - install Claude or Gemini save hooks
 - mirror MemPalace deletes or reset operations back into HybridClaw
 - erase already-mined MemPalace memories when you reset a HybridClaw session

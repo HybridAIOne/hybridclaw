@@ -940,7 +940,7 @@ test('handleGatewayCommand requires explicit approval before installing plugin d
   setupHome();
   installPluginMock.mockRejectedValueOnce(
     new pluginDependencyApprovalRequiredError({
-      usesPackageJson: true,
+      usesPackageJson: false,
       nodePackages: [],
       pipPackages: ['mempalace'],
     }),
@@ -957,6 +957,7 @@ test('handleGatewayCommand requires explicit approval before installing plugin d
     sessionId: 'session-plugin-install-approval',
     guildId: null,
     channelId: 'tui',
+    userId: 'local-user',
     args: ['plugin', 'install', './plugins/mempalace-memory'],
   });
 
@@ -964,12 +965,181 @@ test('handleGatewayCommand requires explicit approval before installing plugin d
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Plugin Install Approval Required');
+  expect(result.title).toBe('Pending Approval');
   expect(result.text).toContain(
-    'Plugin dependency installation requires explicit approval.',
+    'I need your approval before I install Python packages for plugin `./plugins/mempalace-memory`: mempalace.',
   );
+  expect(result.text).toContain('Approval ID:');
   expect(result.text).toContain(
-    'Re-run this command with `/plugin install ./plugins/mempalace-memory --yes`.',
+    'Reply `yes for session` to trust this action for this session.',
+  );
+  expect(result.text).not.toContain('Node.js dependency state');
+});
+
+test('handleTextChannelApprovalCommand approves a pending plugin dependency install', async () => {
+  setupHome();
+  installPluginMock
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'mempalace-memory',
+      pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+      source: './plugins/mempalace-memory',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: false,
+        installedNodePackages: [],
+        installedPipPackages: ['mempalace'],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const approval = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-approve-flow',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+
+  expect(approval.kind).toBe('info');
+
+  const handled = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-approve-flow',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(handled).not.toBeNull();
+  expect(installPluginMock).toHaveBeenNthCalledWith(
+    3,
+    './plugins/mempalace-memory',
+    { approveDependencyInstall: true },
+  );
+  expect(handled?.text).toContain('Plugin Installed');
+  expect(handled?.text).toContain('Installed plugin `mempalace-memory`');
+});
+
+test('handleTextChannelApprovalCommand approves npm for the session before prompting separately for pip', async () => {
+  setupHome();
+  installPluginMock
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'mempalace-memory',
+      pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+      source: './plugins/mempalace-memory',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: ['mempalace'],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const initialApproval = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+  expect(initialApproval.kind).toBe('info');
+
+  const pipApproval = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'session'],
+  });
+
+  expect(pipApproval).not.toBeNull();
+  expect(pipApproval?.text).toContain(
+    'I need your approval before I install Python packages for plugin',
+  );
+  expect(pipApproval?.text).toContain('mempalace');
+
+  const installed = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(installed?.text).toContain('Plugin Installed');
+  expect(installPluginMock).toHaveBeenNthCalledWith(
+    4,
+    './plugins/mempalace-memory',
+    { approveDependencyInstall: true },
   );
 });
 

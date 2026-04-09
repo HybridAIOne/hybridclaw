@@ -1230,14 +1230,15 @@ function buildSlashCommandCatalogDefinitions(
           name: 'install',
           description: 'Install a plugin from a local TUI/web session',
           tuiMenu: {
-            label: '/plugin install <path|npm-spec>',
+            label: '/plugin install <path|plugin-id|npm-spec>',
             insertText: '/plugin install ',
           },
           options: [
             {
               kind: 'string',
               name: 'source',
-              description: 'Local plugin path or npm package spec',
+              description:
+                'Local plugin path, repo-local plugin id, or npm package spec',
               required: true,
             },
             {
@@ -1255,14 +1256,15 @@ function buildSlashCommandCatalogDefinitions(
           description:
             'Replace an installed plugin from a local TUI/web session',
           tuiMenu: {
-            label: '/plugin reinstall <path|npm-spec>',
+            label: '/plugin reinstall <path|plugin-id|npm-spec>',
             insertText: '/plugin reinstall ',
           },
           options: [
             {
               kind: 'string',
               name: 'source',
-              description: 'Local plugin path or npm package spec',
+              description:
+                'Local plugin path, repo-local plugin id, or npm package spec',
               required: true,
             },
             {

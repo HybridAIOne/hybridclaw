@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 
 function normalizeString(value) {
@@ -14,9 +15,9 @@ function normalizeValidatedInteger(value, key) {
 function resolveRuntimePath(value, runtime) {
   const normalized = normalizeString(value);
   if (!normalized) return '';
-  if (normalized === '~') return runtime.homeDir;
+  if (normalized === '~') return os.homedir();
   if (normalized.startsWith('~/')) {
-    return path.join(runtime.homeDir, normalized.slice(2));
+    return path.join(os.homedir(), normalized.slice(2));
   }
   if (path.isAbsolute(normalized)) return normalized;
   return path.resolve(runtime.cwd, normalized);
@@ -29,6 +30,7 @@ export function resolveMempalacePluginConfig(pluginConfig, runtime) {
     command: normalizeString(pluginConfig?.command) || 'mempalace',
     workingDirectory,
     palacePath: resolveRuntimePath(pluginConfig?.palacePath, runtime) || '',
+    mcpServerName: normalizeString(pluginConfig?.mcpServerName) || 'mempalace',
     sessionExportDir:
       resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||
       path.resolve(runtime.cwd, '.hybridclaw', 'mempalace-turns'),

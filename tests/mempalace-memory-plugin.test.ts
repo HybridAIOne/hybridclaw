@@ -214,7 +214,207 @@ test('mempalace-memory injects wake-up and search context and exposes a command'
       channelId: 'web',
       userId: 'user-1',
     }),
-  ).resolves.toContain('Palace ready at');
+  ).resolves.toContain(
+    `Configured palace path: ${path.join(cwd, '.mempalace', 'palace')}`,
+  );
+  await expect(
+    command?.handler(['status'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    }),
+  ).resolves.toContain(
+    'Configured MCP server: mempalace (not configured; plugin uses CLI recall)',
+  );
+});
+
+test('mempalace-memory resolves ~ paths against the OS home directory', async () => {
+  const cwd = makeTempDir('hybridclaw-mempalace-project-');
+  const { resolveMempalacePluginConfig } = await import(
+    '../plugins/mempalace-memory/src/config.js'
+  );
+
+  const resolved = resolveMempalacePluginConfig(
+    {
+      palacePath: '~/.mempalace/palace',
+      workingDirectory: '~/src/example',
+      sessionExportDir: '~/.hybridclaw/mempalace-turns',
+      saveEveryMessages: 15,
+      maxResults: 3,
+      maxWakeUpChars: 1200,
+      maxSearchChars: 2800,
+      maxInjectedChars: 4000,
+      timeoutMs: 12000,
+    },
+    {
+      cwd,
+      homeDir: path.join(os.homedir(), '.hybridclaw'),
+      installRoot: '/tmp/install-root',
+      runtimeConfigPath: '/tmp/config.json',
+    },
+  );
+
+  expect(resolved.palacePath).toBe(path.join(os.homedir(), '.mempalace', 'palace'));
+  expect(resolved.workingDirectory).toBe(path.join(os.homedir(), 'src', 'example'));
+  expect(resolved.sessionExportDir).toBe(
+    path.join(os.homedir(), '.hybridclaw', 'mempalace-turns'),
+  );
+});
+
+test('mempalace-memory prefers MCP guidance when the mempalace MCP server is enabled', async () => {
+  const homeDir = makeTempDir('hybridclaw-mempalace-home-');
+  const cwd = makeTempDir('hybridclaw-mempalace-project-');
+  installBundledPlugin(cwd);
+  const mempalaceCommand = writeMempalaceStub(cwd);
+
+  const config = loadRuntimeConfig();
+  config.mcpServers = {
+    mempalace: {
+      transport: 'stdio',
+      command: 'python3',
+      args: ['-m', 'mempalace.mcp_server'],
+      enabled: true,
+    },
+  };
+  config.plugins.list = [
+    {
+      id: 'mempalace-memory',
+      enabled: true,
+      config: {
+        command: mempalaceCommand,
+        palacePath: path.join(cwd, '.mempalace', 'palace'),
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  const promptContext = await manager.collectPromptContext({
+    sessionId: 'session-mcp',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-mcp',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Why did we switch auth providers?',
+        created_at: '2026-04-09T10:00:00.000Z',
+      },
+    ],
+  });
+
+  expect(promptContext).toHaveLength(1);
+  expect(promptContext[0]).toContain(
+    'MemPalace MCP tools are enabled for this session.',
+  );
+  expect(promptContext[0]).toContain('`mempalace__mempalace_status`');
+  expect(promptContext[0]).toContain('`mempalace__mempalace_search`');
+  expect(promptContext[0]).toContain('`mempalace__mempalace_kg_query`');
+  expect(promptContext[0]).toContain('`mempalace__mempalace_get_taxonomy`');
+  expect(promptContext[0]).not.toContain('MemPalace wake-up context:');
+  expect(promptContext[0]).not.toContain(
+    'MemPalace search results for the latest user question:',
+  );
+
+  const command = manager.findCommand('mempalace');
+  await expect(
+    command?.handler(['status'], {
+      sessionId: 'session-mcp',
+      channelId: 'web',
+      userId: 'user-1',
+    }),
+  ).resolves.toContain(
+    'Configured MCP server: mempalace (enabled; prompt recall uses MCP tools)',
+  );
+});
+
+test('mempalace-memory picks up MCP server enablement without a plugin reload', async () => {
+  const homeDir = makeTempDir('hybridclaw-mempalace-home-');
+  const cwd = makeTempDir('hybridclaw-mempalace-project-');
+  installBundledPlugin(cwd);
+  const mempalaceCommand = writeMempalaceStub(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mempalace-memory',
+      enabled: true,
+      config: {
+        command: mempalaceCommand,
+        palacePath: path.join(cwd, '.mempalace', 'palace'),
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  const initialPromptContext = await manager.collectPromptContext({
+    sessionId: 'session-live-mcp',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-live-mcp',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Why did we switch auth providers?',
+        created_at: '2026-04-09T10:00:00.000Z',
+      },
+    ],
+  });
+  expect(initialPromptContext[0]).toContain('MemPalace wake-up context:');
+
+  config.mcpServers = {
+    mempalace: {
+      transport: 'stdio',
+      command: 'python3',
+      args: ['-m', 'mempalace.mcp_server'],
+      enabled: true,
+    },
+  };
+
+  const mcpPromptContext = await manager.collectPromptContext({
+    sessionId: 'session-live-mcp',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 2,
+        session_id: 'session-live-mcp',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Show me the memory taxonomy.',
+        created_at: '2026-04-09T10:01:00.000Z',
+      },
+    ],
+  });
+  expect(mcpPromptContext[0]).toContain(
+    'MemPalace MCP tools are enabled for this session.',
+  );
+  expect(mcpPromptContext[0]).not.toContain('MemPalace wake-up context:');
 });
 
 test('mempalace-memory truncates long automatic search queries before invoking mempalace', async () => {
@@ -502,4 +702,82 @@ test('mempalace-memory flushes buffered turns before compaction', async () => {
   expect(commandLog[0]?.files[0]?.content).toContain(
     'Clerk reduced auth integration time for the team.',
   );
+});
+
+test('mempalace-memory flushes pending autosave before manual search commands', async () => {
+  const homeDir = makeTempDir('hybridclaw-mempalace-home-');
+  const cwd = makeTempDir('hybridclaw-mempalace-project-');
+  installBundledPlugin(cwd);
+  const mempalaceCommand = writeMempalaceStub(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mempalace-memory',
+      enabled: true,
+      config: {
+        command: mempalaceCommand,
+        palacePath: path.join(cwd, '.mempalace', 'palace'),
+        updateWing: 'hybridclaw',
+        updateAgent: 'hybridclaw-bot',
+        saveEveryMessages: 10,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+  await manager.notifyAgentEnd({
+    sessionId: 'session/manual-search-flush',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    messages: [
+      {
+        id: 1,
+        session_id: 'session/manual-search-flush',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Remember the auth migration reason.',
+        created_at: '2026-04-07T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        session_id: 'session/manual-search-flush',
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Clerk reduced auth integration time for the team.',
+        created_at: '2026-04-07T10:00:10.000Z',
+      },
+    ],
+    resultText: 'Clerk reduced auth integration time for the team.',
+    toolNames: [],
+  });
+
+  const command = manager.findCommand('mempalace');
+  expect(command).toBeDefined();
+  await expect(
+    command?.handler(['search', '"auth', 'migration', 'reason"'], {
+      sessionId: 'session/manual-search-flush',
+      channelId: 'web',
+      userId: 'user-1',
+    }),
+  ).resolves.toContain('Results for: "auth migration reason"');
+
+  const commandLog = readMempalaceCommandLog(cwd);
+  expect(commandLog).toHaveLength(2);
+  expect(commandLog[0]?.command).toBe('mine');
+  expect(commandLog[1]).toMatchObject({
+    command: 'search',
+    args: ['auth migration reason'],
+    palacePath: path.join(cwd, '.mempalace', 'palace'),
+  });
 });

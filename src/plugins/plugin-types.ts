@@ -6,6 +6,7 @@ import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AIProvider } from '../providers/types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 
 export type PluginKind =
@@ -417,6 +418,7 @@ export interface HybridClawPluginApi {
   ): void;
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
+  getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
   writeConfigValue(key: string, rawValue: string): Promise<void>;
   unsetConfigValue(key: string): Promise<void>;
   resolveSessionAgentId(sessionId: string): string;
