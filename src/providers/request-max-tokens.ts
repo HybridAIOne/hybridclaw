@@ -1,5 +1,3 @@
-import type { RuntimeProviderId } from './provider-ids.js';
-
 export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS = 32_000;
 
 function normalizePositiveInteger(value: unknown): number | undefined {
@@ -23,12 +21,8 @@ export function isAnthropicProviderModel(model: string): boolean {
 }
 
 export function resolveProviderRequestMaxTokens(params: {
-  provider?: RuntimeProviderId;
   model: string;
-  requestedMaxTokens?: number;
   discoveredMaxTokens?: number;
-  isLocal?: boolean;
-  localDefaultMaxTokens?: number;
 }): number | undefined {
   const discoveredMaxTokens = normalizePositiveInteger(
     params.discoveredMaxTokens,

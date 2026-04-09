@@ -153,11 +153,8 @@ export async function callAuxiliaryModel(
 
   if (params.task !== 'vision') {
     const maxTokens = resolveProviderRequestMaxTokens({
-      provider: context.provider,
       model: context.model,
-      requestedMaxTokens: context.maxTokens ?? params.maxTokens,
       discoveredMaxTokens: context.maxTokens,
-      isLocal: context.isLocal,
     });
     const response = await callRoutedModel({
       provider: context.provider,
@@ -189,11 +186,8 @@ export async function callAuxiliaryModel(
 
   try {
     const maxTokens = resolveProviderRequestMaxTokens({
-      provider: context.provider,
       model: context.model,
-      requestedMaxTokens: context.maxTokens,
       discoveredMaxTokens: context.maxTokens,
-      isLocal: context.isLocal,
     });
     return await callVisionProviderModel({
       provider: context.provider,

@@ -265,11 +265,8 @@ export async function resolveTaskModelPolicy(
               model: fallback,
               chatbotId: resolved.chatbotId,
               maxTokens: resolveProviderRequestMaxTokens({
-                provider: resolved.provider,
                 model: fallback,
-                requestedMaxTokens: maxTokens,
                 discoveredMaxTokens: resolved.maxTokens,
-                isLocal: resolved.isLocal,
               }),
             };
           } catch (err) {
@@ -353,11 +350,8 @@ export async function resolveTaskModelPolicy(
       model,
       chatbotId: resolved.chatbotId,
       maxTokens: resolveProviderRequestMaxTokens({
-        provider: resolved.provider,
         model,
-        requestedMaxTokens: maxTokens,
         discoveredMaxTokens: resolved.maxTokens,
-        isLocal: resolved.isLocal,
       }),
     };
   } catch (err) {

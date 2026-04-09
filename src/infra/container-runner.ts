@@ -30,7 +30,6 @@ import {
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
-  LOCAL_DEFAULT_MAX_TOKENS,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
@@ -48,7 +47,6 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import type { RuntimeProviderId } from '../providers/provider-ids.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -85,19 +83,12 @@ import { computeWorkerSignature } from './worker-signature.js';
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
 function resolveExecutorMaxTokens(params: {
-  requestedMaxTokens?: number;
-  provider?: RuntimeProviderId;
   model: string;
   discoveredMaxTokens?: number;
-  isLocal?: boolean;
 }): number | undefined {
   return resolveProviderRequestMaxTokens({
-    provider: params.provider,
     model: params.model,
-    requestedMaxTokens: params.requestedMaxTokens,
     discoveredMaxTokens: params.discoveredMaxTokens,
-    isLocal: params.isLocal,
-    localDefaultMaxTokens: LOCAL_DEFAULT_MAX_TOKENS,
   });
 }
 
@@ -797,11 +788,8 @@ export async function runContainer(
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
     maxTokens: resolveExecutorMaxTokens({
-      requestedMaxTokens: maxTokens,
-      provider: modelRuntime.provider,
       model,
       discoveredMaxTokens: modelRuntime.maxTokens,
-      isLocal: modelRuntime.isLocal,
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),

@@ -147,11 +147,8 @@ function buildResolvedContext(params: {
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
     maxTokens: resolveProviderRequestMaxTokens({
-      provider: params.provider,
       model: params.model,
-      requestedMaxTokens: normalizeMaxTokens(params.maxTokens),
       discoveredMaxTokens: params.discoveredMaxTokens,
-      isLocal: params.isLocal,
     }),
   };
   validateContext(params.task, context);
