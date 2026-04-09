@@ -41,6 +41,51 @@ function dedupeStrings(values: string[]): string[] {
   return deduped;
 }
 
+async function readDiscoveredModelNamesSafely(): Promise<{
+  hybridai: string[];
+  codex: string[];
+  openrouter: string[];
+  mistral: string[];
+  huggingface: string[];
+}> {
+  const [
+    hybridaiDiscovery,
+    codexDiscovery,
+    openrouterDiscovery,
+    mistralDiscovery,
+    huggingFaceDiscovery,
+  ] = await Promise.allSettled([
+    import('../../providers/hybridai-discovery.js'),
+    import('../../providers/codex-discovery.js'),
+    import('../../providers/openrouter-discovery.js'),
+    import('../../providers/mistral-discovery.js'),
+    import('../../providers/huggingface-discovery.js'),
+  ]);
+
+  return {
+    hybridai:
+      hybridaiDiscovery.status === 'fulfilled'
+        ? hybridaiDiscovery.value.getDiscoveredHybridAIModelNames()
+        : [],
+    codex:
+      codexDiscovery.status === 'fulfilled'
+        ? codexDiscovery.value.getDiscoveredCodexModelNames()
+        : [],
+    openrouter:
+      openrouterDiscovery.status === 'fulfilled'
+        ? openrouterDiscovery.value.getDiscoveredOpenRouterModelNames()
+        : [],
+    mistral:
+      mistralDiscovery.status === 'fulfilled'
+        ? mistralDiscovery.value.getDiscoveredMistralModelNames()
+        : [],
+    huggingface:
+      huggingFaceDiscovery.status === 'fulfilled'
+        ? huggingFaceDiscovery.value.getDiscoveredHuggingFaceModelNames()
+        : [],
+  };
+}
+
 function formatProbeSegment(
   label: string,
   probe: ProviderProbeResult,
@@ -68,37 +113,38 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
   const codexStatus = getCodexAuthStatus();
-  const codexModels = dedupeStrings(config.codex?.models ?? []);
+  const discoveredModels = await readDiscoveredModelNamesSafely();
   const openRouterEnabled = config.openrouter?.enabled === true;
-  const openRouterModels = dedupeStrings(config.openrouter?.models ?? []);
+  const hybridaiModels = dedupeStrings([
+    ...discoveredModels.hybridai,
+    defaultProvider === 'hybridai' ? config.hybridai.defaultModel : '',
+  ]);
+  const codexModels = dedupeStrings([
+    ...discoveredModels.codex,
+    defaultProvider === 'openai-codex' ? config.hybridai.defaultModel : '',
+  ]);
+  const openRouterModels = dedupeStrings(discoveredModels.openrouter);
   const mistralEnabled = config.mistral?.enabled === true;
-  const mistralModels = dedupeStrings(config.mistral?.models ?? []);
+  const mistralModels = dedupeStrings(discoveredModels.mistral);
   const huggingFaceEnabled = config.huggingface?.enabled === true;
-  const huggingFaceModels = dedupeStrings(config.huggingface?.models ?? []);
+  const huggingFaceModels = dedupeStrings(discoveredModels.huggingface);
   const plans: ProviderPlan[] = [
     {
       key: 'hybridai',
       label: 'HybridAI',
       active: defaultProvider === 'hybridai',
       configured: true,
-      configuredModelCount: dedupeStrings([
-        config.hybridai.defaultModel,
-        ...config.hybridai.models,
-      ]).length,
+      configuredModelCount: hybridaiModels.length,
       probe: () => probeHybridAI(),
     },
     {
       key: 'codex',
       label: 'Codex',
       active: defaultProvider === 'openai-codex',
-      configured: codexStatus.authenticated || codexModels.length > 0,
+      configured:
+        codexStatus.authenticated || defaultProvider === 'openai-codex',
       configuredModelCount: codexModels.length,
-      probe: codexStatus.authenticated
-        ? () =>
-            probeCodex(
-              codexModels[0] || config.hybridai.defaultModel || 'gpt-5',
-            )
-        : null,
+      probe: codexStatus.authenticated ? () => probeCodex() : null,
       inactiveMessage: codexStatus.reloginRequired
         ? 'Login required'
         : 'Not authenticated',

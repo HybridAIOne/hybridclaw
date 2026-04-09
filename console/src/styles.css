@@ -2,6 +2,9 @@
   --radius-lg: 14px;
   --radius-md: 10px;
   --radius-sm: 8px;
+  --control-height: 44px;
+  --control-line-height: 22px;
+  --control-padding-y: 10px;
   --sans:
     system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter,
     NotoSansHans, sans-serif;
@@ -374,7 +377,7 @@ code {
 }
 
 .status-dot.live {
-  background: var(--accent);
+  background: var(--success);
 }
 
 .status-dot-success {
@@ -685,6 +688,71 @@ code {
   background: var(--accent-soft);
 }
 
+.channel-selectable-row {
+  align-items: center;
+}
+
+.channel-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.channel-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.channel-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--panel-bg) 82%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 78%, white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.channel-logo svg {
+  width: 32px;
+  height: 32px;
+}
+
+.channel-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.channel-status-active {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--line));
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.channel-status-configured {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-strong);
+}
+
+.channel-status-available {
+  color: var(--muted-foreground);
+}
+
 .table-shell {
   overflow-x: auto;
 }
@@ -709,6 +777,69 @@ th {
   color: var(--muted-foreground);
 }
 
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.table-sort-button:hover {
+  color: var(--text);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.table-sort-indicator {
+  position: relative;
+  width: 10px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.table-sort-indicator::before,
+.table-sort-indicator::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  opacity: 0.2;
+}
+
+.table-sort-indicator::before {
+  top: 0;
+  border-bottom: 5px solid currentColor;
+}
+
+.table-sort-indicator::after {
+  bottom: 0;
+  border-top: 5px solid currentColor;
+}
+
+.table-sort-indicator.is-active::before,
+.table-sort-indicator.is-active::after {
+  opacity: 0.12;
+}
+
+.table-sort-indicator.is-active.is-asc::before,
+.table-sort-indicator.is-active.is-desc::after {
+  opacity: 0.9;
+}
+
 .field,
 .toggle-row,
 .config-section {
@@ -720,7 +851,7 @@ th {
 .field textarea,
 .compact-search {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--control-padding-y) 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line-strong);
   background: var(--panel-bg);
@@ -730,8 +861,42 @@ th {
 .field input,
 .field select,
 .compact-search {
-  height: 44px;
-  line-height: 1.25;
+  min-height: var(--control-height);
+  height: var(--control-height);
+  line-height: var(--control-line-height);
+}
+
+.managed-secret-field {
+  align-content: start;
+}
+
+.managed-secret-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.whatsapp-pairing-field {
+  align-content: start;
+}
+
+.whatsapp-pairing-qr {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: #111827;
+  font-family:
+    ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.68rem;
+  line-height: 1;
+  white-space: pre;
 }
 
 .field textarea,
@@ -822,6 +987,16 @@ th {
   border-left: 1px solid var(--line-strong);
 }
 
+.binary-toggle-button.active {
+  font-weight: 600;
+}
+
+.binary-toggle.boolean-toggle:has(.binary-toggle-button.active.is-on) {
+  border-color: var(--status-success-border);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--success) 18%, transparent);
+}
+
 .binary-toggle-button.active.is-on {
   background: var(--success-soft);
   color: var(--success);
@@ -868,6 +1043,34 @@ th {
   background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger-border);
+}
+
+.primary-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.button-with-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes button-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .table-link-button {

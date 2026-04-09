@@ -56,6 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/providers/factory.js');
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar(
     'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
@@ -104,7 +105,6 @@ test('resolves configured vision task model policy on the host', async () => {
       chatbotId: '',
       requestHeaders: {},
       isLocal: true,
-      maxTokens: 321,
     },
     compression: {
       provider: 'lmstudio',
@@ -114,7 +114,6 @@ test('resolves configured vision task model policy on the host', async () => {
       chatbotId: '',
       requestHeaders: {},
       isLocal: true,
-      maxTokens: 222,
     },
     web_extract: {
       provider: 'lmstudio',
@@ -124,7 +123,6 @@ test('resolves configured vision task model policy on the host', async () => {
       chatbotId: '',
       requestHeaders: {},
       isLocal: true,
-      maxTokens: 210,
     },
     session_search: {
       provider: 'lmstudio',
@@ -134,9 +132,12 @@ test('resolves configured vision task model policy on the host', async () => {
       chatbotId: '',
       requestHeaders: {},
       isLocal: true,
-      maxTokens: 211,
     },
   });
+  expect(taskModels?.vision?.maxTokens).toBeUndefined();
+  expect(taskModels?.compression?.maxTokens).toBeUndefined();
+  expect(taskModels?.web_extract?.maxTokens).toBeUndefined();
+  expect(taskModels?.session_search?.maxTokens).toBeUndefined();
 });
 
 test('prefers auxiliary env overrides for provider and model selection', async () => {
@@ -164,8 +165,8 @@ test('prefers auxiliary env overrides for provider and model selection', async (
     chatbotId: '',
     requestHeaders: {},
     isLocal: true,
-    maxTokens: 222,
   });
+  expect(policy?.maxTokens).toBeUndefined();
 });
 
 test('captures env overrides at module load', async () => {
@@ -195,8 +196,8 @@ test('captures env overrides at module load', async () => {
     provider: 'lmstudio',
     baseUrl: 'http://127.0.0.1:1234',
     model: 'lmstudio/qwen/qwen2.5-instruct',
-    maxTokens: 222,
   });
+  expect(policy?.maxTokens).toBeUndefined();
 });
 
 test('captures unsupported vision task model config as a deferred policy error', async () => {
@@ -325,8 +326,92 @@ test('discovers OpenRouter vision models before choosing a fallback on cold star
     },
     isLocal: false,
     contextWindow: 262_144,
-    maxTokens: 654,
   });
+});
+
+test('uses discovered OpenRouter Anthropic max tokens instead of configured task max tokens', async () => {
+  const homeDir = makeTempHome();
+  process.env.OPENROUTER_API_KEY = 'or-task-routing-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.compression.provider = 'openrouter';
+    config.auxiliaryModels.compression.model = 'anthropic/claude-sonnet-4';
+    config.auxiliaryModels.compression.maxTokens = 222;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'anthropic/claude-sonnet-4',
+                context_length: 262_144,
+                top_provider: {
+                  max_completion_tokens: 64_000,
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('compression', {
+    agentId: 'main',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    contextWindow: 262_144,
+    maxTokens: 64_000,
+  });
+});
+
+test('omits max tokens for non-Anthropic HybridAI task models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.auxiliaryModels.compression.provider = 'hybridai';
+    config.auxiliaryModels.compression.model = 'gpt-5-nano';
+    config.auxiliaryModels.compression.maxTokens = 222;
+  });
+
+  vi.doMock('../src/providers/factory.js', () => ({
+    resolveModelRuntimeCredentials: vi.fn(async () => ({
+      provider: 'hybridai' as const,
+      apiKey: 'test-key',
+      baseUrl: 'https://api.hybridai.example',
+      chatbotId: 'bot_123',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      maxTokens: 999,
+    })),
+  }));
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('compression', {
+    agentId: 'main',
+    chatbotId: 'bot_123',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'hybridai',
+    model: 'gpt-5-nano',
+  });
+  expect(policy?.maxTokens).toBeUndefined();
 });
 
 test('warns when no vision fallback is available after OpenRouter discovery refresh', async () => {
@@ -424,20 +509,18 @@ test('returns a deferred policy error when fallback credential resolution fails'
   });
 
   expect(policy).toMatchObject({
-    provider: 'openai-codex',
-    model: 'openai-codex/gpt-5.1-codex-max',
-    error: expect.stringContaining(
-      'Session model "gpt-5-nano" does not support vision/image inputs, and fallback model "openai-codex/gpt-5.1-codex-max" could not be resolved:',
-    ),
+    provider: undefined,
+    model: 'gpt-5-nano',
+    error:
+      'Session model "gpt-5-nano" does not support vision/image inputs, and no vision-capable fallback model is available.',
   });
-  expect(policy?.error).toContain('No Codex credentials are stored.');
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      visionFallback: 'openai-codex/gpt-5.1-codex-max',
-      err: expect.any(Error),
+      sessionModel: 'gpt-5-nano',
+      openrouterDiscoveredModels: 0,
     }),
-    'Failed to resolve vision fallback model credentials',
+    'Session model lacks vision support and no capable fallback model is available',
   );
 });
 

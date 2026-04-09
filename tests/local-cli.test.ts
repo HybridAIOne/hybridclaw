@@ -283,6 +283,7 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
 test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   await cli.main([
     'channels',
@@ -307,6 +308,10 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   ]);
 
   const config = readRuntimeConfig(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawEmail = rawConfig.email as Record<string, unknown>;
   const secrets = await readRuntimeSecrets(homeDir);
   expect(config.email.enabled).toBe(true);
   expect(config.email.address).toBe('agent@example.com');
@@ -314,9 +319,19 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   expect(config.email.imapSecure).toBe(true);
   expect(config.email.smtpHost).toBe('smtp.example.com');
   expect(config.email.smtpSecure).toBe(false);
+  expect(rawEmail.password).toEqual({
+    source: 'store',
+    id: 'EMAIL_PASSWORD',
+  });
   expect(config.email.folders).toEqual(['INBOX', 'Support']);
   expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
   expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');
+  expect(logSpy).toHaveBeenCalledWith(
+    `Updated runtime config at ${path.join(homeDir, '.hybridclaw', 'config.json')}`,
+  );
+  expect(logSpy).toHaveBeenCalledWith(
+    `Saved email password to ${path.join(homeDir, '.hybridclaw', 'credentials.json')}`,
+  );
 });
 
 test('channels imessage setup configures the local backend with safe defaults', async () => {

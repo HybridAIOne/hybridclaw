@@ -17,25 +17,27 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- Runtime secrets now live in an encrypted `~/.hybridclaw/credentials.json`
-  store with separate master-key sourcing, named `/secret` entries, and
-  SecretRef-backed config fields for supported runtime settings.
-- The gateway can inject stored credentials into outbound `http_request` calls
-  by URL rule or `<secret:NAME>` placeholder, keeping plaintext API keys out of
-  model-visible prompts and persisted tool-call payloads.
-- `hybridclaw migrate openclaw` and `hybridclaw migrate hermes` can preview or
-  import compatible workspace files, config, model settings, and optional
-  secrets into a target HybridClaw agent.
-- Local-provider setup now includes first-class `llama.cpp` support, optional
-  model ids for `auth login local`, and onboarding paths that let local-only
-  operators skip remote-provider auth entirely.
+- The admin console's Channels page centralizes transport status and
+  browser-based setup across Discord, WhatsApp, email, Microsoft Teams, and
+  iMessage, including managed secrets and live WhatsApp pairing QR display.
+- The gateway exposes a loopback OpenAI-compatible API at `/v1/models` and
+  `/v1/chat/completions` for local eval harnesses and OpenAI-compatible tools.
+- Built-in email delivery and the repo-shipped `brevo-email` plugin can
+  continue existing mail threads by forwarding explicit `inReplyTo` and
+  `references` Message-ID headers on outbound replies.
+- Provider and channel setup flows keep secrets hidden during interactive
+  prompts, and local `auth status` commands report sensitive credentials as
+  `configured` instead of echoing partial values.
+- `hybridclaw tui` follows the active sandbox mode from a reachable gateway
+  during preflight, which keeps host-mode MCP and containerized deployments
+  aligned.
 
 ## Browse By Section
 
 - [Getting Started](./getting-started/README.md) for installation,
   onboarding, provider authentication, and first-run setup
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
-  voice/TTS, and optional office tooling
+  remote access, voice/TTS, and optional office tooling
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
   agent packages, and extension-specific operator workflows
 - [Internals](./internals/README.md) for architecture, runtime behavior,
@@ -53,5 +55,7 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   [Commands](./reference/commands.md) and
   [Diagnostics](./reference/diagnostics.md).
 - Need setup answers before deploying? Go to [FAQ](./reference/faq.md).
+- Need to reach `/chat`, `/agents`, or `/admin` from another machine? Go to
+  [Remote Access](./guides/remote-access.md).
 - Need one markdown page that links the whole docs tree? Go to
   [For Agents](./agents.md).

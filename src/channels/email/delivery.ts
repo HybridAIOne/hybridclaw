@@ -62,6 +62,8 @@ export interface EmailSendParams {
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
+  inReplyTo?: string | null;
+  references?: string[] | null;
   selfAddress: string;
   threadContext: ThreadContext | null;
   attachment?:
@@ -71,6 +73,11 @@ export interface EmailSendParams {
         mimeType?: string | null;
       }
     | undefined;
+}
+
+interface ExplicitThreadHeaders {
+  inReplyTo?: string;
+  references: string[];
 }
 
 function clampTextChunkLimit(limit: number): number {
@@ -151,10 +158,66 @@ function extractInlineSubject(text: string): {
   };
 }
 
-function buildThreadHeaders(threadContext: ThreadContext | null): {
+function normalizeMessageId(raw: string | null | undefined): string | null {
+  const normalized = String(raw || '').trim();
+  return normalized || null;
+}
+
+function normalizeMessageIdList(raw: string[] | null | undefined): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .map((value) => normalizeMessageId(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+}
+
+function resolveExplicitThreadHeaders(
+  params: EmailSendParams,
+): ExplicitThreadHeaders | null {
+  let inReplyTo = normalizeMessageId(params.inReplyTo);
+  const references = normalizeMessageIdList(params.references);
+  if (references.length > 0) {
+    const lastReference = references[references.length - 1];
+    if (!inReplyTo) {
+      inReplyTo = lastReference;
+    } else if (references.includes(inReplyTo)) {
+      if (lastReference !== inReplyTo) {
+        inReplyTo = lastReference;
+      }
+    } else {
+      references.push(inReplyTo);
+    }
+  } else if (inReplyTo) {
+    references.push(inReplyTo);
+  }
+  if (!inReplyTo && references.length === 0) return null;
+  return {
+    ...(inReplyTo ? { inReplyTo } : {}),
+    references,
+  };
+}
+
+function buildThreadHeaders(
+  threadContext: ThreadContext | null,
+  explicitHeaders?: ExplicitThreadHeaders | null,
+): {
   inReplyTo?: string;
   references?: string;
 } {
+  if (explicitHeaders) {
+    return {
+      ...(explicitHeaders.inReplyTo
+        ? { inReplyTo: explicitHeaders.inReplyTo }
+        : {}),
+      ...(explicitHeaders.references.length > 0
+        ? { references: explicitHeaders.references.join(' ') }
+        : {}),
+    };
+  }
+
   if (!threadContext) return {};
 
   const references = [
@@ -218,9 +281,13 @@ export function prepareEmailTextChunks(
 export async function sendEmail(
   params: EmailSendParams,
 ): Promise<EmailSendResult> {
+  const explicitThreadHeaders = resolveExplicitThreadHeaders(params);
+  const subjectThreadContext = explicitThreadHeaders
+    ? null
+    : params.threadContext;
   const resolved = resolveSubjectAndBody(
     params.body,
-    params.threadContext,
+    subjectThreadContext,
     params.subject,
   );
   const chunks = prepareEmailTextChunks(resolved.body, {
@@ -236,7 +303,19 @@ export async function sendEmail(
   const effectiveChunks = chunks.length > 0 ? chunks : [''];
 
   const messageIds: string[] = [];
-  let nextThreadContext = params.threadContext;
+  let nextThreadContext = explicitThreadHeaders
+    ? {
+        subject: resolved.subject,
+        messageId:
+          explicitThreadHeaders.inReplyTo ||
+          explicitThreadHeaders.references[
+            explicitThreadHeaders.references.length - 1
+          ] ||
+          '',
+        references: explicitThreadHeaders.references,
+      }
+    : params.threadContext;
+  let firstChunkHeaders = explicitThreadHeaders;
   for (let index = 0; index < effectiveChunks.length; index += 1) {
     const partPrefix =
       effectiveChunks.length > 1
@@ -252,7 +331,7 @@ export async function sendEmail(
       subject: resolved.subject,
       text: text || undefined,
       html,
-      ...buildThreadHeaders(nextThreadContext),
+      ...buildThreadHeaders(nextThreadContext, firstChunkHeaders),
       attachments:
         params.attachment && index === 0
           ? [
@@ -309,6 +388,7 @@ export async function sendEmail(
           resolved.subject,
         ) || nextThreadContext;
     }
+    firstChunkHeaders = null;
 
     if (index < effectiveChunks.length - 1) {
       await sleep(OUTBOUND_DELAY_MS);

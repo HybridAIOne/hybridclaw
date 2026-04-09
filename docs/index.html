@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.12.0</div>
+    <div class="section-label">Latest Release • v0.12.2</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.0 adds managed local eval workflows, nightly dream memory consolidation controls, browser-based skill authoring, a Brevo email plugin, and new long-lived knowledge skills.</p>
+    <p class="section-desc">HybridClaw v0.12.2 adds bundled Honcho and MemPalace memory providers, plugin dependency install and health checks, sortable admin tool catalogs with managed gateway restart UX, Discord concierge approval buttons, and safer runtime defaults.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Managed local eval workflows</h3>
-      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>tau2</code> runs, a native <code>terminal-bench-2.0</code> runner, detached logs, and progress summaries.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x2705;</div>
-      <h3>Dream memory consolidation</h3>
-      <p>Local TUI and web sessions now expose <code>dream on|off|now</code> for nightly consolidation, startup catch-up after downtime, and on-demand workspace memory cleanup reporting.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f319;</div>
-      <h3>Admin skill authoring</h3>
-      <p>The embedded admin console can create local skills from a form or ZIP upload, applies scanner checks before publish, and groups the catalog by normalized skill categories for easier operator review.</p>
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Honcho memory plugin</h3>
+      <p>The bundled <code>honcho-memory</code> plugin mirrors HybridClaw sessions into Honcho, surfaces prompt-time recall plus direct Honcho tools, and keeps built-in memory active alongside the external provider.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
-      <h3>Email and knowledge workflows</h3>
-      <p>The repo now ships the <code>brevo-email</code> plugin for per-agent email routing plus bundled <code>llm-wiki</code> and <code>zettelkasten</code> skills for persistent research and note-system maintenance.</p>
+      <h3>MemPalace memory plugin</h3>
+      <p>The bundled <code>mempalace-memory</code> plugin can mirror turns back into MemPalace, expose <code>/mempalace ...</code> controls, and route recall through CLI helpers or an active <code>mempalace</code> MCP server.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2705;</div>
+      <h3>Plugin dependency setup</h3>
+      <p>Plugin manifests can declare npm, pip, and external runtime dependencies; install and reinstall flows provision them with approval, accept bare repo plugin ids, and <code>plugin check</code> reports package, binary, env, and config health.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f6e0;</div>
+      <h3>Admin tools and gateway UX</h3>
+      <p>The admin console now keeps the tools catalog limited to live built-in and enabled plugin tools, supports sortable tables across admin views, and adds a managed gateway restart action with clearer restart state handling.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f680;</div>
-      <h3>Release automation</h3>
-      <p>Release workflows now ship these runtime, docs, and plugin changes together through the tagged npm and container publication path, keeping public install artifacts aligned with the repository state.</p>
+      <h3>Safer operator flows</h3>
+      <p>Discord urgency prompts now use native buttons, built-in email config changes trigger automatic transport reloads, reminder examples use timezone-offset timestamps, and provider requests stop sending stray <code>maxTokens</code> to non-Anthropic APIs.</p>
     </div>
   </div>
 </section>

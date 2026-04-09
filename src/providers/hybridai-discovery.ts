@@ -3,14 +3,56 @@ import {
   HYBRIDAI_BASE_URL,
   MissingRequiredEnvVarError,
 } from '../config/config.js';
-import { normalizeHybridAIModelForRuntime } from './model-names.js';
+import {
+  formatHybridAIModelForCatalog,
+  stripHybridAIModelPrefix,
+} from './model-names.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_TTL_MS = 3_600_000;
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
+const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
+  'anthropic',
+  'huggingface',
+  'mistral',
+]);
 
-function normalizeHybridAIModelName(modelId: string): string {
-  return normalizeHybridAIModelForRuntime(String(modelId || '').trim());
+function normalizeHybridAIProviderFamily(value: unknown): string | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized || !HYBRIDAI_PROVIDER_FAMILY_PREFIXES.has(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function readHybridAIProviderFamily(
+  entry: Record<string, unknown>,
+): string | null {
+  return (
+    normalizeHybridAIProviderFamily(entry.provider) ||
+    normalizeHybridAIProviderFamily(entry.owned_by) ||
+    normalizeHybridAIProviderFamily(entry.vendor) ||
+    normalizeHybridAIProviderFamily(entry.family)
+  );
+}
+
+function normalizeHybridAIModelName(
+  modelId: string,
+  providerFamily?: string | null,
+): string {
+  const normalizedModelId = String(modelId || '').trim();
+  if (!normalizedModelId) return '';
+  if (normalizedModelId.includes('/')) {
+    return formatHybridAIModelForCatalog(normalizedModelId);
+  }
+  if (providerFamily) {
+    return formatHybridAIModelForCatalog(
+      `${providerFamily}/${normalizedModelId}`,
+    );
+  }
+  return formatHybridAIModelForCatalog(normalizedModelId);
 }
 
 function readPositiveInteger(value: unknown): number | null {
@@ -27,6 +69,7 @@ function readPositiveInteger(value: unknown): number | null {
 function readModelId(entry: Record<string, unknown>): string {
   return normalizeHybridAIModelName(
     typeof entry.id === 'string' ? entry.id : '',
+    readHybridAIProviderFamily(entry),
   );
 }
 
@@ -48,25 +91,52 @@ function getDiscoveryEntries(payload: unknown): unknown[] {
   return [];
 }
 
+function resolveCachedHybridAIModelKey(
+  model: string,
+  cachedKeys: Iterable<string>,
+): string {
+  const requested = String(model || '').trim();
+  const normalized = normalizeHybridAIModelName(requested);
+  const keys = [...cachedKeys];
+  if (keys.includes(normalized)) return normalized;
+
+  const requestedTail = requested.split('/').at(-1)?.toLowerCase() || '';
+  if (!requestedTail) return normalized;
+
+  const matchingKeys = keys.filter((key) => {
+    const upstream = stripHybridAIModelPrefix(key);
+    const upstreamTail = upstream.split('/').at(-1)?.toLowerCase() || '';
+    return (
+      upstream.toLowerCase() === requested.toLowerCase() ||
+      upstreamTail === requestedTail
+    );
+  });
+  return matchingKeys.length === 1 ? matchingKeys[0] : normalized;
+}
+
 export interface HybridAIDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
+  getModelMaxTokens: (model: string) => number | null;
 }
 
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   let discoveredModelNames: string[] = [];
   let contextWindowByModel = new Map<string, number>();
+  let maxTokensByModel = new Map<string, number>();
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<string[]> | null = null;
 
   function replaceDiscoveryCache(
     modelNames: string[],
     nextContextWindows: Iterable<[string, number]> = [],
+    nextMaxTokens: Iterable<[string, number]> = [],
     opts?: { cacheResult?: boolean },
   ): void {
     discoveredModelNames = [...modelNames];
     contextWindowByModel = new Map(nextContextWindows);
+    maxTokensByModel = new Map(nextMaxTokens);
     discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
   }
 
@@ -96,6 +166,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const payload = (await response.json()) as unknown;
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
+    const maxTokens = new Map<string, number>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
@@ -106,9 +177,19 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (contextWindow != null) {
         contextWindows.set(normalized, contextWindow);
       }
+      const modelMaxTokens =
+        readPositiveInteger(entry.maxTokens) ??
+        readPositiveInteger(entry.max_tokens) ??
+        readPositiveInteger(entry.maxOutputTokens) ??
+        readPositiveInteger(entry.max_output_tokens) ??
+        readPositiveInteger(entry.maxCompletionTokens) ??
+        readPositiveInteger(entry.max_completion_tokens);
+      if (modelMaxTokens != null) {
+        maxTokens.set(normalized, modelMaxTokens);
+      }
     }
 
-    replaceDiscoveryCache([...discovered], contextWindows);
+    replaceDiscoveryCache([...discovered], contextWindows, maxTokens);
     return [...discovered];
   }
 
@@ -121,7 +202,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error instanceof MissingRequiredEnvVarError &&
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
-        replaceDiscoveryCache([], [], { cacheResult: false });
+        replaceDiscoveryCache([], [], [], { cacheResult: false });
         return [];
       }
       throw error;
@@ -157,8 +238,18 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     discoverModels,
     getModelNames: () => [...discoveredModelNames],
     getModelContextWindow: (model: string) => {
-      const normalized = normalizeHybridAIModelName(model);
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        contextWindowByModel.keys(),
+      );
       return contextWindowByModel.get(normalized) ?? null;
+    },
+    getModelMaxTokens: (model: string) => {
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        maxTokensByModel.keys(),
+      );
+      return maxTokensByModel.get(normalized) ?? null;
     },
   };
 }
@@ -179,4 +270,10 @@ export function getDiscoveredHybridAIModelContextWindow(
   model: string,
 ): number | null {
   return defaultHybridAIDiscoveryStore.getModelContextWindow(model);
+}
+
+export function getDiscoveredHybridAIModelMaxTokens(
+  model: string,
+): number | null {
+  return defaultHybridAIDiscoveryStore.getModelMaxTokens(model);
 }

@@ -265,7 +265,9 @@ test('gateway commands ignore malformed last_active timestamps instead of throwi
   });
 
   expect(result.kind).toBe('info');
-  expect(result.text).toContain('`agent`');
+  expect(result.text).toContain(
+    '`/agent [info|list|switch|create|model] [id] [--model <model>]`',
+  );
   expect(
     fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
   ).toHaveLength(2);

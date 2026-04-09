@@ -1,3 +1,15 @@
+const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+
+export interface PendingApprovalCommandAction {
+  approveArgs: string[];
+  actionKey?: string;
+  allowSession?: boolean;
+  allowAgent?: boolean;
+  allowAll?: boolean;
+  denyTitle?: string;
+  denyText?: string;
+}
+
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
@@ -5,6 +17,7 @@ export interface PendingApprovalPrompt {
   expiresAt: number;
   userId: string;
   resolvedAt?: number | null;
+  commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
   disableTimeout?: ReturnType<typeof setTimeout> | null;
 }
@@ -42,6 +55,40 @@ export async function setPendingApproval(
     await disposePendingApprovalEntry(existing, { disableButtons: true });
   }
   pendingApprovalBySession.set(sessionId, entry);
+}
+
+export async function rememberPendingApproval(params: {
+  sessionId: string;
+  approvalId: string;
+  prompt: string;
+  userId: string;
+  expiresAt?: number | null;
+  commandAction?: PendingApprovalCommandAction | null;
+  disableButtons?: (() => Promise<void>) | null;
+}): Promise<void> {
+  const createdAt = Date.now();
+  const expiresAt =
+    typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
+      ? Math.max(createdAt + 15_000, params.expiresAt)
+      : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
+  const entry: PendingApprovalPrompt = {
+    approvalId: params.approvalId,
+    prompt: params.prompt,
+    createdAt,
+    expiresAt,
+    userId: params.userId,
+    resolvedAt: null,
+    commandAction: params.commandAction ?? null,
+    disableButtons: params.disableButtons ?? null,
+    disableTimeout: null,
+  };
+  entry.disableTimeout = setTimeout(
+    () => {
+      void clearPendingApproval(params.sessionId, { disableButtons: true });
+    },
+    Math.max(0, expiresAt - Date.now()),
+  );
+  await setPendingApproval(params.sessionId, entry);
 }
 
 export async function clearPendingApproval(

@@ -1,9 +1,46 @@
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { fetchTools } from '../api/client';
+import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
-import { MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  MetricCard,
+  PageHeader,
+  Panel,
+  SortableHeader,
+  useSortableRows,
+} from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { compareDateTime, compareNumber, compareText } from '../lib/sort';
+
+type ToolRow = AdminToolCatalogEntry & {
+  groupLabel: string;
+};
+
+type ToolSortKey = 'tool' | 'group' | 'type' | 'invocations' | 'lastUsed';
+
+const TOOL_SORTERS: Record<
+  ToolSortKey,
+  (left: ToolRow, right: ToolRow) => number
+> = {
+  tool: (left, right) => compareText(left.name, right.name),
+  group: (left, right) =>
+    compareText(left.groupLabel, right.groupLabel) ||
+    compareText(left.name, right.name),
+  type: (left, right) =>
+    compareText(left.kind, right.kind) || compareText(left.name, right.name),
+  invocations: (left, right) =>
+    compareNumber(left.recentCalls, right.recentCalls) ||
+    compareText(left.name, right.name),
+  lastUsed: (left, right) =>
+    compareDateTime(left.lastUsedAt, right.lastUsedAt) ||
+    compareText(left.name, right.name),
+};
+
+const TOOL_DEFAULT_DIRECTIONS = {
+  invocations: 'desc',
+  lastUsed: 'desc',
+} as const;
 
 function ToolErrorPreview(props: {
   recentErrors: number;
@@ -61,27 +98,36 @@ export function ToolsPage() {
     queryFn: () => fetchTools(auth.token),
   });
 
-  const filteredGroups = useMemo(() => {
+  const filteredTools = useMemo(() => {
     const needle = deferredFilter.trim().toLowerCase();
     const groups = toolsQuery.data?.groups || [];
-    if (!needle) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        tools: group.tools.filter((tool) =>
+    return groups.flatMap((group) =>
+      group.tools
+        .filter((tool) =>
           [tool.name, tool.group, tool.kind]
             .join(' ')
             .toLowerCase()
             .includes(needle),
-        ),
-      }))
-      .filter((group) => group.tools.length > 0);
+        )
+        .map((tool) => ({
+          ...tool,
+          groupLabel: group.label,
+        })),
+    );
   }, [deferredFilter, toolsQuery.data?.groups]);
 
-  const filteredToolCount = filteredGroups.reduce(
-    (sum, group) => sum + group.tools.length,
-    0,
-  );
+  const {
+    sortedRows: sortedTools,
+    sortState,
+    toggleSort,
+  } = useSortableRows<ToolRow, ToolSortKey>(filteredTools, {
+    initialSort: {
+      key: 'invocations',
+      direction: 'desc',
+    },
+    sorters: TOOL_SORTERS,
+    defaultDirections: TOOL_DEFAULT_DIRECTIONS,
+  });
 
   return (
     <div className="page-stack">
@@ -121,44 +167,64 @@ export function ToolsPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel
-          title="Catalog"
-          subtitle={`${filteredToolCount} tool${filteredToolCount === 1 ? '' : 's'} visible`}
-        >
+        <Panel title="Catalog">
           {toolsQuery.isLoading ? (
             <div className="empty-state">Loading tool catalog...</div>
-          ) : filteredToolCount === 0 ? (
+          ) : sortedTools.length === 0 ? (
             <div className="empty-state">No tools match this filter.</div>
           ) : (
             <div className="table-shell">
               <table>
                 <thead>
                   <tr>
-                    <th>Tool</th>
-                    <th>Group</th>
-                    <th>Type</th>
-                    <th>Recent</th>
-                    <th>Last used</th>
+                    <SortableHeader
+                      label="Tool"
+                      sortKey="tool"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Group"
+                      sortKey="group"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Type"
+                      sortKey="type"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Invocations"
+                      sortKey="invocations"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Last used"
+                      sortKey="lastUsed"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredGroups.flatMap((group) =>
-                    group.tools.map((tool) => (
-                      <tr key={tool.name}>
-                        <td>
-                          <strong>{tool.name}</strong>
-                          <ToolErrorPreview
-                            recentErrors={tool.recentErrors}
-                            samples={tool.recentErrorSamples}
-                          />
-                        </td>
-                        <td>{group.label}</td>
-                        <td>{tool.kind}</td>
-                        <td>{tool.recentCalls}</td>
-                        <td>{formatDateTime(tool.lastUsedAt)}</td>
-                      </tr>
-                    )),
-                  )}
+                  {sortedTools.map((tool) => (
+                    <tr key={tool.name}>
+                      <td>
+                        <strong>{tool.name}</strong>
+                        <ToolErrorPreview
+                          recentErrors={tool.recentErrors}
+                          samples={tool.recentErrorSamples}
+                        />
+                      </td>
+                      <td>{tool.groupLabel}</td>
+                      <td>{tool.kind}</td>
+                      <td>{tool.recentCalls}</td>
+                      <td>{formatDateTime(tool.lastUsedAt)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

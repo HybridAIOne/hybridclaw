@@ -2,6 +2,10 @@ export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
   pid?: number;
+  lifecycle?: {
+    restartSupported: boolean;
+    restartReason: string | null;
+  };
   version: string;
   imageTag: string | null;
   uptime: number;
@@ -45,6 +49,24 @@ export interface GatewayStatus {
       disabled: boolean;
       consecutiveErrors: number;
     }>;
+  };
+  discord?: {
+    tokenConfigured: boolean;
+    tokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  email?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  imessage?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  whatsapp?: {
+    linked: boolean;
+    jid: string | null;
+    pairingQrText: string | null;
+    pairingUpdatedAt: string | null;
   };
   providerHealth?: Record<
     string,
@@ -202,13 +224,56 @@ export interface AdminConfig {
   };
   discord: {
     prefix: string;
-    respondToAllMessages: boolean;
+    guildMembersIntent: boolean;
+    presenceIntent: boolean;
     commandsOnly: boolean;
+    commandMode: 'public' | 'restricted';
+    commandAllowedUserIds: string[];
+    commandUserId: string;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
+    sendPolicy: 'open' | 'allowlist' | 'disabled';
+    sendAllowedChannelIds: string[];
+    freeResponseChannels: string[];
+    textChunkLimit: number;
+    maxLinesPerMessage: number;
+    humanDelay: {
+      mode: 'off' | 'natural' | 'custom';
+      minMs: number;
+      maxMs: number;
+    };
     typingMode: 'instant' | 'thinking' | 'streaming' | 'never';
+    presence: {
+      enabled: boolean;
+      intervalMs: number;
+      healthyText: string;
+      degradedText: string;
+      exhaustedText: string;
+      activityType:
+        | 'playing'
+        | 'watching'
+        | 'listening'
+        | 'competing'
+        | 'custom';
+    };
+    lifecycleReactions: {
+      enabled: boolean;
+      removeOnComplete: boolean;
+      phases: {
+        queued: string;
+        thinking: string;
+        toolUse: string;
+        streaming: string;
+        done: string;
+        error: string;
+      };
+    };
     debounceMs: number;
     ackReaction: string;
+    ackReactionScope: 'all' | 'group-mentions' | 'direct' | 'off';
+    removeAckAfterReply: boolean;
     rateLimitPerUser: number;
+    rateLimitExemptRoles: string[];
+    suppressPatterns: string[];
     maxConcurrentPerChannel: number;
     guilds: Record<
       string,
@@ -217,6 +282,81 @@ export interface AdminConfig {
         channels: Record<string, AdminChannelConfig>;
       }
     >;
+  };
+  msteams: {
+    enabled: boolean;
+    appId: string;
+    tenantId: string;
+    webhook: {
+      port: number;
+      path: string;
+    };
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    teams: Record<
+      string,
+      {
+        requireMention?: boolean;
+        tools?: string[];
+        replyStyle?: 'thread' | 'top-level';
+        groupPolicy?: 'open' | 'allowlist' | 'disabled';
+        allowFrom?: string[];
+        channels: Record<string, AdminMSTeamsChannelConfig>;
+      }
+    >;
+    requireMention: boolean;
+    textChunkLimit: number;
+    replyStyle: 'thread' | 'top-level';
+    mediaMaxMb: number;
+    dangerouslyAllowNameMatching: boolean;
+    mediaAllowHosts: string[];
+    mediaAuthAllowHosts: string[];
+  };
+  whatsapp: {
+    dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    debounceMs: number;
+    sendReadReceipts: boolean;
+    ackReaction: string;
+    mediaMaxMb: number;
+  };
+  imessage: {
+    enabled: boolean;
+    backend: 'local' | 'bluebubbles';
+    cliPath: string;
+    dbPath: string;
+    pollIntervalMs: number;
+    serverUrl: string;
+    password: string;
+    webhookPath: string;
+    allowPrivateNetwork: boolean;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    debounceMs: number;
+    mediaMaxMb: number;
+  };
+  email: {
+    enabled: boolean;
+    imapHost: string;
+    imapPort: number;
+    imapSecure: boolean;
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+    address: string;
+    password: string;
+    pollIntervalMs: number;
+    folders: string[];
+    allowFrom: string[];
+    textChunkLimit: number;
+    mediaMaxMb: number;
   };
   container: {
     sandboxMode: 'container' | 'host';
@@ -248,10 +388,17 @@ export interface AdminConfigResponse {
   config: AdminConfig;
 }
 
+export interface AdminCommandResult {
+  kind: 'plain' | 'info' | 'error';
+  title?: string;
+  text: string;
+  sessionId?: string;
+  sessionKey?: string;
+  mainSessionKey?: string;
+}
+
 export interface AdminModelCatalogEntry {
   id: string;
-  configuredInHybridai: boolean;
-  configuredInCodex: boolean;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'vllm' | null;
   contextWindow: number | null;
@@ -266,8 +413,6 @@ export interface AdminModelCatalogEntry {
 
 export interface AdminModelsResponse {
   defaultModel: string;
-  hybridaiModels: string[];
-  codexModels: string[];
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }
@@ -585,7 +730,7 @@ export interface AdminAdaptiveSkillAmendmentsResponse {
 export interface AdminToolCatalogEntry {
   name: string;
   group: string;
-  kind: 'builtin' | 'mcp' | 'other';
+  kind: 'builtin' | 'plugin' | 'mcp' | 'other';
   recentCalls: number;
   recentErrors: number;
   lastUsedAt: string | null;

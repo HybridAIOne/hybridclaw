@@ -2,20 +2,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import {
+  PageHeader,
+  Panel,
+  SortableHeader,
+  useSortableRows,
+} from '../components/ui';
 import {
   formatCompactNumber,
   formatRelativeTime,
   formatTokenBreakdown,
   formatUsd,
-  joinStringList,
-  parseStringList,
 } from '../lib/format';
+import { compareNumber, compareText } from '../lib/sort';
 
 interface ModelDraft {
   defaultModel: string;
-  hybridaiModels: string;
-  codexModels: string;
 }
 
 type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
@@ -30,23 +32,113 @@ function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
 function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
   const leftTokens = left.usageMonthly?.totalTokens || 0;
   const rightTokens = right.usageMonthly?.totalTokens || 0;
-  if (rightTokens !== leftTokens) return rightTokens - leftTokens;
+  if (leftTokens !== rightTokens) return leftTokens - rightTokens;
 
   const leftCalls = left.usageMonthly?.callCount || 0;
   const rightCalls = right.usageMonthly?.callCount || 0;
-  if (rightCalls !== leftCalls) return rightCalls - leftCalls;
+  if (leftCalls !== rightCalls) return leftCalls - rightCalls;
 
   return left.id.localeCompare(right.id);
 }
+
+type ModelSortKey = 'model' | 'backend' | 'context' | 'monthlyUsage';
+type ProviderStatusEntry = NonNullable<
+  Awaited<ReturnType<typeof fetchModels>>['providerStatus']
+>[string];
+type ProviderSummary = {
+  name: string;
+  status: ProviderStatusEntry | null;
+};
+
+const PROVIDER_DISPLAY_ORDER = [
+  'hybridai',
+  'codex',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'ollama',
+  'lmstudio',
+  'llamacpp',
+  'vllm',
+] as const;
+
+function inferProviderName(
+  model: Pick<ModelEntry, 'id' | 'backend'>,
+): string | null {
+  if (model.backend) return model.backend;
+  const normalized = model.id.trim().toLowerCase();
+  if (normalized.startsWith('openai-codex/')) return 'codex';
+  if (normalized.startsWith('openrouter/')) return 'openrouter';
+  if (normalized.startsWith('mistral/')) return 'mistral';
+  if (normalized.startsWith('huggingface/')) return 'huggingface';
+  return null;
+}
+
+function compareProviderNames(left: string, right: string): number {
+  const leftIndex = PROVIDER_DISPLAY_ORDER.indexOf(
+    left as (typeof PROVIDER_DISPLAY_ORDER)[number],
+  );
+  const rightIndex = PROVIDER_DISPLAY_ORDER.indexOf(
+    right as (typeof PROVIDER_DISPLAY_ORDER)[number],
+  );
+  if (leftIndex !== -1 || rightIndex !== -1) {
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+  }
+  return left.localeCompare(right);
+}
+
+function buildProviderSummaries(
+  payload?: Awaited<ReturnType<typeof fetchModels>>,
+): ProviderSummary[] {
+  const providerNames = new Set(Object.keys(payload?.providerStatus || {}));
+  for (const model of payload?.models || []) {
+    const provider = inferProviderName(model);
+    if (provider) providerNames.add(provider);
+  }
+
+  return [...providerNames].sort(compareProviderNames).map((name) => ({
+    name,
+    status: payload?.providerStatus?.[name] || null,
+  }));
+}
+
+const MODEL_SORTERS: Record<
+  ModelSortKey,
+  (left: ModelEntry, right: ModelEntry) => number
+> = {
+  model: (left, right) => compareText(left.id, right.id),
+  backend: (left, right) =>
+    compareText(left.backend || 'remote', right.backend || 'remote') ||
+    compareText(left.id, right.id),
+  context: (left, right) =>
+    compareNumber(left.contextWindow, right.contextWindow) ||
+    compareText(left.id, right.id),
+  monthlyUsage: compareModelsByUsage,
+};
+
+const MODEL_DEFAULT_DIRECTIONS = {
+  context: 'desc',
+  monthlyUsage: 'desc',
+} as const;
 
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
 ): ModelDraft {
   return {
     defaultModel: payload?.defaultModel || '',
-    hybridaiModels: joinStringList(payload?.hybridaiModels),
-    codexModels: joinStringList(payload?.codexModels),
   };
+}
+
+function formatModelMetadata(model: ModelEntry): string {
+  return [
+    model.isReasoning ? 'reasoning' : '',
+    model.thinkingFormat || '',
+    model.family || '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function ModelsPage() {
@@ -64,8 +156,6 @@ export function ModelsPage() {
     mutationFn: () =>
       saveModels(auth.token, {
         defaultModel: draft.defaultModel,
-        hybridaiModels: parseStringList(draft.hybridaiModels),
-        codexModels: parseStringList(draft.codexModels),
       }),
     onSuccess: (payload) => {
       queryClient.setQueryData(['models', auth.token], payload);
@@ -77,29 +167,35 @@ export function ModelsPage() {
   useEffect(() => {
     if (!modelsQuery.data) return;
     setDraft((current) =>
-      current.defaultModel || current.hybridaiModels || current.codexModels
-        ? current
-        : createDraft(modelsQuery.data),
+      current.defaultModel ? current : createDraft(modelsQuery.data),
     );
   }, [modelsQuery.data]);
 
-  const filteredModels = (modelsQuery.data?.models || [])
-    .filter((model) => {
-      const haystack = [
-        model.id,
-        model.backend || '',
-        model.family || '',
-        model.parameterSize || '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(filter.trim().toLowerCase());
-    })
-    .sort(compareModelsByUsage);
+  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
+    const haystack = [
+      model.id,
+      model.backend || '',
+      model.family || '',
+      model.parameterSize || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(filter.trim().toLowerCase());
+  });
+  const {
+    sortedRows: models,
+    sortState,
+    toggleSort,
+  } = useSortableRows<ModelEntry, ModelSortKey>(filteredModels, {
+    initialSort: {
+      key: 'monthlyUsage',
+      direction: 'desc',
+    },
+    sorters: MODEL_SORTERS,
+    defaultDirections: MODEL_DEFAULT_DIRECTIONS,
+  });
 
-  const providerEntries = Object.entries(
-    modelsQuery.data?.providerStatus || {},
-  );
+  const providerEntries = buildProviderSummaries(modelsQuery.data);
   const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
     hasDailyUsage,
   );
@@ -121,31 +217,37 @@ export function ModelsPage() {
       <div className="two-column-grid">
         <Panel title="Provider status">
           <div className="list-stack">
-            {providerEntries.map(([name, status]) => (
+            {providerEntries.map(({ name, status }) => (
               <div className="list-row" key={name}>
                 <div>
                   <strong>{name}</strong>
                   <small>
                     {status?.reachable
                       ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
-                      : status?.error || 'unreachable'}
+                      : status
+                        ? status.error || 'unreachable'
+                        : 'Visible in catalog · no live health data'}
                   </small>
                 </div>
                 <span
                   className={
                     status?.reachable
                       ? 'list-status list-status-success'
-                      : 'list-status list-status-danger'
+                      : status
+                        ? 'list-status list-status-danger'
+                        : 'list-status'
                   }
                 >
                   <span
                     className={
                       status?.reachable
                         ? 'status-dot status-dot-success'
-                        : 'status-dot status-dot-danger'
+                        : status
+                          ? 'status-dot status-dot-danger'
+                          : 'status-dot'
                     }
                   />
-                  {status?.reachable ? 'healthy' : 'down'}
+                  {status?.reachable ? 'healthy' : status ? 'down' : 'catalog'}
                 </span>
               </div>
             ))}
@@ -182,36 +284,6 @@ export function ModelsPage() {
                 </select>
               </label>
 
-              <label className="field">
-                <span>Configured HybridAI models</span>
-                <textarea
-                  rows={4}
-                  value={draft.hybridaiModels}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      hybridaiModels: event.target.value,
-                    }))
-                  }
-                  placeholder="One or more models, comma or newline separated"
-                />
-              </label>
-
-              <label className="field">
-                <span>Configured Codex models</span>
-                <textarea
-                  rows={4}
-                  value={draft.codexModels}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      codexModels: event.target.value,
-                    }))
-                  }
-                  placeholder="One or more models, comma or newline separated"
-                />
-              </label>
-
               <div className="button-row">
                 <button
                   className="primary-button"
@@ -240,7 +312,7 @@ export function ModelsPage() {
 
       <Panel
         title="Catalog"
-        subtitle={`${filteredModels.length} model${filteredModels.length === 1 ? '' : 's'} visible`}
+        subtitle={`${models.length} model${models.length === 1 ? '' : 's'} visible`}
       >
         {modelsQuery.isLoading ? (
           <div className="empty-state">Loading model catalog...</div>
@@ -249,39 +321,45 @@ export function ModelsPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Model</th>
-                  <th>Source</th>
-                  <th>Backend</th>
-                  <th>Context</th>
-                  <th>Monthly usage</th>
+                  <SortableHeader
+                    label="Model"
+                    sortKey="model"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Backend"
+                    sortKey="backend"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Context"
+                    sortKey="context"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Monthly usage"
+                    sortKey="monthlyUsage"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {filteredModels.map((model) => (
+                {models.map((model) => (
                   <tr key={model.id}>
                     <td>
                       <strong>{model.id}</strong>
-                      <small>
-                        {model.isReasoning ? 'reasoning' : 'standard'}
-                        {model.thinkingFormat
-                          ? ` · ${model.thinkingFormat}`
-                          : ''}
-                        {model.family ? ` · ${model.family}` : ''}
-                      </small>
-                    </td>
-                    <td>
-                      {[
-                        model.configuredInHybridai ? 'hybridai' : null,
-                        model.configuredInCodex ? 'codex' : null,
-                        model.discovered ? 'discovered' : null,
-                      ]
-                        .filter(Boolean)
-                        .join(', ') || 'manual'}
+                      {formatModelMetadata(model) ? (
+                        <small>{formatModelMetadata(model)}</small>
+                      ) : null}
                     </td>
                     <td>{model.backend || 'remote'}</td>
                     <td>
                       {model.contextWindow
-                        ? `${formatCompactNumber(model.contextWindow)} ctx`
+                        ? formatCompactNumber(model.contextWindow)
                         : 'unknown'}
                     </td>
                     <td>
@@ -311,9 +389,9 @@ export function ModelsPage() {
                     </td>
                   </tr>
                 ))}
-                {filteredModels.length === 0 ? (
+                {models.length === 0 ? (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={4}>
                       <div className="empty-state">
                         No models match this filter.
                       </div>

@@ -182,6 +182,7 @@ type BrowserModelContext = {
   model: string;
   chatbotId: string;
   requestHeaders: Record<string, string>;
+  maxTokens?: number;
 };
 
 type BrowserRunner = {
@@ -202,7 +203,6 @@ type BrowserVisionContext = BrowserModelContext & {
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
-  maxTokens?: number;
 };
 
 const activeSessions = new Map<string, BrowserSession>();
@@ -251,6 +251,7 @@ export function setBrowserModelContext(
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
+  maxTokens?: number,
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
@@ -261,6 +262,12 @@ export function setBrowserModelContext(
     model: String(model || '').trim(),
     chatbotId: String(chatbotId || '').trim(),
     requestHeaders: { ...(requestHeaders || {}) },
+    maxTokens:
+      typeof maxTokens === 'number' &&
+      Number.isFinite(maxTokens) &&
+      maxTokens > 0
+        ? Math.floor(maxTokens)
+        : undefined,
   };
 }
 

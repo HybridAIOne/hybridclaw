@@ -66,6 +66,8 @@ leak into the saved revision metadata.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
+  port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
   runtime status reporting, including the target base URL, bot and agent ids,
   flush interval, and batch size
@@ -99,10 +101,16 @@ leak into the saved revision metadata.
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
-- `email.pollIntervalMs` for inbound email polling; it defaults to `30000`
+- `email.*` for the IMAP/SMTP transport; prefer storing the password as
+  `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
+  config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
+- `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
+  the local TUI, eval workflows, and client-side gateway commands that should
+  target an already-running HybridClaw instance; if `ops.gatewayApiToken` is
+  unset, the runtime falls back to the web token automatically
 - `tools.httpRequest.authRules[]` for gateway-side URL-to-secret header
   injection used by the `http_request` tool, for example mapping a URL prefix
   such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
@@ -114,6 +122,8 @@ and `adaptiveSkills.*` are covered in
 [Skills Internals](../extensibility/skills.md) and
 [Adaptive Skills](../extensibility/adaptive-skills.md).
 For the dual-backend iMessage workflow, see [Setting Up iMessage](../../imessage.md).
+For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
+pattern, see [Remote Access](../guides/remote-access.md).
 
 ## Audio Transcription Notes
 
@@ -154,7 +164,8 @@ credential checks run.
   `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
   plaintext values
 - current built-in SecretRef surfaces include `ops.webApiToken`,
-  `ops.gatewayApiToken`, `imessage.password`, and `local.backends.vllm.apiKey`
+  `ops.gatewayApiToken`, `email.password`, `imessage.password`, and
+  `local.backends.vllm.apiKey`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the
@@ -162,6 +173,8 @@ credential checks run.
   through `container.binds` or `container.additionalMounts`
 - prefer storing BlueBubbles credentials as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext `imessage.password`
+- prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed
+  `email.password` value instead of plaintext config
 - keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
   secret-bearing files)
 - prefer low-privilege tokens

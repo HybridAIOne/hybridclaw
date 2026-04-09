@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { setupHome } = setupGatewayTest({
@@ -56,6 +56,41 @@ test('concierge info reports config and on/off toggles persisted runtime state',
 test('concierge command updates the decision model and profile mappings', async () => {
   setupHome();
 
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'hybridai/gpt-5',
+        'hybridai/gpt-5-mini',
+      ]),
+    };
+  });
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: vi.fn(async () => ({
+        reachable: true,
+        latencyMs: 10,
+        modelCount: 2,
+      })),
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => new Map()),
+      invalidate: vi.fn(),
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { handleGatewayCommand } = await import(
@@ -73,7 +108,7 @@ test('concierge command updates the decision model and profile mappings', async 
 
   expect(modelResult.kind).toBe('plain');
   expect(modelResult.text).toContain('Concierge decision model set');
-  expect(getRuntimeConfig().routing.concierge.model).toBe('gpt-5');
+  expect(getRuntimeConfig().routing.concierge.model).toBe('hybridai/gpt-5');
 
   const profileResult = await handleGatewayCommand({
     sessionId: 'session-concierge-command-model',
@@ -85,7 +120,7 @@ test('concierge command updates the decision model and profile mappings', async 
   expect(profileResult.kind).toBe('plain');
   expect(profileResult.text).toContain('Concierge profile `no_hurry` set');
   expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe(
-    'gpt-5-mini',
+    'hybridai/gpt-5-mini',
   );
 });
 

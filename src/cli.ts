@@ -392,6 +392,22 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
   }
 }
 
+async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
+  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+
+  try {
+    const status = await gatewayStatus();
+    const runtimeSandboxMode = status.sandbox?.mode;
+    if (runtimeSandboxMode === 'host' || runtimeSandboxMode === 'container') {
+      return runtimeSandboxMode;
+    }
+  } catch {
+    // Fall back to the local runtime config when the gateway is not reachable.
+  }
+
+  return null;
+}
+
 function formatInstructionDiffLine(file: {
   path: string;
   status: 'ok' | 'modified' | 'missing' | 'source_missing';
@@ -609,7 +625,11 @@ async function launchTui(argv: string[]): Promise<void> {
     commandName: 'hybridclaw tui',
     requireCredentials: false,
   });
-  await ensureRuntimeContainer('hybridclaw tui', true);
+  await ensureRuntimeContainer(
+    'hybridclaw tui',
+    true,
+    await resolveTuiPreflightSandboxMode(),
+  );
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');
   const { runTui } = await import('./tui.js');
@@ -1462,6 +1482,17 @@ export async function main(
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
+    case '__gateway-restart-helper': {
+      const payload = String(subargs[0] || '').trim();
+      if (!payload) {
+        throw new Error('Missing gateway restart helper payload.');
+      }
+      const { runGatewayRestartHelperFromArg } = await import(
+        './gateway/gateway-restart.js'
+      );
+      await runGatewayRestartHelperFromArg(payload);
+      break;
+    }
     case 'eval':
       await handleEvalCommand(subargs);
       break;

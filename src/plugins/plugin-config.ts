@@ -8,7 +8,11 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { PluginManager, validatePluginConfig } from './plugin-manager.js';
+import {
+  PluginManager,
+  resolveEffectivePluginConfigSchema,
+  validatePluginConfig,
+} from './plugin-manager.js';
 
 export interface PluginConfigReadResult {
   pluginId: string;
@@ -29,6 +33,11 @@ export interface PluginConfigWriteResult extends PluginConfigValueReadResult {
 export interface PluginEnabledWriteResult extends PluginConfigReadResult {
   enabled: boolean;
   changed: boolean;
+}
+
+interface PluginConfigRuntimeOverride {
+  homeDir?: string;
+  cwd?: string;
 }
 
 function cloneConfig(config: RuntimeConfig): RuntimeConfig {
@@ -85,10 +94,11 @@ function cleanupPluginEntry(
 async function validatePluginOverride(
   pluginId: string,
   config: RuntimeConfig,
+  runtime?: PluginConfigRuntimeOverride,
 ): Promise<void> {
   const manager = new PluginManager({
-    homeDir: DEFAULT_RUNTIME_HOME_DIR,
-    cwd: process.cwd(),
+    homeDir: runtime?.homeDir || DEFAULT_RUNTIME_HOME_DIR,
+    cwd: runtime?.cwd || process.cwd(),
     getRuntimeConfig: () => config,
   });
   const candidate = (await manager.discoverPlugins(config)).find(
@@ -99,16 +109,18 @@ async function validatePluginOverride(
       `Plugin \`${pluginId}\` was not found. Install or discover it before changing config.`,
     );
   }
-  validatePluginConfig(candidate.manifest.configSchema, candidate.config);
+  const schema = await resolveEffectivePluginConfigSchema(candidate);
+  validatePluginConfig(schema, candidate.config);
 }
 
 async function ensurePluginExistsForConfig(
   pluginId: string,
   config: RuntimeConfig,
+  runtime?: PluginConfigRuntimeOverride,
 ): Promise<void> {
   const manager = new PluginManager({
-    homeDir: DEFAULT_RUNTIME_HOME_DIR,
-    cwd: process.cwd(),
+    homeDir: runtime?.homeDir || DEFAULT_RUNTIME_HOME_DIR,
+    cwd: runtime?.cwd || process.cwd(),
     getRuntimeConfig: () => config,
   });
   const candidateConfig = cloneConfig(config);
@@ -174,6 +186,7 @@ export async function writePluginConfigValue(
   pluginId: string,
   key: string,
   rawValue: string,
+  runtime?: PluginConfigRuntimeOverride,
 ): Promise<PluginConfigWriteResult> {
   const normalizedPluginId = normalizePluginId(pluginId);
   const normalizedKey = String(key || '').trim();
@@ -182,7 +195,7 @@ export async function writePluginConfigValue(
   const entry = ensurePluginEntry(nextConfig, normalizedPluginId);
   const previousValue = entry.config?.[normalizedKey];
   entry.config[normalizedKey] = value;
-  await validatePluginOverride(normalizedPluginId, nextConfig);
+  await validatePluginOverride(normalizedPluginId, nextConfig, runtime);
   saveRuntimeConfig(nextConfig);
   return {
     pluginId: normalizedPluginId,
@@ -198,6 +211,7 @@ export async function writePluginConfigValue(
 export async function unsetPluginConfigValue(
   pluginId: string,
   key: string,
+  runtime?: PluginConfigRuntimeOverride,
 ): Promise<PluginConfigWriteResult> {
   const normalizedPluginId = normalizePluginId(pluginId);
   const normalizedKey = String(key || '').trim();
@@ -206,7 +220,7 @@ export async function unsetPluginConfigValue(
   const previousValue = entry.config?.[normalizedKey];
   delete entry.config[normalizedKey];
   cleanupPluginEntry(nextConfig, normalizedPluginId, entry);
-  await validatePluginOverride(normalizedPluginId, nextConfig);
+  await validatePluginOverride(normalizedPluginId, nextConfig, runtime);
   saveRuntimeConfig(nextConfig);
   return {
     pluginId: normalizedPluginId,

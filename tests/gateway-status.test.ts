@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
@@ -56,6 +57,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/plugins/plugin-manager.js');
+  vi.doUnmock('../src/providers/openrouter-discovery.js');
   vi.doUnmock('../src/providers/hybridai-discovery.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
@@ -63,6 +65,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/local-health.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
@@ -154,6 +157,31 @@ test('getGatewayStatus includes Codex auth state', async () => {
     },
     homeDir,
   );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'gpt-5-codex',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+              {
+                id: 'gpt-5.4',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
   initDatabase({ quiet: true });
 
   const { getGatewayStatus } = await import(
@@ -171,13 +199,231 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: expect.any(Number),
+    modelCount: 2,
   });
   expect(status.providerHealth?.hybridai).toMatchObject({
     kind: 'remote',
     reachable: true,
     modelCount: expect.any(Number),
   });
+});
+
+test('getGatewayAdminModels discovers Codex models from the models endpoint', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { saveCodexAuthStore, extractExpiresAtFromJwt } = await import(
+    '../src/auth/codex-auth.ts'
+  );
+  const accessToken = makeJwt({
+    exp: Math.floor(Date.now() / 1000) + 600,
+    chatgpt_account_id: 'acct_gateway_models',
+  });
+  saveCodexAuthStore(
+    {
+      version: 1,
+      credentials: {
+        accessToken,
+        refreshToken: 'refresh_gateway_models',
+        accountId: 'acct_gateway_models',
+        expiresAt: extractExpiresAtFromJwt(accessToken),
+        provider: 'openai-codex',
+        authMethod: 'oauth',
+        source: 'device-code',
+        lastRefresh: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+    homeDir,
+  );
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openai-codex/gpt-5-codex';
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'gpt-5-codex',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+              {
+                id: 'gpt-5.4',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  expect(result.providerStatus?.codex).toMatchObject({
+    modelCount: 2,
+  });
+  expect(result.models).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'openai-codex/gpt-5-codex',
+        contextWindow: 400_000,
+        maxTokens: 128_000,
+      }),
+      expect.objectContaining({
+        id: 'openai-codex/gpt-5.4',
+        contextWindow: 400_000,
+        maxTokens: 128_000,
+      }),
+    ]),
+  );
+});
+
+test('getGatewayStatus includes enabled remote model providers in provider health', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.MISTRAL_API_KEY = 'mistral-test-gateway-status-1234567890';
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+    config.mistral.enabled = true;
+    config.mistral.models = ['mistral/mistral-large-latest'];
+    config.huggingface.enabled = false;
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.providerHealth?.openrouter).toMatchObject({
+    kind: 'remote',
+    reachable: false,
+    error: 'Not authenticated',
+    modelCount: 0,
+    detail: 'Not authenticated',
+  });
+  expect(status.providerHealth?.mistral).toMatchObject({
+    kind: 'remote',
+    reachable: true,
+    modelCount: 0,
+    detail: 'Authenticated',
+  });
+  expect(status.providerHealth?.huggingface).toBeUndefined();
+});
+
+test('getGatewayAdminModels provider counts match the catalog rows', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+  });
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'openrouter/anthropic/claude-sonnet-4',
+        'openrouter/openai/gpt-4.1-mini',
+        'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+      ]),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  expect(result.providerStatus?.openrouter).toMatchObject({
+    modelCount: 3,
+  });
+});
+
+test('getGatewayAdminModels populates context windows from provider discovery', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+  });
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'openrouter/anthropic/claude-sonnet-4',
+      ]),
+    };
+  });
+  vi.doMock('../src/providers/openrouter-discovery.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/openrouter-discovery.js')
+    >('../src/providers/openrouter-discovery.js');
+    return {
+      ...actual,
+      getDiscoveredOpenRouterModelContextWindow: vi.fn((model: string) =>
+        model === 'openrouter/anthropic/claude-sonnet-4' ? 200_000 : null,
+      ),
+      getDiscoveredOpenRouterModelMaxTokens: vi.fn(() => null),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  expect(result.models).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'openrouter/anthropic/claude-sonnet-4',
+        contextWindow: 200_000,
+      }),
+    ]),
+  );
 });
 
 test('getGatewayStatus includes the configured default agent id', async () => {
@@ -202,6 +448,61 @@ test('getGatewayStatus includes the configured default agent id', async () => {
   const status = await getGatewayStatus();
 
   expect(status.defaultAgentId).toBe('charly');
+});
+
+test('getGatewayStatus includes the current WhatsApp pairing QR text', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  vi.doMock('../src/channels/whatsapp/pairing-state.js', () => ({
+    getWhatsAppPairingState: vi.fn(() => ({
+      pairingQrText: '▄▄\n██',
+      updatedAt: '2026-04-08T10:00:00.000Z',
+    })),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.whatsapp).toMatchObject({
+    linked: false,
+    jid: null,
+    pairingQrText: '▄▄\n██',
+    pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
+  });
+});
+
+test('getGatewayStatus includes Discord token status from runtime secrets', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.DISCORD_TOKEN;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  saveRuntimeSecrets({
+    DISCORD_TOKEN: 'discord-test-token',
+  });
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.discord).toEqual({
+    tokenConfigured: true,
+    tokenSource: 'runtime-secrets',
+  });
 });
 
 test('status command includes the current session agent', async () => {
@@ -1496,8 +1797,6 @@ test('model list includes discovered OpenRouter models', async () => {
   }
   expect(result.title).toBe('Available Models');
   expect(result.text).toContain('hybridai/gpt-4.1-mini');
-  expect(result.text).toContain('hybridai/gpt-5-nano');
-  expect(result.text).toContain('openrouter/anthropic/claude-sonnet-4');
   expect(result.text).toContain('openrouter/openai/gpt-4.1-mini');
   expect(result.text).toContain(
     'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
@@ -1505,7 +1804,7 @@ test('model list includes discovered OpenRouter models', async () => {
   expect(result.modelCatalog).toEqual(
     expect.arrayContaining([
       {
-        value: 'gpt-4.1-mini',
+        value: 'hybridai/gpt-4.1-mini',
         label: 'hybridai/gpt-4.1-mini (current)',
         isFree: false,
       },
@@ -1618,7 +1917,14 @@ test('model list includes discovered HybridAI models', async () => {
       });
       return new Response(
         JSON.stringify({
-          data: [{ id: 'gpt-5-ultra', context_length: 512_000 }],
+          data: [
+            { id: 'gpt-5-ultra', context_length: 512_000 },
+            {
+              id: 'mistral-small',
+              provider: 'mistral',
+              context_length: 131_072,
+            },
+          ],
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
@@ -1646,9 +1952,67 @@ test('model list includes discovered HybridAI models', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Available Models (hybridai)');
-  expect(result.text).toContain('hybridai/gpt-5-nano');
+  expect(result.text).toContain('hybridai/gpt-4.1-mini');
   expect(result.text).toContain('hybridai/gpt-5-ultra');
+  expect(result.text).toContain('hybridai/mistral/mistral-small');
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('model set accepts a legacy bare HybridAI model name when discovery exposes a provider family', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-gateway-status-set-provider-prefix';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'mistral-small',
+                provider: 'mistral',
+                context_length: 131_072,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-set-hybridai-family-prefix',
+    guildId: null,
+    channelId: 'channel-model-set-hybridai-family-prefix',
+    args: ['model', 'set', 'mistral-small'],
+  });
+
+  expect(result.kind).toBe('plain');
+  if (result.kind !== 'plain') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'Model set to `hybridai/mistral/mistral-small` for this session.',
+  );
 });
 
 test('model list filters by provider alias', async () => {
@@ -1738,8 +2102,6 @@ test('model list filters by provider alias', async () => {
       'openrouter/healer-alpha',
       'openrouter/hunter-alpha',
       'openrouter/ai21/jamba-large-1.7',
-      'openrouter/alpha/model-a',
-      'openrouter/zeta/model-b',
     ].join('\n'),
   );
   expect(result.modelCatalog).toEqual([
@@ -1757,16 +2119,6 @@ test('model list filters by provider alias', async () => {
     {
       value: 'openrouter/ai21/jamba-large-1.7',
       label: 'openrouter/ai21/jamba-large-1.7',
-      isFree: false,
-    },
-    {
-      value: 'openrouter/alpha/model-a',
-      label: 'openrouter/alpha/model-a',
-      isFree: false,
-    },
-    {
-      value: 'openrouter/zeta/model-b',
-      label: 'openrouter/zeta/model-b',
       isFree: false,
     },
   ]);
@@ -2231,7 +2583,7 @@ test('model info filters unavailable provider models from available now', async 
   expect(result.modelCatalog).toEqual(
     expect.arrayContaining([
       {
-        value: 'gpt-5',
+        value: 'hybridai/gpt-5',
         label: 'hybridai/gpt-5 (current)',
         isFree: false,
       },
@@ -2514,7 +2866,9 @@ test('agent model sets the persistent model for the current session agent', asyn
   expect(updated.text).toContain(
     'Run `model clear` to use the updated agent model in this session.',
   );
-  expect(resolveAgentModel(getStoredAgentConfig('research'))).toBe('gpt-5');
+  expect(resolveAgentModel(getStoredAgentConfig('research'))).toBe(
+    'hybridai/gpt-5',
+  );
   expect(info.kind).toBe('info');
   if (info.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${info.kind}`);

@@ -39,6 +39,8 @@ export interface EmailAttachmentSendParams {
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
+  inReplyTo?: string | null;
+  references?: string[] | null;
   filename?: string | null;
   mimeType?: string | null;
 }
@@ -47,6 +49,8 @@ export interface EmailTextSendOptions {
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
+  inReplyTo?: string | null;
+  references?: string[] | null;
 }
 
 export interface EmailRuntime {
@@ -181,6 +185,8 @@ export function createEmailRuntime(): EmailRuntime {
       subject: options?.subject,
       cc: options?.cc,
       bcc: options?.bcc,
+      inReplyTo: options?.inReplyTo,
+      references: options?.references,
     });
   };
 
@@ -193,6 +199,8 @@ export function createEmailRuntime(): EmailRuntime {
       subject: params.subject,
       cc: params.cc,
       bcc: params.bcc,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
       attachment: {
         filePath: params.filePath,
         filename: params.filename || null,

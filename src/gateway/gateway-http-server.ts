@@ -94,6 +94,7 @@ import {
   handleGatewayPluginWebhook,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
+import { requestGatewayRestart } from './gateway-restart.js';
 import {
   getGatewayAdminScheduler,
   moveGatewayAdminSchedulerJob,
@@ -250,6 +251,43 @@ function parseEmailRecipientListInput(
     recipients.push(address);
   }
   return recipients.length > 0 ? recipients : undefined;
+}
+
+function parseOptionalStringInput(
+  value: unknown,
+  label: 'inReplyTo',
+): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`\`${label}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function parseThreadReferenceListInput(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? [normalized] : undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error('`references` must be a string or array of strings.');
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new Error('`references` must be a string or array of strings.');
+    }
+    const candidate = entry.trim();
+    if (!candidate) continue;
+    normalized.push(candidate);
+  }
+
+  if (normalized.length === 0) return undefined;
+  return [...new Set(normalized)];
 }
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
@@ -1717,9 +1755,13 @@ async function handleApiMessageAction(
 
   let cc: string[] | undefined;
   let bcc: string[] | undefined;
+  let inReplyTo: string | undefined;
+  let references: string[] | undefined;
   try {
     cc = parseEmailRecipientListInput(body.cc, 'cc');
     bcc = parseEmailRecipientListInput(body.bcc, 'bcc');
+    inReplyTo = parseOptionalStringInput(body.inReplyTo, 'inReplyTo');
+    references = parseThreadReferenceListInput(body.references);
   } catch (error) {
     sendJson(res, 400, {
       error: error instanceof Error ? error.message : String(error),
@@ -1748,6 +1790,8 @@ async function handleApiMessageAction(
     subject: typeof body.subject === 'string' ? body.subject : undefined,
     cc,
     bcc,
+    inReplyTo,
+    references,
     filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
@@ -2054,6 +2098,7 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
       name: command.name,
       description: command.description,
     })),
+    'web',
   );
   cachedSlashMenuPluginKey = pluginKey;
   return cachedSlashMenuEntries;
@@ -2097,6 +2142,25 @@ function handleApiShutdown(res: ServerResponse): void {
   sendJson(res, 200, {
     status: 'ok',
     message: 'Gateway shutdown requested.',
+  });
+  setTimeout(() => {
+    process.kill(process.pid, 'SIGTERM');
+  }, 50);
+}
+
+function handleApiRestart(res: ServerResponse): void {
+  const restart = requestGatewayRestart();
+  if (!restart.restartSupported) {
+    sendJson(res, 409, {
+      error:
+        restart.restartReason || 'Gateway restart is unavailable right now.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway restart requested.',
   });
   setTimeout(() => {
     process.kill(process.pid, 'SIGTERM');
@@ -2329,8 +2393,6 @@ async function handleApiAdminModels(
 
   const body = (await readJsonBody(req)) as {
     defaultModel?: unknown;
-    hybridaiModels?: unknown;
-    codexModels?: unknown;
   };
   sendJson(res, 200, await saveGatewayAdminModels(body));
 }
@@ -2472,8 +2534,8 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   );
 }
 
-function handleApiAdminTools(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminTools());
+async function handleApiAdminTools(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminTools());
 }
 
 async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
@@ -3120,7 +3182,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
-            handleApiAdminTools(res);
+            await handleApiAdminTools(res);
             return;
           }
           if (pathname === '/api/admin/plugins' && method === 'GET') {
@@ -3168,6 +3230,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
             handleApiShutdown(res);
+            return;
+          }
+          if (pathname === '/api/admin/restart' && method === 'POST') {
+            handleApiRestart(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {

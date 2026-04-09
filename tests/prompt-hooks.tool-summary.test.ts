@@ -153,6 +153,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
   );
   expect(prompt).toContain(
+    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context',
+  );
+  expect(prompt).toContain(
     'Follow the runtime capability hint for Office QA/export steps instead of assuming tools like `soffice` or `pdftoppm` are available.',
   );
   expect(prompt).toContain(
@@ -179,6 +182,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain('User: "Post screenshot here"');
   expect(prompt).toContain(
     'User: "Send this to WhatsApp +491701234567: landed safely"',
+  );
+  expect(prompt).toContain(
+    'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
   );
   expect(prompt).toContain(
     'User: "Pull the key fields from this attached invoice PDF."',

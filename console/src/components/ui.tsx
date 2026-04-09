@@ -1,4 +1,92 @@
 import type { ReactNode } from 'react';
+import { useMemo, useState } from 'react';
+
+export type TableSortDirection = 'asc' | 'desc';
+
+export interface TableSortState<Key extends string> {
+  key: Key;
+  direction: TableSortDirection;
+}
+
+export function useSortableRows<Row, Key extends string>(
+  rows: readonly Row[],
+  options: {
+    initialSort: TableSortState<Key>;
+    sorters: Record<Key, (left: Row, right: Row) => number>;
+    defaultDirections?: Partial<Record<Key, TableSortDirection>>;
+  },
+): {
+  sortedRows: Row[];
+  sortState: TableSortState<Key>;
+  toggleSort: (key: Key) => void;
+} {
+  const [sortState, setSortState] = useState<TableSortState<Key>>(
+    options.initialSort,
+  );
+
+  const sortedRows = useMemo(() => {
+    const compare = options.sorters[sortState.key];
+    if (!compare) {
+      return [...rows];
+    }
+    return [...rows].sort((left, right) => {
+      const result = compare(left, right);
+      if (result === 0) return 0;
+      return sortState.direction === 'asc' ? result : -result;
+    });
+  }, [options.sorters, rows, sortState]);
+
+  const toggleSort = (key: Key) => {
+    setSortState((current) => {
+      if (current.key === key) {
+        return {
+          key,
+          direction: current.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+      return {
+        key,
+        direction: options.defaultDirections?.[key] || 'asc',
+      };
+    });
+  };
+
+  return { sortedRows, sortState, toggleSort };
+}
+
+export function SortableHeader<Key extends string>(props: {
+  label: string;
+  sortKey: Key;
+  sortState: TableSortState<Key>;
+  onToggle: (key: Key) => void;
+}) {
+  const active = props.sortState.key === props.sortKey;
+  const ariaSort = active
+    ? props.sortState.direction === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+
+  return (
+    <th aria-sort={ariaSort}>
+      <button
+        type="button"
+        className="table-sort-button"
+        onClick={() => props.onToggle(props.sortKey)}
+      >
+        <span>{props.label}</span>
+        <span
+          aria-hidden="true"
+          className={
+            active
+              ? `table-sort-indicator is-active is-${props.sortState.direction}`
+              : 'table-sort-indicator'
+          }
+        />
+      </button>
+    </th>
+  );
+}
 
 export function PageHeader(props: {
   title: string;
@@ -80,6 +168,7 @@ export function MetricCard(props: {
 export function SegmentedToggle(props: {
   ariaLabel: string;
   value: string;
+  className?: string;
   options: Array<{
     value: string;
     label: string;
@@ -89,7 +178,12 @@ export function SegmentedToggle(props: {
   disabled?: boolean;
 }) {
   return (
-    <fieldset className="binary-toggle" aria-label={props.ariaLabel}>
+    <fieldset
+      className={
+        props.className ? `binary-toggle ${props.className}` : 'binary-toggle'
+      }
+      aria-label={props.ariaLabel}
+    >
       {props.options.map((option) => {
         const active = option.value === props.value;
         return (
@@ -153,6 +247,7 @@ export function BooleanToggle(props: {
 }) {
   return (
     <SegmentedToggle
+      className="boolean-toggle"
       ariaLabel={props.ariaLabel}
       value={props.value ? 'true' : 'false'}
       options={[

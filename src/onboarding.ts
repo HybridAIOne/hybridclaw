@@ -378,38 +378,28 @@ function defaultHybridAIModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
   if (current && resolveModelProvider(current) === 'hybridai') return current;
-  const first = config.hybridai.models.find(
-    (model) => resolveModelProvider(model) === 'hybridai',
-  );
-  return (first || 'gpt-4.1-mini').trim();
+  return 'gpt-4.1-mini';
 }
 
 function defaultCodexModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
   if (current && isCodexModel(current)) return current;
-  const first = config.codex.models.find((model) => isCodexModel(model));
-  return (first || 'openai-codex/gpt-5-codex').trim();
+  return 'openai-codex/gpt-5-codex';
 }
 
 function defaultOpenRouterModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
   if (current && resolveModelProvider(current) === 'openrouter') return current;
-  const first = config.openrouter.models.find(
-    (model) => resolveModelProvider(model) === 'openrouter',
-  );
-  return (first || '').trim();
+  return 'openrouter/anthropic/claude-sonnet-4';
 }
 
 function defaultMistralModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
   if (current && resolveModelProvider(current) === 'mistral') return current;
-  const first = config.mistral.models.find(
-    (model) => resolveModelProvider(model) === 'mistral',
-  );
-  return (first || '').trim();
+  return 'mistral/mistral-large-latest';
 }
 
 function defaultHuggingFaceModel(): string {
@@ -418,10 +408,7 @@ function defaultHuggingFaceModel(): string {
   if (current && resolveModelProvider(current) === 'huggingface') {
     return current;
   }
-  const first = config.huggingface.models.find(
-    (model) => resolveModelProvider(model) === 'huggingface',
-  );
-  return (first || '').trim();
+  return 'huggingface/meta-llama/Llama-3.1-8B-Instruct';
 }
 
 function formatAcceptanceMeta(): string {

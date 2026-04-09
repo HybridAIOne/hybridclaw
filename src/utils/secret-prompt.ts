@@ -1,12 +1,102 @@
+import fs from 'node:fs';
 import readline from 'node:readline/promises';
+import tty from 'node:tty';
 
 type MutableReadlineInterface = readline.Interface & {
   _writeToOutput?: (value: string) => void;
 };
 
+function stripAnsiEscapeSequences(value: string): string {
+  let result = '';
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) !== 0x1b) {
+      result += value[index] ?? '';
+      continue;
+    }
+
+    if (value[index + 1] !== '[') {
+      continue;
+    }
+
+    index += 2;
+    while (index < value.length) {
+      const code = value.charCodeAt(index);
+      if (code >= 0x40 && code <= 0x7e) {
+        break;
+      }
+      index += 1;
+    }
+  }
+
+  return result;
+}
+
+function normalizeSecretPrompt(prompt: string): string {
+  const plain = stripAnsiEscapeSequences(String(prompt || '')).trim();
+  if (!plain) {
+    return '🔒 Paste secret: ';
+  }
+
+  let label = plain
+    .replace(/^🔒\s*/u, '')
+    .replace(/:\s*$/, '')
+    .trim();
+  if (!/^paste\s+/i.test(label)) {
+    label = `Paste ${label}`;
+  }
+  return `🔒 ${label}: `;
+}
+
 function ensureInteractiveTerminal(missingMessage?: string): void {
   if (process.stdin.isTTY && process.stdout.isTTY) return;
   throw new Error(missingMessage || 'Interactive terminal required.');
+}
+
+function shouldUseDedicatedSecretTty(): boolean {
+  return process.stdin.listenerCount('data') > 0;
+}
+
+function openDedicatedSecretTty(): {
+  input: tty.ReadStream;
+  output: tty.WriteStream;
+  close: () => void;
+} | null {
+  const inputPath = process.platform === 'win32' ? 'CONIN$' : '/dev/tty';
+  const outputPath = process.platform === 'win32' ? 'CONOUT$' : '/dev/tty';
+  let inputFd: number | null = null;
+  let outputFd: number | null = null;
+
+  try {
+    inputFd = fs.openSync(inputPath, 'r');
+    outputFd = fs.openSync(outputPath, 'w');
+    const input = new tty.ReadStream(inputFd);
+    const output = new tty.WriteStream(outputFd);
+    let closed = false;
+
+    return {
+      input,
+      output,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        input.destroy();
+        output.destroy();
+      },
+    };
+  } catch {
+    if (inputFd !== null) {
+      try {
+        fs.closeSync(inputFd);
+      } catch {}
+    }
+    if (outputFd !== null && outputFd !== inputFd) {
+      try {
+        fs.closeSync(outputFd);
+      } catch {}
+    }
+    return null;
+  }
 }
 
 async function promptForSecretInputFallback(prompt: string): Promise<string> {
@@ -91,8 +181,21 @@ async function readHiddenSecretFromTty(
 async function promptForSecretInputWithReadline(
   rl: readline.Interface,
   prompt: string,
+  missingMessage?: string,
 ): Promise<string> {
   const mutableRl = rl as MutableReadlineInterface;
+  if (
+    typeof mutableRl.pause === 'function' &&
+    typeof mutableRl.resume === 'function'
+  ) {
+    mutableRl.pause();
+    try {
+      return await promptForSecretInput({ prompt, missingMessage });
+    } finally {
+      mutableRl.resume();
+    }
+  }
+
   const originalWriteToOutput = mutableRl._writeToOutput?.bind(mutableRl);
   if (!originalWriteToOutput) {
     return (await rl.question(prompt)).trim();
@@ -123,16 +226,42 @@ export async function promptForSecretInput(params: {
   missingMessage?: string;
   rl?: readline.Interface;
 }): Promise<string> {
+  const normalizedPrompt = normalizeSecretPrompt(params.prompt);
   ensureInteractiveTerminal(params.missingMessage);
 
   if (params.rl) {
-    return await promptForSecretInputWithReadline(params.rl, params.prompt);
+    return await promptForSecretInputWithReadline(
+      params.rl,
+      normalizedPrompt,
+      params.missingMessage,
+    );
   }
 
   const ttyInput = process.stdin as NodeJS.ReadStream;
-  if (typeof ttyInput.setRawMode !== 'function') {
-    return await promptForSecretInputFallback(params.prompt);
+  // Readline can leave stdin listeners behind after earlier prompts. Switch to
+  // a fresh controlling TTY so secret input stays hidden.
+  if (shouldUseDedicatedSecretTty()) {
+    const dedicatedTty = openDedicatedSecretTty();
+    if (dedicatedTty) {
+      try {
+        return await readHiddenSecretFromTty(
+          normalizedPrompt,
+          dedicatedTty.input,
+          dedicatedTty.output,
+        );
+      } finally {
+        dedicatedTty.close();
+      }
+    }
   }
 
-  return await readHiddenSecretFromTty(params.prompt, ttyInput, process.stdout);
+  if (typeof ttyInput.setRawMode !== 'function') {
+    return await promptForSecretInputFallback(normalizedPrompt);
+  }
+
+  return await readHiddenSecretFromTty(
+    normalizedPrompt,
+    ttyInput,
+    process.stdout,
+  );
 }

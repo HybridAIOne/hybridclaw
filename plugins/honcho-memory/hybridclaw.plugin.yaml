@@ -1,0 +1,156 @@
+id: honcho-memory
+name: Honcho Memory
+version: 0.1.0
+kind: memory
+memoryProvider: true
+description: Mirror HybridClaw conversations into Honcho, prefetch recall context, and expose Honcho memory tools.
+entrypoint: src/index.js
+credentials:
+  - HONCHO_API_KEY
+# Keep this schema synchronized with src/config-schema.js.
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    baseUrl:
+      type: string
+      default: https://api.honcho.dev
+    workspaceId:
+      type: string
+    peerName:
+      type: string
+      default: ''
+    aiPeer:
+      type: string
+      default: ''
+    contextTokens:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 20000
+    searchLimit:
+      type: number
+      default: 5
+      minimum: 1
+      maximum: 50
+    maxInjectedChars:
+      type: number
+      default: 5000
+      minimum: 500
+      maximum: 50000
+    messageMaxChars:
+      type: number
+      default: 25000
+      minimum: 100
+      maximum: 50000
+    timeoutMs:
+      type: number
+      default: 15000
+      minimum: 1000
+      maximum: 60000
+    includeSummary:
+      type: boolean
+      default: true
+    includeRecentMessages:
+      type: boolean
+      default: true
+    includePeerRepresentation:
+      type: boolean
+      default: true
+    includePeerCard:
+      type: boolean
+      default: true
+    includeAiPeerRepresentation:
+      type: boolean
+      default: true
+    includeAiPeerCard:
+      type: boolean
+      default: false
+    limitToSession:
+      type: boolean
+      default: true
+    recallMode:
+      type: string
+      enum: [hybrid, context, tools]
+      default: hybrid
+    saveMessages:
+      type: boolean
+      default: true
+    writeFrequency:
+      anyOf:
+        - type: string
+          enum: [async, turn, session]
+        - type: integer
+          minimum: 1
+      default: async
+    sessionStrategy:
+      type: string
+      enum: [platform, per-directory, per-repo, per-session, global]
+      default: platform
+    sessionPeerPrefix:
+      type: boolean
+      default: false
+    sessions:
+      type: object
+      default: {}
+      additionalProperties:
+        type: string
+    observationMode:
+      type: string
+      enum: [directional, unified]
+      default: directional
+    observation:
+      type: object
+      additionalProperties: false
+      properties:
+        user:
+          type: object
+          additionalProperties: false
+          properties:
+            observeMe:
+              type: boolean
+            observeOthers:
+              type: boolean
+        ai:
+          type: object
+          additionalProperties: false
+          properties:
+            observeMe:
+              type: boolean
+            observeOthers:
+              type: boolean
+    dialecticReasoningLevel:
+      type: string
+      enum: [minimal, low, medium, high, max]
+      default: low
+    dialecticDynamic:
+      type: boolean
+      default: true
+    dialecticMaxChars:
+      type: number
+      default: 600
+      minimum: 100
+      maximum: 10000
+    dialecticMaxInputChars:
+      type: number
+      default: 10000
+      minimum: 100
+      maximum: 50000
+    injectionFrequency:
+      type: string
+      enum: [every-turn, first-turn]
+      default: every-turn
+    contextCadence:
+      type: number
+      default: 1
+      minimum: 1
+      maximum: 1000
+    dialecticCadence:
+      type: number
+      default: 1
+      minimum: 1
+      maximum: 1000
+    reasoningLevelCap:
+      type: string
+      enum: ['', minimal, low, medium, high, max]
+      default: ''

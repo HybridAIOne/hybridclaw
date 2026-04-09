@@ -365,7 +365,7 @@ test('bot set works from a non-HybridAI session and syncs the bot model', async 
     text: 'Chatbot set to `bot-research` and model set to `hybridai/gpt-4o-mini` for this session.',
   });
   expect(getSessionById(sessionId)?.chatbot_id).toBe('bot-research');
-  expect(getSessionById(sessionId)?.model).toBe('gpt-4o-mini');
+  expect(getSessionById(sessionId)?.model).toBe('hybridai/gpt-4o-mini');
 });
 
 test('bot info works even when the session model is not HybridAI', async () => {

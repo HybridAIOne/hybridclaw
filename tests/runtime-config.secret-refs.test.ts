@@ -70,6 +70,7 @@ describe('runtime config secret refs', () => {
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
     runtimeSecrets.saveRuntimeSecrets({
       WEB_API_TOKEN: 'web-token-from-store',
+      EMAIL_PASSWORD: 'email-app-password',
       IMESSAGE_PASSWORD: 'bluebubbles-password',
     });
     process.env.TEST_GATEWAY_TOKEN = 'gateway-token-from-env';
@@ -86,6 +87,10 @@ describe('runtime config secret refs', () => {
       imessage.serverUrl = 'https://bluebubbles.example.com';
       imessage.password = { source: 'store', id: 'IMESSAGE_PASSWORD' };
 
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.password = { source: 'store', id: 'EMAIL_PASSWORD' };
+
       const local = config.local as Record<string, unknown>;
       const backends = local.backends as Record<string, unknown>;
       const vllm = backends.vllm as Record<string, unknown>;
@@ -98,6 +103,7 @@ describe('runtime config secret refs', () => {
 
     expect(config.ops.webApiToken).toBe('web-token-from-store');
     expect(config.ops.gatewayApiToken).toBe('gateway-token-from-env');
+    expect(config.email.password).toBe('email-app-password');
     expect(config.imessage.password).toBe('bluebubbles-password');
     expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-env');
   });
@@ -183,6 +189,21 @@ describe('runtime config secret refs', () => {
 
     expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
       /imessage\.password references stored secret IMESSAGE_PASSWORD but it is not set/,
+    );
+  });
+
+  test('throws on reload when email password secret ref is unresolved', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.password = { source: 'store', id: 'EMAIL_PASSWORD' };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
+      /email\.password references stored secret EMAIL_PASSWORD but it is not set/,
     );
   });
 });

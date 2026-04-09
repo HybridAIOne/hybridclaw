@@ -36,6 +36,7 @@ import {
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
 } from '../../config/config.js';
+import { parseConciergeChoiceCustomId } from '../../gateway/concierge-choice.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import {
@@ -44,7 +45,11 @@ import {
 } from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
-import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
+import {
+  getMemoryValue,
+  getSessionById,
+  resolveSessionIdCompat,
+} from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types/container.js';
@@ -233,6 +238,17 @@ const conversationExchangeByKey = new Map<
   string,
   { count: number; lastAtMs: number }
 >();
+
+function hasPendingConciergeState(sessionId: string): boolean {
+  const raw = getMemoryValue(sessionId, 'gateway.concierge.pending');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const originalUserContent =
+    typeof (raw as { originalUserContent?: unknown }).originalUserContent ===
+    'string'
+      ? (raw as { originalUserContent: string }).originalUserContent.trim()
+      : '';
+  return originalUserContent.length > 0;
+}
 
 function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
   discordPresenceCache.set(userId, data);
@@ -1614,6 +1630,152 @@ export async function initDiscord(
   });
 
   client.on('interactionCreate', async (interaction) => {
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith('concierge:')
+    ) {
+      const interactionVisibility = interaction.guildId
+        ? { flags: 'Ephemeral' as const }
+        : {};
+      const parsed = parseConciergeChoiceCustomId(interaction.customId);
+      if (!parsed) {
+        await interaction.reply({
+          content: 'Invalid button.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      if (interaction.user.id !== parsed.userId) {
+        await interaction.reply({
+          content: 'Only the requesting user can respond.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      if (!hasPendingConciergeState(parsed.sessionId)) {
+        await interaction.reply({
+          content: 'This concierge prompt has expired or was already handled.',
+          ...interactionVisibility,
+        });
+        await disableApprovalButtons(
+          interaction.message as DiscordMessage,
+        ).catch(() => {});
+        return;
+      }
+      const sourceMessage = interaction.message as DiscordMessage;
+      const guildId = interaction.guildId ?? null;
+      const channelId = interaction.channelId;
+      const behavior = resolveChannelBehavior(sourceMessage);
+      const mentionLookup = buildMentionLookup(
+        [sourceMessage],
+        [],
+        guildId ? participantMemoryByChannel.get(channelId) : undefined,
+      );
+      const abortController = new AbortController();
+      const typingController = createTypingController(
+        sourceMessage,
+        behavior.typingMode,
+      );
+      typingController.setPhase('received');
+      const lifecycleController =
+        client.user && DISCORD_LIFECYCLE_REACTIONS.enabled
+          ? new LifecycleReactionController({
+              message: sourceMessage,
+              withRetry: withDiscordRetry,
+              botUserId: client.user.id,
+              config: {
+                enabled: DISCORD_LIFECYCLE_REACTIONS.enabled,
+                removeOnComplete: DISCORD_LIFECYCLE_REACTIONS.removeOnComplete,
+                phases: DISCORD_LIFECYCLE_REACTIONS.phases,
+              },
+            })
+          : null;
+      lifecycleController?.setPhase('queued');
+      const emitLifecyclePhase = (phase: LifecyclePhase): void => {
+        if (phase === 'queued') {
+          typingController.setPhase('received');
+        } else if (phase === 'thinking') {
+          typingController.setPhase('thinking');
+        } else if (phase === 'toolUse') {
+          typingController.setPhase('toolUse');
+        } else if (phase === 'streaming') {
+          typingController.setPhase('streaming');
+        } else {
+          typingController.setPhase('done');
+        }
+        lifecycleController?.setPhase(phase);
+      };
+      const stream = new DiscordStreamManager(sourceMessage, {
+        onFirstMessage: () => emitLifecyclePhase('streaming'),
+        humanDelay: behavior.humanDelay,
+      });
+
+      await interaction.deferUpdate();
+      await disableApprovalButtons(sourceMessage).catch(() => {});
+
+      try {
+        const showMode = normalizeSessionShowMode(
+          getSessionById(parsed.sessionId)?.show_mode,
+        );
+        if (sessionShowModeShowsThinking(showMode)) {
+          emitLifecyclePhase('thinking');
+        }
+        await messageHandler(
+          parsed.sessionId,
+          guildId,
+          channelId,
+          interaction.user.id,
+          interaction.user.username,
+          parsed.profile,
+          [],
+          async (text, files, components) => {
+            await sendChunkedReply(
+              sourceMessage,
+              text,
+              files,
+              components,
+              mentionLookup,
+              behavior.humanDelay,
+            );
+          },
+          {
+            sourceMessage,
+            batchedMessages: [],
+            abortSignal: abortController.signal,
+            stream,
+            mentionLookup,
+            emitLifecyclePhase,
+            sendApprovalNotification: async ({ text, approvalId, userId }) => {
+              const row = buildApprovalActionRow(approvalId);
+              const sent = await withDiscordRetry('approval-notification', () =>
+                sourceMessage.reply({
+                  content: `<@${userId}> ${text}`,
+                  components: [row],
+                }),
+              );
+              return {
+                disableButtons: () => disableApprovalButtons(sent),
+              };
+            },
+          },
+        );
+        emitLifecyclePhase('done');
+      } catch (error) {
+        emitLifecyclePhase('error');
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, guildId, channelId, userId: interaction.user.id },
+          'Discord concierge button failed',
+        );
+        await sourceMessage.reply({
+          content: formatError('Gateway Error', detail),
+        });
+      } finally {
+        typingController.stop();
+      }
+      return;
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith('reset:')) {
       const interactionVisibility = interaction.guildId
         ? { flags: 'Ephemeral' as const }

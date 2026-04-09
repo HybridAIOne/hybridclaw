@@ -11,7 +11,8 @@
 
 <img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
 
-## The enterprise operating layer for open agents.
+## All of the Claw, None of the Chaos
+### Your enterprise operating layer for open agents
 
 Self-hosted, controllable, and built for real business workflows.
 
@@ -21,12 +22,12 @@ HybridClaw is optimized for enterprise deployment:
 - controlled execution
 - shared knowledge
 - observability
-- repeatable workflows
+- repeatable enterprise workflows
 - local-first deployment
 
 ## HybridAI Platform Advantage
 
-HybridClaw is the runtime. HybridAI is the platform layer around it.
+HybridClaw is the runtime. HybridAI is the (optional) platform layer around it.
 
 HybridAI adds:
 
@@ -34,6 +35,8 @@ HybridAI adds:
 - enterprise shared RAG / knowledge
 - access to current models from Anthropic, OpenAI, Google, xAI, and others
 - observability across multiple agents
+- built-in email addresses for your agents
+- ready-to-run virtual coworkers
 
 ## Get running in 2 minutes
 
@@ -47,8 +50,9 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin`
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
+- OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
@@ -71,8 +75,9 @@ Imports compatible skills, memory, config, and optional secrets.
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin`
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
+- or connect Whatsapp, Discord, MS Teams, Email
 
 ## How HybridClaw compares
 
@@ -84,7 +89,7 @@ Once the gateway is running, open HybridClaw locally:
 | Approvals / governance | ✅ Approvals, audit trails, sandbox, config history | ⚠️ Strong approvals/audit, less enterprise-governance framing | ⚠️ Strong approvals/isolation, less audit/admin surface |
 | Memory / knowledge | ✅ Shared memory + HybridAI knowledge path | ⚠️ Strong memory/session features | ⚠️ Strong persistent/self-improving memory |
 | Multi-agent observability | ✅ Built-in audit surfaces + platform path | ⚠️ Multi-agent/task inspection exists | ⚠️ Subagents + logs/session search, not central observability |
-| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
+| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path plus SSH/Tailscale remote access | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
 | Multiple UIs | ✅ TUI + Chat UI + Admin UI + Agents UI | ✅ TUI + WebChat + Control UI | ⚠️ TUI + messaging + API server, no comparable built-in admin/chat web UI |
 
 ## Adjacent tools
@@ -100,8 +105,8 @@ Once the gateway is running, open HybridClaw locally:
 
 - encrypted secrets
 - approvals
-- audit trails
-- config versioning
+- audit trails with hash chain
+- config versioning and backup/rollback
 - observability
 
 ## Built for real workflows
@@ -115,7 +120,7 @@ Once the gateway is running, open HybridClaw locally:
 ## Built for rollout and migration
 
 - import from OpenClaw / Hermes
-- portable `.claw` packages
+- portable `.claw` packages with bundled knowledge and skills
 - local-first to cloud-ready path
 
 ## Architecture
@@ -139,6 +144,8 @@ Browse the full manual at
 - Enterprise deployment:
   [Runtime Internals](https://www.hybridclaw.io/docs/development/internals/runtime) and
   [Architecture](https://www.hybridclaw.io/docs/development/internals/architecture)
+- Operations:
+  [Remote Access](https://www.hybridclaw.io/docs/development/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
@@ -150,8 +157,10 @@ Browse the full manual at
   [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/development/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills), and
-  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins)
+  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills),
+  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins),
+  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/mempalace-memory-plugin)
 - Configuration:
   [Configuration Reference](https://www.hybridclaw.io/docs/development/reference/configuration)
 - CLI reference:

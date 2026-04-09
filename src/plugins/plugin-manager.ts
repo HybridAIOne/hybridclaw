@@ -20,6 +20,8 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import type { ToolExecution } from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
@@ -35,6 +37,7 @@ import type {
   PluginConfigSchema,
   PluginConfigUiHint,
   PluginDispatchInboundMessageRequest,
+  PluginExternalDependency,
   PluginHookHandlerMap,
   PluginHookName,
   PluginInboundWebhookContext,
@@ -42,7 +45,11 @@ import type {
   PluginInstallSpec,
   PluginLogger,
   PluginManifest,
+  PluginMemoryBehavior,
   PluginMemoryFlushContext,
+  PluginMemoryWriteAction,
+  PluginMemoryWriteContext,
+  PluginPackageDependency,
   PluginPromptBuildContext,
   PluginPromptContextResult,
   PluginPromptHook,
@@ -66,6 +73,9 @@ const DEFAULT_ENTRYPOINT_CANDIDATES = [
   'index.ts',
 ];
 
+const PLUGIN_MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
+const PLUGIN_DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
+
 const pluginConfigValidator = new Ajv({
   allErrors: false,
   removeAdditional: true,
@@ -80,6 +90,19 @@ type RuntimePluginConfigEntryLike = {
   path?: string;
   config: Record<string, unknown>;
 };
+
+function comparePluginCandidates(
+  left: PluginCandidate,
+  right: PluginCandidate,
+  configuredIds: ReadonlySet<string>,
+): number {
+  const leftConfigured = configuredIds.has(left.id);
+  const rightConfigured = configuredIds.has(right.id);
+  if (leftConfigured !== rightConfigured) {
+    return leftConfigured ? -1 : 1;
+  }
+  return left.id.localeCompare(right.id);
+}
 
 type RegisteredMemoryLayer = {
   pluginId: string;
@@ -198,6 +221,73 @@ function normalizeStringArray(value: unknown): string[] {
   return out;
 }
 
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMemoryWriteAction(
+  value: unknown,
+): PluginMemoryWriteAction | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'append' ||
+    normalized === 'write' ||
+    normalized === 'replace' ||
+    normalized === 'remove'
+    ? normalized
+    : null;
+}
+
+function normalizeMemoryFilePath(rawPath: unknown): string | null {
+  if (typeof rawPath !== 'string') return null;
+  const normalized = rawPath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.?\//, '');
+  if (!normalized) return null;
+  if (PLUGIN_MEMORY_ROOT_FILES.has(normalized)) return normalized;
+  if (PLUGIN_DAILY_MEMORY_FILE_RE.test(normalized)) return normalized;
+  return null;
+}
+
+function memoryFilePathFromResult(result: string): string | null {
+  const normalized = result.trim();
+  if (!normalized) return null;
+  const directMatch =
+    /^Appended \d+ chars to (.+)$/u.exec(normalized) ||
+    /^Wrote \d+ chars to (.+)$/u.exec(normalized) ||
+    /^Updated (.+)$/u.exec(normalized) ||
+    /^Removed matching text from (.+)$/u.exec(normalized);
+  return directMatch ? normalizeMemoryFilePath(directMatch[1]) : null;
+}
+
+function resolveMemoryWriteFilePath(
+  args: Record<string, unknown>,
+  result: string,
+): string | null {
+  const direct =
+    normalizeMemoryFilePath(args.file_path) ||
+    normalizeMemoryFilePath(args.path);
+  if (direct) return direct;
+
+  const target =
+    typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
+  if (target === 'memory') return 'MEMORY.md';
+  if (target === 'user') return 'USER.md';
+  if (target === 'daily' && typeof args.date === 'string') {
+    return normalizeMemoryFilePath(`memory/${args.date.trim()}.md`);
+  }
+
+  return memoryFilePathFromResult(result);
+}
+
 function normalizeTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim();
@@ -231,6 +321,50 @@ function normalizePluginInstallSpecs(
   }));
 }
 
+function normalizePluginPackageDependencies(
+  value: unknown,
+): PluginPackageDependency[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: PluginPackageDependency[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      const pkg = normalizeTrimmedString(entry);
+      if (!pkg) continue;
+      out.push({ package: pkg });
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const pkg = normalizeTrimmedString(entry.package);
+    if (!pkg) continue;
+    out.push({ package: pkg });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function normalizePluginExternalDependencies(
+  value: unknown,
+): PluginExternalDependency[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: PluginExternalDependency[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const name = normalizeTrimmedString(entry.name);
+    const check = normalizeTrimmedString(entry.check);
+    if (!name || !check) continue;
+    const installHint =
+      normalizeTrimmedString(entry.installHint) ||
+      normalizeTrimmedString(entry.install);
+    const installUrl = normalizeTrimmedString(entry.installUrl);
+    out.push({
+      name,
+      check,
+      ...(installHint ? { installHint } : {}),
+      ...(installUrl ? { installUrl } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function normalizePluginBinaryRequirements(
   value: unknown,
 ): PluginBinaryRequirement[] {
@@ -247,7 +381,14 @@ function normalizePluginBinaryRequirements(
     const name = normalizeTrimmedString(entry.name);
     if (!name) continue;
     const configKey = normalizeTrimmedString(entry.configKey);
-    out.push(configKey ? { name, configKey } : { name });
+    const installHint = normalizeTrimmedString(entry.installHint);
+    const installUrl = normalizeTrimmedString(entry.installUrl);
+    out.push({
+      name,
+      ...(configKey ? { configKey } : {}),
+      ...(installHint ? { installHint } : {}),
+      ...(installUrl ? { installUrl } : {}),
+    });
   }
   return out;
 }
@@ -294,6 +435,7 @@ function normalizeManifest(input: unknown): PluginManifest {
   if (!id) {
     throw new Error('Plugin manifest is missing `id`.');
   }
+  const credentials = normalizeStringArray(input.credentials);
 
   return {
     id,
@@ -301,6 +443,7 @@ function normalizeManifest(input: unknown): PluginManifest {
     version: normalizeTrimmedString(input.version),
     description: normalizeTrimmedString(input.description),
     kind: normalizePluginKind(input.kind),
+    memoryProvider: input.memoryProvider === true ? true : undefined,
     author: normalizeTrimmedString(input.author),
     entrypoint: normalizeTrimmedString(input.entrypoint),
     requires: isRecord(input.requires)
@@ -310,7 +453,17 @@ function normalizeManifest(input: unknown): PluginManifest {
           node: normalizeTrimmedString(input.requires.node),
         }
       : undefined,
+    credentials: credentials.length > 0 ? credentials : undefined,
     install: normalizePluginInstallSpecs(input.install),
+    pipDependencies: normalizePluginPackageDependencies(
+      input.pipDependencies ?? input.pip_dependencies,
+    ),
+    nodeDependencies: normalizePluginPackageDependencies(
+      input.nodeDependencies ?? input.node_dependencies,
+    ),
+    externalDependencies: normalizePluginExternalDependencies(
+      input.externalDependencies ?? input.external_dependencies,
+    ),
     configSchema: isRecord(input.configSchema)
       ? (input.configSchema as PluginConfigSchema)
       : undefined,
@@ -589,6 +742,30 @@ function resolvePluginDefinition(mod: unknown): HybridClawPluginDefinition {
   return candidate as unknown as HybridClawPluginDefinition;
 }
 
+export async function resolveEffectivePluginConfigSchema(
+  candidate: PluginCandidate,
+): Promise<PluginConfigSchema | undefined> {
+  let importedModule: { module: unknown; snapshotRootDir: string } | null =
+    null;
+  try {
+    importedModule = await importPluginModule(
+      candidate.entrypoint,
+      candidate.dir,
+    );
+    const definition = resolvePluginDefinition(importedModule.module);
+    if (definition.id.trim() !== candidate.id) {
+      return candidate.manifest.configSchema;
+    }
+    return definition.configSchema || candidate.manifest.configSchema;
+  } catch {
+    return candidate.manifest.configSchema;
+  } finally {
+    if (importedModule?.snapshotRootDir) {
+      cleanupPluginImportSnapshot(importedModule.snapshotRootDir);
+    }
+  }
+}
+
 function normalizeToolResult(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value == null) return '';
@@ -616,6 +793,8 @@ export class PluginManager {
   private channels: RegisteredChannel[] = [];
   private commands = new Map<string, RegisteredCommand>();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
+  private sessionWorkspaceRoots = new Map<string, string>();
+  private sessionUserIds = new Map<string, string>();
   private importSnapshotRoots: string[] = [];
   private dispatchInboundMessageHost:
     | ((
@@ -739,6 +918,12 @@ export class PluginManager {
     config: RuntimeConfig = this.getConfig(),
   ): Promise<PluginCandidate[]> {
     const configuredEntries = toPluginConfigEntries(config);
+    const configuredIds = new Set(
+      configuredEntries
+        .filter((entry) => entry.enabled)
+        .map((entry) => String(entry.id || '').trim())
+        .filter((entry) => entry.length > 0),
+    );
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
       path.join(this.homeDir, 'plugins'),
@@ -795,7 +980,9 @@ export class PluginManager {
         );
       }
     }
-    return [...selected.values()];
+    return [...selected.values()].sort((left, right) =>
+      comparePluginCandidates(left, right, configuredIds),
+    );
   }
 
   private scanDirectory(
@@ -806,6 +993,7 @@ export class PluginManager {
     const entries = fs
       .readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name))
       .map((entry) => path.join(dir, entry.name));
     const out: PluginCandidate[] = [];
     for (const entry of entries) {
@@ -850,6 +1038,36 @@ export class PluginManager {
   ): Promise<void> {
     if (!candidate.enabled) return;
     if (this.plugins.some((plugin) => plugin.id === candidate.id)) return;
+    if (candidate.manifest.memoryProvider) {
+      const activeMemoryProvider = this.plugins.find(
+        (plugin) =>
+          plugin.status === 'loaded' && plugin.manifest.memoryProvider === true,
+      );
+      if (activeMemoryProvider) {
+        const error = [
+          'Only one external memory provider can be active at a time.',
+          `"${activeMemoryProvider.id}" is already loaded.`,
+        ].join(' ');
+        this.logger.warn(
+          {
+            pluginId: candidate.id,
+            activeMemoryProvider: activeMemoryProvider.id,
+          },
+          'Skipping plugin because another external memory provider is already active',
+        );
+        this.plugins.push({
+          id: candidate.id,
+          manifest: candidate.manifest,
+          candidate,
+          enabled: false,
+          status: 'failed',
+          error,
+          toolsRegistered: [],
+          hooksRegistered: [],
+        });
+        return;
+      }
+    }
 
     if (!satisfiesNodeRequirement(candidate.manifest.requires?.node)) {
       this.logger.warn(
@@ -957,6 +1175,7 @@ export class PluginManager {
         config,
         pluginConfig: validatedConfig,
         declaredEnv: candidate.manifest.requires?.env || [],
+        declaredCredentials: candidate.manifest.credentials || [],
         homeDir: this.homeDir,
         cwd: this.cwd,
       });
@@ -1179,6 +1398,38 @@ export class PluginManager {
     });
   }
 
+  getSessionWorkspaceRoot(sessionId: string): string | null {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return null;
+    return this.sessionWorkspaceRoots.get(normalizedSessionId) || null;
+  }
+
+  getSessionUserId(sessionId: string): string | null {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return null;
+    return this.sessionUserIds.get(normalizedSessionId) || null;
+  }
+
+  private rememberSessionWorkspaceRoot(
+    sessionId: string,
+    workspacePath?: string,
+  ): void {
+    const normalizedSessionId = String(sessionId || '').trim();
+    const normalizedWorkspacePath = String(workspacePath || '').trim();
+    if (!normalizedSessionId || !normalizedWorkspacePath) return;
+    this.sessionWorkspaceRoots.set(
+      normalizedSessionId,
+      path.resolve(normalizedWorkspacePath),
+    );
+  }
+
+  private rememberSessionUserId(sessionId: string, userId?: string): void {
+    const normalizedSessionId = String(sessionId || '').trim();
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedSessionId || !normalizedUserId) return;
+    this.sessionUserIds.set(normalizedSessionId, normalizedUserId);
+  }
+
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
     return {
       plugins: [...this.plugins],
@@ -1251,6 +1502,52 @@ export class PluginManager {
     }
 
     return [...registered].sort((left, right) => left.localeCompare(right));
+  }
+
+  private disableFailedMemoryProviderPlugin(
+    pluginId: string,
+    errorMessage: string,
+  ): void {
+    const plugin = this.plugins.find((entry) => entry.id === pluginId);
+    if (
+      !plugin ||
+      (plugin.manifest.kind !== 'memory' &&
+        plugin.manifest.memoryProvider !== true)
+    ) {
+      return;
+    }
+
+    plugin.enabled = false;
+    plugin.status = 'failed';
+    plugin.error = errorMessage;
+
+    this.memoryLayers = this.memoryLayers.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+    this.promptHooks = this.promptHooks.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+    this.services = this.services.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+
+    for (const [name, entry] of this.tools.entries()) {
+      if (entry.pluginId === pluginId) {
+        this.tools.delete(name);
+      }
+    }
+
+    for (const [name, entries] of [...this.hooks.entries()]) {
+      const remaining = entries.filter((entry) => entry.pluginId !== pluginId);
+      if (remaining.length === 0) {
+        this.hooks.delete(name);
+        continue;
+      }
+      this.hooks.set(name, remaining);
+    }
+
+    plugin.toolsRegistered = this.getPluginToolNames(pluginId);
+    plugin.hooksRegistered = this.getPluginHookNames(pluginId);
   }
 
   getMemoryLayers(): MemoryLayerPlugin[] {
@@ -1353,9 +1650,13 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
     recentMessages: StoredMessage[];
   }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
+    const memoryBehavior = this.getMemoryBehaviorSnapshot();
 
     const extraContext: string[] = [];
     const pluginIds = new Set<string>();
@@ -1368,6 +1669,7 @@ export class PluginManager {
           sessionId: params.sessionId,
           userId: params.userId,
           agentId: params.agentId,
+          workspacePath: params.workspacePath,
           recentMessages: params.recentMessages,
         });
         if (typeof value === 'string' && value.trim()) {
@@ -1422,6 +1724,7 @@ export class PluginManager {
       }
     }
     return {
+      ...memoryBehavior,
       sections: extraContext.filter(
         (value, index, list) => list.indexOf(value) === index,
       ),
@@ -1436,10 +1739,25 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
     recentMessages: StoredMessage[];
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
     return result.sections;
+  }
+
+  getMcpServerConfig(name: string): McpServerConfig | null {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+    const config = this.getConfig();
+    const entry = config.mcpServers?.[normalized];
+    if (!entry) return null;
+    return structuredClone(entry);
+  }
+
+  async getMemoryLayerBehavior(): Promise<PluginMemoryBehavior> {
+    await this.ensureInitialized();
+    return this.getMemoryBehaviorSnapshot();
   }
 
   async notifySessionStart(params: {
@@ -1447,8 +1765,11 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
     await this.dispatchHook('session_start', params);
   }
 
@@ -1457,9 +1778,13 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
     await this.dispatchHook('session_end', params);
+    this.sessionWorkspaceRoots.delete(params.sessionId);
+    this.sessionUserIds.delete(params.sessionId);
   }
 
   async notifyBeforeAgentStart(params: {
@@ -1470,11 +1795,13 @@ export class PluginManager {
     model?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
     await this.dispatchHook('before_agent_start', params);
   }
 
   async notifyAgentEnd(context: PluginAgentEndContext): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(context.sessionId, context.userId);
     await this.dispatchHook('agent_end', context);
   }
 
@@ -1482,9 +1809,12 @@ export class PluginManager {
     sessionId: string;
     userId: string;
     agentId: string;
+    workspacePath?: string;
     messages: StoredMessage[];
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onTurnComplete) continue;
       try {
@@ -1500,6 +1830,20 @@ export class PluginManager {
 
   async handleSessionReset(context: PluginSessionResetContext): Promise<void> {
     await this.ensureInitialized();
+    const previousWorkspaceRoot =
+      this.sessionWorkspaceRoots.get(context.previousSessionId) || null;
+    const previousUserId =
+      this.sessionUserIds.get(context.previousSessionId) || null;
+    if (previousWorkspaceRoot) {
+      this.sessionWorkspaceRoots.set(context.sessionId, previousWorkspaceRoot);
+    }
+    if (previousUserId) {
+      this.sessionUserIds.set(context.sessionId, previousUserId);
+    } else {
+      this.rememberSessionUserId(context.sessionId, context.userId);
+    }
+    this.sessionWorkspaceRoots.delete(context.previousSessionId);
+    this.sessionUserIds.delete(context.previousSessionId);
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onSessionReset) continue;
       try {
@@ -1532,6 +1876,18 @@ export class PluginManager {
   async notifyMemoryFlush(context: PluginMemoryFlushContext): Promise<void> {
     await this.ensureInitialized();
     await this.dispatchHook('memory_flush', context);
+  }
+
+  async notifyMemoryWrites(params: {
+    sessionId: string;
+    agentId: string;
+    channelId: string;
+    toolExecutions: ToolExecution[];
+  }): Promise<void> {
+    await this.ensureInitialized();
+    for (const context of this.collectMemoryWriteContexts(params)) {
+      await this.dispatchHook('memory_write', context);
+    }
   }
 
   async executeTool(params: ExecutePluginToolParams): Promise<string> {
@@ -1591,6 +1947,65 @@ export class PluginManager {
     );
   }
 
+  private getMemoryBehaviorSnapshot(): PluginMemoryBehavior {
+    return {
+      replacesBuiltInMemory: this.memoryLayers.some(
+        (entry) => entry.layer.replacesBuiltInMemory === true,
+      ),
+    };
+  }
+
+  private collectMemoryWriteContexts(params: {
+    sessionId: string;
+    agentId: string;
+    channelId: string;
+    toolExecutions: ToolExecution[];
+  }): PluginMemoryWriteContext[] {
+    const contexts: PluginMemoryWriteContext[] = [];
+    for (const execution of params.toolExecutions) {
+      if (
+        String(execution.name || '')
+          .trim()
+          .toLowerCase() !== 'memory'
+      ) {
+        continue;
+      }
+      if (execution.isError || execution.blocked) continue;
+
+      const args = parseJsonObject(execution.arguments || '');
+      if (!args) continue;
+
+      const action = normalizeMemoryWriteAction(args.action);
+      if (!action) continue;
+
+      const memoryFilePath = resolveMemoryWriteFilePath(args, execution.result);
+      if (!memoryFilePath) continue;
+
+      const context: PluginMemoryWriteContext = {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        action,
+        memoryFilePath,
+        arguments: args,
+        result: String(execution.result || ''),
+      };
+
+      if (typeof args.content === 'string') {
+        context.content = args.content;
+      }
+      if (typeof args.old_text === 'string') {
+        context.oldText = args.old_text;
+      }
+      if (typeof args.new_text === 'string') {
+        context.newText = args.new_text;
+      }
+
+      contexts.push(context);
+    }
+    return contexts;
+  }
+
   private async startMemoryLayers(): Promise<void> {
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       try {
@@ -1598,6 +2013,10 @@ export class PluginManager {
         if (!start) continue;
         await start.call(entry.layer);
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : String(error || 'Unknown error');
         this.logger.warn(
           {
             pluginId: entry.pluginId,
@@ -1606,6 +2025,7 @@ export class PluginManager {
           },
           'Plugin memory layer failed to start',
         );
+        this.disableFailedMemoryProviderPlugin(entry.pluginId, errorMessage);
       }
     }
   }

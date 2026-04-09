@@ -52,6 +52,7 @@ export interface GatewayChatResult {
   toolsUsed: string[];
   pluginsUsed?: string[];
   memoryCitations?: MemoryCitation[];
+  components?: GatewayMessageComponents;
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;
@@ -328,6 +329,10 @@ export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
   pid?: number;
+  lifecycle?: {
+    restartSupported: boolean;
+    restartReason: string | null;
+  };
   version: string;
   uptime: number;
   sessions: number;
@@ -375,6 +380,24 @@ export interface GatewayStatus {
   };
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
+  };
+  discord?: {
+    tokenConfigured: boolean;
+    tokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  email?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  imessage?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  whatsapp?: {
+    linked: boolean;
+    jid: string | null;
+    pairingQrText: string | null;
+    pairingUpdatedAt: string | null;
   };
   providerHealth?: Partial<
     Record<
@@ -622,8 +645,6 @@ export interface GatewayAdminConfigResponse {
 
 export interface GatewayAdminModelCatalogEntry {
   id: string;
-  configuredInHybridai: boolean;
-  configuredInCodex: boolean;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
@@ -638,8 +659,6 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
-  hybridaiModels: string[];
-  codexModels: string[];
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }
@@ -753,7 +772,7 @@ export interface GatewayAdminPluginsResponse {
 export interface GatewayAdminToolCatalogEntry {
   name: string;
   group: string;
-  kind: 'builtin' | 'mcp' | 'other';
+  kind: 'builtin' | 'plugin' | 'mcp' | 'other';
   recentCalls: number;
   recentErrors: number;
   lastUsedAt: string | null;

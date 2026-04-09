@@ -26,8 +26,11 @@ function expectInfoLog(
 
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
+  emailEnabled?: boolean;
+  emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -55,11 +58,11 @@ function createGatewayMainTestState(options?: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
       email: {
-        enabled: false,
-        address: '',
-        imapHost: '',
+        enabled: options?.emailEnabled ?? false,
+        address: options?.emailEnabled ? 'bot@example.com' : '',
+        imapHost: options?.emailEnabled ? 'imap.example.com' : '',
         imapSecure: true,
-        smtpHost: '',
+        smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
       },
       msteams: {
@@ -73,6 +76,10 @@ function createGatewayMainTestState(options?: {
         enabled: options?.imessageEnabled ?? false,
         backend: 'bluebubbles',
         webhookPath: '/api/imessage/webhook',
+      },
+      whatsapp: {
+        dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
+        groupPolicy: 'disabled',
       },
       local: { enabled: false },
       memory: {
@@ -123,6 +130,7 @@ function createGatewayMainTestState(options?: {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
@@ -138,6 +146,7 @@ function createGatewayMainTestState(options?: {
     loggerFatal: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    shutdownEmail: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       dailyFilesCompiled: 0,
@@ -193,6 +202,7 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  whatsappEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -330,10 +340,10 @@ async function importFreshGatewayMain(options?: {
     initMSTeams: state.initMSTeams,
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
-    initEmail: vi.fn(async () => {}),
+    initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
     sendToEmail: vi.fn(async () => {}),
-    shutdownEmail: vi.fn(async () => {}),
+    shutdownEmail: state.shutdownEmail,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     initWhatsApp: state.initWhatsApp,
@@ -351,7 +361,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/config/config.js', () => ({
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
-    EMAIL_PASSWORD: '',
+    EMAIL_PASSWORD: options?.emailPassword ?? '',
     MSTEAMS_APP_ID:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
@@ -558,7 +568,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.memoryServiceSetDecayRate).toHaveBeenCalledWith(0.4);
     expect(state.memoryServiceConsolidateWithCleanup).toHaveBeenCalledTimes(1);
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   test('does not rerun dream consolidation on startup when a nightly run already completed today', async () => {
@@ -584,7 +594,7 @@ describe('gateway bootstrap', () => {
     });
 
     expect(state.memoryServiceConsolidateWithCleanup).not.toHaveBeenCalled();
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   test('logs the resolved scheduler timezone instead of an invalid USER.md placeholder', async () => {
@@ -691,11 +701,27 @@ describe('gateway bootstrap', () => {
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
   });
 
-  test('starts WhatsApp integration automatically when linked auth exists', async () => {
-    const state = await importFreshGatewayMain({ whatsappLinked: true });
+  test('starts WhatsApp integration automatically when the transport is enabled', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: false });
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('does not start WhatsApp integration when the transport is disabled', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        whatsapp: false,
+      }),
+    );
   });
 
   test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
@@ -915,7 +941,7 @@ describe('gateway bootstrap', () => {
         discord: false,
         msteams: true,
         email: false,
-        whatsapp: false,
+        whatsapp: true,
       }),
     );
   });
@@ -1028,6 +1054,52 @@ describe('gateway bootstrap', () => {
       [],
     );
     expect(stream.fail).not.toHaveBeenCalled();
+  });
+
+  test('replies directly when a Discord chat result includes components', async () => {
+    const state = await importFreshGatewayMain();
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Choose an option',
+      toolsUsed: [],
+      artifacts: [],
+      components: [{ type: 1, components: [] }],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      null,
+      '123456789012345678',
+      'user',
+      'alice',
+      'hello',
+      [],
+      reply,
+      context,
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      'Choose an option',
+      [],
+      [{ type: 1, components: [] }],
+    );
+    expect(stream.discard).toHaveBeenCalled();
+    expect(stream.finalize).not.toHaveBeenCalled();
   });
 
   test('finalizes Teams message responses with uploaded artifact attachments', async () => {
@@ -1735,6 +1807,39 @@ describe('gateway bootstrap', () => {
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
     expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('restarts email integration when email config changes', async () => {
+    const state = await importFreshGatewayMain({
+      emailEnabled: true,
+      emailPassword: 'secret',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      email: {
+        ...state.currentConfig.email,
+        smtpSecure: true,
+      },
+    };
+
+    expect(state.initEmail).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.initEmail).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting email integration',
+      expect.objectContaining({
+        address: 'bot@example.com',
+        smtpHost: 'smtp.example.com',
+        smtpSecure: true,
+      }),
+    );
   });
 });

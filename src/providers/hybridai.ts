@@ -1,7 +1,11 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
-import { getDiscoveredHybridAIModelContextWindow } from './hybridai-discovery.js';
+import {
+  discoverHybridAIModels,
+  getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
+} from './hybridai-discovery.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -18,6 +22,7 @@ async function resolveHybridAIRuntimeCredentials(
   const chatbotId = normalizeChatbotId(params.chatbotId);
   const agentId = normalizeChatbotId(params.agentId) || DEFAULT_AGENT_ID;
   const enableRag = params.enableRag ?? HYBRIDAI_ENABLE_RAG;
+  await discoverHybridAIModels();
   return {
     provider: 'hybridai',
     apiKey: getHybridAIApiKey(),
@@ -28,6 +33,7 @@ async function resolveHybridAIRuntimeCredentials(
     agentId,
     contextWindow:
       getDiscoveredHybridAIModelContextWindow(params.model) ?? undefined,
+    maxTokens: getDiscoveredHybridAIModelMaxTokens(params.model) ?? undefined,
   };
 }
 
