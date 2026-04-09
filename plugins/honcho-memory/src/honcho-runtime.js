@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  dynamicReasoningLevel,
-  resolveHonchoSessionKey,
-} from './config.js';
+import { dynamicReasoningLevel, resolveHonchoSessionKey } from './config.js';
 import {
   buildAgentPeerId,
   buildUserPeerId,
@@ -585,7 +582,8 @@ export class HonchoRuntime {
           peerPerspectiveId: sessionContext.agentPeerId,
         });
         const ai =
-          this.config.includeAiPeerRepresentation || this.config.includeAiPeerCard
+          this.config.includeAiPeerRepresentation ||
+          this.config.includeAiPeerCard
             ? await this.client.getSessionContext({
                 ...sessionContext,
                 includeSummary: false,

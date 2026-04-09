@@ -890,9 +890,7 @@ test('honcho-memory tools mode keeps prompt recall disabled and lazily initializ
     });
 
     expect(promptContext.join('\n\n')).toContain('# Honcho Memory');
-    expect(promptContext.join('\n\n')).not.toContain(
-      '# Honcho Memory Context',
-    );
+    expect(promptContext.join('\n\n')).not.toContain('# Honcho Memory Context');
     expect(honcho.contextRequests).toHaveLength(0);
     expect(honcho.chatRequests).toHaveLength(0);
 
