@@ -181,8 +181,8 @@ hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
 hybridclaw plugin enable <plugin-id>
 hybridclaw plugin disable <plugin-id>
-hybridclaw plugin install <path|npm-spec>
-hybridclaw plugin reinstall <path|npm-spec>
+hybridclaw plugin install <path|plugin-id|npm-spec>
+hybridclaw plugin reinstall <path|plugin-id|npm-spec>
 hybridclaw plugin uninstall <plugin-id>
 hybridclaw update [status|--check] [--yes]
 hybridclaw audit recent

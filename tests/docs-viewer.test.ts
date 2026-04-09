@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
-  DEVELOPMENT_DOCS_SECTIONS,
   buildDocHtmlHref,
   buildDocMarkdownHref,
+  DEVELOPMENT_DOCS_SECTIONS,
   parseFrontmatter,
   renderMarkdownToHtml,
   resolveDocLinkHref,

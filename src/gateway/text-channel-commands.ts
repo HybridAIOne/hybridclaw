@@ -19,18 +19,19 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
+import { recordCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
-import { renderGatewayCommand } from './gateway-service.js';
+import {
+  handleGatewayCommand,
+  renderGatewayCommand,
+} from './gateway-service.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
   getPendingApproval,
-  type PendingApprovalPrompt,
-  setPendingApproval,
+  rememberPendingApproval,
 } from './pending-approvals.js';
-
-const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 
 function isApprovalScopeMode(value: string): value is ApprovalScopeMode {
   return APPROVAL_SCOPE_MODES.includes(value as ApprovalScopeMode);
@@ -120,38 +121,6 @@ function buildApprovalUserMessage(params: {
   return null;
 }
 
-export async function rememberPendingApproval(params: {
-  sessionId: string;
-  approvalId: string;
-  prompt: string;
-  userId: string;
-  expiresAt?: number | null;
-  disableButtons?: (() => Promise<void>) | null;
-}): Promise<void> {
-  const createdAt = Date.now();
-  const expiresAt =
-    typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
-      ? Math.max(createdAt + 15_000, params.expiresAt)
-      : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
-  const entry: PendingApprovalPrompt = {
-    approvalId: params.approvalId,
-    prompt: params.prompt,
-    createdAt,
-    expiresAt,
-    userId: params.userId,
-    resolvedAt: null,
-    disableButtons: params.disableButtons ?? null,
-    disableTimeout: null,
-  };
-  entry.disableTimeout = setTimeout(
-    () => {
-      void clearPendingApproval(params.sessionId, { disableButtons: true });
-    },
-    Math.max(0, expiresAt - Date.now()),
-  );
-  await setPendingApproval(params.sessionId, entry);
-}
-
 export async function handleTextChannelApprovalCommand(params: {
   sessionId: string;
   guildId: string | null;
@@ -194,6 +163,131 @@ export async function handleTextChannelApprovalCommand(params: {
       handled: true,
       sessionId,
       text: `${APPROVE_TEXT_CHANNEL_USAGE} (also accepts \`always\` as a \`session\` alias)`,
+      artifacts: [],
+    };
+  }
+
+  if (pending?.commandAction) {
+    if (pending.userId !== userId) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'No pending approval request for you in this session.',
+        artifacts: [],
+      };
+    }
+    if (!approvalId || approvalId !== pending.approvalId) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'No matching pending approval request for this session.',
+        artifacts: [],
+      };
+    }
+    if (
+      !(
+        action === 'yes' ||
+        action === '1' ||
+        action === 'always' ||
+        action === 'session' ||
+        action === '2' ||
+        action === 'agent' ||
+        action === '3' ||
+        action === 'all' ||
+        action === '4' ||
+        action === 'no' ||
+        action === 'deny' ||
+        action === 'skip' ||
+        action === '5'
+      )
+    ) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'This approval only supports `/approve yes [approval_id]`, `/approve session [approval_id]`, or `/approve no [approval_id]`.',
+        artifacts: [],
+      };
+    }
+
+    if (
+      (action === 'always' || action === 'session' || action === '2') &&
+      pending.commandAction.allowSession !== true
+    ) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'Session trust is unavailable for this approval.',
+        artifacts: [],
+      };
+    }
+    if (
+      (action === 'agent' || action === '3') &&
+      pending.commandAction.allowAgent !== true
+    ) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'Agent trust is unavailable for this approval.',
+        artifacts: [],
+      };
+    }
+    if (
+      (action === 'all' || action === '4') &&
+      pending.commandAction.allowAll !== true
+    ) {
+      return {
+        handled: true,
+        sessionId,
+        text: 'Workspace allowlist trust is unavailable for this approval.',
+        artifacts: [],
+      };
+    }
+
+    await clearPendingApproval(sessionId, { disableButtons: true });
+    if (
+      action === 'no' ||
+      action === 'deny' ||
+      action === 'skip' ||
+      action === '5'
+    ) {
+      return {
+        handled: true,
+        sessionId,
+        text: renderTextChannelCommandResult({
+          kind: 'info',
+          title: pending.commandAction.denyTitle || 'Approval Denied',
+          text: pending.commandAction.denyText || 'Request denied.',
+        }),
+        artifacts: [],
+      };
+    }
+
+    const approvalMode =
+      action === 'always' || action === 'session' || action === '2'
+        ? 'session'
+        : 'once';
+    if (pending.commandAction.actionKey) {
+      recordCommandApproval({
+        sessionId,
+        actionKey: pending.commandAction.actionKey,
+        mode: approvalMode,
+      });
+    }
+
+    const commandResult = await handleGatewayCommand({
+      sessionId,
+      guildId,
+      channelId,
+      userId,
+      username,
+      args: pending.commandAction.approveArgs,
+    });
+    return {
+      handled: true,
+      sessionId: commandResult.sessionId || sessionId,
+      sessionKey: commandResult.sessionKey,
+      mainSessionKey: commandResult.mainSessionKey,
+      text: renderTextChannelCommandResult(commandResult),
       artifacts: [],
     };
   }

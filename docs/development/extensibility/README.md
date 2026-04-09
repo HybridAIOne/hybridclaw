@@ -178,8 +178,8 @@ hybridclaw agent uninstall <agent-id> [--yes]
 # Plugins
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
-hybridclaw plugin install <path|npm-spec>
-hybridclaw plugin reinstall <path|npm-spec>
+hybridclaw plugin install <path|plugin-id|npm-spec>
+hybridclaw plugin reinstall <path|plugin-id|npm-spec>
 hybridclaw plugin uninstall <plugin-id>
 /plugin list                     # in session
 /plugin config <plugin-id> ...   # inspect or change top-level config keys

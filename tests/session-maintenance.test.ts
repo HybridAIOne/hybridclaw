@@ -178,3 +178,69 @@ test('maybeCompactSession continues when plugin manager init fails', async () =>
     'Plugin manager init failed; proceeding without compaction plugin hooks',
   );
 });
+
+test('maybeCompactSession skips built-in compaction when a plugin replaces memory', async () => {
+  const allMessages = [
+    makeStoredMessage(1, 'user', 'first'),
+    makeStoredMessage(2, 'assistant', 'second'),
+    makeStoredMessage(3, 'user', 'third'),
+  ];
+  const olderMessages = allMessages.slice(0, 2);
+  const retainedMessages = allMessages.slice(2);
+
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: 'session-1',
+    session_summary: 'previous summary',
+    message_count: 25,
+  });
+  memoryServiceMock.getRecentMessages.mockImplementation(
+    (_sessionId: string, keepRecent?: number) =>
+      keepRecent ? retainedMessages : allMessages,
+  );
+  memoryServiceMock.getCompactionCandidateMessages.mockReturnValue({
+    olderMessages,
+    cutoffId: 2,
+  });
+  const notifyBeforeCompactionMock = vi.fn(async () => {});
+  ensurePluginManagerInitializedMock.mockResolvedValue({
+    notifyBeforeCompaction: notifyBeforeCompactionMock,
+    getMemoryLayerBehavior: vi.fn(async () => ({
+      replacesBuiltInMemory: true,
+    })),
+  });
+
+  const { maybeCompactSession } = await import(
+    '../src/session/session-maintenance.js'
+  );
+
+  await expect(
+    maybeCompactSession({
+      sessionId: 'session-1',
+      agentId: 'main',
+      chatbotId: 'bot-1',
+      enableRag: true,
+      model: 'test-model',
+      channelId: 'web',
+    }),
+  ).resolves.toBeUndefined();
+
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(memoryServiceMock.deleteMessagesBeforeId).not.toHaveBeenCalled();
+  expect(memoryServiceMock.updateSessionSummary).not.toHaveBeenCalled();
+  expect(exportCompactedSessionJsonlMock).not.toHaveBeenCalled();
+  expect(notifyBeforeCompactionMock).toHaveBeenCalledWith({
+    sessionId: 'session-1',
+    agentId: 'main',
+    channelId: 'web',
+    summary: 'previous summary',
+    olderMessages,
+  });
+  expect(loggerMock.debug).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-1',
+      agentId: 'main',
+      channelId: 'web',
+    }),
+    'Session compaction skipped because a plugin memory layer replaces built-in memory',
+  );
+});

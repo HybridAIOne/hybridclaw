@@ -554,17 +554,23 @@ test('parses /plugin install into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'install',
     }),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'install',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
 });
 
 test('parses /plugin reinstall into gateway args', async () => {
@@ -573,17 +579,38 @@ test('parses /plugin reinstall into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'reinstall',
     }),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'reinstall',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
+});
+
+test('parses /plugin check into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'plugin-id' ? 'mempalace-memory' : null),
+      getSubcommand: () => 'check',
+    }),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'check', 'mempalace-memory']),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
 });
 
 test('parses /plugin uninstall into gateway args', async () => {

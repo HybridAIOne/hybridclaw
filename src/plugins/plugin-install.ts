@@ -9,8 +9,26 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { loadPluginManifest } from './plugin-manager.js';
-import type { PluginManifest } from './plugin-types.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { hasExecutableCommand } from '../utils/executables.js';
+import {
+  checkPluginDependencies,
+  defaultPluginDependencyCheckCommand,
+  getPluginLocalBinDirs,
+  hasInstallablePluginDependencies,
+  installPluginDependencyPlan,
+  type PluginDependencyCheckReport,
+  type PluginDependencyCommandChecker,
+  type PluginDependencyInstallSummary,
+  type PluginDependencyPlan,
+  planPluginDependencyInstall,
+  resolveExecutableFromSearchDirs,
+} from './plugin-dependencies.js';
+import { loadPluginManifest, PluginManager } from './plugin-manager.js';
+import type {
+  PluginBinaryRequirement,
+  PluginManifest,
+} from './plugin-types.js';
 
 const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
 
@@ -36,6 +54,10 @@ export interface InstallPluginOptions {
   homeDir?: string;
   cwd?: string;
   runCommand?: PluginInstallCommandRunner;
+  runCheckCommand?: PluginDependencyCommandChecker;
+  approveDependencyInstall?: boolean;
+  getRuntimeConfig?: PluginConfigGetter;
+  updateRuntimeConfig?: PluginConfigUpdater;
 }
 
 export interface InstallPluginResult {
@@ -44,12 +66,62 @@ export interface InstallPluginResult {
   source: string;
   alreadyInstalled: boolean;
   dependenciesInstalled: boolean;
+  dependencySummary: PluginDependencyInstallSummary;
+  configuredRequiredBins: ConfiguredPluginBinaryRequirement[];
+  externalDependencies: PluginDependencyCheckReport['externalDependencies'];
   requiresEnv: string[];
   requiredConfigKeys: string[];
+  missingRequiredBins?: MissingPluginBinaryRequirement[];
 }
 
 export interface ReinstallPluginResult extends InstallPluginResult {
   replacedExistingInstall: boolean;
+}
+
+export interface MissingPluginBinaryRequirement {
+  name: string;
+  command: string;
+  configKey?: string;
+  installHint?: string;
+  installUrl?: string;
+}
+
+export interface ConfiguredPluginBinaryRequirement {
+  name: string;
+  command: string;
+  configKey: string;
+}
+
+export interface CheckPluginOptions {
+  homeDir?: string;
+  cwd?: string;
+  getRuntimeConfig?: PluginConfigGetter;
+  runCheckCommand?: PluginDependencyCommandChecker;
+}
+
+export interface CheckPluginResult {
+  pluginId: string;
+  pluginDir: string;
+  source: 'home' | 'project' | 'config';
+  requiresEnv: string[];
+  missingEnv: string[];
+  requiredConfigKeys: string[];
+  packageJsonDependencies: PluginDependencyCheckReport['packageJsonDependencies'];
+  nodeDependencies: PluginDependencyCheckReport['nodeDependencies'];
+  pipDependencies: PluginDependencyCheckReport['pipDependencies'];
+  externalDependencies: PluginDependencyCheckReport['externalDependencies'];
+  configuredRequiredBins: ConfiguredPluginBinaryRequirement[];
+  missingRequiredBins?: MissingPluginBinaryRequirement[];
+}
+
+export class PluginDependencyApprovalRequiredError extends Error {
+  readonly plan: PluginDependencyPlan;
+
+  constructor(plan: PluginDependencyPlan) {
+    super(buildDependencyApprovalMessage(plan));
+    this.name = 'PluginDependencyApprovalRequiredError';
+    this.plan = plan;
+  }
 }
 
 type PluginConfigGetter = () => RuntimeConfig;
@@ -68,6 +140,25 @@ export interface UninstallPluginResult {
   pluginDir: string;
   removedPluginDir: boolean;
   removedConfigOverrides: number;
+}
+
+function buildDependencyApprovalMessage(plan: PluginDependencyPlan): string {
+  const details: string[] = [];
+  if (plan.usesPackageJson) {
+    details.push('npm install from package.json');
+  }
+  if (plan.nodePackages.length > 0) {
+    details.push(`npm packages: ${plan.nodePackages.join(', ')}`);
+  }
+  if (plan.pipPackages.length > 0) {
+    details.push(`pip packages: ${plan.pipPackages.join(', ')}`);
+  }
+  return [
+    'Plugin dependency installation requires explicit approval.',
+    details.length > 0 ? `Planned actions: ${details.join('; ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function defaultRunCommand({ command, args, cwd }: PluginCommand): void {
@@ -108,6 +199,25 @@ function looksLikeLocalPath(input: string): boolean {
   );
 }
 
+function resolveProjectPluginDir(input: string, cwd: string): string | null {
+  const pluginId = String(input || '').trim();
+  if (!pluginId || looksLikeLocalPath(pluginId)) {
+    return null;
+  }
+  const candidate = path.join(cwd, 'plugins', pluginId);
+  if (!fs.existsSync(candidate)) {
+    return null;
+  }
+  if (!fs.statSync(candidate).isDirectory()) {
+    return null;
+  }
+  const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
+  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+    return null;
+  }
+  return candidate;
+}
+
 function resolvePluginSource(input: string, cwd: string): PluginSource {
   const resolvedPath = expandUserPath(input, cwd);
   if (fs.existsSync(resolvedPath)) {
@@ -121,6 +231,13 @@ function resolvePluginSource(input: string, cwd: string): PluginSource {
     return {
       kind: 'npm-spec',
       spec: resolvedPath,
+    };
+  }
+  const bundledPluginDir = resolveProjectPluginDir(input, cwd);
+  if (bundledPluginDir) {
+    return {
+      kind: 'local-dir',
+      path: bundledPluginDir,
     };
   }
   if (looksLikeLocalPath(input)) {
@@ -254,52 +371,6 @@ function copyPluginTree(sourceDir: string, targetDir: string): void {
   });
 }
 
-function collectManifestNpmPackages(manifest: PluginManifest): string[] {
-  return (manifest.install ?? [])
-    .filter((entry) => entry.kind === 'npm' && entry.package)
-    .map((entry) => entry.package as string);
-}
-
-function installPluginDependencies(
-  pluginDir: string,
-  manifest: PluginManifest,
-  runCommand: PluginInstallCommandRunner,
-): boolean {
-  const packageJsonPath = path.join(pluginDir, 'package.json');
-  if (fs.existsSync(packageJsonPath)) {
-    runCommand({
-      command: 'npm',
-      args: [
-        'install',
-        '--ignore-scripts',
-        '--omit=dev',
-        '--no-audit',
-        '--no-fund',
-      ],
-      cwd: pluginDir,
-    });
-    return true;
-  }
-
-  const manifestPackages = collectManifestNpmPackages(manifest);
-  if (manifestPackages.length === 0) return false;
-
-  runCommand({
-    command: 'npm',
-    args: [
-      'install',
-      '--ignore-scripts',
-      '--omit=dev',
-      '--no-package-lock',
-      '--no-audit',
-      '--no-fund',
-      ...manifestPackages,
-    ],
-    cwd: pluginDir,
-  });
-  return true;
-}
-
 function getRequiredConfigKeys(manifest: PluginManifest): string[] {
   const required = manifest.configSchema?.required;
   if (!Array.isArray(required)) return [];
@@ -307,6 +378,152 @@ function getRequiredConfigKeys(manifest: PluginManifest): string[] {
     (entry): entry is string =>
       typeof entry === 'string' && entry.trim().length > 0,
   );
+}
+
+function getManifestConfigDefault(
+  manifest: PluginManifest,
+  key: string,
+): string | undefined {
+  const properties = manifest.configSchema?.properties;
+  if (!properties || typeof properties !== 'object') return undefined;
+  const schema = properties[key];
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return undefined;
+  }
+  const value = schema.default;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function findPluginConfigEntry(
+  config: RuntimeConfig,
+  pluginId: string,
+): { id: string; enabled: boolean; config: Record<string, unknown> } | null {
+  return (
+    config.plugins.list.find(
+      (entry) => String(entry?.id || '').trim() === pluginId,
+    ) || null
+  );
+}
+
+function ensurePluginConfigEntry(
+  config: RuntimeConfig,
+  pluginId: string,
+): { id: string; enabled: boolean; config: Record<string, unknown> } {
+  const existing = findPluginConfigEntry(config, pluginId);
+  if (existing) {
+    existing.config = existing.config || {};
+    return existing;
+  }
+  const entry = {
+    id: pluginId,
+    enabled: true,
+    config: {},
+  };
+  config.plugins.list.push(entry);
+  return entry;
+}
+
+function resolveRequiredBinaryCommand(
+  requirement: PluginBinaryRequirement,
+  manifest: PluginManifest,
+  config: Record<string, unknown>,
+): string {
+  if (requirement.configKey) {
+    const configured = config[requirement.configKey];
+    if (typeof configured === 'string' && configured.trim().length > 0) {
+      return configured.trim();
+    }
+    const configuredDefault = getManifestConfigDefault(
+      manifest,
+      requirement.configKey,
+    );
+    if (configuredDefault) return configuredDefault;
+  }
+  return requirement.name;
+}
+
+function collectMissingRequiredBins(
+  pluginId: string,
+  manifest: PluginManifest,
+  config: RuntimeConfig,
+  cwd: string,
+): MissingPluginBinaryRequirement[] {
+  const pluginConfig = findPluginConfigEntry(config, pluginId)?.config || {};
+  const missing: MissingPluginBinaryRequirement[] = [];
+  for (const requirement of manifest.requires?.bins ?? []) {
+    const command = resolveRequiredBinaryCommand(
+      requirement,
+      manifest,
+      pluginConfig,
+    );
+    if (hasExecutableCommand(command, { cwd })) continue;
+    missing.push({
+      name: requirement.name,
+      command,
+      ...(requirement.configKey ? { configKey: requirement.configKey } : {}),
+      ...(requirement.installHint
+        ? { installHint: requirement.installHint }
+        : {}),
+      ...(requirement.installUrl ? { installUrl: requirement.installUrl } : {}),
+    });
+  }
+  return missing;
+}
+
+function autoConfigurePluginLocalBinaries(params: {
+  pluginId: string;
+  pluginDir: string;
+  manifest: PluginManifest;
+  cwd: string;
+  getRuntimeConfig: PluginConfigGetter;
+  updateRuntimeConfig: PluginConfigUpdater;
+}): ConfiguredPluginBinaryRequirement[] {
+  const searchDirs = getPluginLocalBinDirs(params.pluginDir);
+  if (searchDirs.length === 0) return [];
+
+  const currentConfig = params.getRuntimeConfig();
+  const currentPluginConfig =
+    findPluginConfigEntry(currentConfig, params.pluginId)?.config || {};
+  const resolved: ConfiguredPluginBinaryRequirement[] = [];
+
+  for (const requirement of params.manifest.requires?.bins ?? []) {
+    if (!requirement.configKey) continue;
+    const currentCommand = resolveRequiredBinaryCommand(
+      requirement,
+      params.manifest,
+      currentPluginConfig,
+    );
+    if (hasExecutableCommand(currentCommand, { cwd: params.cwd })) continue;
+    const configuredValue = currentPluginConfig[requirement.configKey];
+    if (
+      typeof configuredValue === 'string' &&
+      configuredValue.trim().length > 0
+    ) {
+      continue;
+    }
+    const command = resolveExecutableFromSearchDirs(
+      requirement.name,
+      searchDirs,
+    );
+    if (!command) continue;
+    resolved.push({
+      name: requirement.name,
+      command,
+      configKey: requirement.configKey,
+    });
+  }
+
+  if (resolved.length === 0) return [];
+
+  params.updateRuntimeConfig((draft) => {
+    const entry = ensurePluginConfigEntry(draft, params.pluginId);
+    for (const requirement of resolved) {
+      entry.config[requirement.configKey] = requirement.command;
+    }
+  });
+  return resolved;
 }
 
 function countPluginConfigOverrides(
@@ -318,12 +535,25 @@ function countPluginConfigOverrides(
   ).length;
 }
 
+function emptyDependencyInstallSummary(): PluginDependencyInstallSummary {
+  return {
+    usedPackageJson: false,
+    installedNodePackages: [],
+    installedPipPackages: [],
+  };
+}
+
 function installPreparedPlugin(
   sourceDir: string,
   sourceLabel: string,
   options: {
     homeDir: string;
+    cwd: string;
     runCommand: PluginInstallCommandRunner;
+    runCheckCommand: PluginDependencyCommandChecker;
+    approveDependencyInstall: boolean;
+    getRuntimeConfig: PluginConfigGetter;
+    updateRuntimeConfig: PluginConfigUpdater;
     replaceExisting: boolean;
   },
 ): InstallPluginResult {
@@ -333,12 +563,25 @@ function installPreparedPlugin(
   assertPluginManifestDir(sourceDir);
   const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
   const pluginDir = path.join(installRoot, manifest.id);
+  const dependencyPlan = planPluginDependencyInstall(sourceDir, manifest);
+  if (
+    hasInstallablePluginDependencies(dependencyPlan) &&
+    !options.approveDependencyInstall
+  ) {
+    throw new PluginDependencyApprovalRequiredError(dependencyPlan);
+  }
   const cleanupDirs: string[] = [];
+  let backupDir: string | null = null;
+  let installedPluginDir = false;
 
   try {
     if (fs.existsSync(pluginDir)) {
       if (options.replaceExisting) {
-        fs.rmSync(pluginDir, { recursive: true, force: true });
+        backupDir = path.join(
+          installRoot,
+          `.${manifest.id}.backup-${randomUUID().slice(0, 8)}`,
+        );
+        fs.renameSync(pluginDir, backupDir);
       } else {
         const sourceRealPath = fs.realpathSync(sourceDir);
         const pluginRealPath = fs.realpathSync(pluginDir);
@@ -348,19 +591,54 @@ function installPreparedPlugin(
           );
         }
 
-        const dependenciesInstalled = installPluginDependencies(
+        const pluginDependencyPlan = planPluginDependencyInstall(
           pluginDir,
           manifest,
-          options.runCommand,
+        );
+        const dependencySummary = hasInstallablePluginDependencies(
+          pluginDependencyPlan,
+        )
+          ? installPluginDependencyPlan(
+              pluginDir,
+              pluginDependencyPlan,
+              options.runCommand,
+              options.runCheckCommand,
+            )
+          : emptyDependencyInstallSummary();
+        const configuredRequiredBins = autoConfigurePluginLocalBinaries({
+          pluginId: manifest.id,
+          pluginDir,
+          manifest,
+          cwd: options.cwd,
+          getRuntimeConfig: options.getRuntimeConfig,
+          updateRuntimeConfig: options.updateRuntimeConfig,
+        });
+        const dependencyReport = checkPluginDependencies(
+          pluginDir,
+          manifest,
+          options.runCheckCommand,
+        );
+        const missingRequiredBins = collectMissingRequiredBins(
+          manifest.id,
+          manifest,
+          options.getRuntimeConfig(),
+          options.cwd,
         );
         return {
           pluginId: manifest.id,
           pluginDir,
           source: sourceLabel,
           alreadyInstalled: true,
-          dependenciesInstalled,
+          dependenciesInstalled:
+            dependencySummary.usedPackageJson ||
+            dependencySummary.installedNodePackages.length > 0 ||
+            dependencySummary.installedPipPackages.length > 0,
+          dependencySummary,
+          configuredRequiredBins,
+          externalDependencies: dependencyReport.externalDependencies,
           requiresEnv: manifest.requires?.env ?? [],
           requiredConfigKeys: getRequiredConfigKeys(manifest),
+          ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
         };
       }
     }
@@ -371,24 +649,73 @@ function installPreparedPlugin(
     );
     cleanupDirs.push(stageDir);
     copyPluginTree(sourceDir, stageDir);
-    const dependenciesInstalled = installPluginDependencies(
-      stageDir,
-      manifest,
-      options.runCommand,
-    );
     fs.renameSync(stageDir, pluginDir);
     cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
+    installedPluginDir = true;
+    const pluginDependencyPlan = planPluginDependencyInstall(
+      pluginDir,
+      manifest,
+    );
+    const dependencySummary = hasInstallablePluginDependencies(
+      pluginDependencyPlan,
+    )
+      ? installPluginDependencyPlan(
+          pluginDir,
+          pluginDependencyPlan,
+          options.runCommand,
+          options.runCheckCommand,
+        )
+      : emptyDependencyInstallSummary();
+    const configuredRequiredBins = autoConfigurePluginLocalBinaries({
+      pluginId: manifest.id,
+      pluginDir,
+      manifest,
+      cwd: options.cwd,
+      getRuntimeConfig: options.getRuntimeConfig,
+      updateRuntimeConfig: options.updateRuntimeConfig,
+    });
+    const dependencyReport = checkPluginDependencies(
+      pluginDir,
+      manifest,
+      options.runCheckCommand,
+    );
+    const missingRequiredBins = collectMissingRequiredBins(
+      manifest.id,
+      manifest,
+      options.getRuntimeConfig(),
+      options.cwd,
+    );
 
     return {
       pluginId: manifest.id,
       pluginDir,
       source: sourceLabel,
       alreadyInstalled: false,
-      dependenciesInstalled,
+      dependenciesInstalled:
+        dependencySummary.usedPackageJson ||
+        dependencySummary.installedNodePackages.length > 0 ||
+        dependencySummary.installedPipPackages.length > 0,
+      dependencySummary,
+      configuredRequiredBins,
+      externalDependencies: dependencyReport.externalDependencies,
       requiresEnv: manifest.requires?.env ?? [],
       requiredConfigKeys: getRequiredConfigKeys(manifest),
+      ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
     };
+  } catch (error) {
+    if (installedPluginDir && fs.existsSync(pluginDir)) {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+      installedPluginDir = false;
+    }
+    if (backupDir && fs.existsSync(backupDir)) {
+      fs.renameSync(backupDir, pluginDir);
+      backupDir = null;
+    }
+    throw error;
   } finally {
+    if (backupDir && fs.existsSync(backupDir)) {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    }
     for (const dir of cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -402,20 +729,29 @@ export async function installPlugin(
   const trimmedSource = String(source || '').trim();
   if (!trimmedSource) {
     throw new Error(
-      'Missing plugin source. Use `hybridclaw plugin install <path|npm-spec>`.',
+      'Missing plugin source. Use `hybridclaw plugin install <path|plugin-id|npm-spec>`.',
     );
   }
 
   const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
+  const runCheckCommand =
+    options.runCheckCommand ?? defaultPluginDependencyCheckCommand;
+  const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
+  const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
   const preparedSource = preparePluginSource(sourceRef, runCommand);
 
   try {
     return installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
       homeDir,
+      cwd,
       runCommand,
+      runCheckCommand,
+      approveDependencyInstall: options.approveDependencyInstall === true,
+      getRuntimeConfig: getConfig,
+      updateRuntimeConfig: updateConfig,
       replaceExisting: false,
     });
   } finally {
@@ -432,13 +768,17 @@ export async function reinstallPlugin(
   const trimmedSource = String(source || '').trim();
   if (!trimmedSource) {
     throw new Error(
-      'Missing plugin source. Use `hybridclaw plugin reinstall <path|npm-spec>`.',
+      'Missing plugin source. Use `hybridclaw plugin reinstall <path|plugin-id|npm-spec>`.',
     );
   }
 
   const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
+  const runCheckCommand =
+    options.runCheckCommand ?? defaultPluginDependencyCheckCommand;
+  const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
+  const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
   const preparedSource = preparePluginSource(sourceRef, runCommand);
 
@@ -454,7 +794,12 @@ export async function reinstallPlugin(
       trimmedSource,
       {
         homeDir,
+        cwd,
         runCommand,
+        runCheckCommand,
+        approveDependencyInstall: options.approveDependencyInstall === true,
+        getRuntimeConfig: getConfig,
+        updateRuntimeConfig: updateConfig,
         replaceExisting: true,
       },
     );
@@ -468,6 +813,83 @@ export async function reinstallPlugin(
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
+}
+
+export async function checkPlugin(
+  pluginIdInput: string,
+  options: CheckPluginOptions = {},
+): Promise<CheckPluginResult> {
+  const pluginId = normalizePluginId(pluginIdInput);
+  const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
+  const cwd = options.cwd ?? process.cwd();
+  const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
+  const runCheckCommand =
+    options.runCheckCommand ?? defaultPluginDependencyCheckCommand;
+  const config = getConfig();
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  const candidate = (await manager.discoverPlugins(config)).find(
+    (entry) => entry.id === pluginId,
+  );
+  if (!candidate) {
+    throw new Error(
+      `Plugin "${pluginId}" was not found. Install or discover it before checking dependencies.`,
+    );
+  }
+
+  const missingEnv = (candidate.manifest.requires?.env ?? []).filter((key) => {
+    const envValue = process.env[key];
+    if (typeof envValue === 'string' && envValue.trim().length > 0) {
+      return false;
+    }
+    const stored = readStoredRuntimeSecret(key);
+    return typeof stored !== 'string' || stored.trim().length === 0;
+  });
+  const dependencyReport = checkPluginDependencies(
+    candidate.dir,
+    candidate.manifest,
+    runCheckCommand,
+  );
+  const configuredRequiredBins = (candidate.manifest.requires?.bins ?? [])
+    .map((requirement) => {
+      if (!requirement.configKey) return null;
+      const command = candidate.config[requirement.configKey];
+      if (typeof command !== 'string' || command.trim().length === 0) {
+        return null;
+      }
+      return {
+        name: requirement.name,
+        command: command.trim(),
+        configKey: requirement.configKey,
+      };
+    })
+    .filter(
+      (entry): entry is ConfiguredPluginBinaryRequirement => entry !== null,
+    );
+  const missingRequiredBins = collectMissingRequiredBins(
+    candidate.id,
+    candidate.manifest,
+    config,
+    cwd,
+  );
+
+  return {
+    pluginId: candidate.id,
+    pluginDir: candidate.dir,
+    source: candidate.source,
+    requiresEnv: candidate.manifest.requires?.env ?? [],
+    missingEnv,
+    requiredConfigKeys: getRequiredConfigKeys(candidate.manifest),
+    packageJsonDependencies: dependencyReport.packageJsonDependencies,
+    nodeDependencies: dependencyReport.nodeDependencies,
+    pipDependencies: dependencyReport.pipDependencies,
+    externalDependencies: dependencyReport.externalDependencies,
+    configuredRequiredBins,
+    ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
+  };
 }
 
 export async function uninstallPlugin(

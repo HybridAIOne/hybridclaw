@@ -14,6 +14,7 @@ const {
   const pluginManager = {
     getToolDefinitions: vi.fn(() => []),
     notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifyMemoryWrites: vi.fn(async () => {}),
     notifySessionStart: vi.fn(async () => {}),
   };
   return {
@@ -57,6 +58,7 @@ const { setupHome } = setupGatewayTest({
     setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
+    pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
   },
 });
@@ -118,6 +120,14 @@ test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener
   expect(storedSession?.message_count).toBe(1);
   expect(pluginManagerMock.notifySessionStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalledTimes(1);
+  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: expect.any(String),
+      agentId: 'main',
+      channelId: 'web',
+      toolExecutions: [],
+    }),
+  );
 
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);

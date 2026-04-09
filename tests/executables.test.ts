@@ -82,3 +82,17 @@ test('resolves relative executable paths against the provided cwd', async () => 
     }),
   ).toBe(false);
 });
+
+test('rejects scripts whose shebang interpreter path is missing', async () => {
+  const dir = makeTempDir('hybridclaw-exec-bad-shebang-');
+  const scriptPath = path.join(dir, 'broken-exec');
+  fs.writeFileSync(
+    scriptPath,
+    '#!/tmp/hybridclaw-missing-python\nexit 0\n',
+    'utf-8',
+  );
+  fs.chmodSync(scriptPath, 0o755);
+
+  const { hasExecutableCommand } = await import('../src/utils/executables.js');
+  expect(hasExecutableCommand(scriptPath)).toBe(false);
+});
