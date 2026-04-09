@@ -121,6 +121,44 @@ test('asks the urgency question before a long-running request', async () => {
   ).toBe(true);
 });
 
+test('discord concierge prompts include rendered button components', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'gemini-3-flash',
+    content: '{"decision":"ask_user"}',
+  });
+
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.model = 'gemini-3-flash';
+  });
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-discord',
+    guildId: null,
+    channelId: '1478319467820879945',
+    userId: '439508376087560193',
+    username: 'user',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: 'bot_123',
+    source: 'discord',
+  });
+
+  const { buildConciergeChoiceComponents } = await import(
+    '../src/gateway/concierge-choice.ts'
+  );
+
+  expect(result.status).toBe('success');
+  expect(result.result).toContain('When do you need the result?');
+  expect(result.components).toEqual(
+    buildConciergeChoiceComponents({
+      sessionId: 'session-concierge-discord',
+      userId: '439508376087560193',
+    }),
+  );
+});
+
 test('numeric concierge reply selects the configured profile model', async () => {
   callAuxiliaryModelMock.mockResolvedValue({
     provider: 'hybridai',
@@ -337,6 +375,52 @@ test('invalid concierge replies re-ask instead of running the agent', async () =
   expect(retry.status).toBe('success');
   expect(retry.result).toContain('Please reply with 1, 2, or 3.');
   expect(runAgentMock).not.toHaveBeenCalled();
+});
+
+test('multiline Discord concierge replies still resume the pending request', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'gemini-3-flash',
+    content: '{"decision":"ask_user"}',
+  });
+
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.model = 'gemini-3-flash';
+    draft.routing.concierge.profiles.asap = 'gpt-5';
+  });
+
+  await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-discord-multiline',
+    guildId: null,
+    channelId: '1478319467820879945',
+    userId: '439508376087560193',
+    username: 'user',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: 'bot_123',
+    source: 'discord',
+  });
+
+  const resumed = await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-discord-multiline',
+    guildId: null,
+    channelId: '1478319467820879945',
+    userId: '439508376087560193',
+    username: 'user',
+    content: `[Known participants]
+Use @handles from this list in normal replies.
+Use raw <@id> mention syntax only when the user explicitly asks for mention IDs/tokens.
+This list is derived from recent and remembered context; it may be incomplete.
+- @ben_03867 id:439508376087560193 aliases: ben_03867
+1`,
+    chatbotId: 'bot_123',
+    source: 'discord',
+  });
+
+  expect(resumed.status).toBe('success');
+  expect(resumed.result).toBe('agent result');
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
 });
 
 test('explicit session model pins bypass the concierge', async () => {

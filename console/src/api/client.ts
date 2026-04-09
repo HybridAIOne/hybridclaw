@@ -5,6 +5,7 @@ import type {
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
+  AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
   AdminCreateSkillPayload,
@@ -69,10 +70,13 @@ async function requestJson<T>(
 
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;
+    text?: string;
   };
   if (!response.ok) {
     const message =
-      payload.error || `${response.status} ${response.statusText}`;
+      payload.error ||
+      payload.text ||
+      `${response.status} ${response.statusText}`;
     if (response.status === 401 && options.onAuthError !== 'ignore') {
       dispatchAuthRequired(message);
     }
@@ -245,6 +249,30 @@ export function saveConfig(
     method: 'PUT',
     body: { config },
   });
+}
+
+function runAdminCommand(
+  token: string,
+  args: string[],
+): Promise<AdminCommandResult> {
+  return requestJson<AdminCommandResult>('/api/command', {
+    token,
+    method: 'POST',
+    body: {
+      sessionId: 'web-admin-secrets',
+      guildId: null,
+      channelId: 'web',
+      args,
+    },
+  });
+}
+
+export function setRuntimeSecret(
+  token: string,
+  secretName: string,
+  secretValue: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
 }
 
 export function fetchModels(token: string): Promise<AdminModelsResponse> {

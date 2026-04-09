@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
@@ -63,6 +64,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/local-health.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
@@ -202,6 +204,61 @@ test('getGatewayStatus includes the configured default agent id', async () => {
   const status = await getGatewayStatus();
 
   expect(status.defaultAgentId).toBe('charly');
+});
+
+test('getGatewayStatus includes the current WhatsApp pairing QR text', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  vi.doMock('../src/channels/whatsapp/pairing-state.js', () => ({
+    getWhatsAppPairingState: vi.fn(() => ({
+      pairingQrText: '▄▄\n██',
+      updatedAt: '2026-04-08T10:00:00.000Z',
+    })),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.whatsapp).toMatchObject({
+    linked: false,
+    jid: null,
+    pairingQrText: '▄▄\n██',
+    pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
+  });
+});
+
+test('getGatewayStatus includes Discord token status from runtime secrets', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.DISCORD_TOKEN;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  saveRuntimeSecrets({
+    DISCORD_TOKEN: 'discord-test-token',
+  });
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.discord).toEqual({
+    tokenConfigured: true,
+    tokenSource: 'runtime-secrets',
+  });
 });
 
 test('status command includes the current session agent', async () => {
@@ -451,7 +508,7 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   expect(result.title).toBe('HybridAI Auth Status');
   expect(result.text).toContain('Authenticated: yes');
   expect(result.text).toContain('Source: runtime-secrets');
-  expect(result.text).toContain('API key: hai-…abcd');
+  expect(result.text).toContain('API key: configured');
   expect(result.text).not.toContain('credentials.json');
   expect(result.text).not.toContain('Path:');
   expect(result.text).toContain('Base URL: https://hybridai.example');
@@ -524,16 +581,19 @@ test('auth status supports all configured providers from local sessions', async 
       provider: 'openrouter',
       expectedTitle: 'OpenRouter Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'mistral',
       expectedTitle: 'Mistral Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'huggingface',
       expectedTitle: 'Hugging Face Auth Status',
       expectedText: 'Enabled: yes',
+      expectedSecretText: 'API key: configured',
     },
     {
       provider: 'local',
@@ -544,6 +604,7 @@ test('auth status supports all configured providers from local sessions', async 
       provider: 'msteams',
       expectedTitle: 'Microsoft Teams Auth Status',
       expectedText: 'App ID: teams-app-id',
+      expectedSecretText: 'App password: configured',
     },
   ] as const;
 
@@ -561,6 +622,9 @@ test('auth status supports all configured providers from local sessions', async 
     }
     expect(result.title).toBe(entry.expectedTitle);
     expect(result.text).toContain(entry.expectedText);
+    if ('expectedSecretText' in entry) {
+      expect(result.text).toContain(entry.expectedSecretText);
+    }
     expect(result.text).not.toContain('Path:');
   }
 });

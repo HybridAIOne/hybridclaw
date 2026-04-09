@@ -17,6 +17,7 @@ import {
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
+import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
 export type AuxiliaryTask = TaskModelKey;
 
@@ -263,7 +264,10 @@ export async function resolveTaskModelPolicy(
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
-              maxTokens,
+              maxTokens: resolveProviderRequestMaxTokens({
+                model: fallback,
+                discoveredMaxTokens: resolved.maxTokens,
+              }),
             };
           } catch (err) {
             logger.warn(
@@ -345,7 +349,10 @@ export async function resolveTaskModelPolicy(
       thinkingFormat: resolved.thinkingFormat,
       model,
       chatbotId: resolved.chatbotId,
-      maxTokens,
+      maxTokens: resolveProviderRequestMaxTokens({
+        model,
+        discoveredMaxTokens: resolved.maxTokens,
+      }),
     };
   } catch (err) {
     logger.warn(

@@ -14,6 +14,10 @@ import {
   createWhatsAppMessageStore,
   type WhatsAppMessageStore,
 } from './message-store.js';
+import {
+  clearWhatsAppPairingState,
+  setWhatsAppPairingQrText,
+} from './pairing-state.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
@@ -157,6 +161,14 @@ function resolveDisconnectStatusCode(error: unknown): number | null {
   if (typeof output?.statusCode === 'number') return output.statusCode;
   const statusCode = (error as { statusCode?: unknown }).statusCode;
   return typeof statusCode === 'number' ? statusCode : null;
+}
+
+function renderWhatsAppPairingQrText(qrPayload: string): string {
+  let pairingQrText = '';
+  qrcode.generate(qrPayload, { small: true }, (rendered) => {
+    pairingQrText = rendered.trimEnd();
+  });
+  return pairingQrText;
 }
 
 export interface WhatsAppConnectionManager {
@@ -327,6 +339,7 @@ export function createWhatsAppConnectionManager(params?: {
     releaseAuthLock ??= await acquireWhatsAppAuthLock(undefined, {
       purpose: 'runtime',
     });
+    clearWhatsAppPairingState();
     started = true;
     reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     try {
@@ -346,6 +359,7 @@ export function createWhatsAppConnectionManager(params?: {
     if (socket !== observedSocket) return;
 
     if (update.qr) {
+      setWhatsAppPairingQrText(renderWhatsAppPairingQrText(update.qr));
       logWhatsAppMessage(
         childLogger,
         'info',
@@ -356,6 +370,7 @@ export function createWhatsAppConnectionManager(params?: {
     }
 
     if (update.connection === 'open') {
+      clearWhatsAppPairingState();
       connectionOpen = true;
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       logWhatsAppMessage(
@@ -370,6 +385,7 @@ export function createWhatsAppConnectionManager(params?: {
 
     if (update.connection !== 'close') return;
 
+    clearWhatsAppPairingState();
     connectionOpen = false;
     socket = null;
     const statusCode = resolveDisconnectStatusCode(
@@ -417,6 +433,7 @@ export function createWhatsAppConnectionManager(params?: {
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       connectionOpen = false;
       socket = null;
+      clearWhatsAppPairingState();
       if (activeSocket && typeof activeSocket.end === 'function') {
         try {
           activeSocket.end(undefined);

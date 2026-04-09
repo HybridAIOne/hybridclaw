@@ -207,20 +207,6 @@ async function promptYesNo(
   return defaultYes;
 }
 
-async function promptRequired(
-  rl: readline.Interface,
-  question: string,
-  secret = false,
-): Promise<string> {
-  while (true) {
-    const value = secret
-      ? await promptForSecretInput({ prompt: question, rl })
-      : (await rl.question(question)).trim();
-    if (value) return value;
-    console.log('Please enter a value.');
-  }
-}
-
 function requireInteractiveTerminal(): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('HybridAI login requires an interactive terminal.');
@@ -244,10 +230,12 @@ async function loginWithApiKeyPrompt(options: {
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
   );
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     if (method === 'browser') {
@@ -269,12 +257,17 @@ async function loginWithApiKeyPrompt(options: {
     let apiKey = '';
     let validated = false;
     while (true) {
-      const entered = await promptRequired(
-        rl,
-        'Paste HybridAI API key or URL containing it: ',
-        true,
-      );
+      rl.close();
+      const entered = await promptForSecretInput({
+        prompt: 'Paste HybridAI API key or URL containing it: ',
+        missingMessage: 'HybridAI login requires an interactive terminal.',
+      });
+      rl = createPromptInterface();
       apiKey = extractApiKeyFromInput(entered) || entered.trim();
+      if (!apiKey) {
+        console.log('Please enter a value.');
+        continue;
+      }
 
       const validation = await validateApiKey(baseUrl, apiKey);
       if (validation.ok) {

@@ -1,13 +1,29 @@
 import { resolveHonchoPluginConfig } from './config.js';
 import { formatHonchoLabel, HonchoClient } from './honcho-client.js';
 
+const MAX_SEARCH_QUERY_CHARS = 800;
+const MEMORY_WRITE_FALLBACK_USER_ID = 'hybridclaw-memory';
+
 function truncateText(value, maxChars) {
   const normalized = String(value || '').trim();
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
-function latestUserQuery(recentMessages) {
+function normalizeSearchQuery(value) {
+  const normalized = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized.length < 3) return '';
+  if (normalized.length <= MAX_SEARCH_QUERY_CHARS) {
+    return normalized;
+  }
+  return `${normalized
+    .slice(0, Math.max(0, MAX_SEARCH_QUERY_CHARS - 1))
+    .trimEnd()}…`;
+}
+
+function getLatestUserQuery(recentMessages) {
   let latest = null;
   for (const message of recentMessages) {
     if (String(message?.role || '').toLowerCase() !== 'user') continue;
@@ -24,8 +40,76 @@ function latestUserQuery(recentMessages) {
       latest = message;
     }
   }
-  const content = String(latest?.content || '').trim();
-  return content.length >= 3 ? content : '';
+  return normalizeSearchQuery(latest?.content);
+}
+
+function buildMemoryWriteAssistantContent(context) {
+  if (context.action === 'append' || context.action === 'write') {
+    return String(context.content || '').trim();
+  }
+  if (context.action === 'replace') {
+    return String(context.newText || '').trim();
+  }
+  if (context.action === 'remove') {
+    return `HybridClaw removed content from ${context.memoryFilePath}.`;
+  }
+  return '';
+}
+
+function buildMemoryWriteMirrorMessages(context) {
+  const createdAt = new Date().toISOString();
+  const sharedMetadata = {
+    hybridclaw_memory_write: true,
+    hybridclaw_memory_action: context.action,
+    hybridclaw_memory_file_path: context.memoryFilePath,
+  };
+  const instructionLines = [
+    'Mirror this explicit HybridClaw native memory write into Honcho.',
+    `File: ${context.memoryFilePath}`,
+    `Action: ${context.action}`,
+  ];
+  const assistantContent =
+    buildMemoryWriteAssistantContent(context) ||
+    `HybridClaw updated ${context.memoryFilePath} with action ${context.action}.`;
+
+  return [
+    {
+      role: 'user',
+      content: instructionLines.join('\n'),
+      created_at: createdAt,
+      metadata: {
+        ...sharedMetadata,
+        hybridclaw_memory_mirror_role: 'instruction',
+      },
+    },
+    {
+      role: 'assistant',
+      content: assistantContent,
+      created_at: createdAt,
+      metadata: {
+        ...sharedMetadata,
+        hybridclaw_memory_mirror_role: 'content',
+      },
+    },
+  ];
+}
+
+function rememberSessionParticipant(sessionParticipants, sessionId, userId) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedSessionId || !normalizedUserId) return;
+  sessionParticipants.set(normalizedSessionId, normalizedUserId);
+}
+
+function clearSessionTracking(
+  sessionParticipants,
+  lastSyncedMessageIds,
+  sessionId,
+) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) return;
+  sessionParticipants.delete(normalizedSessionId);
+  lastSyncedMessageIds.delete(normalizedSessionId);
 }
 
 function formatPromptContext(result, ids, config) {
@@ -102,6 +186,7 @@ export default {
     const config = resolveHonchoPluginConfig(api.pluginConfig, api.runtime);
     const client = new HonchoClient(config);
     const lastSyncedMessageIds = new Map();
+    const sessionParticipants = new Map();
 
     api.registerMemoryLayer({
       id: 'honcho-memory-layer',
@@ -134,7 +219,8 @@ export default {
         recentMessages,
       }) {
         try {
-          const query = latestUserQuery(recentMessages);
+          rememberSessionParticipant(sessionParticipants, sessionId, userId);
+          const query = getLatestUserQuery(recentMessages);
           const result = await client.getSessionContext({
             sessionId,
             userId,
@@ -172,6 +258,7 @@ export default {
       },
       async onTurnComplete({ sessionId, userId, agentId, messages }) {
         if (!config.autoSync) return;
+        rememberSessionParticipant(sessionParticipants, sessionId, userId);
         const lastSyncedMessageId = lastSyncedMessageIds.get(sessionId) || 0;
         const unsyncedMessages = messages.filter(
           (message) => Number(message.id) > lastSyncedMessageId,
@@ -190,6 +277,75 @@ export default {
         lastSyncedMessageIds.set(sessionId, maxMessageId);
       },
     });
+
+    api.on(
+      'memory_write',
+      async (context) => {
+        if (!config.autoSync) return;
+        try {
+          const rememberedUserId = sessionParticipants.get(context.sessionId);
+          await client.syncMessages({
+            sessionId: context.sessionId,
+            userId: rememberedUserId || MEMORY_WRITE_FALLBACK_USER_ID,
+            agentId: context.agentId,
+            messages: buildMemoryWriteMirrorMessages(context),
+          });
+          api.logger.debug(
+            {
+              baseUrl: config.baseUrl,
+              workspaceId: config.workspaceId,
+              sessionId: context.sessionId,
+              action: context.action,
+              memoryFilePath: context.memoryFilePath,
+              usedFallbackUserId: !rememberedUserId,
+            },
+            'Honcho native memory write mirrored',
+          );
+        } catch (error) {
+          api.logger.warn(
+            {
+              error,
+              baseUrl: config.baseUrl,
+              workspaceId: config.workspaceId,
+              sessionId: context.sessionId,
+              action: context.action,
+              memoryFilePath: context.memoryFilePath,
+            },
+            'Honcho native memory write mirror failed',
+          );
+        }
+      },
+      { priority: 45 },
+    );
+
+    api.on(
+      'session_end',
+      async ({ sessionId }) => {
+        clearSessionTracking(
+          sessionParticipants,
+          lastSyncedMessageIds,
+          sessionId,
+        );
+      },
+      { priority: 45 },
+    );
+
+    api.on(
+      'session_reset',
+      async ({ previousSessionId, sessionId }) => {
+        clearSessionTracking(
+          sessionParticipants,
+          lastSyncedMessageIds,
+          previousSessionId,
+        );
+        clearSessionTracking(
+          sessionParticipants,
+          lastSyncedMessageIds,
+          sessionId,
+        );
+      },
+      { priority: 45 },
+    );
 
     api.registerCommand({
       name: 'honcho',

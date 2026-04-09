@@ -14,6 +14,10 @@ hybridclaw gateway start --foreground --sandbox=host
 hybridclaw tui
 ```
 
+If a reachable gateway is already running in host mode, `hybridclaw tui`
+follows that active sandbox mode during preflight, so you do not need to flip
+local config first just to attach the TUI.
+
 Then use the TUI slash commands:
 
 ```text

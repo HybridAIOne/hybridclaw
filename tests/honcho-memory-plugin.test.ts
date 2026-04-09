@@ -350,3 +350,99 @@ test('honcho-memory syncs turns, deduplicates repeated sync, injects context, an
     await honcho.close();
   }
 });
+
+test('honcho-memory mirrors native memory writes immediately with the current session user', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const homeDir = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  installBundledPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        contextTokens: 2000,
+        searchLimit: 5,
+        maxInjectedChars: 2500,
+      },
+    },
+  ];
+
+  try {
+    const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+    const manager = new PluginManager({
+      homeDir,
+      cwd,
+      getRuntimeConfig: () => config,
+    });
+
+    await manager.ensureInitialized();
+
+    await manager.collectPromptContext({
+      sessionId: 'session-native-memory',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [
+        {
+          id: 1,
+          session_id: 'session-native-memory',
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'Remember the auth migration decision.',
+          created_at: '2026-04-09T10:00:00.000Z',
+        },
+      ],
+    });
+
+    await manager.notifyMemoryWrites({
+      sessionId: 'session-native-memory',
+      agentId: 'main',
+      channelId: 'web',
+      toolExecutions: [
+        {
+          name: 'memory',
+          arguments:
+            '{"action":"append","file_path":"memory/2026-04-09.md","content":"Remember Clerk reduced auth integration time."}',
+          result: 'Appended 45 chars to memory/2026-04-09.md',
+          durationMs: 8,
+        },
+      ],
+    });
+
+    expect(honcho.createdMessages).toHaveLength(2);
+    expect(honcho.createdMessages[0]).toMatchObject({
+      peer_id: 'user:user-1',
+      content: [
+        'Mirror this explicit HybridClaw native memory write into Honcho.',
+        'File: memory/2026-04-09.md',
+        'Action: append',
+      ].join('\n'),
+      metadata: expect.objectContaining({
+        hybridclaw_memory_write: true,
+        hybridclaw_memory_action: 'append',
+        hybridclaw_memory_file_path: 'memory/2026-04-09.md',
+        hybridclaw_memory_mirror_role: 'instruction',
+      }),
+    });
+    expect(honcho.createdMessages[1]).toMatchObject({
+      peer_id: 'agent:main',
+      content: 'Remember Clerk reduced auth integration time.',
+      metadata: expect.objectContaining({
+        hybridclaw_memory_write: true,
+        hybridclaw_memory_action: 'append',
+        hybridclaw_memory_file_path: 'memory/2026-04-09.md',
+        hybridclaw_memory_mirror_role: 'content',
+      }),
+    });
+  } finally {
+    await honcho.close();
+  }
+});

@@ -25,6 +25,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Guides', path: 'guides/README.md' },
       { title: 'Bundled Skills', path: 'guides/bundled-skills.md' },
       { title: 'Local Providers', path: 'guides/local-providers.md' },
+      { title: 'Remote Access', path: 'guides/remote-access.md' },
       { title: 'Office Dependencies', path: 'guides/office-dependencies.md' },
       { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
       { title: 'Voice TTS', path: 'guides/voice-tts.md' },
@@ -39,6 +40,10 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       {
         title: 'Honcho Memory Plugin',
         path: 'extensibility/honcho-memory-plugin.md',
+      },
+      {
+        title: 'MemPalace Memory Plugin',
+        path: 'extensibility/mempalace-memory-plugin.md',
       },
       { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
       { title: 'Plugins', path: 'extensibility/plugins.md' },

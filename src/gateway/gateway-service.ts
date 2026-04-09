@@ -39,12 +39,14 @@ import {
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
-import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
+import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -64,6 +66,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -144,6 +147,7 @@ import {
 } from '../providers/hybridai-bots.js';
 import {
   getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
 import {
@@ -176,6 +180,7 @@ import {
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -186,6 +191,7 @@ import {
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
   readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -1556,7 +1562,7 @@ function buildHybridAIAuthStatusLines(): string[] {
   return [
     `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
     ...(status.authenticated
-      ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
+      ? [`Source: ${status.source}`, 'API key: configured']
       : []),
     `Config: ${runtimeConfigPath()}`,
     `Base URL: ${config.hybridai.baseUrl}`,
@@ -1618,37 +1624,57 @@ function normalizeGatewayAuthStatusProvider(
   return null;
 }
 
-function maskGatewaySecret(value: string): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '***';
-  if (normalized.length <= 8) {
-    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
-  }
-  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
-}
-
 function resolveRuntimeCredentialStatus(
   storedSecretName: string,
   envValues: Array<string | undefined>,
+  storedValue?: string,
 ): {
   value: string;
   source: 'env' | 'runtime-secrets' | null;
 } {
-  const storedValue = readStoredRuntimeSecret(storedSecretName);
+  const resolvedStoredValue =
+    typeof storedValue === 'string'
+      ? storedValue.trim()
+      : readStoredRuntimeSecret(storedSecretName);
   const envValue =
     envValues
       .map((value) => String(value || '').trim())
       .find((value) => value.length > 0) || '';
   const source = envValue
-    ? storedValue && envValue === storedValue
+    ? resolvedStoredValue && envValue === resolvedStoredValue
       ? 'runtime-secrets'
       : 'env'
-    : storedValue
+    : resolvedStoredValue
       ? 'runtime-secrets'
       : null;
   return {
-    value: envValue || storedValue || '',
+    value: envValue || resolvedStoredValue || '',
     source,
+  };
+}
+
+function resolveGatewayPasswordStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['email']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      passwordConfigured: Boolean(credential.value),
+      passwordSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    passwordConfigured: Boolean(configValue),
+    passwordSource: configValue ? 'config' : null,
   };
 }
 
@@ -1660,9 +1686,7 @@ function buildOpenRouterAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.openrouter.baseUrl}`,
@@ -1679,9 +1703,7 @@ function buildMistralAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.mistral.baseUrl}`,
@@ -1699,9 +1721,7 @@ function buildHuggingFaceAuthStatusLines(): string[] {
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`API key: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['API key: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`,
     `Base URL: ${config.huggingface.baseUrl}`,
@@ -1719,7 +1739,7 @@ function buildCodexAuthStatusLines(): string[] {
       ? [
           `Source: ${status.source}`,
           `Account: ${status.accountId}`,
-          `Access token: ${status.maskedAccessToken}`,
+          'Access token: configured',
           `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
         ]
       : []),
@@ -1757,9 +1777,7 @@ function buildMSTeamsAuthStatusLines(): string[] {
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value
-      ? [`App password: ${maskGatewaySecret(credential.value)}`]
-      : []),
+    ...(credential.value ? ['App password: configured'] : []),
     `Config: ${runtimeConfigPath()}`,
     `Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`,
     `App ID: ${appId || '(not set)'}`,
@@ -2069,53 +2087,74 @@ export function recordSuccessfulTurn(opts: {
   resultText: string;
   toolCallCount: number;
   startedAt: number;
+  replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;
 } {
-  const storedTurn = memoryService.storeTurn({
-    sessionId: opts.sessionId,
-    user: {
-      userId: opts.userId,
-      username: opts.username,
-      content: opts.userContent,
-    },
-    assistant: {
-      userId: 'assistant',
-      username: null,
-      content: opts.resultText,
-    },
-  });
-  try {
-    if (opts.canonicalScopeId.trim()) {
-      memoryService.appendCanonicalMessages({
-        agentId: opts.agentId,
-        userId: opts.canonicalScopeId,
-        newMessages: [
-          {
+  const storedTurn =
+    opts.replaceBuiltInMemory === true
+      ? {
+          userMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: opts.userId,
+            username: opts.username,
             role: 'user',
             content: opts.userContent,
+          }),
+          assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-          {
+            userId: 'assistant',
+            username: null,
             role: 'assistant',
             content: opts.resultText,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
+          }),
+        }
+      : memoryService.storeTurn({
+          sessionId: opts.sessionId,
+          user: {
+            userId: opts.userId,
+            username: opts.username,
+            content: opts.userContent,
           },
-        ],
-      });
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            content: opts.resultText,
+          },
+        });
+  if (opts.replaceBuiltInMemory !== true) {
+    try {
+      if (opts.canonicalScopeId.trim()) {
+        memoryService.appendCanonicalMessages({
+          agentId: opts.agentId,
+          userId: opts.canonicalScopeId,
+          newMessages: [
+            {
+              role: 'user',
+              content: opts.userContent,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+            {
+              role: 'assistant',
+              content: opts.resultText,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+          ],
+        });
+      }
+    } catch (err) {
+      logger.debug(
+        {
+          sessionId: opts.sessionId,
+          canonicalScopeId: opts.canonicalScopeId,
+          err,
+        },
+        'Failed to append canonical session memory',
+      );
     }
-  } catch (err) {
-    logger.debug(
-      {
-        sessionId: opts.sessionId,
-        canonicalScopeId: opts.canonicalScopeId,
-        err,
-      },
-      'Failed to append canonical session memory',
-    );
   }
   appendSessionTranscript(opts.agentId, {
     sessionId: opts.sessionId,
@@ -2134,20 +2173,22 @@ export function recordSuccessfulTurn(opts: {
     content: opts.resultText,
   });
 
-  void maybeCompactSession({
-    sessionId: opts.sessionId,
-    agentId: opts.agentId,
-    chatbotId: opts.chatbotId,
-    enableRag: opts.enableRag,
-    model: opts.model,
-    channelId: opts.channelId,
-    promptMode: opts.promptMode,
-  }).catch((err) => {
-    logger.warn(
-      { sessionId: opts.sessionId, err },
-      'Background session compaction failed',
-    );
-  });
+  if (opts.replaceBuiltInMemory !== true) {
+    void maybeCompactSession({
+      sessionId: opts.sessionId,
+      agentId: opts.agentId,
+      chatbotId: opts.chatbotId,
+      enableRag: opts.enableRag,
+      model: opts.model,
+      channelId: opts.channelId,
+      promptMode: opts.promptMode,
+    }).catch((err) => {
+      logger.warn(
+        { sessionId: opts.sessionId, err },
+        'Background session compaction failed',
+      );
+    });
+  }
 
   recordAuditEvent({
     sessionId: opts.sessionId,
@@ -2504,10 +2545,14 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
-    localBackendsProbe.get(),
-    hybridAIProbe.get(),
-  ]);
+  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
+    await Promise.allSettled([
+      localBackendsProbe.get(),
+      hybridAIProbe.get(),
+      getWhatsAppAuthStatus(),
+    ]);
+  const runtimeConfig = getRuntimeConfig();
+  const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2516,6 +2561,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
       : { reachable: false, error: 'probe failed', latencyMs: 0 };
+  const whatsappAuth =
+    whatsappAuthResult.status === 'fulfilled'
+      ? whatsappAuthResult.value
+      : { linked: false, jid: null };
+  const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
@@ -2536,6 +2586,27 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const discordCredential = resolveRuntimeCredentialStatus(
+    'DISCORD_TOKEN',
+    [process.env.DISCORD_TOKEN],
+    storedSecrets.DISCORD_TOKEN,
+  );
+  const discord = {
+    tokenConfigured: Boolean(discordCredential.value),
+    tokenSource: discordCredential.source,
+  } as NonNullable<GatewayStatus['discord']>;
+  const email = resolveGatewayPasswordStatus({
+    storedSecretName: 'EMAIL_PASSWORD',
+    envValues: [process.env.EMAIL_PASSWORD],
+    configValue: runtimeConfig.email.password,
+    storedValue: storedSecrets.EMAIL_PASSWORD,
+  });
+  const imessage = resolveGatewayPasswordStatus({
+    storedSecretName: 'IMESSAGE_PASSWORD',
+    envValues: [process.env.IMESSAGE_PASSWORD],
+    configValue: runtimeConfig.imessage.password,
+    storedValue: storedSecrets.IMESSAGE_PASSWORD,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -2544,7 +2615,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
-    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
+    defaultAgentId: resolveDefaultAgentId(runtimeConfig),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -2562,6 +2633,14 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     observability: getObservabilityIngestState(),
     scheduler: {
       jobs: getSchedulerStatus(),
+    },
+    discord,
+    email,
+    imessage,
+    whatsapp: {
+      ...whatsappAuth,
+      pairingQrText: whatsappPairing.pairingQrText,
+      pairingUpdatedAt: whatsappPairing.updatedAt,
     },
     providerHealth,
     localBackends,
@@ -3242,6 +3321,9 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         const info = getLocalModelInfo(modelId);
         const hybridaiContextWindow =
           getDiscoveredHybridAIModelContextWindow(modelId);
+        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
+        const openRouterMaxTokens =
+          getDiscoveredOpenRouterModelMaxTokens(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
@@ -3251,7 +3333,8 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           discovered: Boolean(info),
           backend: info?.backend || null,
           contextWindow: info?.contextWindow ?? hybridaiContextWindow ?? null,
-          maxTokens: info?.maxTokens ?? null,
+          maxTokens:
+            info?.maxTokens ?? hybridaiMaxTokens ?? openRouterMaxTokens ?? null,
           isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
@@ -4083,6 +4166,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
+    if (pluginManager) {
+      await pluginManager.notifyMemoryWrites({
+        sessionId: session.id,
+        agentId: resolved.agentId,
+        channelId,
+        toolExecutions: output.toolExecutions || [],
+      });
+    }
     const resultText =
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
@@ -5109,411 +5200,9 @@ export async function handleGatewayCommand(
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
-        const helpEntries: Array<{
-          command: string;
-          description: string;
-          scope: 'bare' | 'slash' | 'both';
-        }> = [
-          {
-            command: 'agent',
-            description: 'Show current session agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent list',
-            description: 'List available agents',
-            scope: 'bare',
-          },
-          {
-            command: 'agent switch <id>',
-            description: 'Bind this session to an existing agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent create <id> [--model <model>]',
-            description: 'Create a new agent',
-            scope: 'bare',
-          },
-          {
-            command:
-              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
-            description: 'Install a packaged agent from a path or URL',
-            scope: 'both',
-          },
-          {
-            command: 'agent model [name]',
-            description:
-              'Show or set the persistent model for the current agent',
-            scope: 'bare',
-          },
-          {
-            command: 'bot list',
-            description: 'List available bots',
-            scope: 'bare',
-          },
-          {
-            command: 'bot set <id|name>',
-            description: 'Set chatbot for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'bot clear',
-            description: 'Clear the session chatbot and return to auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'bot info',
-            description: 'Show current chatbot settings',
-            scope: 'bare',
-          },
-          {
-            command: 'concierge [info|on|off]',
-            description: 'Show or toggle concierge routing defaults',
-            scope: 'both',
-          },
-          {
-            command: 'concierge model [name]',
-            description: 'Show or set the concierge decision model',
-            scope: 'both',
-          },
-          {
-            command: 'concierge profile <asap|balanced|no_hurry> [model]',
-            description: 'Show or set concierge profile model mappings',
-            scope: 'both',
-          },
-          {
-            command: 'model list [provider]',
-            description: 'List available models',
-            scope: 'both',
-          },
-          {
-            command: 'model set <name>',
-            description: 'Set model for this session',
-            scope: 'both',
-          },
-          {
-            command: 'model clear',
-            description: 'Clear the session model override',
-            scope: 'both',
-          },
-          {
-            command: 'model default [name]',
-            description: 'Show or set default model for new sessions',
-            scope: 'both',
-          },
-          {
-            command: 'model info',
-            description: 'Show effective, session, agent, and default models',
-            scope: 'both',
-          },
-          {
-            command: 'rag [on|off]',
-            description: 'Toggle or set RAG mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel mode [off|mention|free]',
-            description: 'Set or inspect this Discord channel response mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel policy [open|allowlist|disabled]',
-            description: 'Set or inspect guild channel policy',
-            scope: 'bare',
-          },
-          {
-            command: 'ralph [on|off|set <n>|info]',
-            description: 'Configure Ralph loop (0 off, -1 unlimited)',
-            scope: 'bare',
-          },
-          {
-            command: 'fullauto [status|off|on [prompt]|<prompt>]',
-            description: 'Enable/inspect/disable session full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'show [all|thinking|tools|none]',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'show <all|thinking|tools|none>',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'slash',
-          },
-          {
-            command: 'mcp list',
-            description: 'List configured MCP servers',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp add <name> <json>',
-            description: 'Add or update an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp remove <name>',
-            description: 'Remove an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp toggle <name>',
-            description: 'Enable or disable an MCP server',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp reconnect <name>',
-            description:
-              'Restart current session runtime so the server reconnects next turn',
-            scope: 'bare',
-          },
-          {
-            command: 'plugin list',
-            description:
-              'List discovered plugins, descriptions, commands, and load status',
-            scope: 'both',
-          },
-          {
-            command: 'plugin config <plugin-id> [key] [value|--unset]',
-            description: 'Show or change a plugin config override',
-            scope: 'both',
-          },
-          {
-            command: 'plugin enable <plugin-id>',
-            description: 'Enable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin disable <plugin-id>',
-            description: 'Disable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin install <path|npm-spec>',
-            description: 'Install a plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reinstall <path|npm-spec>',
-            description:
-              'Replace an installed plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reload',
-            description:
-              'Reload all plugins (picks up code changes without gateway restart)',
-            scope: 'both',
-          },
-          {
-            command: 'plugin uninstall <plugin-id>',
-            description:
-              'Remove a home-installed plugin and matching runtime config overrides',
-            scope: 'both',
-          },
-          {
-            command: 'auth status hybridai',
-            description: 'Show local HybridAI auth/config state',
-            scope: 'both',
-          },
-          {
-            command: 'secret set <name> <value>',
-            description:
-              'Store an encrypted named secret for local gateway use',
-            scope: 'both',
-          },
-          {
-            command: 'secret list',
-            description:
-              'List stored secret names and configured URL auth rules',
-            scope: 'both',
-          },
-          {
-            command:
-              'secret route add <url-prefix> <secret-name> [header] [prefix|none]',
-            description:
-              'Auto-inject a secret-backed header for matching outbound HTTP requests',
-            scope: 'both',
-          },
-          {
-            command: 'config',
-            description: 'Show the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config check',
-            description: 'Validate the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config reload',
-            description:
-              'Hot-reload the local runtime config file and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'config set <key> <value>',
-            description: 'Set one local runtime config value and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'clear',
-            description: 'Clear session history',
-            scope: 'bare',
-          },
-          {
-            command: 'reset [yes|no]',
-            description:
-              'Clear history, reset session settings, and remove the current agent workspace',
-            scope: 'bare',
-          },
-          {
-            command: 'compact',
-            description:
-              'Archive older history, summarize it, and retain recent context',
-            scope: 'slash',
-          },
-          {
-            command: 'dream',
-            description: 'Run memory consolidation across agent workspaces now',
-            scope: 'slash',
-          },
-          {
-            command: 'status',
-            description:
-              'Show runtime status (Discord slash command, private to caller)',
-            scope: 'slash',
-          },
-          {
-            command: APPROVE_COMMAND_USAGE.slice('/'.length),
-            description: 'View/respond to pending approvals privately',
-            scope: 'slash',
-          },
-          {
-            command: 'stop',
-            description:
-              'Abort the current session run and disable full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel-mode <off|mention|free>',
-            description: 'Set this Discord channel response mode',
-            scope: 'slash',
-          },
-          {
-            command: 'channel-policy <open|allowlist|disabled>',
-            description: 'Set Discord guild channel policy',
-            scope: 'slash',
-          },
-          {
-            command: 'sessions [active|clear-active]',
-            description:
-              'List chat sessions, inspect active sandbox sessions, or stop them all',
-            scope: 'bare',
-          },
-          {
-            command:
-              'usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
-            description: 'Usage/cost aggregates',
-            scope: 'bare',
-          },
-          {
-            command: 'export session [sessionId]',
-            description: 'Export session JSONL snapshot for debugging',
-            scope: 'bare',
-          },
-          {
-            command: 'export trace [sessionId|all|--all]',
-            description:
-              'Export ATIF-compatible debug trace JSONL for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'audit [sessionId]',
-            description: 'Show recent structured audit events for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'skill list',
-            description: 'List available skills and availability',
-            scope: 'bare',
-          },
-          {
-            command: 'skill inspect <name>|--all',
-            description: 'Show observation-based skill health',
-            scope: 'bare',
-          },
-          {
-            command: 'skill runs <name>',
-            description: 'Show recent execution observations for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill learn <name> [--apply|--reject|--rollback]',
-            description: 'Stage or manage skill amendments',
-            scope: 'bare',
-          },
-          {
-            command: 'skill history <name>',
-            description: 'Show amendment history for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill sync [--skip-skill-scan] <source>',
-            description: 'Reinstall a packaged or community skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill import [--force] [--skip-skill-scan] <source>',
-            description:
-              'Import a packaged or community skill into ~/.hybridclaw/skills',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add "<cron>" <prompt>',
-            description: 'Add cron scheduled task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add at "<ISO time>" <prompt>',
-            description: 'Add one-shot task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add every <ms> <prompt>',
-            description: 'Add interval task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule list',
-            description: 'List scheduled tasks',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule remove <id>',
-            description: 'Remove a task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule toggle <id>',
-            description: 'Enable/disable a task',
-            scope: 'bare',
-          },
-          {
-            command: 'eval [list|env|<suite>|<command...>]',
-            description: 'Local-only eval recipes and detached benchmark runs',
-            scope: 'both',
-          },
-        ];
-        const help = helpEntries.flatMap(({ command, description, scope }) => {
-          const prefixes =
-            scope === 'both' ? ['', '/'] : scope === 'slash' ? ['/'] : [''];
-          return prefixes.map(
-            (prefix) => `\`${prefix}${command}\` — ${description}`,
-          );
-        });
+        const help = buildLocalSessionSlashHelpEntries('web').map(
+          ({ command, description }) => `\`${command}\`: ${description}`,
+        );
         return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
@@ -6504,6 +6193,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(
             `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
           );
@@ -6527,6 +6217,7 @@ export async function handleGatewayCommand(
             );
           }
           saveNamedRuntimeSecrets({ [secretName]: null });
+          refreshRuntimeSecretsFromEnv();
           return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
         }
 

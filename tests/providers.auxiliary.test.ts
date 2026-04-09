@@ -49,8 +49,8 @@ test('host auxiliary caller uses the configured compression task model', async (
       >;
       expect(body).toMatchObject({
         model: 'qwen/qwen2.5-instruct',
-        max_tokens: 321,
       });
+      expect(body.max_tokens).toBeUndefined();
       return new Response(
         JSON.stringify({
           choices: [
@@ -133,8 +133,8 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
       >;
       expect(body).toMatchObject({
         model: 'mistral-small',
-        max_tokens: 222,
       });
+      expect(body.max_tokens).toBeUndefined();
       return new Response(
         JSON.stringify({
           choices: [
@@ -269,6 +269,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
     agentId: 'main',
     isLocal: false,
     contextWindow: 200_000,
+    maxTokens: 64_000,
     thinkingFormat: undefined,
   }));
   vi.doMock('../src/providers/task-routing.js', async () => {
@@ -300,7 +301,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
       >;
       expect(body).toMatchObject({
         model: 'anthropic/claude-sonnet-4',
-        max_tokens: 77,
+        max_tokens: 64_000,
         temperature: 0.25,
         user: 'aux-test',
       });
@@ -315,7 +316,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
         unknown
       >;
       expect(body.max_tokens).toBeUndefined();
-      expect(body.max_completion_tokens).toBe(77);
+      expect(body.max_completion_tokens).toBe(64_000);
       return new Response(
         JSON.stringify({
           choices: [
@@ -373,7 +374,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
   });
 });
 
-test('host auxiliary caller does not retry max_completion_tokens for unrelated unsupported parameters', async () => {
+test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without discovery metadata', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'openrouter' as const,
@@ -413,7 +414,85 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
         string,
         unknown
       >;
-      expect(body.max_tokens).toBe(77);
+      expect(body.max_tokens).toBe(32_000);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Fallback max tokens response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    provider: 'openrouter',
+    model: 'anthropic/claude-sonnet-4',
+    maxTokens: 77,
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    content: 'Fallback max tokens response.',
+  });
+});
+
+test('host auxiliary caller does not retry max_completion_tokens for unrelated unsupported parameters', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 48_000,
+    thinkingFormat: undefined,
+  }));
+  vi.doMock('../src/providers/task-routing.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/task-routing.js')
+    >('../src/providers/task-routing.js');
+    return {
+      ...actual,
+      resolveTaskModelPolicy,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.max_tokens).toBe(48_000);
       expect(body.max_completion_tokens).toBeUndefined();
       return new Response('unsupported_parameter: tools', { status: 400 });
     },

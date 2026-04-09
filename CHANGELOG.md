@@ -1,6 +1,86 @@
 # Changelog
 
 ## [Coming up]
+### Added
+
+- **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
+  local HybridClaw installs can layer MemPalace recall on top of native memory,
+  expose `/mempalace ...` for manual CLI access, and auto-save turns back into
+  MemPalace through hook-driven transcript mining and native-memory mirroring.
+- **Plugin dependency install and health checks**: Plugin manifests can now
+  declare pip, npm, and external runtime dependencies, `plugin install` /
+  `plugin reinstall` can provision declared dependencies with explicit
+  approval, and `plugin check` reports package, binary, env, and config health
+  for local plugins.
+
+### Changed
+
+- **Threaded email replies across built-in and Brevo delivery**: Outbound email
+  sends now accept explicit `In-Reply-To` and `References` headers through the
+  `message` tool/API and the repo-shipped `brevo-email` plugin, keeping
+  follow-up replies inside the existing mail thread.
+- **Email credential wiring**: Email setup and runtime config now support
+  `email.password` as a SecretRef-backed field so stored `EMAIL_PASSWORD`
+  secrets can stay referenced from config without falling back to plaintext
+  values.
+- **Plugin install ergonomics**: Local plugin installs now accept bare plugin
+  ids from the repo `plugins/` directory, prefer plugin-local executables after
+  dependency setup, and reuse the normal local approval flow when dependency
+  installers need permission to modify the plugin environment.
+- **Discord concierge approvals**: Discord concierge prompts now render
+  native urgency buttons, resume the pending request from button clicks,
+  disable the prompt buttons after selection, and keep normal progress
+  reactions visible while the resumed run executes.
+- **MemPalace recall routing**: The bundled MemPalace plugin keeps HybridClaw's
+  built-in memory active, falls back to CLI `wake-up` / `search` recall when no
+  MemPalace MCP server is enabled, and automatically switches prompt-time
+  recall over to a configured `mempalace` MCP server when one is available.
+
+### Fixed
+
+- **Provider `maxTokens` policy**: Provider-facing model requests now omit
+  `maxTokens` for non-Anthropic models and always send a discovered Anthropic
+  limit, falling back to `32000` when discovery metadata is unavailable.
+- **Plugin dependency safety**: Manifest-provided external dependency checks no
+  longer execute through a shell, and already-installed plugins now recompute
+  their dependency plan from the installed directory before reinstalling
+  runtime packages.
+
+## [0.12.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.1)
+
+### Added
+
+- **Admin console channel operations**: Added an `/admin` Channels workspace
+  with a transport catalog, browser-based editors for Discord, WhatsApp, email,
+  Microsoft Teams, and iMessage, managed secret fields for channel
+  credentials, and live WhatsApp pairing QR display.
+- **Remote-access runbook**: Added maintainer docs for reaching `/chat`,
+  `/agents`, `/admin`, and remote CLI/TUI clients through SSH tunnels or
+  host-managed Tailscale while keeping the gateway bound to loopback.
+
+### Changed
+
+- **Explicit email thread headers**: The `message` tool/API and the
+  repo-shipped `brevo-email` plugin now accept explicit `inReplyTo` and
+  `references` Message-ID headers so outbound replies can attach to an existing
+  external thread when needed.
+- **Secret-backed email transport config**: Email setup and runtime config now
+  support `email.password` as a SecretRef-backed field, and
+  `hybridclaw channels email setup` keeps stored `EMAIL_PASSWORD` secrets
+  referenced from config instead of falling back to plaintext.
+- **Local slash-command help**: TUI and embedded web `/help` output now comes
+  from the shared command registry, keeping command listings surface-aware,
+  alphabetized, and aligned with slash-menu suggestions.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **Secret-handling UX**: Hidden secret prompts now restore terminal state
+  correctly after earlier readline prompts, and `auth status` surfaces report
+  sensitive credentials as `configured` instead of printing partial tokens or
+  keys.
 
 ## [0.12.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.0)
 

@@ -220,6 +220,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
   configModuleError?: Error | null;
@@ -241,8 +242,31 @@ async function importFreshCli(options?: {
     source: string;
     alreadyInstalled: boolean;
     dependenciesInstalled: boolean;
+    dependencySummary: {
+      usedPackageJson: boolean;
+      installedNodePackages: string[];
+      installedPipPackages: string[];
+    };
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      installHint?: string;
+      installUrl?: string;
+    }>;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginReinstallError?: Error | null;
   pluginReinstallResult?: {
@@ -252,8 +276,62 @@ async function importFreshCli(options?: {
     alreadyInstalled: boolean;
     replacedExistingInstall: boolean;
     dependenciesInstalled: boolean;
+    dependencySummary: {
+      usedPackageJson: boolean;
+      installedNodePackages: string[];
+      installedPipPackages: string[];
+    };
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      installHint?: string;
+      installUrl?: string;
+    }>;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
+  };
+  pluginCheckError?: Error | null;
+  pluginCheckResult?: {
+    pluginId: string;
+    pluginDir: string;
+    source: 'home' | 'project' | 'config';
+    requiresEnv: string[];
+    missingEnv: string[];
+    requiredConfigKeys: string[];
+    packageJsonDependencies: Array<{ package: string; installed: boolean }>;
+    nodeDependencies: Array<{ package: string; installed: boolean }>;
+    pipDependencies: Array<{ package: string; installed: boolean }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      check: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginUninstallError?: Error | null;
   pluginUninstallResult?: {
@@ -490,6 +568,13 @@ async function importFreshCli(options?: {
         source,
         alreadyInstalled: false,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: [],
         requiredConfigKeys: [],
       }
@@ -507,11 +592,54 @@ async function importFreshCli(options?: {
         alreadyInstalled: false,
         replacedExistingInstall: true,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: [],
         requiredConfigKeys: [],
       }
     );
   });
+  const checkPlugin = vi.fn(async (pluginId: string) => {
+    if (options?.pluginCheckError) {
+      throw options.pluginCheckError;
+    }
+    return (
+      options?.pluginCheckResult || {
+        pluginId,
+        pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+        source: 'home' as const,
+        requiresEnv: [],
+        missingEnv: [],
+        requiredConfigKeys: [],
+        packageJsonDependencies: [],
+        nodeDependencies: [],
+        pipDependencies: [],
+        externalDependencies: [],
+        configuredRequiredBins: [],
+      }
+    );
+  });
+  class PluginDependencyApprovalRequiredError extends Error {
+    readonly plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    };
+
+    constructor(plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    }) {
+      super('Plugin dependency installation requires explicit approval.');
+      this.plan = plan;
+    }
+  }
   const uninstallPlugin = vi.fn(async (pluginId: string) => {
     if (options?.pluginUninstallError) {
       throw options.pluginUninstallError;
@@ -836,6 +964,31 @@ async function importFreshCli(options?: {
     persistRuntimeConfigState();
     return structuredClone(runtimeConfigState);
   });
+  const setRuntimeConfigSecretInput = vi.fn(
+    (secretPath: string, value: unknown, _meta?: Record<string, unknown>) => {
+      const draft = getRuntimeConfig() as Record<string, unknown>;
+      if (secretPath === 'email.password') {
+        const email = (draft.email as Record<string, unknown>) || {};
+        draft.email = email;
+        email.password = value;
+      } else if (secretPath === 'imessage.password') {
+        const imessage = (draft.imessage as Record<string, unknown>) || {};
+        draft.imessage = imessage;
+        imessage.password = value;
+      } else if (secretPath === 'local.backends.vllm.apiKey') {
+        const local = (draft.local as Record<string, unknown>) || {};
+        draft.local = local;
+        const backends = (local.backends as Record<string, unknown>) || {};
+        local.backends = backends;
+        const vllm = (backends.vllm as Record<string, unknown>) || {};
+        backends.vllm = vllm;
+        vllm.apiKey = value;
+      }
+      runtimeConfigState = draft as typeof runtimeConfigState;
+      persistRuntimeConfigState();
+      return structuredClone(runtimeConfigState);
+    },
+  );
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -857,6 +1010,24 @@ async function importFreshCli(options?: {
       activeContainers: 0,
       defaultModel: 'gpt-4.1-mini',
       ragDefault: true,
+      sandbox: options?.gatewayStatusSandboxMode
+        ? {
+            mode: options.gatewayStatusSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
       timestamp: new Date().toISOString(),
     };
   });
@@ -949,6 +1120,7 @@ async function importFreshCli(options?: {
     getRuntimeConfigRevision,
     deleteRuntimeConfigRevision,
     clearRuntimeConfigRevisions,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
@@ -1056,12 +1228,16 @@ async function importFreshCli(options?: {
     uninstallAgent,
   }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
   }));
@@ -1109,7 +1285,9 @@ async function importFreshCli(options?: {
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
     importSkill,
@@ -1136,6 +1314,7 @@ async function importFreshCli(options?: {
     restoreRuntimeConfigRevision,
     runtimeConfigPath,
     runtimeConfigRevisionPath,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
@@ -2656,16 +2835,29 @@ describe('CLI hybridai commands', () => {
         source: '@scope/hybridclaw-plugin-example',
         alreadyInstalled: false,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
         requiredConfigKeys: ['workspaceId'],
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['plugin', 'install', '@scope/hybridclaw-plugin-example']);
+    await cli.main([
+      'plugin',
+      'install',
+      '@scope/hybridclaw-plugin-example',
+      '--yes',
+    ]);
 
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
+      { approveDependencyInstall: true },
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
@@ -2684,6 +2876,135 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('prints missing binary guidance after plugin install', async () => {
+    const { cli } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'mempalace-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+        source: './plugins/mempalace-memory',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: false,
+          installedNodePackages: [],
+          installedPipPackages: ['mempalace'],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
+        requiresEnv: [],
+        requiredConfigKeys: [],
+        missingRequiredBins: [
+          {
+            name: 'mempalace',
+            command: 'mempalace',
+            configKey: 'command',
+            installHint: 'pip install mempalace',
+            installUrl: 'https://github.com/milla-jovovich/mempalace',
+          },
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'plugin',
+      'install',
+      './plugins/mempalace-memory',
+      '--yes',
+    ]);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed plugin pip packages: mempalace.',
+    );
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Missing required binaries right now: mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install mempalace: pip install mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install docs for mempalace: https://github.com/milla-jovovich/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'If mempalace is installed outside PATH, set it with: hybridclaw plugin config mempalace-memory command /absolute/path/to/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Until the missing binaries are installed, the plugin will remain unavailable.',
+    );
+  });
+
+  it('requires --yes for non-interactive dependency installs', async () => {
+    const { PluginDependencyApprovalRequiredError } = await importFreshCli();
+    const { cli, installPlugin } = await importFreshCli({
+      pluginInstallError: new PluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    });
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+
+    await expect(
+      cli.main(['plugin', 'install', './plugins/mempalace-memory']),
+    ).rejects.toThrow(
+      'Plugin dependency installation requires an interactive terminal. Re-run with --yes to approve.',
+    );
+    expect(installPlugin).toHaveBeenCalled();
+  });
+
+  it('prints a plugin dependency check report', async () => {
+    const { checkPlugin, cli } = await importFreshCli({
+      pluginCheckResult: {
+        pluginId: 'mempalace-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+        source: 'home',
+        requiresEnv: ['MEMPALACE_TOKEN'],
+        missingEnv: ['MEMPALACE_TOKEN'],
+        requiredConfigKeys: ['palacePath'],
+        packageJsonDependencies: [
+          { package: '@scope/helper', installed: true },
+        ],
+        nodeDependencies: [],
+        pipDependencies: [{ package: 'mempalace', installed: true }],
+        externalDependencies: [
+          {
+            name: 'mempalace',
+            check: 'mempalace --version',
+            installed: true,
+          },
+        ],
+        configuredRequiredBins: [
+          {
+            name: 'mempalace',
+            configKey: 'command',
+            command:
+              '/tmp/.hybridclaw/plugins/mempalace-memory/.venv/bin/mempalace',
+          },
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'check', 'mempalace-memory']);
+
+    expect(checkPlugin).toHaveBeenCalledWith('mempalace-memory');
+    expect(logSpy).toHaveBeenCalledWith('Plugin: mempalace-memory');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Manifest pip dependencies: mempalace=ok',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured binary paths: mempalace (command=/tmp/.hybridclaw/plugins/mempalace-memory/.venv/bin/mempalace)',
+    );
+  });
+
   it('reinstalls a plugin and preserves the usual install guidance', async () => {
     const { cli, reinstallPlugin } = await importFreshCli({
       pluginReinstallResult: {
@@ -2693,15 +3014,29 @@ describe('CLI hybridai commands', () => {
         alreadyInstalled: false,
         replacedExistingInstall: true,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
         requiredConfigKeys: ['workspaceId'],
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['plugin', 'reinstall', './plugins/example-plugin']);
+    await cli.main([
+      'plugin',
+      'reinstall',
+      './plugins/example-plugin',
+      '--yes',
+    ]);
 
-    expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin');
+    expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin', {
+      approveDependencyInstall: true,
+    });
     expect(logSpy).toHaveBeenCalledWith(
       'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
     );
@@ -2892,6 +3227,7 @@ describe('CLI hybridai commands', () => {
       cli,
       readlineCreateInterface,
       saveRuntimeSecrets,
+      setRuntimeConfigSecretInput,
       updateRuntimeConfig,
     } = await importFreshCli({
       promptResponses: [
@@ -2914,6 +3250,17 @@ describe('CLI hybridai commands', () => {
     expect(saveRuntimeSecrets).toHaveBeenCalledWith({
       EMAIL_PASSWORD: 'app-password-123',
     });
+    expect(setRuntimeConfigSecretInput).toHaveBeenCalledWith(
+      'email.password',
+      {
+        source: 'store',
+        id: 'EMAIL_PASSWORD',
+      },
+      {
+        route: 'cli.channels.email.setup-secret-ref',
+        source: 'user',
+      },
+    );
     const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
       email: {
         address: string;
@@ -2997,9 +3344,31 @@ describe('CLI hybridai commands', () => {
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
-    expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('API key: configured');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
+  });
+
+  it('prints configured instead of a partial Codex access token in status output', async () => {
+    const { cli } = await importFreshCli({
+      codexStatus: {
+        authenticated: true,
+        path: '/tmp/codex-auth.json',
+        source: 'browser-pkce',
+        accountId: 'acct_test',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        maskedAccessToken: 'codex-…7890',
+        reloginRequired: false,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'codex']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Source: browser-pkce');
+    expect(logSpy).toHaveBeenCalledWith('Account: acct_test');
+    expect(logSpy).toHaveBeenCalledWith('Access token: configured');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -3407,7 +3776,7 @@ describe('CLI hybridai commands', () => {
     expect(readlineCreateInterface).toHaveBeenCalled();
     expect(readlineQuestion).toHaveBeenCalledWith('Microsoft Teams app id: ');
     expect(readlineQuestion).toHaveBeenCalledWith(
-      'Microsoft Teams app password: ',
+      '🔒 Paste Microsoft Teams app password: ',
     );
     expect(readlineQuestion).toHaveBeenCalledWith(
       'Microsoft Teams tenant id (optional): ',
@@ -3455,6 +3824,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['auth', 'status', 'msteams']);
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('App password: configured');
     expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
     expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
@@ -3573,6 +3943,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'openrouter']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3669,6 +4040,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'mistral']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -3813,6 +4185,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'huggingface']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -4152,6 +4525,36 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the reachable gateway sandbox mode for tui preflight', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'container',
+        gatewayStatusSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'host',
+        gatewayStatusSandboxMode: 'container',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {

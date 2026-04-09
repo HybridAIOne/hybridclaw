@@ -273,6 +273,8 @@ test('send action routes email targets through email transport', async () => {
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 
   expect(state.sendToEmail).toHaveBeenCalledWith(
@@ -282,6 +284,8 @@ test('send action routes email targets through email transport', async () => {
       subject: 'Quarterly update',
       cc: ['finance@example.com'],
       bcc: ['audit@example.com'],
+      inReplyTo: '<msg-1@example.com>',
+      references: ['<ref-1@example.com>', '<msg-1@example.com>'],
     },
   );
   expect(result).toMatchObject({
@@ -292,6 +296,8 @@ test('send action routes email targets through email transport', async () => {
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 });
 
@@ -307,6 +313,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 
   expect(state.sendEmailAttachmentTo).toHaveBeenCalledWith({
@@ -316,6 +324,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
   expect(result).toMatchObject({
     ok: true,
@@ -326,6 +336,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 });
 

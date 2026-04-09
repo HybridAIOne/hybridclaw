@@ -67,6 +67,15 @@ prompt text intact and adds a warning instead of silently broadening access.
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect
 Microsoft Teams, iMessage, WhatsApp, and email.
 
+## Can I reach HybridClaw from another machine?
+
+Yes. The supported pattern is to keep the gateway on loopback and expose it
+with an SSH tunnel or host-managed Tailscale proxy. Protect browser access with
+`ops.webApiToken`, and point remote CLI or TUI clients at the same gateway with
+`ops.gatewayBaseUrl` plus `ops.gatewayApiToken`. For the full runbook,
+including a persistent macOS LaunchAgent tunnel, see
+[Remote Access](../guides/remote-access.md).
+
 ## What AI models does it support?
 
 HybridClaw supports HybridAI models, OpenAI Codex models, OpenRouter models,
@@ -93,8 +102,10 @@ with linked-identity routing available when operators want shared continuity.
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
 chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
-Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills,
-Plugins, Tools, and Config pages.
+Gateway, Sessions, Jobs, Channels, Bindings, Models, Scheduler, MCP, Audit,
+Skills, Plugins, Tools, and Config pages. The Channels page centralizes
+transport status, managed secrets, and setup controls for Discord, WhatsApp,
+email, Microsoft Teams, and iMessage.
 
 ## Can I extend HybridClaw with plugins?
 

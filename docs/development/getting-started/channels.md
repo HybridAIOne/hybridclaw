@@ -67,6 +67,24 @@ No slash-command equivalent exists today for:
 - `hybridclaw channels imessage setup` because it performs backend-specific CLI
   setup work and checks
 
+## From The Admin Console
+
+If the gateway is already running, open `http://127.0.0.1:9090/admin` and use
+the Channels page when you prefer a browser-based setup flow.
+
+The Channels page can:
+
+- show each transport as `active`, `configured`, or `available`
+- edit Discord, WhatsApp, email, Microsoft Teams, and iMessage settings from
+  one place
+- save `DISCORD_TOKEN`, `EMAIL_PASSWORD`, and `IMESSAGE_PASSWORD` through the
+  same encrypted runtime secret store used by the CLI
+- show the live WhatsApp pairing QR when the transport is enabled but not
+  linked yet
+
+Channel edits in `/admin` write the same runtime config that
+`hybridclaw channels ... setup`, `/config set`, and `/secret set` use.
+
 ## Discord
 
 ### Step 1: Save restricted Discord config
@@ -159,11 +177,16 @@ Notes:
 
 - `EMAIL_PASSWORD` is saved only when you pass `--password` or paste it
   interactively
+- when `EMAIL_PASSWORD` is already stored, CLI setup keeps `email.password`
+  pointed at that encrypted secret instead of writing the password into config
 - IMAP secure mode defaults to `true`
 - SMTP secure mode defaults to `false` on port `587`; use `--smtp-secure` for
   implicit TLS on port `465`
 - `--no-smtp-secure` is the expected setting for STARTTLS on port `587`
 - if `allowFrom` is empty, email stays outbound-only
+- outbound replies preserve thread context automatically, and tool/API callers
+  can pass explicit `inReplyTo` and `references` Message-ID headers when they
+  need to reply into an existing external thread
 
 TUI or web chat equivalent:
 

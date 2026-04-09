@@ -29,6 +29,25 @@ function sanitizeMessageContent(value) {
   return normalized ? truncateText(normalized, 20_000) : '';
 }
 
+function buildMessageMetadata(message, role) {
+  const extraMetadata =
+    message?.metadata &&
+    typeof message.metadata === 'object' &&
+    !Array.isArray(message.metadata)
+      ? message.metadata
+      : null;
+  const messageId = Number(message?.id);
+
+  return {
+    ...(extraMetadata || {}),
+    source: 'hybridclaw',
+    source_role: role,
+    hybridclaw_message_id: Number.isFinite(messageId) ? messageId : null,
+    hybridclaw_username:
+      typeof message?.username === 'string' ? message.username : null,
+  };
+}
+
 export class HonchoClient {
   constructor(config) {
     this.config = config;
@@ -177,13 +196,7 @@ export class HonchoClient {
         peer_id: role === 'assistant' ? agentPeerId : userPeerId,
         content,
         created_at: String(message.created_at || '').trim() || undefined,
-        metadata: {
-          source: 'hybridclaw',
-          source_role: role,
-          hybridclaw_message_id: Number(message.id),
-          hybridclaw_username:
-            typeof message.username === 'string' ? message.username : null,
-        },
+        metadata: buildMessageMetadata(message, role),
       });
     }
     if (payload.length === 0) return;

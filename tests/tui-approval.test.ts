@@ -127,3 +127,30 @@ test('tracks agent and all approval options separately', () => {
     allowAll: true,
   });
 });
+
+test('parses session-only approval prompts for command-style approvals', () => {
+  expect(
+    parseTuiApprovalPrompt(
+      [
+        'I need your approval before I run `npm install --ignore-scripts --omit=dev --no-audit --no-fund` for plugin `mempalace-memory`.',
+        'Why: this changes the local Node.js dependency state',
+        'If you skip this, dependency installation will be skipped.',
+        'Approval ID: approve123',
+        'Reply `yes` to approve once.',
+        'Reply `yes for session` to trust this action for this session.',
+        'Reply `yes for agent` is unavailable for this approval.',
+        'Reply `yes for all` is unavailable for this approval.',
+        'Reply `no` to deny.',
+        'Approval expires in 120s.',
+      ].join('\n'),
+    ),
+  ).toEqual({
+    approvalId: 'approve123',
+    intent:
+      'run `npm install --ignore-scripts --omit=dev --no-audit --no-fund` for plugin `mempalace-memory`',
+    reason: 'this changes the local Node.js dependency state',
+    allowSession: true,
+    allowAgent: false,
+    allowAll: false,
+  });
+});

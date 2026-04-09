@@ -69,7 +69,9 @@ or change one top-level `plugins.list[].config` key without editing
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
   `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,
-  `fromName`, `fromAddress`, and `agentHandles`
+  `fromName`, `fromAddress`, and `agentHandles`. The bundled `send_email` tool
+  also accepts optional `inReplyTo` and `references` Message-ID headers when
+  you need to continue an existing email thread.
 
 Example config writes:
 

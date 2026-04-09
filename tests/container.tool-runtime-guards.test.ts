@@ -406,8 +406,8 @@ describe.sequential('container tool runtime guards', () => {
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(requestBody).toMatchObject({
       model: 'qwen/qwen2.5-vl',
-      max_tokens: 321,
     });
+    expect(requestBody.max_tokens).toBeUndefined();
     expect(result.output).toContain('Detected via task model policy.');
   });
 

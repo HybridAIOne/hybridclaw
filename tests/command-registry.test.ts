@@ -554,17 +554,23 @@ test('parses /plugin install into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'install',
     }),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'install',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
 });
 
 test('parses /plugin reinstall into gateway args', async () => {
@@ -573,17 +579,38 @@ test('parses /plugin reinstall into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'reinstall',
     }),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'reinstall',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
+});
+
+test('parses /plugin check into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'plugin-id' ? 'mempalace-memory' : null),
+      getSubcommand: () => 'check',
+    }),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'check', 'mempalace-memory']),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
 });
 
 test('parses /plugin uninstall into gateway args', async () => {
@@ -618,4 +645,51 @@ test('recognizes loaded plugin commands without hardcoding them in the registry'
     'qmd',
     'status',
   ]);
+});
+
+test('builds local session help entries from the registry with surface filtering', async () => {
+  const { buildLocalSessionSlashHelpEntries } = await importCommandRegistry();
+
+  const tuiHelp = buildLocalSessionSlashHelpEntries('tui');
+  const webHelp = buildLocalSessionSlashHelpEntries('web');
+  const compareCommands = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(tuiHelp).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        command: '/auth status <provider>',
+      }),
+      expect.objectContaining({
+        command: '/config [check|reload|set <key> <value>]',
+      }),
+      expect.objectContaining({
+        command: '/paste',
+      }),
+      expect.objectContaining({
+        command: '/exit',
+      }),
+    ]),
+  );
+  expect(webHelp).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        command: '/auth status <provider>',
+      }),
+      expect.objectContaining({
+        command: '/config [check|reload|set <key> <value>]',
+      }),
+    ]),
+  );
+  expect(webHelp.some((entry) => entry.command === '/paste')).toBe(false);
+  expect(webHelp.some((entry) => entry.command === '/exit')).toBe(false);
+  expect(tuiHelp.map((entry) => entry.command)).toEqual(
+    [...tuiHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
+  expect(webHelp.map((entry) => entry.command)).toEqual(
+    [...webHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
 });

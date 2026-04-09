@@ -13,6 +13,8 @@ The plugin does two things:
 
 - mirrors completed HybridClaw user and assistant turns into a Honcho
   workspace/session
+- mirrors successful native HybridClaw `memory` tool writes into Honcho
+  immediately so explicit memory edits stay in sync
 - injects Honcho session context, summaries, peer representation, and peer card
   back into later prompts
 
@@ -70,6 +72,8 @@ Key settings:
 
 - startup: ensures the configured Honcho workspace exists
 - turn completion: posts new user and assistant messages into the Honcho session
+- native memory write hook: mirrors successful `memory append|write|replace|remove`
+  actions into the Honcho session immediately
 - prompt build: fetches Honcho session context using the latest user question as
   `search_query`
 - command surface:

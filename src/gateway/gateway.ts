@@ -124,6 +124,7 @@ import {
 import {
   clearPendingApproval,
   getPendingApproval,
+  rememberPendingApproval,
 } from './pending-approvals.js';
 import {
   hasQueuedProactiveDeliveryPath,
@@ -139,7 +140,6 @@ import {
 } from './show-mode.js';
 import {
   handleTextChannelApprovalCommand,
-  rememberPendingApproval,
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
@@ -810,6 +810,7 @@ async function startDiscordIntegration(): Promise<boolean> {
                 username,
                 content,
                 media,
+                source: 'discord',
                 onTextDelta: (delta) => {
                   const filteredDelta = streamFilter.push(delta);
                   if (!filteredDelta) return;
@@ -913,6 +914,11 @@ async function startDiscordIntegration(): Promise<boolean> {
           await clearPendingApproval(effectiveSessionId, {
             disableButtons: true,
           });
+          if (result.components && !sawTextDelta) {
+            await _reply(responseText, attachments, result.components);
+            await context.stream.discard();
+            return;
+          }
           await context.stream.finalize(responseText, attachments);
         } catch (error) {
           const text = error instanceof Error ? error.message : String(error);
@@ -1192,10 +1198,20 @@ async function startMSTeamsIntegration(): Promise<boolean> {
 }
 
 async function startWhatsAppIntegration(): Promise<boolean> {
+  const whatsappConfig = getConfigSnapshot().whatsapp;
+  const transportEnabled =
+    whatsappConfig.dmPolicy !== 'disabled' ||
+    whatsappConfig.groupPolicy !== 'disabled';
+  if (!transportEnabled) {
+    logger.info('WhatsApp integration disabled: transport is off');
+    return false;
+  }
+
   const whatsappAuth = await getWhatsAppAuthStatus();
   if (!whatsappAuth.linked) {
-    logger.info('WhatsApp integration disabled: no linked auth state found');
-    return false;
+    logger.info(
+      'WhatsApp integration starting in pairing mode: no linked auth state found',
+    );
   }
 
   try {
@@ -1320,7 +1336,11 @@ async function startWhatsAppIntegration(): Promise<boolean> {
     logger.error({ error }, 'WhatsApp integration failed to start');
     return false;
   }
-  logger.info('WhatsApp integration started inside gateway');
+  logger.info(
+    whatsappAuth.linked
+      ? 'WhatsApp integration started inside gateway'
+      : 'WhatsApp integration started in pairing mode inside gateway',
+  );
   return true;
 }
 

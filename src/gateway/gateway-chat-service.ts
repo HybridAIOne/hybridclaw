@@ -37,7 +37,10 @@ import {
   logAudit,
   recordUsageEvent,
 } from '../memory/db.js';
-import { memoryService } from '../memory/memory-service.js';
+import {
+  type BuildMemoryPromptResult,
+  memoryService,
+} from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -57,6 +60,7 @@ import {
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
   type ConciergeProfile,
@@ -119,6 +123,9 @@ export async function handleGatewayMessage(
     agentId: req.agentId,
     surface: 'chat',
   });
+  const pluginMemoryBehavior = pluginManager
+    ? await pluginManager.getMemoryLayerBehavior()
+    : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
@@ -405,10 +412,18 @@ export async function handleGatewayMessage(
       resultText: conciergeTurn.resultText,
       toolCallCount: 0,
       startedAt,
+      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
     return attachSessionIdentity({
       status: 'success',
       result: conciergeTurn.resultText,
+      components:
+        source === 'discord'
+          ? buildConciergeChoiceComponents({
+              sessionId: req.sessionId,
+              userId: req.userId,
+            })
+          : undefined,
       toolsUsed: [],
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
@@ -555,6 +570,7 @@ export async function handleGatewayMessage(
       resultText,
       toolCallCount: 0,
       startedAt,
+      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
     const result: GatewayChatResult = {
       status: 'success',
@@ -576,7 +592,7 @@ export async function handleGatewayMessage(
     summary: null,
     recent_messages: [],
   };
-  if (canonicalContextScope) {
+  if (canonicalContextScope && !pluginMemoryBehavior.replacesBuiltInMemory) {
     try {
       canonicalContext = memoryService.getCanonicalContext({
         agentId,
@@ -597,10 +613,12 @@ export async function handleGatewayMessage(
       );
     }
   }
-  const canonicalPromptSummary = formatCanonicalContextPrompt({
-    summary: canonicalContext.summary,
-    recentMessages: canonicalContext.recent_messages,
-  });
+  const canonicalPromptSummary = pluginMemoryBehavior.replacesBuiltInMemory
+    ? ''
+    : formatCanonicalContextPrompt({
+        summary: canonicalContext.summary,
+        recentMessages: canonicalContext.recent_messages,
+      });
   const pluginRecentMessages = [...history].reverse();
   pluginRecentMessages.push({
     id: 0,
@@ -624,18 +642,27 @@ export async function handleGatewayMessage(
   const pluginPromptSummary = formatPluginPromptContext(
     pluginPromptDetails.sections,
   );
-  const memoryContext = memoryService.buildPromptMemoryContext({
-    session,
-    query: effectiveUserTurnContentStripped,
-  });
-  const mergedSessionSummary =
-    [canonicalPromptSummary, memoryContext.promptSummary]
-      .filter(
-        (value): value is string =>
-          typeof value === 'string' && value.trim().length > 0,
-      )
-      .join('\n\n')
-      .trim() || null;
+  const memoryContext: BuildMemoryPromptResult =
+    pluginMemoryBehavior.replacesBuiltInMemory
+      ? {
+          promptSummary: null,
+          summaryConfidence: null,
+          semanticMemories: [],
+          citationIndex: [],
+        }
+      : memoryService.buildPromptMemoryContext({
+          session,
+          query: effectiveUserTurnContentStripped,
+        });
+  const mergedSessionSummary = pluginMemoryBehavior.replacesBuiltInMemory
+    ? pluginPromptSummary || null
+    : [canonicalPromptSummary, memoryContext.promptSummary]
+        .filter(
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0,
+        )
+        .join('\n\n')
+        .trim() || null;
   const fullAutoOperatingContract = isFullAutoEnabled(session)
     ? buildFullAutoOperatingContract(
         session,
@@ -646,7 +673,9 @@ export async function handleGatewayMessage(
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
-    retrievedContext: pluginPromptSummary,
+    retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
+      ? null
+      : pluginPromptSummary,
     history,
     currentUserContent: effectiveUserTurnContent,
     promptMode: req.promptMode,
@@ -687,8 +716,15 @@ export async function handleGatewayMessage(
       historyEstimatedTokens: estimateTokenCountFromMessages(
         messages.slice(historyStart),
       ),
-      canonicalSummaryIncluded: Boolean(canonicalPromptSummary),
-      canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
+      canonicalSummaryIncluded:
+        !pluginMemoryBehavior.replacesBuiltInMemory &&
+        Boolean(canonicalPromptSummary),
+      canonicalRecentMessagesIncluded:
+        pluginMemoryBehavior.replacesBuiltInMemory
+          ? 0
+          : canonicalContext.recent_messages.length,
+      pluginMemoryReplacement: pluginMemoryBehavior.replacesBuiltInMemory,
+      pluginContextSectionsIncluded: pluginPromptDetails.sections.length,
     },
   });
   if (mediaPolicy.prioritizeVisionTool) {
@@ -1092,6 +1128,7 @@ export async function handleGatewayMessage(
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt,
+      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
     const storedTurnMessages = buildStoredTurnMessages({
       sessionId: req.sessionId,
@@ -1101,6 +1138,12 @@ export async function handleGatewayMessage(
       resultText,
     });
     if (pluginManager) {
+      await pluginManager.notifyMemoryWrites({
+        sessionId: req.sessionId,
+        agentId,
+        channelId: req.channelId,
+        toolExecutions,
+      });
       void pluginManager
         .notifyTurnComplete({
           sessionId: req.sessionId,

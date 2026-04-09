@@ -19,11 +19,54 @@ function requireEmailAddress(field, value) {
   return email;
 }
 
+function normalizeOptionalString(field, value) {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`${field} must be a string.`);
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function normalizeOptionalStringList(field, value) {
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`${field} must be an array of strings.`);
+  }
+
+  const normalized = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new Error(`${field} entries must be strings.`);
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function resolveThreadReferences(inReplyTo, references) {
+  const normalized = references ? [...new Set(references)] : [];
+  if (normalized.length > 0) {
+    if (inReplyTo && !normalized.includes(inReplyTo)) {
+      normalized.push(inReplyTo);
+    }
+    return normalized;
+  }
+  return inReplyTo ? [inReplyTo] : undefined;
+}
+
 export function createSendEmailToolHandler(api, config, send) {
   return async (args, context) => {
     const to = requireEmailAddress('to', args.to);
     const cc = args.cc ? requireEmailAddress('cc', args.cc) : undefined;
     const bcc = args.bcc ? requireEmailAddress('bcc', args.bcc) : undefined;
+    const inReplyTo = normalizeOptionalString('inReplyTo', args.inReplyTo);
+    const references = resolveThreadReferences(
+      inReplyTo,
+      normalizeOptionalStringList('references', args.references),
+    );
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
     const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
     const configuredHandle = config.agentHandles?.[agentId];
@@ -45,6 +88,8 @@ export function createSendEmailToolHandler(api, config, send) {
       body: String(args.body),
       ...(cc ? { cc } : {}),
       ...(bcc ? { bcc } : {}),
+      ...(inReplyTo ? { inReplyTo } : {}),
+      ...(references ? { references } : {}),
     });
     return { sent: true, from, to, subject: args.subject };
   };
@@ -103,6 +148,19 @@ export default {
           bcc: {
             type: 'string',
             description: 'BCC recipient (optional)',
+          },
+          inReplyTo: {
+            type: 'string',
+            description:
+              'Message-ID for the parent message being replied to when replying in-thread (optional). Use the latest message in the thread.',
+          },
+          references: {
+            type: 'array',
+            description:
+              'Ordered Message-ID chain for the References header when replying in-thread (optional). End the list with the same parent message used for inReplyTo.',
+            items: {
+              type: 'string',
+            },
           },
         },
         required: ['to', 'subject', 'body'],

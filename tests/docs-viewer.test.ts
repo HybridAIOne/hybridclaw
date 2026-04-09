@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildDocHtmlHref,
   buildDocMarkdownHref,
+  DEVELOPMENT_DOCS_SECTIONS,
   parseFrontmatter,
   renderMarkdownToHtml,
   resolveDocLinkHref,
@@ -32,6 +33,15 @@ describe('docs viewer helpers', () => {
     expect(
       buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
     ).toBe('/development/extensibility/skills.md');
+  });
+
+  test('exposes remote access in the guides section metadata', () => {
+    const guides = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Guides',
+    );
+    expect(
+      guides?.pages.some((page) => page.path === 'guides/remote-access.md'),
+    ).toBe(true);
   });
 
   test('rewrites relative markdown links to browsable canonical docs routes', () => {

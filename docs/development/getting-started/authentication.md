@@ -57,10 +57,12 @@ hybridclaw auth whatsapp reset
 - `hybridclaw auth login msteams` enables Microsoft Teams and stores the app
   secret for later gateway startup. It can prompt for the app id, app
   password, and optional tenant id.
+- Interactive credential prompts keep pasted secrets hidden instead of echoing
+  them back to the terminal.
 - `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,
-  where the active API key came from, the masked key, the active config file,
-  the configured base URL, and the default model without printing the
-  credentials file path.
+  where the active API key came from, whether a key is configured, the active
+  config file, the configured base URL, and the default model without printing
+  the credentials file path or any partial secret value.
 - `hybridclaw auth logout local` disables configured local backends and clears
   any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and
@@ -93,6 +95,7 @@ Current built-in SecretRef surfaces include:
 
 - `ops.webApiToken`
 - `ops.gatewayApiToken`
+- `email.password`
 - `imessage.password`
 - `local.backends.vllm.apiKey`
 

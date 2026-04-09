@@ -4048,13 +4048,22 @@ describe('gateway HTTP server', () => {
     expect(state.listLoadedPluginCommands).toHaveBeenCalledTimes(1);
     const body = JSON.parse(res.body);
     expect(body.commands.length).toBeGreaterThan(0);
+    expect(body.commands.map((cmd: { label: string }) => cmd.label)).toEqual(
+      [...body.commands.map((cmd: { label: string }) => cmd.label)].sort(
+        (left: string, right: string) =>
+          left.localeCompare(right, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          }),
+      ),
+    );
     expect(body.commands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'status',
-          label: '/status',
-          insertText: '/status',
-          description: 'Show HybridClaw runtime status (only visible to you)',
+          id: 'demo_status',
+          label: '/demo_status',
+          insertText: '/demo_status',
+          description: 'Run the demo plugin status command',
           depth: 1,
         }),
       ]),
@@ -5116,6 +5125,8 @@ describe('gateway HTTP server', () => {
         action: 'reply',
         channelId: '123',
         content: 'hello',
+        inReplyTo: ' <msg-1@example.com> ',
+        references: [' <ref-1@example.com> ', '<msg-1@example.com>'],
       },
     });
     const res = makeResponse();
@@ -5129,6 +5140,8 @@ describe('gateway HTTP server', () => {
         action: 'send',
         channelId: '123',
         content: 'hello',
+        inReplyTo: '<msg-1@example.com>',
+        references: ['<ref-1@example.com>', '<msg-1@example.com>'],
       }),
     );
     expect(res.statusCode).toBe(200);
@@ -5156,6 +5169,30 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Invalid `cc` email address: not-an-email',
+    });
+  });
+
+  test('rejects malformed references for message actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: {
+        action: 'reply',
+        channelId: 'ops@example.com',
+        content: 'hello',
+        references: 7,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: '`references` must be a string or array of strings.',
     });
   });
 

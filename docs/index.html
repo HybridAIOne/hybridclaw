@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.12.0</div>
+    <div class="section-label">Latest Release • v0.12.1</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.0 adds managed local eval workflows, nightly dream memory consolidation controls, browser-based skill authoring, a Brevo email plugin, and new long-lived knowledge skills.</p>
+    <p class="section-desc">HybridClaw v0.12.1 adds browser-based channel operations, remote-access runbooks, explicit email thread-header control, safer secret-backed email setup, and tighter local operator UX.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Managed local eval workflows</h3>
-      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>tau2</code> runs, a native <code>terminal-bench-2.0</code> runner, detached logs, and progress summaries.</p>
+      <h3>Admin channel operations</h3>
+      <p>The embedded admin console now centralizes Discord, WhatsApp, email, Microsoft Teams, and iMessage settings with a transport catalog, managed secret fields, and browser-based editing.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2705;</div>
-      <h3>Dream memory consolidation</h3>
-      <p>Local TUI and web sessions now expose <code>dream on|off|now</code> for nightly consolidation, startup catch-up after downtime, and on-demand workspace memory cleanup reporting.</p>
+      <h3>Remote-access runbooks</h3>
+      <p>The maintainer docs now cover SSH tunnels, host-managed Tailscale exposure, and a persistent macOS LaunchAgent tunnel flow for reaching <code>/chat</code>, <code>/agents</code>, <code>/admin</code>, and remote CLI/TUI clients safely.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f319;</div>
-      <h3>Admin skill authoring</h3>
-      <p>The embedded admin console can create local skills from a form or ZIP upload, applies scanner checks before publish, and groups the catalog by normalized skill categories for easier operator review.</p>
+      <h3>Explicit email thread replies</h3>
+      <p>The <code>message</code> tool/API and the repo-shipped <code>brevo-email</code> plugin now accept explicit <code>inReplyTo</code> and <code>references</code> headers so outbound replies can attach to an existing external mail thread.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
-      <h3>Email and knowledge workflows</h3>
-      <p>The repo now ships the <code>brevo-email</code> plugin for per-agent email routing plus bundled <code>llm-wiki</code> and <code>zettelkasten</code> skills for persistent research and note-system maintenance.</p>
+      <h3>Secret-backed email setup</h3>
+      <p><code>hybridclaw channels email setup</code> now preserves stored <code>EMAIL_PASSWORD</code> secrets through the new <code>email.password</code> SecretRef-backed config field instead of falling back to plaintext config values.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f680;</div>
-      <h3>Release automation</h3>
-      <p>Release workflows now ship these runtime, docs, and plugin changes together through the tagged npm and container publication path, keeping public install artifacts aligned with the repository state.</p>
+      <h3>Tighter local operator UX</h3>
+      <p>TUI and embedded web <code>/help</code> now share one canonical command registry, hidden secret prompts restore terminal state correctly, and <code>auth status</code> reports credentials as configured instead of echoing partial secrets.</p>
     </div>
   </div>
 </section>

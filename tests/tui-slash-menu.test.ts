@@ -40,8 +40,9 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
-  expect(labels).toContain('/plugin install <path|npm-spec>');
-  expect(labels).toContain('/plugin reinstall <path|npm-spec>');
+  expect(labels).toContain('/plugin install <path|plugin-id|npm-spec>');
+  expect(labels).toContain('/plugin reinstall <path|plugin-id|npm-spec>');
+  expect(labels).toContain('/plugin check <plugin-id>');
   expect(labels).toContain('/eval [list|env|<suite>|<command...>]');
   expect(labels).toContain('/eval list');
   expect(labels).toContain('/eval tau2');
@@ -99,6 +100,26 @@ test('does not duplicate slash menu rows that resolve to the same command text',
     ([, count]) => count > 1,
   );
   expect(duplicates).toEqual([]);
+});
+
+test('hides TUI-only slash menu entries from the web surface', () => {
+  const labels = buildTuiSlashMenuEntries([], 'web').map(
+    (entry) => entry.label,
+  );
+
+  expect(labels).not.toContain('/exit');
+  expect(labels).not.toContain('/paste');
+});
+
+test('keeps slash menu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+  const compareLabels = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(labels).toEqual([...labels].sort(compareLabels));
 });
 
 test('root entries with subcommands include arg hints in labels', () => {
