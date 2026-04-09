@@ -254,8 +254,12 @@ test('mempalace-memory resolves ~ paths against the OS home directory', async ()
     },
   );
 
-  expect(resolved.palacePath).toBe(path.join(os.homedir(), '.mempalace', 'palace'));
-  expect(resolved.workingDirectory).toBe(path.join(os.homedir(), 'src', 'example'));
+  expect(resolved.palacePath).toBe(
+    path.join(os.homedir(), '.mempalace', 'palace'),
+  );
+  expect(resolved.workingDirectory).toBe(
+    path.join(os.homedir(), 'src', 'example'),
+  );
   expect(resolved.sessionExportDir).toBe(
     path.join(os.homedir(), '.hybridclaw', 'mempalace-turns'),
   );
