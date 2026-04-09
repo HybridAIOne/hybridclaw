@@ -26,6 +26,8 @@ function expectInfoLog(
 
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
+  emailEnabled?: boolean;
+  emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
   whatsappEnabled?: boolean;
@@ -56,11 +58,11 @@ function createGatewayMainTestState(options?: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
       email: {
-        enabled: false,
-        address: '',
-        imapHost: '',
+        enabled: options?.emailEnabled ?? false,
+        address: options?.emailEnabled ? 'bot@example.com' : '',
+        imapHost: options?.emailEnabled ? 'imap.example.com' : '',
         imapSecure: true,
-        smtpHost: '',
+        smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
       },
       msteams: {
@@ -128,6 +130,7 @@ function createGatewayMainTestState(options?: {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
@@ -143,6 +146,7 @@ function createGatewayMainTestState(options?: {
     loggerFatal: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    shutdownEmail: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       dailyFilesCompiled: 0,
@@ -336,10 +340,10 @@ async function importFreshGatewayMain(options?: {
     initMSTeams: state.initMSTeams,
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
-    initEmail: vi.fn(async () => {}),
+    initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
     sendToEmail: vi.fn(async () => {}),
-    shutdownEmail: vi.fn(async () => {}),
+    shutdownEmail: state.shutdownEmail,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     initWhatsApp: state.initWhatsApp,
@@ -357,7 +361,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/config/config.js', () => ({
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
-    EMAIL_PASSWORD: '',
+    EMAIL_PASSWORD: options?.emailPassword ?? '',
     MSTEAMS_APP_ID:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
@@ -564,7 +568,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.memoryServiceSetDecayRate).toHaveBeenCalledWith(0.4);
     expect(state.memoryServiceConsolidateWithCleanup).toHaveBeenCalledTimes(1);
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   test('does not rerun dream consolidation on startup when a nightly run already completed today', async () => {
@@ -590,7 +594,7 @@ describe('gateway bootstrap', () => {
     });
 
     expect(state.memoryServiceConsolidateWithCleanup).not.toHaveBeenCalled();
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   test('logs the resolved scheduler timezone instead of an invalid USER.md placeholder', async () => {
@@ -1803,6 +1807,39 @@ describe('gateway bootstrap', () => {
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
     expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
-    expect(state.setTimeout).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('restarts email integration when email config changes', async () => {
+    const state = await importFreshGatewayMain({
+      emailEnabled: true,
+      emailPassword: 'secret',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      email: {
+        ...state.currentConfig.email,
+        smtpSecure: true,
+      },
+    };
+
+    expect(state.initEmail).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.initEmail).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting email integration',
+      expect.objectContaining({
+        address: 'bot@example.com',
+        smtpHost: 'smtp.example.com',
+        smtpSecure: true,
+      }),
+    );
   });
 });

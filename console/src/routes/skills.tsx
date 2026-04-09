@@ -14,6 +14,7 @@ import {
 import type {
   AdminAdaptiveSkillAmendment,
   AdminAdaptiveSkillHealthMetric,
+  AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
 import {
@@ -24,8 +25,11 @@ import {
   PageHeader,
   Panel,
   SegmentedToggle,
+  SortableHeader,
+  useSortableRows,
 } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { compareBoolean, compareNumber, compareText } from '../lib/sort';
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
@@ -85,6 +89,114 @@ function formatAmendmentTiming(amendment: AdminAdaptiveSkillAmendment): string {
     amendment.created_at;
   return formatRelativeTime(relevantTimestamp);
 }
+
+interface InstalledSkillRow {
+  skill: AdminSkill;
+  metrics: AdminAdaptiveSkillHealthMetric | null;
+}
+
+type InstalledSkillSortKey =
+  | 'skill'
+  | 'category'
+  | 'source'
+  | 'health'
+  | 'tags'
+  | 'action';
+
+function getInstalledSkillHealthRank(
+  metrics: AdminAdaptiveSkillHealthMetric | null,
+): number {
+  if (!metrics) return 2;
+  return metrics.degraded ? 1 : 0;
+}
+
+const INSTALLED_SKILL_SORTERS: Record<
+  InstalledSkillSortKey,
+  (left: InstalledSkillRow, right: InstalledSkillRow) => number
+> = {
+  skill: (left, right) => compareText(left.skill.name, right.skill.name),
+  category: (left, right) =>
+    compareText(left.skill.category, right.skill.category) ||
+    compareText(left.skill.name, right.skill.name),
+  source: (left, right) =>
+    compareText(left.skill.source, right.skill.source) ||
+    compareText(left.skill.name, right.skill.name),
+  health: (left, right) =>
+    compareNumber(
+      getInstalledSkillHealthRank(left.metrics),
+      getInstalledSkillHealthRank(right.metrics),
+    ) ||
+    compareNumber(
+      left.metrics?.total_executions,
+      right.metrics?.total_executions,
+    ) ||
+    compareText(left.skill.name, right.skill.name),
+  tags: (left, right) =>
+    compareText(left.skill.tags.join(', '), right.skill.tags.join(', ')) ||
+    compareText(left.skill.name, right.skill.name),
+  action: (left, right) =>
+    compareBoolean(left.skill.enabled, right.skill.enabled) ||
+    compareText(left.skill.name, right.skill.name),
+};
+
+const INSTALLED_SKILL_DEFAULT_DIRECTIONS = {
+  action: 'desc',
+} as const;
+
+type ObservedSkillSortKey =
+  | 'skill'
+  | 'status'
+  | 'executions'
+  | 'success'
+  | 'toolBreakage'
+  | 'feedback'
+  | 'reasons';
+
+function getObservedSkillFeedbackCount(
+  metrics: AdminAdaptiveSkillHealthMetric,
+): number {
+  return metrics.positive_feedback_count + metrics.negative_feedback_count;
+}
+
+const OBSERVED_SKILL_SORTERS: Record<
+  ObservedSkillSortKey,
+  (
+    left: AdminAdaptiveSkillHealthMetric,
+    right: AdminAdaptiveSkillHealthMetric,
+  ) => number
+> = {
+  skill: (left, right) => compareText(left.skill_name, right.skill_name),
+  status: (left, right) =>
+    compareBoolean(!left.degraded, !right.degraded) ||
+    compareText(left.skill_name, right.skill_name),
+  executions: (left, right) =>
+    compareNumber(left.total_executions, right.total_executions) ||
+    compareText(left.skill_name, right.skill_name),
+  success: (left, right) =>
+    compareNumber(left.success_rate, right.success_rate) ||
+    compareText(left.skill_name, right.skill_name),
+  toolBreakage: (left, right) =>
+    compareNumber(left.tool_breakage_rate, right.tool_breakage_rate) ||
+    compareText(left.skill_name, right.skill_name),
+  feedback: (left, right) =>
+    compareNumber(
+      getObservedSkillFeedbackCount(left),
+      getObservedSkillFeedbackCount(right),
+    ) || compareText(left.skill_name, right.skill_name),
+  reasons: (left, right) =>
+    compareText(
+      left.degradation_reasons.join('; '),
+      right.degradation_reasons.join('; '),
+    ) || compareText(left.skill_name, right.skill_name),
+};
+
+const OBSERVED_SKILL_DEFAULT_DIRECTIONS = {
+  status: 'desc',
+  executions: 'desc',
+  success: 'desc',
+  toolBreakage: 'desc',
+  feedback: 'desc',
+} as const;
 
 interface SkillFileDraft {
   id: number;
@@ -282,6 +394,41 @@ export function SkillsPage() {
       .toLowerCase();
     return haystack.includes(filterNeedle);
   });
+  const installedSkillRows = filteredSkills.map((skill) => ({
+    skill,
+    metrics:
+      healthMetrics.find((entry) => entry.skill_name === skill.name) || null,
+  }));
+  const {
+    sortedRows: sortedInstalledSkills,
+    sortState: installedSkillSortState,
+    toggleSort: toggleInstalledSkillSort,
+  } = useSortableRows<InstalledSkillRow, InstalledSkillSortKey>(
+    installedSkillRows,
+    {
+      initialSort: {
+        key: 'skill',
+        direction: 'asc',
+      },
+      sorters: INSTALLED_SKILL_SORTERS,
+      defaultDirections: INSTALLED_SKILL_DEFAULT_DIRECTIONS,
+    },
+  );
+  const {
+    sortedRows: sortedHealthMetrics,
+    sortState: observedSkillSortState,
+    toggleSort: toggleObservedSkillSort,
+  } = useSortableRows<AdminAdaptiveSkillHealthMetric, ObservedSkillSortKey>(
+    filteredHealthMetrics,
+    {
+      initialSort: {
+        key: 'skill',
+        direction: 'asc',
+      },
+      sorters: OBSERVED_SKILL_SORTERS,
+      defaultDirections: OBSERVED_SKILL_DEFAULT_DIRECTIONS,
+    },
+  );
 
   const degradedSkillCount = healthMetrics.filter(
     (metrics) => metrics.degraded,
@@ -631,7 +778,7 @@ export function SkillsPage() {
 
       <Panel
         title="Installed skills"
-        subtitle={`${filteredSkills.length} skill${filteredSkills.length === 1 ? '' : 's'} visible`}
+        subtitle={`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
       >
         {skillsQuery.isLoading ? (
           <div className="empty-state">Loading skill catalog...</div>
@@ -640,19 +787,46 @@ export function SkillsPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Skill</th>
-                  <th>Category</th>
-                  <th>Source</th>
-                  <th>Health</th>
-                  <th>Tags</th>
-                  <th>Action</th>
+                  <SortableHeader
+                    label="Skill"
+                    sortKey="skill"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Category"
+                    sortKey="category"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Source"
+                    sortKey="source"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Health"
+                    sortKey="health"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Tags"
+                    sortKey="tags"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Action"
+                    sortKey="action"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {filteredSkills.map((skill) => {
-                  const metrics = healthMetrics.find(
-                    (entry) => entry.skill_name === skill.name,
-                  );
+                {sortedInstalledSkills.map(({ skill, metrics }) => {
                   const feedbackSummary = metrics
                     ? formatFeedbackCounts(metrics)
                     : null;
@@ -727,7 +901,7 @@ export function SkillsPage() {
                     </tr>
                   );
                 })}
-                {filteredSkills.length === 0 ? (
+                {sortedInstalledSkills.length === 0 ? (
                   <tr>
                     <td colSpan={6}>
                       <div className="empty-state">
@@ -751,11 +925,11 @@ export function SkillsPage() {
         <Panel
           id="observed-skill-health"
           title="Observed skill health"
-          subtitle={`${filteredHealthMetrics.length} observed skill${filteredHealthMetrics.length === 1 ? '' : 's'} visible`}
+          subtitle={`${sortedHealthMetrics.length} observed skill${sortedHealthMetrics.length === 1 ? '' : 's'} visible`}
         >
           {healthQuery.isLoading ? (
             <div className="empty-state">Loading AdaptiveSkills health...</div>
-          ) : filteredHealthMetrics.length === 0 ? (
+          ) : sortedHealthMetrics.length === 0 ? (
             <div className="empty-state">
               No observed skills match this filter.
             </div>
@@ -764,17 +938,52 @@ export function SkillsPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>Skill</th>
-                    <th>Status</th>
-                    <th>Executions</th>
-                    <th>Success</th>
-                    <th>Tool breakage</th>
-                    <th>Feedback</th>
-                    <th>Reasons</th>
+                    <SortableHeader
+                      label="Skill"
+                      sortKey="skill"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Executions"
+                      sortKey="executions"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Success"
+                      sortKey="success"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Tool breakage"
+                      sortKey="toolBreakage"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Feedback"
+                      sortKey="feedback"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Reasons"
+                      sortKey="reasons"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredHealthMetrics.map((metrics) => (
+                  {sortedHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
                         <button

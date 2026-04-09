@@ -2,6 +2,10 @@ export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
   pid?: number;
+  lifecycle?: {
+    restartSupported: boolean;
+    restartReason: string | null;
+  };
   version: string;
   imageTag: string | null;
   uptime: number;
@@ -395,8 +399,6 @@ export interface AdminCommandResult {
 
 export interface AdminModelCatalogEntry {
   id: string;
-  configuredInHybridai: boolean;
-  configuredInCodex: boolean;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'vllm' | null;
   contextWindow: number | null;
@@ -411,8 +413,6 @@ export interface AdminModelCatalogEntry {
 
 export interface AdminModelsResponse {
   defaultModel: string;
-  hybridaiModels: string[];
-  codexModels: string[];
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }
@@ -730,7 +730,7 @@ export interface AdminAdaptiveSkillAmendmentsResponse {
 export interface AdminToolCatalogEntry {
   name: string;
   group: string;
-  kind: 'builtin' | 'mcp' | 'other';
+  kind: 'builtin' | 'plugin' | 'mcp' | 'other';
   recentCalls: number;
   recentErrors: number;
   lastUsedAt: string | null;

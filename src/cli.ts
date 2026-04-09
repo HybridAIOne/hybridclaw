@@ -1482,6 +1482,17 @@ export async function main(
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
+    case '__gateway-restart-helper': {
+      const payload = String(subargs[0] || '').trim();
+      if (!payload) {
+        throw new Error('Missing gateway restart helper payload.');
+      }
+      const { runGatewayRestartHelperFromArg } = await import(
+        './gateway/gateway-restart.js'
+      );
+      await runGatewayRestartHelperFromArg(payload);
+      break;
+    }
     case 'eval':
       await handleEvalCommand(subargs);
       break;

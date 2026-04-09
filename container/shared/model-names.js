@@ -32,6 +32,20 @@ export function hasDisplayOnlyHybridAIPrefix(model) {
   );
 }
 
+export function stripHybridAIModelPrefix(model) {
+  const normalized = String(model || '').trim();
+  if (!normalized.toLowerCase().startsWith(HYBRIDAI_MODEL_PREFIX)) {
+    return normalized;
+  }
+  return normalized.slice(HYBRIDAI_MODEL_PREFIX.length).trim();
+}
+
+export function formatHybridAIModelForCatalog(model) {
+  const normalized = stripHybridAIModelPrefix(model);
+  if (!normalized) return '';
+  return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;
+}
+
 export function normalizeHybridAIModelForRuntime(model) {
   const normalized = String(model || '').trim();
   if (!hasDisplayOnlyHybridAIPrefix(normalized)) {

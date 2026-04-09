@@ -10,9 +10,13 @@ import {
   type TaskModelPolicies,
   type TaskModelPolicy,
 } from '../types/models.js';
-import { resolveModelRuntimeCredentials } from './factory.js';
+import {
+  resolveModelProvider,
+  resolveModelRuntimeCredentials,
+} from './factory.js';
 import {
   findVisionCapableModel,
+  getAvailableModelList,
   isModelVisionCapable,
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
@@ -140,41 +144,57 @@ export function resolveDefaultAuxiliaryModelForProvider(
   provider: RuntimeProvider,
 ): string | undefined {
   const config = getRuntimeConfig();
+  const currentDefaultModel = config.hybridai.defaultModel.trim();
+  const currentDefaultProvider = currentDefaultModel
+    ? resolveModelProvider(currentDefaultModel)
+    : undefined;
+  const discoveredModels = getAvailableModelList(
+    provider === 'openai-codex' ? 'codex' : provider,
+  );
 
   if (provider === 'hybridai') {
     return selectFirstNonEmpty([
-      config.hybridai.defaultModel,
-      ...config.hybridai.models,
+      currentDefaultProvider === 'hybridai' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'gpt-4.1-mini',
     ]);
   }
 
   if (provider === 'openai-codex') {
-    return selectFirstNonEmpty(config.codex.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'openai-codex' ? currentDefaultModel : '',
+      ...discoveredModels,
+    ]);
   }
 
   if (provider === 'openrouter') {
     if (!config.openrouter.enabled) return undefined;
-    return selectFirstNonEmpty(config.openrouter.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'openrouter' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'openrouter/anthropic/claude-sonnet-4',
+    ]);
   }
 
   if (provider === 'mistral') {
     if (!config.mistral.enabled) return undefined;
-    return selectFirstNonEmpty(config.mistral.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'mistral' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'mistral/mistral-large-latest',
+    ]);
   }
 
   if (provider === 'huggingface') {
     if (!config.huggingface.enabled) return undefined;
-    return selectFirstNonEmpty(config.huggingface.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'huggingface' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ]);
   }
 
-  return selectFirstNonEmpty(
-    [config.hybridai.defaultModel, ...config.hybridai.models].filter((model) =>
-      model
-        .trim()
-        .toLowerCase()
-        .startsWith(RUNTIME_PROVIDER_PREFIXES[provider]),
-    ),
-  );
+  return selectFirstNonEmpty(discoveredModels);
 }
 
 export function normalizeAuxiliaryProviderModel(params: {

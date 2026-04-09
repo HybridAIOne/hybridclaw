@@ -1463,6 +1463,31 @@ async function startEmailIntegration(): Promise<boolean> {
   return true;
 }
 
+async function refreshEmailIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (JSON.stringify(next.email) === JSON.stringify(prev.email)) return;
+
+  logger.info(
+    {
+      enabled: next.email.enabled,
+      address: next.email.address,
+      smtpHost: next.email.smtpHost,
+      smtpPort: next.email.smtpPort,
+      smtpSecure: next.email.smtpSecure,
+    },
+    'Config changed, restarting email integration',
+  );
+  await shutdownEmail().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop email runtime during config-change restart',
+    );
+  });
+  await startEmailIntegration();
+}
+
 async function startIMessageIntegration(): Promise<boolean> {
   const imessageConfig = getConfigSnapshot().imessage;
   if (!imessageConfig.enabled) {
@@ -1853,6 +1878,13 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
   });
   detachConfigListener = onConfigChange((next, prev) => {
+    void refreshEmailIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Email integration restart failed after config change',
+      );
+    });
+
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
       next.heartbeat.intervalMs !== prev.heartbeat.intervalMs ||

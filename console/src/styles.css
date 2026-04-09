@@ -377,7 +377,7 @@ code {
 }
 
 .status-dot.live {
-  background: var(--accent);
+  background: var(--success);
 }
 
 .status-dot-success {
@@ -777,6 +777,69 @@ th {
   color: var(--muted-foreground);
 }
 
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.table-sort-button:hover {
+  color: var(--text);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.table-sort-indicator {
+  position: relative;
+  width: 10px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.table-sort-indicator::before,
+.table-sort-indicator::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  opacity: 0.2;
+}
+
+.table-sort-indicator::before {
+  top: 0;
+  border-bottom: 5px solid currentColor;
+}
+
+.table-sort-indicator::after {
+  bottom: 0;
+  border-top: 5px solid currentColor;
+}
+
+.table-sort-indicator.is-active::before,
+.table-sort-indicator.is-active::after {
+  opacity: 0.12;
+}
+
+.table-sort-indicator.is-active.is-asc::before,
+.table-sort-indicator.is-active.is-desc::after {
+  opacity: 0.9;
+}
+
 .field,
 .toggle-row,
 .config-section {
@@ -980,6 +1043,34 @@ th {
   background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger-border);
+}
+
+.primary-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.button-with-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes button-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .table-link-button {

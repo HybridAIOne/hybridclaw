@@ -37,6 +37,12 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const encode = (value: Record<string, unknown>): string =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
+}
+
 async function importFreshCatalog(homeDir: string) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
@@ -129,14 +135,16 @@ test('available model catalog falls back to HybridAI /v1/models when /models is 
 
   expect(choices).toEqual(
     expect.arrayContaining([
-      { name: 'hybridai/gpt-5-ultra', value: 'gpt-5-ultra' },
+      { name: 'hybridai/gpt-5-ultra', value: 'hybridai/gpt-5-ultra' },
     ]),
   );
-  expect(catalog.getAvailableModelList('hybridai')).toContain('gpt-5-ultra');
+  expect(catalog.getAvailableModelList('hybridai')).toContain(
+    'hybridai/gpt-5-ultra',
+  );
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
-test('available model catalog merges configured and discovered local models', async () => {
+test('available model catalog merges the current default model with discovered local models', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.local.backends.ollama.enabled = false;
@@ -179,7 +187,7 @@ test('available model catalog merges configured and discovered local models', as
 
   expect(choices).toEqual(
     expect.arrayContaining([
-      { name: 'hybridai/gpt-5-nano', value: 'gpt-5-nano' },
+      { name: 'hybridai/gpt-4.1-mini', value: 'hybridai/gpt-4.1-mini' },
       {
         name: 'lmstudio/qwen/qwen3.5-9b',
         value: 'lmstudio/qwen/qwen3.5-9b',
@@ -189,7 +197,56 @@ test('available model catalog merges configured and discovered local models', as
   expect(catalog.getAvailableModelList('local')).toEqual([
     'lmstudio/qwen/qwen3.5-9b',
   ]);
-  expect(catalog.getAvailableModelList('hybridai')).toContain('gpt-5-nano');
+  expect(catalog.getAvailableModelList('hybridai')).toContain(
+    'hybridai/gpt-4.1-mini',
+  );
+});
+
+test('available model catalog prefixes HybridAI provider-family models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-provider-prefix';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'mistral-small',
+              provider: 'mistral',
+              context_length: 131_072,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  const choices = await catalog.getAvailableModelChoices(25, {
+    includeHybridAI: true,
+  });
+
+  expect(choices).toEqual(
+    expect.arrayContaining([
+      {
+        name: 'hybridai/mistral/mistral-small',
+        value: 'hybridai/mistral/mistral-small',
+      },
+    ]),
+  );
+  expect(catalog.getAvailableModelList('hybridai')).toContain(
+    'hybridai/mistral/mistral-small',
+  );
 });
 
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {
@@ -199,14 +256,13 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   vi.setSystemTime(new Date('2026-03-13T10:00:00Z'));
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
-    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
   });
 
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
-    if (input.endsWith('/models')) {
+    if (input.startsWith('https://openrouter.ai/api/v1/models')) {
       expect(init?.headers).toMatchObject({
         Authorization: 'Bearer or-test-key',
         'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
@@ -253,10 +309,6 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   expect(firstChoices).toEqual(
     expect.arrayContaining([
       {
-        name: 'openrouter/anthropic/claude-sonnet-4',
-        value: 'openrouter/anthropic/claude-sonnet-4',
-      },
-      {
         name: 'openrouter/beta/model-c:free',
         value: 'openrouter/beta/model-c:free',
       },
@@ -266,19 +318,92 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   expect(thirdChoices).toEqual(firstChoices);
   expect(fourthChoices).toEqual(firstChoices);
   expect(catalog.getAvailableModelList()).toEqual(
-    expect.arrayContaining([
-      'openrouter/anthropic/claude-sonnet-4',
-      'openrouter/beta/model-c:free',
-    ]),
+    expect.arrayContaining(['openrouter/beta/model-c:free']),
   );
   expect(catalog.getAvailableModelList('openrouter')).toEqual([
     'openrouter/beta/model-c:free',
-    'openrouter/anthropic/claude-sonnet-4',
     'openrouter/zeta/model-b',
   ]);
-  expect(catalog.getAvailableModelList('codex')).toEqual(
-    expect.arrayContaining(['openai-codex/gpt-5-codex']),
+  expect(catalog.getAvailableModelList('codex')).toEqual([]);
+});
+
+test('available model catalog discovers Codex models from the models endpoint', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const { saveCodexAuthStore, extractExpiresAtFromJwt } = await import(
+    '../src/auth/codex-auth.ts'
   );
+  const accessToken = makeJwt({
+    exp: Math.floor(Date.now() / 1000) + 600,
+    chatgpt_account_id: 'acct_catalog',
+  });
+  saveCodexAuthStore(
+    {
+      version: 1,
+      credentials: {
+        accessToken,
+        refreshToken: 'refresh_catalog',
+        accountId: 'acct_catalog',
+        expiresAt: extractExpiresAtFromJwt(accessToken),
+        provider: 'openai-codex',
+        authMethod: 'oauth',
+        source: 'device-code',
+        lastRefresh: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+    homeDir,
+  );
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: `Bearer ${accessToken}`,
+          'Chatgpt-Account-Id': 'acct_catalog',
+          'OpenAI-Beta': 'responses=experimental',
+        });
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: 'gpt-5-codex', context_window: 400_000 },
+              { id: 'gpt-5.4', context_window: 400_000 },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  const choices = await catalog.getAvailableModelChoices(25);
+
+  expect(choices).toEqual(
+    expect.arrayContaining([
+      {
+        name: 'openai-codex/gpt-5-codex',
+        value: 'openai-codex/gpt-5-codex',
+      },
+      {
+        name: 'openai-codex/gpt-5.4',
+        value: 'openai-codex/gpt-5.4',
+      },
+    ]),
+  );
+  expect(catalog.getAvailableModelList('codex')).toEqual([
+    'openai-codex/gpt-5-codex',
+    'openai-codex/gpt-5.4',
+  ]);
 });
 
 test('available model catalog returns the full Hugging Face discovery list', async () => {
@@ -332,7 +457,7 @@ test('available model catalog returns the full Hugging Face discovery list', asy
   ).toEqual(catalog.getAvailableModelList('huggingface'));
 });
 
-test('available model catalog includes configured Mistral models', async () => {
+test('available model catalog requires Mistral discovery data', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.mistral.enabled = true;
@@ -349,10 +474,7 @@ test('available model catalog includes configured Mistral models', async () => {
 
   const { catalog } = await importFreshCatalog(homeDir);
 
-  expect(catalog.getAvailableModelList('mistral')).toEqual([
-    'mistral/codestral-latest',
-    'mistral/mistral-large-latest',
-  ]);
+  expect(catalog.getAvailableModelList('mistral')).toEqual([]);
 });
 
 test('available model catalog merges discovered Mistral models from /models', async () => {
@@ -360,7 +482,6 @@ test('available model catalog merges discovered Mistral models from /models', as
   process.env.MISTRAL_API_KEY = 'mistral-model-catalog-test';
   writeRuntimeConfig(homeDir, (config) => {
     config.mistral.enabled = true;
-    config.mistral.models = ['mistral/mistral-large-latest'];
     config.openrouter.enabled = false;
     config.huggingface.enabled = false;
     config.local.backends.ollama.enabled = false;
@@ -416,7 +537,6 @@ test('available model catalog merges discovered Mistral models from /models', as
   await catalog.refreshAvailableModelCatalogs();
 
   expect(catalog.getAvailableModelList('mistral')).toEqual([
-    'mistral/mistral-large-latest',
     'mistral/mistral-medium-2508',
   ]);
   expect(catalog.getAvailableModelList('mistral')).not.toContain(

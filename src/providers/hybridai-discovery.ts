@@ -3,14 +3,56 @@ import {
   HYBRIDAI_BASE_URL,
   MissingRequiredEnvVarError,
 } from '../config/config.js';
-import { normalizeHybridAIModelForRuntime } from './model-names.js';
+import {
+  formatHybridAIModelForCatalog,
+  stripHybridAIModelPrefix,
+} from './model-names.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_TTL_MS = 3_600_000;
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
+const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
+  'anthropic',
+  'huggingface',
+  'mistral',
+]);
 
-function normalizeHybridAIModelName(modelId: string): string {
-  return normalizeHybridAIModelForRuntime(String(modelId || '').trim());
+function normalizeHybridAIProviderFamily(value: unknown): string | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized || !HYBRIDAI_PROVIDER_FAMILY_PREFIXES.has(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function readHybridAIProviderFamily(
+  entry: Record<string, unknown>,
+): string | null {
+  return (
+    normalizeHybridAIProviderFamily(entry.provider) ||
+    normalizeHybridAIProviderFamily(entry.owned_by) ||
+    normalizeHybridAIProviderFamily(entry.vendor) ||
+    normalizeHybridAIProviderFamily(entry.family)
+  );
+}
+
+function normalizeHybridAIModelName(
+  modelId: string,
+  providerFamily?: string | null,
+): string {
+  const normalizedModelId = String(modelId || '').trim();
+  if (!normalizedModelId) return '';
+  if (normalizedModelId.includes('/')) {
+    return formatHybridAIModelForCatalog(normalizedModelId);
+  }
+  if (providerFamily) {
+    return formatHybridAIModelForCatalog(
+      `${providerFamily}/${normalizedModelId}`,
+    );
+  }
+  return formatHybridAIModelForCatalog(normalizedModelId);
 }
 
 function readPositiveInteger(value: unknown): number | null {
@@ -27,6 +69,7 @@ function readPositiveInteger(value: unknown): number | null {
 function readModelId(entry: Record<string, unknown>): string {
   return normalizeHybridAIModelName(
     typeof entry.id === 'string' ? entry.id : '',
+    readHybridAIProviderFamily(entry),
   );
 }
 
@@ -46,6 +89,29 @@ function getDiscoveryEntries(payload: unknown): unknown[] {
   if (isRecord(payload) && Array.isArray(payload.data)) return payload.data;
   if (isRecord(payload) && Array.isArray(payload.models)) return payload.models;
   return [];
+}
+
+function resolveCachedHybridAIModelKey(
+  model: string,
+  cachedKeys: Iterable<string>,
+): string {
+  const requested = String(model || '').trim();
+  const normalized = normalizeHybridAIModelName(requested);
+  const keys = [...cachedKeys];
+  if (keys.includes(normalized)) return normalized;
+
+  const requestedTail = requested.split('/').at(-1)?.toLowerCase() || '';
+  if (!requestedTail) return normalized;
+
+  const matchingKeys = keys.filter((key) => {
+    const upstream = stripHybridAIModelPrefix(key);
+    const upstreamTail = upstream.split('/').at(-1)?.toLowerCase() || '';
+    return (
+      upstream.toLowerCase() === requested.toLowerCase() ||
+      upstreamTail === requestedTail
+    );
+  });
+  return matchingKeys.length === 1 ? matchingKeys[0] : normalized;
 }
 
 export interface HybridAIDiscoveryStore {
@@ -172,11 +238,17 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     discoverModels,
     getModelNames: () => [...discoveredModelNames],
     getModelContextWindow: (model: string) => {
-      const normalized = normalizeHybridAIModelName(model);
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        contextWindowByModel.keys(),
+      );
       return contextWindowByModel.get(normalized) ?? null;
     },
     getModelMaxTokens: (model: string) => {
-      const normalized = normalizeHybridAIModelName(model);
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        maxTokensByModel.keys(),
+      );
       return maxTokensByModel.get(normalized) ?? null;
     },
   };

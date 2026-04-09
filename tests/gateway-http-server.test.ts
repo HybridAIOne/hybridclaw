@@ -695,8 +695,6 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
-    hybridaiModels: ['gpt-5'],
-    codexModels: ['openai-codex/gpt-5-codex'],
     providerStatus: {},
     models: [],
   }));
@@ -861,8 +859,6 @@ async function importFreshHealth(options?: {
   const saveGatewayAdminConfig = vi.fn((value) => value);
   const saveGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
-    hybridaiModels: ['gpt-5'],
-    codexModels: ['openai-codex/gpt-5-codex'],
     providerStatus: {},
     models: [],
   }));
@@ -932,6 +928,10 @@ async function importFreshHealth(options?: {
     { name: 'demo_status', description: 'Run the demo plugin status command' },
   ]);
   const stopSessionExecution = vi.fn(() => false);
+  const requestGatewayRestart = vi.fn(() => ({
+    restartSupported: true,
+    restartReason: null,
+  }));
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -1084,6 +1084,9 @@ async function importFreshHealth(options?: {
       dispose: disposeTerminalManager,
     })),
   }));
+  vi.doMock('../src/gateway/gateway-restart.js', () => ({
+    requestGatewayRestart,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -1125,6 +1128,7 @@ async function importFreshHealth(options?: {
     broadcastShutdownTerminal,
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
+    requestGatewayRestart,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
     updateGatewayAdminAgent,
@@ -1181,6 +1185,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.doUnmock('../src/gateway/media-upload-quota.ts');
   vi.doUnmock('../src/plugins/plugin-manager.js');
+  vi.doUnmock('../src/gateway/gateway-restart.js');
   vi.resetModules();
   if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -1255,8 +1260,6 @@ describe('gateway HTTP server', () => {
     const state = await importFreshHealth();
     state.getGatewayAdminModels.mockResolvedValueOnce({
       defaultModel: 'gpt-5',
-      hybridaiModels: ['gpt-5'],
-      codexModels: ['openai-codex/gpt-5-codex'],
       providerStatus: {},
       models: [{ id: 'gpt-5' }, { id: 'openai-codex/gpt-5-codex' }],
     });
@@ -3199,6 +3202,57 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('requests a managed gateway restart for authorized admin API calls', async () => {
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation((callback: TimerHandler) => {
+        if (typeof callback === 'function') {
+          callback();
+        }
+        return 0 as ReturnType<typeof setTimeout>;
+      });
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/restart',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.requestGatewayRestart).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      status: 'ok',
+      message: 'Gateway restart requested.',
+    });
+    expect(setTimeoutSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM');
+  });
+
+  test('returns a conflict when gateway restart is unavailable', async () => {
+    const state = await importFreshHealth();
+    state.requestGatewayRestart.mockReturnValue({
+      restartSupported: false,
+      restartReason: 'Gateway restart is unavailable in this launch mode.',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/restart',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Gateway restart is unavailable in this launch mode.',
+    });
+  });
+
   test('returns admin agents for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/agents' });
@@ -3274,7 +3328,6 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       defaultModel: 'gpt-5',
-      hybridaiModels: ['gpt-5'],
     });
   });
 
