@@ -631,7 +631,6 @@ export async function runHostProcess(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    maxTokens,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;

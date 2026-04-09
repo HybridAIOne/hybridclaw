@@ -731,7 +731,6 @@ export async function runContainer(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    maxTokens,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
