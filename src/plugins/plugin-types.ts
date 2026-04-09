@@ -24,6 +24,17 @@ export interface PluginInstallSpec {
   url?: string;
 }
 
+export interface PluginPackageDependency {
+  package: string;
+}
+
+export interface PluginExternalDependency {
+  name: string;
+  check: string;
+  installHint?: string;
+  installUrl?: string;
+}
+
 export interface PluginConfigUiHint {
   label?: string;
   placeholder?: string;
@@ -70,6 +81,9 @@ export interface PluginManifest {
     node?: string;
   };
   install?: PluginInstallSpec[];
+  pipDependencies?: PluginPackageDependency[];
+  nodeDependencies?: PluginPackageDependency[];
+  externalDependencies?: PluginExternalDependency[];
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
 }

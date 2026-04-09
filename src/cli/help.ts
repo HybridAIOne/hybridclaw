@@ -499,8 +499,9 @@ Commands:
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin enable <plugin-id>
   hybridclaw plugin disable <plugin-id>
-  hybridclaw plugin install <path|npm-spec>
-  hybridclaw plugin reinstall <path|npm-spec>
+  hybridclaw plugin install <path|npm-spec> [--yes]
+  hybridclaw plugin reinstall <path|npm-spec> [--yes]
+  hybridclaw plugin check <plugin-id>
   hybridclaw plugin uninstall <plugin-id>
 
 Examples:
@@ -508,9 +509,10 @@ Examples:
   hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
-  hybridclaw plugin install ./plugins/example-plugin
-  hybridclaw plugin install @scope/hybridclaw-plugin-example
-  hybridclaw plugin reinstall ./plugins/example-plugin
+  hybridclaw plugin install ./plugins/example-plugin --yes
+  hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
+  hybridclaw plugin reinstall ./plugins/example-plugin --yes
+  hybridclaw plugin check example-plugin
   hybridclaw plugin uninstall example-plugin
 
 Notes:
@@ -519,8 +521,9 @@ Notes:
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
-  - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
+  - \`install\` validates \`hybridclaw.plugin.yaml\` and can install declared Node.js and pip dependencies, but dependency installation requires approval.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
+  - \`check\` reports the current dependency, env, and binary status for one discovered plugin.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }

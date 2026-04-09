@@ -10,6 +10,8 @@ requires:
       configKey: command
       installHint: pip install mempalace
       installUrl: https://github.com/milla-jovovich/mempalace
+pipDependencies:
+  - mempalace
 configSchema:
   type: object
   additionalProperties: false

@@ -440,14 +440,30 @@ export function mapCanonicalCommandToGatewayArgs(
         return ['plugin', 'config', pluginId, key, value];
       }
       if (sub === 'install') {
-        const source = parts.slice(2).join(' ').trim();
-        return source ? ['plugin', 'install', source] : ['plugin', 'install'];
+        const yes = (parts[parts.length - 1] || '').trim();
+        const hasYes = yes === '--yes';
+        const source = parts
+          .slice(2, hasYes ? -1 : undefined)
+          .join(' ')
+          .trim();
+        return source
+          ? ['plugin', 'install', source, ...(hasYes ? ['--yes'] : [])]
+          : ['plugin', 'install'];
       }
       if (sub === 'reinstall') {
-        const source = parts.slice(2).join(' ').trim();
+        const yes = (parts[parts.length - 1] || '').trim();
+        const hasYes = yes === '--yes';
+        const source = parts
+          .slice(2, hasYes ? -1 : undefined)
+          .join(' ')
+          .trim();
         return source
-          ? ['plugin', 'reinstall', source]
+          ? ['plugin', 'reinstall', source, ...(hasYes ? ['--yes'] : [])]
           : ['plugin', 'reinstall'];
+      }
+      if (sub === 'check') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', 'check', pluginId] : ['plugin', 'check'];
       }
       if (sub === 'reload') return ['plugin', 'reload'];
       if (sub === 'uninstall') {
@@ -1224,6 +1240,13 @@ function buildSlashCommandCatalogDefinitions(
               description: 'Local plugin path or npm package spec',
               required: true,
             },
+            {
+              kind: 'string',
+              name: 'yes',
+              description:
+                'Optional --yes override to approve dependency installs',
+              choices: [{ name: '--yes', value: '--yes' }],
+            },
           ],
         },
         {
@@ -1240,6 +1263,31 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'source',
               description: 'Local plugin path or npm package spec',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description:
+                'Optional --yes override to approve dependency installs',
+              choices: [{ name: '--yes', value: '--yes' }],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'check',
+          description:
+            'Check dependency, env, and binary status for one plugin',
+          tuiMenu: {
+            label: '/plugin check <plugin-id>',
+            insertText: '/plugin check ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'plugin-id',
+              description: 'Plugin id to inspect',
               required: true,
             },
           ],
@@ -2344,11 +2392,19 @@ export function parseCanonicalSlashCommandArgs(
       }
       if (subcommand === 'install') {
         const source = normalizeStringOption(interaction, 'source', true);
-        return source ? ['plugin', 'install', source] : null;
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (!source || (yes && yes !== '--yes')) return null;
+        return ['plugin', 'install', source, ...(yes ? ['--yes'] : [])];
       }
       if (subcommand === 'reinstall') {
         const source = normalizeStringOption(interaction, 'source', true);
-        return source ? ['plugin', 'reinstall', source] : null;
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (!source || (yes && yes !== '--yes')) return null;
+        return ['plugin', 'reinstall', source, ...(yes ? ['--yes'] : [])];
+      }
+      if (subcommand === 'check') {
+        const pluginId = normalizeStringOption(interaction, 'plugin-id', true);
+        return pluginId ? ['plugin', 'check', pluginId] : null;
       }
       if (subcommand === 'reload') return ['plugin', 'reload'];
       if (subcommand === 'uninstall') {

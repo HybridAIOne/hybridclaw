@@ -9,7 +9,9 @@ const {
   reloadPluginManagerMock,
   shutdownPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
+  checkPluginMock,
   installPluginMock,
+  pluginDependencyApprovalRequiredError,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
   reinstallPluginMock,
@@ -58,12 +60,34 @@ const {
     reloadPluginManagerMock: vi.fn(async () => pluginManager),
     shutdownPluginManagerMock: vi.fn(async () => {}),
     setPluginInboundMessageDispatcherMock: vi.fn(),
+    checkPluginMock: vi.fn(async (pluginId: string) => ({
+      pluginId,
+      pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+      source: 'home' as const,
+      requiresEnv: ['DEMO_PLUGIN_TOKEN'],
+      missingEnv: [],
+      requiredConfigKeys: ['workspaceId'],
+      packageJsonDependencies: [
+        { package: '@scope/demo-plugin', installed: true },
+      ],
+      nodeDependencies: [],
+      pipDependencies: [],
+      externalDependencies: [],
+      configuredRequiredBins: [],
+    })),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
       source,
       alreadyInstalled: false,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
@@ -98,9 +122,32 @@ const {
       alreadyInstalled: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    pluginDependencyApprovalRequiredError: class PluginDependencyApprovalRequiredError extends Error {
+      readonly plan: {
+        usesPackageJson: boolean;
+        nodePackages: string[];
+        pipPackages: string[];
+      };
+
+      constructor(plan: {
+        usesPackageJson: boolean;
+        nodePackages: string[];
+        pipPackages: string[];
+      }) {
+        super('Plugin dependency installation requires explicit approval.');
+        this.plan = plan;
+      }
+    },
     uninstallPluginMock: vi.fn(async () => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -164,7 +211,9 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
 }));
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
+  checkPlugin: checkPluginMock,
   installPlugin: installPluginMock,
+  PluginDependencyApprovalRequiredError: pluginDependencyApprovalRequiredError,
   reinstallPlugin: reinstallPluginMock,
   uninstallPlugin: uninstallPluginMock,
 }));
@@ -198,6 +247,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.listPluginSummary.mockClear();
     pluginManagerMock.findCommand.mockClear();
     shutdownPluginManagerMock.mockClear();
+    checkPluginMock.mockClear();
     installPluginMock.mockClear();
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
@@ -776,10 +826,12 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
     sessionId: 'session-plugin-install',
     guildId: null,
     channelId: 'tui',
-    args: ['plugin', 'install', './plugins/qmd-memory'],
+    args: ['plugin', 'install', './plugins/qmd-memory', '--yes'],
   });
 
-  expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory');
+  expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveDependencyInstall: true,
+  });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -789,7 +841,9 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain(
     'Installed plugin `demo-plugin` to `/tmp/.hybridclaw/plugins/demo-plugin`.',
   );
-  expect(result.text).toContain('Installed plugin npm dependencies.');
+  expect(result.text).toContain(
+    'Installed plugin Node.js dependencies from package.json.',
+  );
   expect(result.text).toContain('Required env vars: DEMO_PLUGIN_TOKEN');
   expect(result.text).toContain('required config keys: workspaceId');
   expect(result.text).toContain('Plugin runtime reloaded.');
@@ -803,6 +857,13 @@ test('handleGatewayCommand reports missing binary guidance after plugin install'
     source: './plugins/mempalace-memory',
     alreadyInstalled: false,
     dependenciesInstalled: true,
+    dependencySummary: {
+      usedPackageJson: false,
+      installedNodePackages: [],
+      installedPipPackages: ['mempalace'],
+    },
+    configuredRequiredBins: [],
+    externalDependencies: [],
     requiresEnv: [],
     requiredConfigKeys: [],
     missingRequiredBins: [
@@ -827,7 +888,7 @@ test('handleGatewayCommand reports missing binary guidance after plugin install'
     sessionId: 'session-plugin-install-mempalace',
     guildId: null,
     channelId: 'tui',
-    args: ['plugin', 'install', './plugins/mempalace-memory'],
+    args: ['plugin', 'install', './plugins/mempalace-memory', '--yes'],
   });
 
   expect(result.kind).toBe('info');
@@ -875,6 +936,43 @@ test('handleGatewayCommand rejects plugin install outside local TUI/web sessions
   expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
+test('handleGatewayCommand requires explicit approval before installing plugin dependencies', async () => {
+  setupHome();
+  installPluginMock.mockRejectedValueOnce(
+    new pluginDependencyApprovalRequiredError({
+      usesPackageJson: true,
+      nodePackages: [],
+      pipPackages: ['mempalace'],
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-approval',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Install Approval Required');
+  expect(result.text).toContain(
+    'Plugin dependency installation requires explicit approval.',
+  );
+  expect(result.text).toContain(
+    'Re-run this command with `/plugin install ./plugins/mempalace-memory --yes`.',
+  );
+});
+
 test('handleGatewayCommand reports plugin install failures', async () => {
   setupHome();
 
@@ -915,10 +1013,12 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
     sessionId: 'session-plugin-reinstall',
     guildId: null,
     channelId: 'tui',
-    args: ['plugin', 'reinstall', './plugins/qmd-memory'],
+    args: ['plugin', 'reinstall', './plugins/qmd-memory', '--yes'],
   });
 
-  expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory');
+  expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveDependencyInstall: true,
+  });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -928,8 +1028,39 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
   expect(result.text).toContain(
     'Reinstalled plugin `demo-plugin` to `/tmp/.hybridclaw/plugins/demo-plugin`.',
   );
-  expect(result.text).toContain('Installed plugin npm dependencies.');
+  expect(result.text).toContain(
+    'Installed plugin Node.js dependencies from package.json.',
+  );
   expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand checks one plugin from a local TUI/web session', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-check',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'check', 'demo-plugin'],
+  });
+
+  expect(checkPluginMock).toHaveBeenCalledWith('demo-plugin');
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Check');
+  expect(result.text).toContain('Plugin: demo-plugin');
+  expect(result.text).toContain(
+    'package.json dependencies: @scope/demo-plugin=ok',
+  );
 });
 
 test('handleGatewayCommand dispatches plugin-registered commands', async () => {

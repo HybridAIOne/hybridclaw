@@ -36,6 +36,7 @@ import type {
   PluginConfigSchema,
   PluginConfigUiHint,
   PluginDispatchInboundMessageRequest,
+  PluginExternalDependency,
   PluginHookHandlerMap,
   PluginHookName,
   PluginInboundWebhookContext,
@@ -47,6 +48,7 @@ import type {
   PluginMemoryFlushContext,
   PluginMemoryWriteAction,
   PluginMemoryWriteContext,
+  PluginPackageDependency,
   PluginPromptBuildContext,
   PluginPromptContextResult,
   PluginPromptHook,
@@ -305,6 +307,50 @@ function normalizePluginInstallSpecs(
   }));
 }
 
+function normalizePluginPackageDependencies(
+  value: unknown,
+): PluginPackageDependency[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: PluginPackageDependency[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      const pkg = normalizeTrimmedString(entry);
+      if (!pkg) continue;
+      out.push({ package: pkg });
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const pkg = normalizeTrimmedString(entry.package);
+    if (!pkg) continue;
+    out.push({ package: pkg });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function normalizePluginExternalDependencies(
+  value: unknown,
+): PluginExternalDependency[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: PluginExternalDependency[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const name = normalizeTrimmedString(entry.name);
+    const check = normalizeTrimmedString(entry.check);
+    if (!name || !check) continue;
+    const installHint =
+      normalizeTrimmedString(entry.installHint) ||
+      normalizeTrimmedString(entry.install);
+    const installUrl = normalizeTrimmedString(entry.installUrl);
+    out.push({
+      name,
+      check,
+      ...(installHint ? { installHint } : {}),
+      ...(installUrl ? { installUrl } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function normalizePluginBinaryRequirements(
   value: unknown,
 ): PluginBinaryRequirement[] {
@@ -392,6 +438,15 @@ function normalizeManifest(input: unknown): PluginManifest {
         }
       : undefined,
     install: normalizePluginInstallSpecs(input.install),
+    pipDependencies: normalizePluginPackageDependencies(
+      input.pipDependencies ?? input.pip_dependencies,
+    ),
+    nodeDependencies: normalizePluginPackageDependencies(
+      input.nodeDependencies ?? input.node_dependencies,
+    ),
+    externalDependencies: normalizePluginExternalDependencies(
+      input.externalDependencies ?? input.external_dependencies,
+    ),
     configSchema: isRecord(input.configSchema)
       ? (input.configSchema as PluginConfigSchema)
       : undefined,

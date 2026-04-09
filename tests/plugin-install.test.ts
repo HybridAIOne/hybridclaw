@@ -125,6 +125,73 @@ function writePluginDirWithMissingBin(dir: string): void {
   );
 }
 
+function writePipPluginDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: pip-plugin',
+      'name: Pip Plugin',
+      'version: 1.0.0',
+      'kind: tool',
+      'requires:',
+      '  bins:',
+      '    - name: mempalace',
+      '      configKey: command',
+      '      installHint: pip install mempalace',
+      '      installUrl: https://github.com/milla-jovovich/mempalace',
+      'pipDependencies:',
+      '  - mempalace',
+      'externalDependencies:',
+      '  - name: mempalace',
+      '    check: mempalace --version',
+      '    installHint: pip install mempalace',
+      '    installUrl: https://github.com/milla-jovovich/mempalace',
+      'configSchema:',
+      '  type: object',
+      '  properties:',
+      '    command:',
+      '      type: string',
+      '      default: mempalace',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'index.js'),
+    "export default { id: 'pip-plugin', register() {} };\n",
+    'utf-8',
+  );
+}
+
+function createRuntimeConfigState(initial?: RuntimeConfig): {
+  getRuntimeConfig: () => RuntimeConfig;
+  updateRuntimeConfig: ReturnType<typeof vi.fn>;
+  read: () => RuntimeConfig;
+} {
+  let config =
+    initial ||
+    ({
+      plugins: {
+        list: [],
+      },
+    } as RuntimeConfig);
+  const getRuntimeConfig = () => structuredClone(config);
+  const updateRuntimeConfig = vi.fn(
+    (mutator: (draft: RuntimeConfig) => void) => {
+      const draft = structuredClone(config);
+      mutator(draft);
+      config = draft;
+      return structuredClone(config);
+    },
+  );
+  return {
+    getRuntimeConfig,
+    updateRuntimeConfig,
+    read: () => structuredClone(config),
+  };
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -138,6 +205,7 @@ describe('plugin install', () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const sourceDir = path.join(cwd, 'demo-plugin');
+    const runtimeConfig = createRuntimeConfigState();
     writePluginDir(sourceDir);
     fs.mkdirSync(path.join(sourceDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(
@@ -158,6 +226,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
@@ -167,6 +238,13 @@ describe('plugin install', () => {
       source: sourceDir,
       alreadyInstalled: false,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_KEY'],
       requiredConfigKeys: ['workspaceId'],
     });
@@ -193,6 +271,7 @@ describe('plugin install', () => {
   test('installs a plugin from an npm spec via a staged npm fetch', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const runtimeConfig = createRuntimeConfigState();
 
     const runCommand = vi.fn(
       ({
@@ -220,6 +299,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
@@ -227,6 +309,11 @@ describe('plugin install', () => {
     expect(result.pluginDir).toBe(installedDir);
     expect(result.alreadyInstalled).toBe(false);
     expect(result.dependenciesInstalled).toBe(true);
+    expect(result.dependencySummary).toEqual({
+      usedPackageJson: true,
+      installedNodePackages: [],
+      installedPipPackages: [],
+    });
     expect(
       fs.existsSync(path.join(installedDir, 'hybridclaw.plugin.yaml')),
     ).toBe(true);
@@ -263,6 +350,7 @@ describe('plugin install', () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const sourceDir = path.join(cwd, 'manifest-only-plugin');
+    const runtimeConfig = createRuntimeConfigState();
     writeManifestOnlyPluginDir(sourceDir);
 
     const runCommand = vi.fn();
@@ -271,6 +359,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     const installedDir = path.join(homeDir, 'plugins', 'manifest-only-plugin');
@@ -280,6 +371,13 @@ describe('plugin install', () => {
       source: sourceDir,
       alreadyInstalled: false,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: false,
+        installedNodePackages: ['@scope/manifest-only-dep'],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: [],
       requiredConfigKeys: [],
     });
@@ -303,6 +401,7 @@ describe('plugin install', () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const sourceDir = path.join(cwd, 'bin-plugin');
+    const runtimeConfig = createRuntimeConfigState();
     writePluginDirWithMissingBin(sourceDir);
 
     const runCommand = vi.fn();
@@ -311,6 +410,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     expect(result.missingRequiredBins).toEqual([
@@ -322,6 +424,185 @@ describe('plugin install', () => {
         installUrl: 'https://github.com/milla-jovovich/mempalace',
       },
     ]);
+  });
+
+  test('requires explicit approval before installing plugin dependencies', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'demo-plugin');
+    const runtimeConfig = createRuntimeConfigState();
+    writePluginDir(sourceDir);
+
+    const runCommand = vi.fn();
+    const { installPlugin, PluginDependencyApprovalRequiredError } =
+      await import('../src/plugins/plugin-install.js');
+
+    await expect(
+      installPlugin(sourceDir, {
+        homeDir,
+        cwd,
+        runCommand,
+        getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+        updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+      }),
+    ).rejects.toBeInstanceOf(PluginDependencyApprovalRequiredError);
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+
+  test('installs pip dependencies, auto-configures local binaries, and checks the plugin', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'pip-plugin');
+    const runtimeConfig = createRuntimeConfigState();
+    writePipPluginDir(sourceDir);
+
+    const runCommand = vi.fn(
+      ({
+        command,
+        args,
+        cwd: commandCwd,
+      }: {
+        command: string;
+        args: string[];
+        cwd: string;
+      }) => {
+        if (command === 'uv' && args[0] === 'venv') {
+          const binDir = path.join(commandCwd, '.venv', 'bin');
+          fs.mkdirSync(binDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(binDir, 'python'),
+            '#!/bin/sh\nexit 0\n',
+            'utf-8',
+          );
+          fs.chmodSync(path.join(binDir, 'python'), 0o755);
+          return;
+        }
+        if (command === 'uv' && args[0] === 'pip') {
+          const binDir = path.join(commandCwd, '.venv', 'bin');
+          fs.mkdirSync(binDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(binDir, 'mempalace'),
+            '#!/bin/sh\nexit 0\n',
+            'utf-8',
+          );
+          fs.chmodSync(path.join(binDir, 'mempalace'), 0o755);
+        }
+      },
+    );
+    const runCheckCommand = vi.fn(
+      ({
+        command,
+        args,
+        shellCommand,
+      }: {
+        command?: string;
+        args?: string[];
+        cwd: string;
+        shellCommand?: string;
+      }) => {
+        if (command === 'uv' && args?.[0] === '--version') {
+          return { ok: true, status: 0, signal: null };
+        }
+        if (
+          typeof command === 'string' &&
+          command.endsWith(path.join('.venv', 'bin', 'python')) &&
+          args?.[0] === '-m' &&
+          args?.[1] === 'pip' &&
+          args?.[2] === 'show' &&
+          args?.[3] === 'mempalace'
+        ) {
+          return { ok: true, status: 0, signal: null };
+        }
+        if (shellCommand === 'mempalace --version') {
+          return { ok: true, status: 0, signal: null };
+        }
+        return { ok: false, status: 1, signal: null };
+      },
+    );
+
+    const { checkPlugin, installPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
+    const installResult = await installPlugin(sourceDir, {
+      homeDir,
+      cwd,
+      runCommand,
+      runCheckCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+    });
+
+    expect(installResult.dependencySummary).toEqual({
+      usedPackageJson: false,
+      installedNodePackages: [],
+      installedPipPackages: ['mempalace'],
+    });
+    expect(installResult.configuredRequiredBins).toEqual([
+      {
+        name: 'mempalace',
+        configKey: 'command',
+        command: path.join(
+          homeDir,
+          'plugins',
+          'pip-plugin',
+          '.venv',
+          'bin',
+          'mempalace',
+        ),
+      },
+    ]);
+    expect(runtimeConfig.read().plugins.list).toEqual([
+      {
+        id: 'pip-plugin',
+        enabled: true,
+        config: {
+          command: path.join(
+            homeDir,
+            'plugins',
+            'pip-plugin',
+            '.venv',
+            'bin',
+            'mempalace',
+          ),
+        },
+      },
+    ]);
+
+    const checkResult = await checkPlugin('pip-plugin', {
+      homeDir,
+      cwd,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      runCheckCommand,
+    });
+
+    expect(checkResult.pipDependencies).toEqual([
+      { package: 'mempalace', installed: true },
+    ]);
+    expect(checkResult.externalDependencies).toEqual([
+      {
+        name: 'mempalace',
+        check: 'mempalace --version',
+        installed: true,
+        installHint: 'pip install mempalace',
+        installUrl: 'https://github.com/milla-jovovich/mempalace',
+      },
+    ]);
+    expect(checkResult.configuredRequiredBins).toEqual([
+      {
+        name: 'mempalace',
+        configKey: 'command',
+        command: path.join(
+          homeDir,
+          'plugins',
+          'pip-plugin',
+          '.venv',
+          'bin',
+          'mempalace',
+        ),
+      },
+    ]);
+    expect(checkResult.missingRequiredBins).toBeUndefined();
   });
 
   test('reinstalls a local plugin directory without removing config overrides', async () => {
@@ -345,6 +626,7 @@ describe('plugin install', () => {
         ],
       },
     } as RuntimeConfig;
+    const runtimeConfig = createRuntimeConfigState(config);
 
     const runCommand = vi.fn();
     const { reinstallPlugin } = await import(
@@ -354,6 +636,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     expect(result).toEqual({
@@ -363,11 +648,18 @@ describe('plugin install', () => {
       alreadyInstalled: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_KEY'],
       requiredConfigKeys: ['workspaceId'],
     });
     expect(fs.existsSync(path.join(installedDir, 'stale.txt'))).toBe(false);
-    expect(config.plugins.list).toEqual([
+    expect(runtimeConfig.read().plugins.list).toEqual([
       { id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } },
     ]);
   });
@@ -375,6 +667,7 @@ describe('plugin install', () => {
   test('reinstalls an npm-spec plugin with a single staged fetch', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const runtimeConfig = createRuntimeConfigState();
     const installedDir = path.join(homeDir, 'plugins', 'demo-plugin');
     writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
     fs.writeFileSync(
@@ -415,6 +708,9 @@ describe('plugin install', () => {
       homeDir,
       cwd,
       runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
     expect(result).toEqual({
@@ -424,6 +720,13 @@ describe('plugin install', () => {
       alreadyInstalled: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_KEY'],
       requiredConfigKeys: ['workspaceId'],
     });
