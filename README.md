@@ -157,8 +157,10 @@ Browse the full manual at
   [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/development/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills), and
-  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins)
+  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills),
+  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins),
+  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/mempalace-memory-plugin)
 - Configuration:
   [Configuration Reference](https://www.hybridclaw.io/docs/development/reference/configuration)
 - CLI reference:

@@ -1,8 +1,15 @@
 # Changelog
 
 ## [Coming up]
+
+## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
+
 ### Added
 
+- **Honcho memory plugin**: Added a bundled `honcho-memory` plugin so local
+  HybridClaw installs can mirror conversations into Honcho, inject prompt-time
+  recall and direct Honcho tools into later turns, and promote native user
+  profile saves into Honcho conclusions without disabling built-in memory.
 - **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
   local HybridClaw installs can layer MemPalace recall on top of native memory,
   expose `/mempalace ...` for manual CLI access, and auto-save turns back into

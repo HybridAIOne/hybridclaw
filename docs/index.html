@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.12.1</div>
+    <div class="section-label">Latest Release • v0.12.2</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.1 adds browser-based channel operations, remote-access runbooks, explicit email thread-header control, safer secret-backed email setup, and tighter local operator UX.</p>
+    <p class="section-desc">HybridClaw v0.12.2 adds bundled Honcho and MemPalace memory providers, plugin dependency install and health checks, sortable admin tool catalogs with managed gateway restart UX, Discord concierge approval buttons, and safer runtime defaults.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Admin channel operations</h3>
-      <p>The embedded admin console now centralizes Discord, WhatsApp, email, Microsoft Teams, and iMessage settings with a transport catalog, managed secret fields, and browser-based editing.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x2705;</div>
-      <h3>Remote-access runbooks</h3>
-      <p>The maintainer docs now cover SSH tunnels, host-managed Tailscale exposure, and a persistent macOS LaunchAgent tunnel flow for reaching <code>/chat</code>, <code>/agents</code>, <code>/admin</code>, and remote CLI/TUI clients safely.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f319;</div>
-      <h3>Explicit email thread replies</h3>
-      <p>The <code>message</code> tool/API and the repo-shipped <code>brevo-email</code> plugin now accept explicit <code>inReplyTo</code> and <code>references</code> headers so outbound replies can attach to an existing external mail thread.</p>
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Honcho memory plugin</h3>
+      <p>The bundled <code>honcho-memory</code> plugin mirrors HybridClaw sessions into Honcho, surfaces prompt-time recall plus direct Honcho tools, and keeps built-in memory active alongside the external provider.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
-      <h3>Secret-backed email setup</h3>
-      <p><code>hybridclaw channels email setup</code> now preserves stored <code>EMAIL_PASSWORD</code> secrets through the new <code>email.password</code> SecretRef-backed config field instead of falling back to plaintext config values.</p>
+      <h3>MemPalace memory plugin</h3>
+      <p>The bundled <code>mempalace-memory</code> plugin can mirror turns back into MemPalace, expose <code>/mempalace ...</code> controls, and route recall through CLI helpers or an active <code>mempalace</code> MCP server.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2705;</div>
+      <h3>Plugin dependency setup</h3>
+      <p>Plugin manifests can declare npm, pip, and external runtime dependencies; install and reinstall flows provision them with approval, accept bare repo plugin ids, and <code>plugin check</code> reports package, binary, env, and config health.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f6e0;</div>
+      <h3>Admin tools and gateway UX</h3>
+      <p>The admin console now keeps the tools catalog limited to live built-in and enabled plugin tools, supports sortable tables across admin views, and adds a managed gateway restart action with clearer restart state handling.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f680;</div>
-      <h3>Tighter local operator UX</h3>
-      <p>TUI and embedded web <code>/help</code> now share one canonical command registry, hidden secret prompts restore terminal state correctly, and <code>auth status</code> reports credentials as configured instead of echoing partial secrets.</p>
+      <h3>Safer operator flows</h3>
+      <p>Discord urgency prompts now use native buttons, built-in email config changes trigger automatic transport reloads, reminder examples use timezone-offset timestamps, and provider requests stop sending stray <code>maxTokens</code> to non-Anthropic APIs.</p>
     </div>
   </div>
 </section>
