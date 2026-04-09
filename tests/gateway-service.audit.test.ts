@@ -85,7 +85,7 @@ test('admin tools exposes recent tool error summaries', async () => {
   const { getGatewayAdminTools } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  const result = getGatewayAdminTools();
+  const result = await getGatewayAdminTools();
   const readTool = result.groups
     .flatMap((group) => group.tools)
     .find((tool) => tool.name === 'read');

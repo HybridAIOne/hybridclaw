@@ -2516,8 +2516,8 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   );
 }
 
-function handleApiAdminTools(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminTools());
+async function handleApiAdminTools(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminTools());
 }
 
 async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
@@ -3164,7 +3164,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
-            handleApiAdminTools(res);
+            await handleApiAdminTools(res);
             return;
           }
           if (pathname === '/api/admin/plugins' && method === 'GET') {

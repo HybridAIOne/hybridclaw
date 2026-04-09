@@ -772,7 +772,7 @@ export interface GatewayAdminPluginsResponse {
 export interface GatewayAdminToolCatalogEntry {
   name: string;
   group: string;
-  kind: 'builtin' | 'mcp' | 'other';
+  kind: 'builtin' | 'plugin' | 'mcp' | 'other';
   recentCalls: number;
   recentErrors: number;
   lastUsedAt: string | null;

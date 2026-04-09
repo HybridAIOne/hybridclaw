@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import {
@@ -18,7 +19,6 @@ import type { PromptMode } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
-  getKnownToolGroupLabel,
   getKnownToolGroups,
   isKnownToolName,
 } from '../agent/tool-summary.js';
@@ -130,7 +130,10 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
+import {
+  ensurePluginManagerInitialized,
+  listLoadedPluginCommands,
+} from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -3160,7 +3163,7 @@ function mapAdminToolExecution(
   };
 }
 
-export function getGatewayAdminTools(): GatewayAdminToolsResponse {
+export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse> {
   const recentEntries = listStructuredAuditEntries({
     eventType: 'tool.result',
     limit: 200,
@@ -3202,78 +3205,74 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
     usageByTool.set(execution.toolName, current);
   }
 
+  let pluginToolNames: string[] = [];
+  try {
+    const pluginManager = await ensurePluginManagerInitialized();
+    pluginToolNames = pluginManager
+      .getToolDefinitions()
+      .map((tool) => tool.name)
+      .sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    logger.warn({ error }, 'Failed to load plugin tools for admin catalog');
+  }
+
+  const mapTool = (
+    name: string,
+    group: string,
+    kind: GatewayAdminToolCatalogEntry['kind'],
+  ): GatewayAdminToolCatalogEntry => {
+    const usage = usageByTool.get(name);
+    return {
+      name,
+      group,
+      kind,
+      recentCalls: usage?.recentCalls || 0,
+      recentErrors: usage?.recentErrors || 0,
+      lastUsedAt: usage?.lastUsedAt || null,
+      recentErrorSamples: usage?.recentErrorSamples || [],
+    };
+  };
+
   const groups: GatewayAdminToolsResponse['groups'] = getKnownToolGroups()
     .filter((group) => group.tools.length > 0)
     .map((group) => ({
       label: group.label,
-      tools: group.tools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: group.label,
-          kind: 'builtin' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
+      tools: group.tools.map((name) => mapTool(name, group.label, 'builtin')),
     }));
 
-  const recentOnlyTools = Array.from(usageByTool.keys()).filter(
-    (name) => !isKnownToolName(name),
+  if (pluginToolNames.length > 0) {
+    groups.push({
+      label: 'Plugins',
+      tools: pluginToolNames.map((name) => mapTool(name, 'Plugins', 'plugin')),
+    });
+  }
+
+  const enabledMcpNamespaces = new Set(
+    buildMcpServerNamespaces(
+      Object.entries(getRuntimeConfig().mcpServers)
+        .filter(([, config]) => config.enabled !== false)
+        .map(([name]) => name),
+    ).values(),
   );
-  const mcpTools = recentOnlyTools
-    .filter((name) => name.includes('__'))
-    .sort((left, right) => left.localeCompare(right));
-  const otherTools = recentOnlyTools
-    .filter((name) => !name.includes('__'))
+  const mcpTools = Array.from(usageByTool.keys())
+    .filter((name) => !isKnownToolName(name) && name.includes('__'))
+    .filter((name) =>
+      enabledMcpNamespaces.has(name.slice(0, name.indexOf('__'))),
+    )
     .sort((left, right) => left.localeCompare(right));
 
   if (mcpTools.length > 0) {
     groups.push({
       label: 'MCP',
-      tools: mcpTools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: 'MCP',
-          kind: 'mcp' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
-    });
-  }
-
-  if (otherTools.length > 0) {
-    groups.push({
-      label: 'Other',
-      tools: otherTools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: getKnownToolGroupLabel(name) || 'Other',
-          kind: 'other' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
+      tools: mcpTools.map((name) => mapTool(name, 'MCP', 'mcp')),
     });
   }
 
   const builtinTools = groups
-    .filter((group) => group.label !== 'MCP' && group.label !== 'Other')
+    .filter((group) => group.label !== 'Plugins' && group.label !== 'MCP')
     .reduce((sum, group) => sum + group.tools.length, 0);
   const mcpToolCount = groups
     .filter((group) => group.label === 'MCP')
-    .reduce((sum, group) => sum + group.tools.length, 0);
-  const otherToolCount = groups
-    .filter((group) => group.label === 'Other')
     .reduce((sum, group) => sum + group.tools.length, 0);
 
   return {
@@ -3281,7 +3280,7 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
       totalTools: groups.reduce((sum, group) => sum + group.tools.length, 0),
       builtinTools,
       mcpTools: mcpToolCount,
-      otherTools: otherToolCount,
+      otherTools: 0,
       recentExecutions: recentExecutions.length,
       recentErrors: recentExecutions.filter((entry) => entry.isError).length,
     },

@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import {
+  PageHeader,
+  Panel,
+  SortableHeader,
+  useSortableRows,
+} from '../components/ui';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -11,6 +16,7 @@ import {
   joinStringList,
   parseStringList,
 } from '../lib/format';
+import { compareNumber, compareText } from '../lib/sort';
 
 interface ModelDraft {
   defaultModel: string;
@@ -38,6 +44,42 @@ function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
 
   return left.id.localeCompare(right.id);
 }
+
+type ModelSortKey = 'model' | 'source' | 'backend' | 'context' | 'monthlyUsage';
+
+function formatModelSource(model: ModelEntry): string {
+  return (
+    [
+      model.configuredInHybridai ? 'hybridai' : null,
+      model.configuredInCodex ? 'codex' : null,
+      model.discovered ? 'discovered' : null,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'manual'
+  );
+}
+
+const MODEL_SORTERS: Record<
+  ModelSortKey,
+  (left: ModelEntry, right: ModelEntry) => number
+> = {
+  model: (left, right) => compareText(left.id, right.id),
+  source: (left, right) =>
+    compareText(formatModelSource(left), formatModelSource(right)) ||
+    compareText(left.id, right.id),
+  backend: (left, right) =>
+    compareText(left.backend || 'remote', right.backend || 'remote') ||
+    compareText(left.id, right.id),
+  context: (left, right) =>
+    compareNumber(left.contextWindow, right.contextWindow) ||
+    compareText(left.id, right.id),
+  monthlyUsage: compareModelsByUsage,
+};
+
+const MODEL_DEFAULT_DIRECTIONS = {
+  context: 'desc',
+  monthlyUsage: 'desc',
+} as const;
 
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
@@ -83,19 +125,29 @@ export function ModelsPage() {
     );
   }, [modelsQuery.data]);
 
-  const filteredModels = (modelsQuery.data?.models || [])
-    .filter((model) => {
-      const haystack = [
-        model.id,
-        model.backend || '',
-        model.family || '',
-        model.parameterSize || '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(filter.trim().toLowerCase());
-    })
-    .sort(compareModelsByUsage);
+  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
+    const haystack = [
+      model.id,
+      model.backend || '',
+      model.family || '',
+      model.parameterSize || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(filter.trim().toLowerCase());
+  });
+  const {
+    sortedRows: models,
+    sortState,
+    toggleSort,
+  } = useSortableRows<ModelEntry, ModelSortKey>(filteredModels, {
+    initialSort: {
+      key: 'monthlyUsage',
+      direction: 'desc',
+    },
+    sorters: MODEL_SORTERS,
+    defaultDirections: MODEL_DEFAULT_DIRECTIONS,
+  });
 
   const providerEntries = Object.entries(
     modelsQuery.data?.providerStatus || {},
@@ -240,7 +292,7 @@ export function ModelsPage() {
 
       <Panel
         title="Catalog"
-        subtitle={`${filteredModels.length} model${filteredModels.length === 1 ? '' : 's'} visible`}
+        subtitle={`${models.length} model${models.length === 1 ? '' : 's'} visible`}
       >
         {modelsQuery.isLoading ? (
           <div className="empty-state">Loading model catalog...</div>
@@ -249,15 +301,40 @@ export function ModelsPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Model</th>
-                  <th>Source</th>
-                  <th>Backend</th>
-                  <th>Context</th>
-                  <th>Monthly usage</th>
+                  <SortableHeader
+                    label="Model"
+                    sortKey="model"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Source"
+                    sortKey="source"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Backend"
+                    sortKey="backend"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Context"
+                    sortKey="context"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Monthly usage"
+                    sortKey="monthlyUsage"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {filteredModels.map((model) => (
+                {models.map((model) => (
                   <tr key={model.id}>
                     <td>
                       <strong>{model.id}</strong>
@@ -269,15 +346,7 @@ export function ModelsPage() {
                         {model.family ? ` · ${model.family}` : ''}
                       </small>
                     </td>
-                    <td>
-                      {[
-                        model.configuredInHybridai ? 'hybridai' : null,
-                        model.configuredInCodex ? 'codex' : null,
-                        model.discovered ? 'discovered' : null,
-                      ]
-                        .filter(Boolean)
-                        .join(', ') || 'manual'}
-                    </td>
+                    <td>{formatModelSource(model)}</td>
                     <td>{model.backend || 'remote'}</td>
                     <td>
                       {model.contextWindow
@@ -311,7 +380,7 @@ export function ModelsPage() {
                     </td>
                   </tr>
                 ))}
-                {filteredModels.length === 0 ? (
+                {models.length === 0 ? (
                   <tr>
                     <td colSpan={5}>
                       <div className="empty-state">

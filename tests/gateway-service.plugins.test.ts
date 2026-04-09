@@ -1507,3 +1507,66 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
     ],
   });
 });
+
+test('admin tools catalog excludes stale plugin tool executions when the plugin is not active', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-send-email',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'tool.result',
+      toolName: 'send_email',
+      isError: false,
+      durationMs: 21,
+    },
+  });
+
+  pluginManagerMock.getToolDefinitions.mockReturnValueOnce([
+    {
+      name: 'memory_lookup',
+      description: 'Query plugin memory',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+        },
+        required: ['question'],
+      },
+    },
+  ]);
+
+  const { getGatewayAdminTools } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await getGatewayAdminTools();
+  const catalogNames = result.groups.flatMap((group) =>
+    group.tools.map((tool) => tool.name),
+  );
+
+  expect(catalogNames).toContain('memory_lookup');
+  expect(catalogNames).not.toContain('send_email');
+  expect(result.groups).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Plugins',
+        tools: [
+          expect.objectContaining({
+            name: 'memory_lookup',
+            kind: 'plugin',
+          }),
+        ],
+      }),
+    ]),
+  );
+  expect(result.recentExecutions[0]).toMatchObject({
+    toolName: 'send_email',
+    durationMs: 21,
+  });
+});
