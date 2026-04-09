@@ -22,19 +22,11 @@
 
 ### Changed
 
-- **Threaded email replies across built-in and Brevo delivery**: Outbound email
-  sends now accept explicit `In-Reply-To` and `References` headers through the
-  `message` tool/API and the repo-shipped `brevo-email` plugin, keeping
-  follow-up replies inside the existing mail thread.
 - **Admin console tools and gateway UX**: The `/admin/tools` catalog now only
   shows live built-in and enabled plugin tools, all admin tables support
   click-to-sort headers, the Tools view now labels usage as `Invocations`,
   and the Gateway page adds a managed restart action with clearer restart
   state handling.
-- **Email credential wiring**: Email setup and runtime config now support
-  `email.password` as a SecretRef-backed field so stored `EMAIL_PASSWORD`
-  secrets can stay referenced from config without falling back to plaintext
-  values.
 - **Plugin install ergonomics**: Local plugin installs now accept bare plugin
   ids from the repo `plugins/` directory, prefer plugin-local executables after
   dependency setup, and reuse the normal local approval flow when dependency
