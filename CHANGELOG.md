@@ -38,6 +38,10 @@
 
 ### Fixed
 
+- **Timed reminder prompt timestamps**: Absolute `cron` reminder guidance now
+  tells the model to emit offset-bearing one-shot timestamps that mirror the
+  user's timezone instead of defaulting to UTC-style `Z` timestamps in the
+  prompt examples.
 - **Provider `maxTokens` policy**: Provider-facing model requests now omit
   `maxTokens` for non-Anthropic models and always send a discovered Anthropic
   limit, falling back to `32000` when discovery metadata is unavailable.
