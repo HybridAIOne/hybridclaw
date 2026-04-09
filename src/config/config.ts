@@ -482,18 +482,6 @@ function resolveSandboxMode(
   return 'host';
 }
 
-function dedupeStringList(values: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of values) {
-    const value = String(raw || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out;
-}
-
 function normalizeConfiguredBaseUrl(
   raw: string | undefined,
   fallback: string,
