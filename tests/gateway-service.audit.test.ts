@@ -162,7 +162,9 @@ test('bot set records a structured audit event for observability export', async 
   expect(getSessionById('session-bot-set-audit')?.chatbot_id).toBe(
     'bot-research',
   );
-  expect(getSessionById('session-bot-set-audit')?.model).toBe('gpt-4o-mini');
+  expect(getSessionById('session-bot-set-audit')?.model).toBe(
+    'hybridai/gpt-4o-mini',
+  );
 });
 
 test('bot set leaves the session model unchanged when the bot exposes no model', async () => {

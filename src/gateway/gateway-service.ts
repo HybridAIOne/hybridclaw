@@ -5275,9 +5275,13 @@ export async function handleGatewayCommand(
       includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
     });
     const catalogModels = getAvailableModelList();
+    const resolvedModelName = resolveRequestedCatalogModelName(
+      rawModelName,
+      catalogModels,
+    );
     if (
       catalogModels.length > 0 &&
-      !catalogModels.includes(normalizedModelName)
+      !catalogModels.includes(resolvedModelName)
     ) {
       return {
         ok: false,
@@ -5294,7 +5298,7 @@ export async function handleGatewayCommand(
     );
     if (
       availableModels.length > 0 &&
-      !availableModels.includes(normalizedModelName)
+      !availableModels.includes(resolvedModelName)
     ) {
       return {
         ok: false,
@@ -5304,7 +5308,7 @@ export async function handleGatewayCommand(
         ),
       };
     }
-    return { ok: true, model: normalizedModelName };
+    return { ok: true, model: resolvedModelName };
   }
 
   const result = await (async (): Promise<GatewayCommandResult> => {
