@@ -56,6 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/providers/factory.js');
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar(
     'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
@@ -386,6 +387,19 @@ test('omits max tokens for non-Anthropic HybridAI task models', async () => {
     config.auxiliaryModels.compression.model = 'gpt-5-nano';
     config.auxiliaryModels.compression.maxTokens = 222;
   });
+
+  vi.doMock('../src/providers/factory.js', () => ({
+    resolveModelRuntimeCredentials: vi.fn(async () => ({
+      provider: 'hybridai' as const,
+      apiKey: 'test-key',
+      baseUrl: 'https://api.hybridai.example',
+      chatbotId: 'bot_123',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      maxTokens: 999,
+    })),
+  }));
 
   const taskRouting = await importFreshTaskRouting(homeDir);
   const policy = await taskRouting.resolveTaskModelPolicy('compression', {
