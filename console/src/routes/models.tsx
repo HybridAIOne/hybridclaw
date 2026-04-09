@@ -284,11 +284,6 @@ export function ModelsPage() {
                 </select>
               </label>
 
-              <p className="empty-state">
-                Provider catalogs are auto-discovered. Only the default model is
-                configurable here.
-              </p>
-
               <div className="button-row">
                 <button
                   className="primary-button"

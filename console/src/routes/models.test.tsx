@@ -179,16 +179,12 @@ describe('ModelsPage', () => {
     ).not.toBeNull();
   });
 
-  it('shows discovery-only guidance instead of editable provider model lists', async () => {
+  it('does not show editable provider model lists', async () => {
     fetchModelsMock.mockResolvedValue(makeModelsResponse());
 
     renderModelsPage();
 
-    expect(
-      await screen.findByText(
-        'Provider catalogs are auto-discovered. Only the default model is configurable here.',
-      ),
-    ).not.toBeNull();
+    await screen.findByText('Default model');
     expect(screen.queryByText('Configured HybridAI models')).toBeNull();
     expect(screen.queryByText('Configured Codex models')).toBeNull();
   });
