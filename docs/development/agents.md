@@ -33,6 +33,7 @@ Main docs landing pages:
 - [Guides](./guides/README.md)
 - [Bundled Skills](./guides/bundled-skills.md)
 - [Local Providers](./guides/local-providers.md)
+- [Remote Access](./guides/remote-access.md)
 - [Office Dependencies](./guides/office-dependencies.md)
 - [TUI MCP](./guides/tui-mcp.md)
 - [Voice / TTS](./guides/voice-tts.md)

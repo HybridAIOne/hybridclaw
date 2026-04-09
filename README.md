@@ -50,8 +50,9 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin`
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
+- OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
@@ -74,7 +75,7 @@ Imports compatible skills, memory, config, and optional secrets.
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin`
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Whatsapp, Discord, MS Teams, Email
 
@@ -88,7 +89,7 @@ Once the gateway is running, open HybridClaw locally:
 | Approvals / governance | ✅ Approvals, audit trails, sandbox, config history | ⚠️ Strong approvals/audit, less enterprise-governance framing | ⚠️ Strong approvals/isolation, less audit/admin surface |
 | Memory / knowledge | ✅ Shared memory + HybridAI knowledge path | ⚠️ Strong memory/session features | ⚠️ Strong persistent/self-improving memory |
 | Multi-agent observability | ✅ Built-in audit surfaces + platform path | ⚠️ Multi-agent/task inspection exists | ⚠️ Subagents + logs/session search, not central observability |
-| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
+| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path plus SSH/Tailscale remote access | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
 | Multiple UIs | ✅ TUI + Chat UI + Admin UI + Agents UI | ✅ TUI + WebChat + Control UI | ⚠️ TUI + messaging + API server, no comparable built-in admin/chat web UI |
 
 ## Adjacent tools
@@ -143,6 +144,8 @@ Browse the full manual at
 - Enterprise deployment:
   [Runtime Internals](https://www.hybridclaw.io/docs/development/internals/runtime) and
   [Architecture](https://www.hybridclaw.io/docs/development/internals/architecture)
+- Operations:
+  [Remote Access](https://www.hybridclaw.io/docs/development/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:

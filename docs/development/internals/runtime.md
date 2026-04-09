@@ -93,6 +93,9 @@ Core details:
   persist acceptance automatically before credential validation runs.
 - `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
   `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
+- `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` let local clients such as the
+  TUI, eval runner, and gateway command client target a different
+  already-running HybridClaw gateway.
 - `HEALTH_HOST` can override the health server bind address without rewriting
   runtime config, which is useful in containerized or proxied deployments.
 - `mcpServers.*.env` and `mcpServers.*.headers` are persisted in

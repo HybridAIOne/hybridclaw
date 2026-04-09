@@ -4,9 +4,6 @@
 
 ### Added
 
-- **Loopback OpenAI-compatible gateway API**: Exposed `/v1/models` and
-  `/v1/chat/completions` on the local gateway so eval harnesses and other local
-  tools can drive HybridClaw through an OpenAI-compatible HTTP surface.
 - **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
   local HybridClaw installs can layer MemPalace recall on top of native memory,
   expose `/mempalace ...` for manual CLI access, and auto-save turns back into
@@ -38,6 +35,39 @@
 
 ### Fixed
 
+- **Plugin dependency safety**: Manifest-provided external dependency checks no
+  longer execute through a shell, and already-installed plugins now recompute
+  their dependency plan from the installed directory before reinstalling
+  runtime packages.
+
+## [0.12.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.1)
+
+### Added
+
+- **Admin console channel operations**: Added an `/admin` Channels workspace
+  with a transport catalog, browser-based editors for Discord, WhatsApp, email,
+  Microsoft Teams, and iMessage, managed secret fields for channel
+  credentials, and live WhatsApp pairing QR display.
+- **Remote-access runbook**: Added maintainer docs for reaching `/chat`,
+  `/agents`, `/admin`, and remote CLI/TUI clients through SSH tunnels or
+  host-managed Tailscale while keeping the gateway bound to loopback.
+
+### Changed
+
+- **Explicit email thread headers**: The `message` tool/API and the
+  repo-shipped `brevo-email` plugin now accept explicit `inReplyTo` and
+  `references` Message-ID headers so outbound replies can attach to an existing
+  external thread when needed.
+- **Secret-backed email transport config**: Email setup and runtime config now
+  support `email.password` as a SecretRef-backed field, and
+  `hybridclaw channels email setup` keeps stored `EMAIL_PASSWORD` secrets
+  referenced from config instead of falling back to plaintext.
+- **Local slash-command help**: TUI and embedded web `/help` output now comes
+  from the shared command registry, keeping command listings surface-aware,
+  alphabetized, and aligned with slash-menu suggestions.
+
+### Fixed
+
 - **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
   reported by a reachable gateway, avoiding unnecessary container rebuild
   checks when the running gateway is already in host mode and vice versa.
@@ -45,10 +75,6 @@
   correctly after earlier readline prompts, and `auth status` surfaces report
   sensitive credentials as `configured` instead of printing partial tokens or
   keys.
-- **Plugin dependency safety**: Manifest-provided external dependency checks no
-  longer execute through a shell, and already-installed plugins now recompute
-  their dependency plan from the installed directory before reinstalling
-  runtime packages.
 
 ## [0.12.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.0)
 

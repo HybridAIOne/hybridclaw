@@ -66,6 +66,8 @@ leak into the saved revision metadata.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
+  port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
   runtime status reporting, including the target base URL, bot and agent ids,
   flush interval, and batch size
@@ -105,6 +107,10 @@ leak into the saved revision metadata.
   milliseconds and is clamped to a minimum of `1000`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
+- `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
+  the local TUI, eval workflows, and client-side gateway commands that should
+  target an already-running HybridClaw instance; if `ops.gatewayApiToken` is
+  unset, the runtime falls back to the web token automatically
 - `tools.httpRequest.authRules[]` for gateway-side URL-to-secret header
   injection used by the `http_request` tool, for example mapping a URL prefix
   such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
@@ -116,6 +122,8 @@ and `adaptiveSkills.*` are covered in
 [Skills Internals](../extensibility/skills.md) and
 [Adaptive Skills](../extensibility/adaptive-skills.md).
 For the dual-backend iMessage workflow, see [Setting Up iMessage](../../imessage.md).
+For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
+pattern, see [Remote Access](../guides/remote-access.md).
 
 ## Audio Transcription Notes
 
