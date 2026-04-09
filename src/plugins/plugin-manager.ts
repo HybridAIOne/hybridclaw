@@ -429,6 +429,7 @@ function normalizeManifest(input: unknown): PluginManifest {
     version: normalizeTrimmedString(input.version),
     description: normalizeTrimmedString(input.description),
     kind: normalizePluginKind(input.kind),
+    memoryProvider: input.memoryProvider === true ? true : undefined,
     author: normalizeTrimmedString(input.author),
     entrypoint: normalizeTrimmedString(input.entrypoint),
     requires: isRecord(input.requires)
@@ -987,6 +988,36 @@ export class PluginManager {
   ): Promise<void> {
     if (!candidate.enabled) return;
     if (this.plugins.some((plugin) => plugin.id === candidate.id)) return;
+    if (candidate.manifest.memoryProvider) {
+      const activeMemoryProvider = this.plugins.find(
+        (plugin) =>
+          plugin.status === 'loaded' && plugin.manifest.memoryProvider === true,
+      );
+      if (activeMemoryProvider) {
+        const error = [
+          'Only one external memory provider can be active at a time.',
+          `"${activeMemoryProvider.id}" is already loaded.`,
+        ].join(' ');
+        this.logger.warn(
+          {
+            pluginId: candidate.id,
+            activeMemoryProvider: activeMemoryProvider.id,
+          },
+          'Skipping plugin because another external memory provider is already active',
+        );
+        this.plugins.push({
+          id: candidate.id,
+          manifest: candidate.manifest,
+          candidate,
+          enabled: false,
+          status: 'failed',
+          error,
+          toolsRegistered: [],
+          hooksRegistered: [],
+        });
+        return;
+      }
+    }
 
     if (!satisfiesNodeRequirement(candidate.manifest.requires?.node)) {
       this.logger.warn(

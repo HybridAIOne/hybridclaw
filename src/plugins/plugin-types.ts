@@ -74,6 +74,7 @@ export interface PluginManifest {
   version?: string;
   description?: string;
   kind?: PluginKind;
+  memoryProvider?: boolean;
   author?: string;
   entrypoint?: string;
   requires?: {
@@ -422,6 +423,12 @@ export interface HybridClawPluginApi {
   writeConfigValue(key: string, rawValue: string): Promise<void>;
   unsetConfigValue(key: string): Promise<void>;
   resolveSessionAgentId(sessionId: string): string;
+  getSessionInfo(sessionId: string): {
+    sessionId: string;
+    agentId: string;
+    userId: string | null;
+    workspacePath: string;
+  };
 }
 
 export interface HybridClawPluginDefinition {

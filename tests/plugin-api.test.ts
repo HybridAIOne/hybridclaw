@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import * as ipc from '../src/infra/ipc.js';
+import * as db from '../src/memory/db.js';
 import { createPluginApi } from '../src/plugins/plugin-api.js';
 import type { PluginManager } from '../src/plugins/plugin-manager.js';
 
@@ -220,4 +222,42 @@ test('createPluginApi delegates inbound webhook registration and inbound turn di
       sessionId: 'session-2',
     }),
   );
+});
+
+test('createPluginApi derives session info from stored session and recent user messages', () => {
+  vi.spyOn(db, 'getSessionById').mockReturnValue({
+    agent_id: 'writer',
+  } as never);
+  vi.spyOn(db, 'getRecentMessages').mockReturnValue([
+    {
+      role: 'assistant',
+      user_id: null,
+    },
+    {
+      role: 'user',
+      user_id: 'user-42',
+    },
+  ] as never);
+  vi.spyOn(ipc, 'agentWorkspaceDir').mockReturnValue(
+    '/tmp/home/data/agents/writer/workspace',
+  );
+
+  const api = createPluginApi({
+    manager: makePluginManagerStub(),
+    pluginId: 'demo-plugin',
+    pluginDir: '/tmp/demo-plugin',
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+
+  expect(api.getSessionInfo('session-42')).toEqual({
+    sessionId: 'session-42',
+    agentId: 'writer',
+    userId: 'user-42',
+    workspacePath: '/tmp/home/data/agents/writer/workspace',
+  });
 });
