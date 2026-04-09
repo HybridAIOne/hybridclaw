@@ -199,6 +199,25 @@ function looksLikeLocalPath(input: string): boolean {
   );
 }
 
+function resolveProjectPluginDir(input: string, cwd: string): string | null {
+  const pluginId = String(input || '').trim();
+  if (!pluginId || looksLikeLocalPath(pluginId)) {
+    return null;
+  }
+  const candidate = path.join(cwd, 'plugins', pluginId);
+  if (!fs.existsSync(candidate)) {
+    return null;
+  }
+  if (!fs.statSync(candidate).isDirectory()) {
+    return null;
+  }
+  const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
+  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+    return null;
+  }
+  return candidate;
+}
+
 function resolvePluginSource(input: string, cwd: string): PluginSource {
   const resolvedPath = expandUserPath(input, cwd);
   if (fs.existsSync(resolvedPath)) {
@@ -212,6 +231,13 @@ function resolvePluginSource(input: string, cwd: string): PluginSource {
     return {
       kind: 'npm-spec',
       spec: resolvedPath,
+    };
+  }
+  const bundledPluginDir = resolveProjectPluginDir(input, cwd);
+  if (bundledPluginDir) {
+    return {
+      kind: 'local-dir',
+      path: bundledPluginDir,
     };
   }
   if (looksLikeLocalPath(input)) {
@@ -545,11 +571,17 @@ function installPreparedPlugin(
     throw new PluginDependencyApprovalRequiredError(dependencyPlan);
   }
   const cleanupDirs: string[] = [];
+  let backupDir: string | null = null;
+  let installedPluginDir = false;
 
   try {
     if (fs.existsSync(pluginDir)) {
       if (options.replaceExisting) {
-        fs.rmSync(pluginDir, { recursive: true, force: true });
+        backupDir = path.join(
+          installRoot,
+          `.${manifest.id}.backup-${randomUUID().slice(0, 8)}`,
+        );
+        fs.renameSync(pluginDir, backupDir);
       } else {
         const sourceRealPath = fs.realpathSync(sourceDir);
         const pluginRealPath = fs.realpathSync(pluginDir);
@@ -559,12 +591,16 @@ function installPreparedPlugin(
           );
         }
 
+        const pluginDependencyPlan = planPluginDependencyInstall(
+          pluginDir,
+          manifest,
+        );
         const dependencySummary = hasInstallablePluginDependencies(
-          dependencyPlan,
+          pluginDependencyPlan,
         )
           ? installPluginDependencyPlan(
               pluginDir,
-              dependencyPlan,
+              pluginDependencyPlan,
               options.runCommand,
               options.runCheckCommand,
             )
@@ -613,19 +649,20 @@ function installPreparedPlugin(
     );
     cleanupDirs.push(stageDir);
     copyPluginTree(sourceDir, stageDir);
-    const stageDependencyPlan = planPluginDependencyInstall(stageDir, manifest);
+    fs.renameSync(stageDir, pluginDir);
+    cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
+    installedPluginDir = true;
+    const pluginDependencyPlan = planPluginDependencyInstall(pluginDir, manifest);
     const dependencySummary = hasInstallablePluginDependencies(
-      stageDependencyPlan,
+      pluginDependencyPlan,
     )
       ? installPluginDependencyPlan(
-          stageDir,
-          stageDependencyPlan,
+          pluginDir,
+          pluginDependencyPlan,
           options.runCommand,
           options.runCheckCommand,
         )
       : emptyDependencyInstallSummary();
-    fs.renameSync(stageDir, pluginDir);
-    cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
     const configuredRequiredBins = autoConfigurePluginLocalBinaries({
       pluginId: manifest.id,
       pluginDir,
@@ -662,7 +699,20 @@ function installPreparedPlugin(
       requiredConfigKeys: getRequiredConfigKeys(manifest),
       ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
     };
+  } catch (error) {
+    if (installedPluginDir && fs.existsSync(pluginDir)) {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+      installedPluginDir = false;
+    }
+    if (backupDir && fs.existsSync(backupDir)) {
+      fs.renameSync(backupDir, pluginDir);
+      backupDir = null;
+    }
+    throw error;
   } finally {
+    if (backupDir && fs.existsSync(backupDir)) {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    }
     for (const dir of cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -676,7 +726,7 @@ export async function installPlugin(
   const trimmedSource = String(source || '').trim();
   if (!trimmedSource) {
     throw new Error(
-      'Missing plugin source. Use `hybridclaw plugin install <path|npm-spec>`.',
+      'Missing plugin source. Use `hybridclaw plugin install <path|plugin-id|npm-spec>`.',
     );
   }
 
@@ -715,7 +765,7 @@ export async function reinstallPlugin(
   const trimmedSource = String(source || '').trim();
   if (!trimmedSource) {
     throw new Error(
-      'Missing plugin source. Use `hybridclaw plugin reinstall <path|npm-spec>`.',
+      'Missing plugin source. Use `hybridclaw plugin reinstall <path|plugin-id|npm-spec>`.',
     );
   }
 

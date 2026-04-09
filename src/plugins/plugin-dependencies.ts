@@ -176,21 +176,81 @@ function isNodePackageInstalled(pluginDir: string, spec: string): boolean {
   return fs.existsSync(packageRoot);
 }
 
+function parseSimpleCommandString(
+  shellCommand: string,
+): { command: string; args: string[] } | null {
+  const normalized = String(shellCommand || '').trim();
+  if (!normalized) return null;
+  if (/[|&;<>`$\r\n]/u.test(normalized)) return null;
+
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let escaping = false;
+
+  for (const char of normalized) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/u.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping || quote) return null;
+  if (current) tokens.push(current);
+  if (tokens.length === 0) return null;
+
+  const [command, ...args] = tokens;
+  return command ? { command, args } : null;
+}
+
 export function defaultPluginDependencyCheckCommand(
   command: PluginDependencyCheckCommand,
 ): PluginDependencyCheckCommandResult {
-  const result = command.shellCommand
-    ? spawnSync(command.shellCommand, {
-        cwd: command.cwd,
-        env: process.env,
-        stdio: 'ignore',
-        shell: true,
-      })
-    : spawnSync(command.command || '', command.args || [], {
-        cwd: command.cwd,
-        env: process.env,
-        stdio: 'ignore',
-      });
+  const parsedShellCommand = command.shellCommand
+    ? parseSimpleCommandString(command.shellCommand)
+    : null;
+  if (command.shellCommand && !parsedShellCommand) {
+    return {
+      ok: false,
+      status: null,
+      signal: null,
+      error:
+        'Unsupported external dependency check command; use a simple executable and arguments without shell operators.',
+    };
+  }
+
+  const executable = parsedShellCommand?.command || command.command || '';
+  const args = parsedShellCommand?.args || command.args || [];
+  const result = spawnSync(executable, args, {
+    cwd: command.cwd,
+    env: process.env,
+    stdio: 'ignore',
+  });
   return {
     ok:
       !result.error &&
@@ -247,7 +307,8 @@ export function planPluginDependencyInstall(
   pluginDir: string,
   manifest: PluginManifest,
 ): PluginDependencyPlan {
-  const usesPackageJson = fs.existsSync(path.join(pluginDir, 'package.json'));
+  const packageJsonDependencies = readPackageJsonDependencies(pluginDir);
+  const usesPackageJson = packageJsonDependencies.length > 0;
   return {
     usesPackageJson,
     nodePackages: dedupePackages([

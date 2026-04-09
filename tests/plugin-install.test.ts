@@ -13,13 +13,18 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
-function writePluginDir(dir: string, options?: { packageName?: string }): void {
+function writePluginDir(
+  dir: string,
+  options?: { packageName?: string; pluginId?: string; pluginName?: string },
+): void {
+  const pluginId = options?.pluginId || 'demo-plugin';
+  const pluginName = options?.pluginName || 'Demo Plugin';
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'hybridclaw.plugin.yaml'),
     [
-      'id: demo-plugin',
-      'name: Demo Plugin',
+      `id: ${pluginId}`,
+      `name: ${pluginName}`,
       'version: 1.0.0',
       'kind: tool',
       'requires:',
@@ -39,7 +44,7 @@ function writePluginDir(dir: string, options?: { packageName?: string }): void {
   );
   fs.writeFileSync(
     path.join(dir, 'index.js'),
-    "export default { id: 'demo-plugin', register() {} };\n",
+    `export default { id: '${pluginId}', register() {} };\n`,
     'utf-8',
   );
   fs.writeFileSync(
@@ -239,8 +244,8 @@ describe('plugin install', () => {
       alreadyInstalled: false,
       dependenciesInstalled: true,
       dependencySummary: {
-        usedPackageJson: true,
-        installedNodePackages: [],
+        usedPackageJson: false,
+        installedNodePackages: ['@scope/demo-plugin-dep'],
         installedPipPackages: [],
       },
       configuredRequiredBins: [],
@@ -261,8 +266,10 @@ describe('plugin install', () => {
           'install',
           '--ignore-scripts',
           '--omit=dev',
+          '--no-package-lock',
           '--no-audit',
           '--no-fund',
+          '@scope/demo-plugin-dep',
         ],
       }),
     );
@@ -310,8 +317,8 @@ describe('plugin install', () => {
     expect(result.alreadyInstalled).toBe(false);
     expect(result.dependenciesInstalled).toBe(true);
     expect(result.dependencySummary).toEqual({
-      usedPackageJson: true,
-      installedNodePackages: [],
+      usedPackageJson: false,
+      installedNodePackages: ['@scope/demo-plugin'],
       installedPipPackages: [],
     });
     expect(
@@ -339,8 +346,54 @@ describe('plugin install', () => {
           'install',
           '--ignore-scripts',
           '--omit=dev',
+          '--no-package-lock',
           '--no-audit',
           '--no-fund',
+          '@scope/demo-plugin',
+        ],
+      }),
+    );
+  });
+
+  test('resolves a bare plugin id from cwd/plugins before falling back to npm', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'plugins', 'mempalace-memory');
+    const runtimeConfig = createRuntimeConfigState();
+    writePluginDir(sourceDir, {
+      pluginId: 'mempalace-memory',
+      pluginName: 'MemPalace Memory',
+      packageName: '@scope/mempalace-memory',
+    });
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await installPlugin('mempalace-memory', {
+      homeDir,
+      cwd,
+      runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+    });
+
+    expect(result.pluginId).toBe('mempalace-memory');
+    expect(result.pluginDir).toBe(
+      path.join(homeDir, 'plugins', 'mempalace-memory'),
+    );
+    expect(result.source).toBe('mempalace-memory');
+    expect(runCommand).toHaveBeenCalledTimes(1);
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-package-lock',
+          '--no-audit',
+          '--no-fund',
+          '@scope/mempalace-memory',
         ],
       }),
     );
@@ -482,7 +535,7 @@ describe('plugin install', () => {
           fs.mkdirSync(binDir, { recursive: true });
           fs.writeFileSync(
             path.join(binDir, 'mempalace'),
-            '#!/bin/sh\nexit 0\n',
+            `#!${path.join(commandCwd, '.venv', 'bin', 'python')}\n`,
             'utf-8',
           );
           fs.chmodSync(path.join(binDir, 'mempalace'), 0o755);
@@ -568,6 +621,21 @@ describe('plugin install', () => {
         },
       },
     ]);
+    expect(
+      fs
+        .readFileSync(
+          path.join(
+            homeDir,
+            'plugins',
+            'pip-plugin',
+            '.venv',
+            'bin',
+            'mempalace',
+          ),
+          'utf-8',
+        )
+        .split('\n')[0],
+    ).toBe(`#!${path.join(homeDir, 'plugins', 'pip-plugin', '.venv', 'bin', 'python')}`);
 
     const checkResult = await checkPlugin('pip-plugin', {
       homeDir,
@@ -603,6 +671,94 @@ describe('plugin install', () => {
       },
     ]);
     expect(checkResult.missingRequiredBins).toBeUndefined();
+  });
+
+  test('rejects shell operators in manifest external dependency checks', async () => {
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const { defaultPluginDependencyCheckCommand } = await import(
+      '../src/plugins/plugin-dependencies.js'
+    );
+
+    const result = defaultPluginDependencyCheckCommand({
+      cwd,
+      shellCommand: 'mempalace --version && echo hacked',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: null,
+      signal: null,
+      error:
+        'Unsupported external dependency check command; use a simple executable and arguments without shell operators.',
+    });
+  });
+
+  test('parses simple external dependency checks without using a shell', async () => {
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const { defaultPluginDependencyCheckCommand } = await import(
+      '../src/plugins/plugin-dependencies.js'
+    );
+
+    const result = defaultPluginDependencyCheckCommand({
+      cwd,
+      shellCommand: `"${process.execPath}" --version`,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      status: 0,
+      signal: null,
+    });
+  });
+
+  test('recomputes dependency plan for an already-installed plugin directory', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const installedDir = path.join(homeDir, 'plugins', 'manifest-only-plugin');
+    const runtimeConfig = createRuntimeConfigState();
+    writeManifestOnlyPluginDir(installedDir);
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await installPlugin(installedDir, {
+      homeDir,
+      cwd: makeTempDir('hybridclaw-plugin-cwd-'),
+      runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+    });
+
+    expect(result).toEqual({
+      pluginId: 'manifest-only-plugin',
+      pluginDir: installedDir,
+      source: installedDir,
+      alreadyInstalled: true,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: false,
+        installedNodePackages: ['@scope/manifest-only-dep'],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-package-lock',
+          '--no-audit',
+          '--no-fund',
+          '@scope/manifest-only-dep',
+        ],
+        cwd: installedDir,
+      }),
+    );
   });
 
   test('reinstalls a local plugin directory without removing config overrides', async () => {
@@ -649,8 +805,8 @@ describe('plugin install', () => {
       replacedExistingInstall: true,
       dependenciesInstalled: true,
       dependencySummary: {
-        usedPackageJson: true,
-        installedNodePackages: [],
+        usedPackageJson: false,
+        installedNodePackages: ['@scope/demo-plugin-dep'],
         installedPipPackages: [],
       },
       configuredRequiredBins: [],
@@ -721,8 +877,8 @@ describe('plugin install', () => {
       replacedExistingInstall: true,
       dependenciesInstalled: true,
       dependencySummary: {
-        usedPackageJson: true,
-        installedNodePackages: [],
+        usedPackageJson: false,
+        installedNodePackages: ['@scope/demo-plugin'],
         installedPipPackages: [],
       },
       configuredRequiredBins: [],
@@ -754,8 +910,10 @@ describe('plugin install', () => {
           'install',
           '--ignore-scripts',
           '--omit=dev',
+          '--no-package-lock',
           '--no-audit',
           '--no-fund',
+          '@scope/demo-plugin',
         ],
       }),
     );
