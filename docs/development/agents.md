@@ -43,6 +43,7 @@ Main docs landing pages:
 - [Extensibility](./extensibility/README.md)
 - [Adaptive Skills](./extensibility/adaptive-skills.md)
 - [Agent Packages](./extensibility/agent-packages.md)
+- [MemPalace Memory Plugin](./extensibility/mempalace-memory-plugin.md)
 - [OTEL Plugin](./extensibility/otel-plugin.md)
 - [Plugins](./extensibility/plugins.md)
 - [QMD Memory Plugin](./extensibility/qmd-memory-plugin.md)

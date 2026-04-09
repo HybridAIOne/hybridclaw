@@ -10,6 +10,7 @@ import { getSessionById } from '../memory/db.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
+import type { McpServerConfig } from '../types/models.js';
 import {
   unsetPluginConfigValue,
   writePluginConfigValue,
@@ -134,6 +135,9 @@ export function createPluginApi(params: {
       }
       const stored = readStoredRuntimeSecret(normalized);
       return stored?.trim() || undefined;
+    },
+    getMcpServerConfig(name: string): Readonly<McpServerConfig> | null {
+      return params.manager.getMcpServerConfig(name);
     },
     async writeConfigValue(key: string, rawValue: string): Promise<void> {
       await writePluginConfigValue(params.pluginId, key, rawValue);

@@ -124,6 +124,7 @@ import {
 import {
   clearPendingApproval,
   getPendingApproval,
+  rememberPendingApproval,
 } from './pending-approvals.js';
 import {
   hasQueuedProactiveDeliveryPath,
@@ -139,7 +140,6 @@ import {
 } from './show-mode.js';
 import {
   handleTextChannelApprovalCommand,
-  rememberPendingApproval,
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';

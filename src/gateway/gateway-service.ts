@@ -2085,53 +2085,74 @@ export function recordSuccessfulTurn(opts: {
   resultText: string;
   toolCallCount: number;
   startedAt: number;
+  replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;
 } {
-  const storedTurn = memoryService.storeTurn({
-    sessionId: opts.sessionId,
-    user: {
-      userId: opts.userId,
-      username: opts.username,
-      content: opts.userContent,
-    },
-    assistant: {
-      userId: 'assistant',
-      username: null,
-      content: opts.resultText,
-    },
-  });
-  try {
-    if (opts.canonicalScopeId.trim()) {
-      memoryService.appendCanonicalMessages({
-        agentId: opts.agentId,
-        userId: opts.canonicalScopeId,
-        newMessages: [
-          {
+  const storedTurn =
+    opts.replaceBuiltInMemory === true
+      ? {
+          userMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: opts.userId,
+            username: opts.username,
             role: 'user',
             content: opts.userContent,
+          }),
+          assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-          {
+            userId: 'assistant',
+            username: null,
             role: 'assistant',
             content: opts.resultText,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
+          }),
+        }
+      : memoryService.storeTurn({
+          sessionId: opts.sessionId,
+          user: {
+            userId: opts.userId,
+            username: opts.username,
+            content: opts.userContent,
           },
-        ],
-      });
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            content: opts.resultText,
+          },
+        });
+  if (opts.replaceBuiltInMemory !== true) {
+    try {
+      if (opts.canonicalScopeId.trim()) {
+        memoryService.appendCanonicalMessages({
+          agentId: opts.agentId,
+          userId: opts.canonicalScopeId,
+          newMessages: [
+            {
+              role: 'user',
+              content: opts.userContent,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+            {
+              role: 'assistant',
+              content: opts.resultText,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+          ],
+        });
+      }
+    } catch (err) {
+      logger.debug(
+        {
+          sessionId: opts.sessionId,
+          canonicalScopeId: opts.canonicalScopeId,
+          err,
+        },
+        'Failed to append canonical session memory',
+      );
     }
-  } catch (err) {
-    logger.debug(
-      {
-        sessionId: opts.sessionId,
-        canonicalScopeId: opts.canonicalScopeId,
-        err,
-      },
-      'Failed to append canonical session memory',
-    );
   }
   appendSessionTranscript(opts.agentId, {
     sessionId: opts.sessionId,
@@ -2150,20 +2171,22 @@ export function recordSuccessfulTurn(opts: {
     content: opts.resultText,
   });
 
-  void maybeCompactSession({
-    sessionId: opts.sessionId,
-    agentId: opts.agentId,
-    chatbotId: opts.chatbotId,
-    enableRag: opts.enableRag,
-    model: opts.model,
-    channelId: opts.channelId,
-    promptMode: opts.promptMode,
-  }).catch((err) => {
-    logger.warn(
-      { sessionId: opts.sessionId, err },
-      'Background session compaction failed',
-    );
-  });
+  if (opts.replaceBuiltInMemory !== true) {
+    void maybeCompactSession({
+      sessionId: opts.sessionId,
+      agentId: opts.agentId,
+      chatbotId: opts.chatbotId,
+      enableRag: opts.enableRag,
+      model: opts.model,
+      channelId: opts.channelId,
+      promptMode: opts.promptMode,
+    }).catch((err) => {
+      logger.warn(
+        { sessionId: opts.sessionId, err },
+        'Background session compaction failed',
+      );
+    });
+  }
 
   recordAuditEvent({
     sessionId: opts.sessionId,
@@ -4137,6 +4160,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
+    if (pluginManager) {
+      await pluginManager.notifyMemoryWrites({
+        sessionId: session.id,
+        agentId: resolved.agentId,
+        channelId,
+        toolExecutions: output.toolExecutions || [],
+      });
+    }
     const resultText =
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)

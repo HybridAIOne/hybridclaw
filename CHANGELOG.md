@@ -2,6 +2,44 @@
 
 ## [Coming up]
 
+### Added
+
+- **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
+  local HybridClaw installs can layer MemPalace recall on top of native memory,
+  expose `/mempalace ...` for manual CLI access, and auto-save turns back into
+  MemPalace through hook-driven transcript mining and native-memory mirroring.
+- **Plugin dependency install and health checks**: Plugin manifests can now
+  declare pip, npm, and external runtime dependencies, `plugin install` /
+  `plugin reinstall` can provision declared dependencies with explicit
+  approval, and `plugin check` reports package, binary, env, and config health
+  for local plugins.
+
+### Changed
+
+- **Threaded email replies across built-in and Brevo delivery**: Outbound email
+  sends now accept explicit `In-Reply-To` and `References` headers through the
+  `message` tool/API and the repo-shipped `brevo-email` plugin, keeping
+  follow-up replies inside the existing mail thread.
+- **Email credential wiring**: Email setup and runtime config now support
+  `email.password` as a SecretRef-backed field so stored `EMAIL_PASSWORD`
+  secrets can stay referenced from config without falling back to plaintext
+  values.
+- **Plugin install ergonomics**: Local plugin installs now accept bare plugin
+  ids from the repo `plugins/` directory, prefer plugin-local executables after
+  dependency setup, and reuse the normal local approval flow when dependency
+  installers need permission to modify the plugin environment.
+- **MemPalace recall routing**: The bundled MemPalace plugin keeps HybridClaw's
+  built-in memory active, falls back to CLI `wake-up` / `search` recall when no
+  MemPalace MCP server is enabled, and automatically switches prompt-time
+  recall over to a configured `mempalace` MCP server when one is available.
+
+### Fixed
+
+- **Plugin dependency safety**: Manifest-provided external dependency checks no
+  longer execute through a shell, and already-installed plugins now recompute
+  their dependency plan from the installed directory before reinstalling
+  runtime packages.
+
 ## [0.12.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.1)
 
 ### Added

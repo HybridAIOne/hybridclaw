@@ -31,6 +31,50 @@ function buildExecutableCacheKey(
   };
 }
 
+function readShebangInterpreter(candidate: string): string | null {
+  if (process.platform === 'win32') return null;
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(candidate, 'r');
+    const buffer = Buffer.alloc(256);
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    const firstLine = buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)[0];
+    if (!firstLine?.startsWith('#!')) return null;
+    const interpreter = firstLine.slice(2).trim().split(/\s+/u)[0];
+    return interpreter ? interpreter.trim() : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // ignore close failures while probing executables
+      }
+    }
+  }
+}
+
+function hasUsableExecutableFile(candidate: string): boolean {
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+  } catch {
+    return false;
+  }
+
+  const interpreter = readShebangInterpreter(candidate);
+  if (!interpreter || !path.isAbsolute(interpreter)) {
+    return true;
+  }
+
+  try {
+    fs.accessSync(interpreter, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function hasExecutableCommand(
   command: string,
   options?: {
@@ -47,13 +91,11 @@ export function hasExecutableCommand(
 
   const isPathLike = candidate !== undefined;
   if (isPathLike) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
+    if (hasUsableExecutableFile(candidate)) {
       executablePresenceCache.set(key, true);
       return true;
-    } catch {
-      return false;
     }
+    return false;
   }
 
   const currentPath = process.env.PATH || '';
@@ -73,12 +115,9 @@ export function hasExecutableCommand(
   for (const part of currentPath.split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
       const candidate = path.join(part, `${normalized}${ext}`);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
+      if (hasUsableExecutableFile(candidate)) {
         executablePresenceCache.set(key, true);
         return true;
-      } catch {
-        // continue scanning
       }
     }
   }

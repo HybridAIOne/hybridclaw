@@ -160,6 +160,49 @@ function writeEnvRequirementPlugin(rootDir: string): void {
   );
 }
 
+function writeMemoryWriteHookPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'memory-write-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: memory-write-plugin',
+      'name: Memory Write Plugin',
+      'kind: tool',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'const events = [];',
+      'export default {',
+      "  id: 'memory-write-plugin',",
+      '  register(api) {',
+      "    api.on('memory_write', (context) => {",
+      '      events.push(context);',
+      '    });',
+      '    api.registerCommand({',
+      "      name: 'memory_events',",
+      "      description: 'Show memory write events',",
+      '      handler() {',
+      '        return JSON.stringify(events);',
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeInboundWebhookPlugin(rootDir: string): void {
   const pluginDir = path.join(
     rootDir,
@@ -487,6 +530,8 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
       '    - " qmd "',
       '    - name: " custom-bin "',
       '      configKey: " command "',
+      '      installHint: " brew install custom-bin "',
+      '      installUrl: " https://example.com/custom-bin "',
       '  env: [" API_KEY ", "", 42, " SECOND_KEY "]',
       '  node: " >=22 "',
       'install:',
@@ -494,6 +539,15 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
       '    url: " https://example.com/plugin.tgz "',
       '  - kind: invalid',
       '    package: " @scope/plugin-extra "',
+      'pip_dependencies:',
+      '  - " mempalace>=1.0 "',
+      'node_dependencies:',
+      '  - package: " @scope/plugin-helper "',
+      'external_dependencies:',
+      '  - name: " mempalace "',
+      '    check: " mempalace --version "',
+      '    install: " pip install mempalace "',
+      '    installUrl: " https://example.com/mempalace "',
       'configUiHints:',
       '  workspaceId:',
       '    label: " Workspace "',
@@ -518,7 +572,15 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     author: 'Example Author',
     entrypoint: 'dist/index.js',
     requires: {
-      bins: [{ name: 'qmd' }, { name: 'custom-bin', configKey: 'command' }],
+      bins: [
+        { name: 'qmd' },
+        {
+          name: 'custom-bin',
+          configKey: 'command',
+          installHint: 'brew install custom-bin',
+          installUrl: 'https://example.com/custom-bin',
+        },
+      ],
       env: ['API_KEY', 'SECOND_KEY'],
       node: '>=22',
     },
@@ -532,6 +594,16 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
         kind: 'npm',
         package: '@scope/plugin-extra',
         url: undefined,
+      },
+    ],
+    pipDependencies: [{ package: 'mempalace>=1.0' }],
+    nodeDependencies: [{ package: '@scope/plugin-helper' }],
+    externalDependencies: [
+      {
+        name: 'mempalace',
+        check: 'mempalace --version',
+        installHint: 'pip install mempalace',
+        installUrl: 'https://example.com/mempalace',
       },
     ],
     configSchema: undefined,
@@ -911,8 +983,12 @@ test('plugin manager loads configured plugins, applies config defaults, and expo
       recentMessages: [],
     }),
   ).resolves.toEqual({
+    replacesBuiltInMemory: false,
     sections: ['workspace=workspace-123 autoRecall=true', 'hook-context'],
     pluginIds: ['demo-plugin'],
+  });
+  await expect(manager.getMemoryLayerBehavior()).resolves.toEqual({
+    replacesBuiltInMemory: false,
   });
   await expect(
     manager.executeTool({
@@ -935,6 +1011,78 @@ test('plugin manager loads configured plugins, applies config defaults, and expo
       tools: ['demo_echo'],
       hooks: ['demo-hook'],
     },
+  ]);
+});
+
+test('plugin manager emits memory_write hooks for successful native memory writes', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeMemoryWriteHookPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+  await manager.notifyMemoryWrites({
+    sessionId: 'session-1',
+    agentId: 'main',
+    channelId: 'web',
+    toolExecutions: [
+      {
+        name: 'memory',
+        arguments:
+          '{"action":"append","target":"daily","date":"2026-04-08","content":"Remember Clerk reduced auth integration time."}',
+        result: 'Appended 45 chars to memory/2026-04-08.md',
+        durationMs: 8,
+      },
+      {
+        name: 'memory',
+        arguments: '{"action":"search","query":"Clerk"}',
+        result: 'memory/2026-04-08.md:1: Clerk',
+        durationMs: 1,
+      },
+      {
+        name: 'memory',
+        arguments:
+          '{"action":"write","file_path":"memory/2026-04-08.md","content":"ignored"}',
+        result: 'Error: write failed',
+        durationMs: 1,
+        isError: true,
+      },
+      {
+        name: 'bash',
+        arguments: '{"command":"pwd"}',
+        result: '/workspace',
+        durationMs: 1,
+      },
+    ],
+  });
+
+  const command = manager.findCommand('memory_events');
+  expect(command).toBeDefined();
+  const rawEvents = await Promise.resolve(
+    command?.handler([], {
+      sessionId: 'session-1',
+      channelId: 'web',
+    }),
+  );
+  expect(JSON.parse(String(rawEvents))).toEqual([
+    expect.objectContaining({
+      sessionId: 'session-1',
+      agentId: 'main',
+      channelId: 'web',
+      action: 'append',
+      memoryFilePath: 'memory/2026-04-08.md',
+      content: 'Remember Clerk reduced auth integration time.',
+      result: 'Appended 45 chars to memory/2026-04-08.md',
+    }),
   ]);
 });
 

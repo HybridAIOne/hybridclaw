@@ -407,6 +407,20 @@ export async function maybeCompactSession(params: {
       olderMessages: candidate.olderMessages,
     });
   }
+  if (pluginManager) {
+    const memoryBehavior = await pluginManager.getMemoryLayerBehavior();
+    if (memoryBehavior.replacesBuiltInMemory) {
+      logger.debug(
+        {
+          sessionId: params.sessionId,
+          agentId: params.agentId,
+          channelId: params.channelId,
+        },
+        'Session compaction skipped because a plugin memory layer replaces built-in memory',
+      );
+      return;
+    }
+  }
 
   await runPreCompactionMemoryFlush({
     ...params,

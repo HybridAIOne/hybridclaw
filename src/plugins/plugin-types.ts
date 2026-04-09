@@ -6,6 +6,7 @@ import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AIProvider } from '../providers/types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 
 export type PluginKind =
@@ -24,6 +25,17 @@ export interface PluginInstallSpec {
   url?: string;
 }
 
+export interface PluginPackageDependency {
+  package: string;
+}
+
+export interface PluginExternalDependency {
+  name: string;
+  check: string;
+  installHint?: string;
+  installUrl?: string;
+}
+
 export interface PluginConfigUiHint {
   label?: string;
   placeholder?: string;
@@ -33,6 +45,8 @@ export interface PluginConfigUiHint {
 export interface PluginBinaryRequirement {
   name: string;
   configKey?: string;
+  installHint?: string;
+  installUrl?: string;
 }
 
 export interface PluginConfigSchema {
@@ -68,6 +82,9 @@ export interface PluginManifest {
     node?: string;
   };
   install?: PluginInstallSpec[];
+  pipDependencies?: PluginPackageDependency[];
+  nodeDependencies?: PluginPackageDependency[];
+  externalDependencies?: PluginExternalDependency[];
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
 }
@@ -138,7 +155,11 @@ export interface PluginPromptBuildContext {
   extraContext: string[];
 }
 
-export interface PluginPromptContextResult {
+export interface PluginMemoryBehavior {
+  replacesBuiltInMemory: boolean;
+}
+
+export interface PluginPromptContextResult extends PluginMemoryBehavior {
   sections: string[];
   pluginIds: string[];
 }
@@ -199,6 +220,21 @@ export interface PluginMemoryFlushContext {
   olderMessages: StoredMessage[];
 }
 
+export type PluginMemoryWriteAction = 'append' | 'write' | 'replace' | 'remove';
+
+export interface PluginMemoryWriteContext {
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  action: PluginMemoryWriteAction;
+  memoryFilePath: string;
+  arguments: Record<string, unknown>;
+  result: string;
+  content?: string;
+  oldText?: string;
+  newText?: string;
+}
+
 export interface PluginGatewayLifecycleContext {
   startedAt: string;
 }
@@ -214,6 +250,7 @@ export type PluginHookName =
   | 'after_tool_call'
   | 'before_compaction'
   | 'after_compaction'
+  | 'memory_write'
   | 'memory_flush'
   | 'gateway_start'
   | 'gateway_stop';
@@ -249,6 +286,7 @@ export interface PluginHookHandlerMap {
   ) => Promise<void> | void;
   before_compaction: (context: PluginCompactionContext) => Promise<void> | void;
   after_compaction: (context: PluginCompactionContext) => Promise<void> | void;
+  memory_write: (context: PluginMemoryWriteContext) => Promise<void> | void;
   memory_flush: (context: PluginMemoryFlushContext) => Promise<void> | void;
   gateway_start: (
     context: PluginGatewayLifecycleContext,
@@ -269,6 +307,7 @@ export interface PluginPromptHook {
 export interface MemoryLayerPlugin {
   id: string;
   priority: number;
+  replacesBuiltInMemory?: boolean;
   getContextForPrompt?: (params: {
     sessionId: string;
     userId: string;
@@ -379,6 +418,7 @@ export interface HybridClawPluginApi {
   ): void;
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
+  getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
   writeConfigValue(key: string, rawValue: string): Promise<void>;
   unsetConfigValue(key: string): Promise<void>;
   resolveSessionAgentId(sessionId: string): string;
