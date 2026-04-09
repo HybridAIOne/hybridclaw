@@ -167,9 +167,7 @@ export function ToolsPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel
-          title="Catalog"
-        >
+        <Panel title="Catalog">
           {toolsQuery.isLoading ? (
             <div className="empty-state">Loading tool catalog...</div>
           ) : sortedTools.length === 0 ? (
