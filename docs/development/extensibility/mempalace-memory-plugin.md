@@ -62,8 +62,10 @@ Important distinction:
 
 ## Before You Activate It
 
-Install and initialize MemPalace first. The plugin expects a working
-`mempalace` executable and an existing palace.
+You need an initialized palace before the plugin can do anything useful.
+HybridClaw can install the `mempalace` Python package into a plugin-local
+environment during `plugin install` if you approve dependency setup, but it
+does not initialize a palace or backfill your existing data for you.
 
 Minimal MemPalace setup:
 
@@ -93,7 +95,7 @@ mempalace status
 Install the plugin:
 
 ```bash
-hybridclaw plugin install ./plugins/mempalace-memory
+hybridclaw plugin install ./plugins/mempalace-memory --yes
 ```
 
 If `mempalace` is already on your `PATH`, no extra config is required. If not,
@@ -122,43 +124,132 @@ hybridclaw gateway status
 sessions.
 
 ```text
-/plugin install ./plugins/mempalace-memory
-/plugin config mempalace-memory command mempalace
+/plugin install ./plugins/mempalace-memory --yes
 /plugin reload
 ```
 
-If needed:
+If needed, set the palace location explicitly:
 
 ```text
 /plugin config mempalace-memory palacePath ~/.mempalace/palace
 /plugin reload
 ```
 
-## Verify That It Is Working
+If `mempalace` is not already discoverable from `PATH`, point the plugin at the
+binary directly:
 
-1. Check plugin state:
+```text
+/plugin config mempalace-memory command /absolute/path/to/mempalace
+/plugin reload
+```
+
+## Local TUI Test Protocol
+
+1. Install the plugin and approve dependency setup:
 
    ```text
-   /plugin list
+   /plugin install ./plugins/mempalace-memory --yes
+   /plugin check mempalace-memory
    ```
 
-   If the `mempalace` binary is missing, HybridClaw marks the plugin as failed
-   and reports the missing required binary instead of loading it.
+   Expected: install succeeds, and `plugin check` shows a usable
+   `mempalace` command path. If the binary was installed into the plugin-local
+   `.venv`, HybridClaw may configure that path automatically.
 
-2. Run the passthrough command manually:
+2. Apply project-specific config:
+
+   ```text
+   /plugin config mempalace-memory palacePath ~/.mempalace/palace
+   /plugin config mempalace-memory saveEveryMessages 2
+   /plugin reload
+   /plugin list
+   /plugin check mempalace-memory
+   ```
+
+   Expected: `mempalace-memory` shows as loaded, and `plugin check` shows no
+   missing dependency or binary issues. Only set `command` manually if
+   `plugin check` still cannot find `mempalace`.
+
+3. Smoke-test the manual passthrough:
 
    ```text
    /mempalace status
+   /mempalace wake-up
+   /mempalace search "a fact you already know exists in your palace"
    ```
 
-3. Ask a question that should hit existing memories.
+   Expected: `status` succeeds, `wake-up` returns context, and `search`
+   returns known memories.
 
-4. If you want to probe retrieval directly, run:
+4. Test automatic recall in a normal chat turn.
+
+   Ask a normal question in chat that should match existing MemPalace data,
+   for example:
 
    ```text
-   /mempalace wake-up
-   /mempalace search "why did we switch auth providers?"
+   Why did we switch auth providers?
    ```
+
+   Expected: the answer reflects MemPalace recall without you manually running
+   `/mempalace search`.
+
+5. Test additive behavior with native HybridClaw memory still active.
+
+   In chat, ask the assistant to store a small fact using its normal memory
+   flow:
+
+   ```text
+   Remember that my favorite test color is teal.
+   ```
+
+   Then ask:
+
+   ```text
+   What is my favorite test color?
+   ```
+
+   Expected: HybridClaw still remembers it through its built-in memory path.
+   MemPalace is layered on top, not replacing native memory.
+
+6. Test automatic MemPalace writeback.
+
+   In chat, send one unique marker:
+
+   ```text
+   Remember MP-TUI-2026-04-09-blue-fox
+   ```
+
+   Let the assistant reply once, then run:
+
+   ```text
+   /mempalace search "MP-TUI-2026-04-09-blue-fox"
+   ```
+
+   Expected: the marker is searchable, proving the finished turn was mined
+   into MemPalace.
+
+7. Test immediate mirroring of native memory writes.
+
+   After a normal built-in memory write in chat, run a targeted search for the
+   same fact:
+
+   ```text
+   /mempalace search "favorite test color teal"
+   ```
+
+   Expected: the fact is already visible in MemPalace without waiting for a
+   long session, because native `memory` writes are mirrored immediately.
+
+8. Run a final health check:
+
+   ```text
+   /plugin list
+   /plugin check mempalace-memory
+   /mempalace status
+   ```
+
+   Expected: the plugin is still loaded, `plugin check` still reports a healthy
+   dependency setup, and MemPalace still responds.
 
 ## How To Use It
 
@@ -253,7 +344,6 @@ Supported config keys:
 
 This plugin is intentionally narrow. It does not:
 
-- install MemPalace itself
 - initialize a palace or perform first-time project/chat backfills automatically
 - disable HybridClaw's built-in canonical, semantic, or file-backed memory
 - run `python -m mempalace.mcp_server`
