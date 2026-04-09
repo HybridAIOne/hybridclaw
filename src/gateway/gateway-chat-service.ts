@@ -57,6 +57,7 @@ import {
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
   type ConciergeProfile,
@@ -409,6 +410,13 @@ export async function handleGatewayMessage(
     return attachSessionIdentity({
       status: 'success',
       result: conciergeTurn.resultText,
+      components:
+        source === 'discord'
+          ? buildConciergeChoiceComponents({
+              sessionId: req.sessionId,
+              userId: req.userId,
+            })
+          : undefined,
       toolsUsed: [],
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,

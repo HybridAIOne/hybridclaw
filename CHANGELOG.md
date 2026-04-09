@@ -2,6 +2,19 @@
 
 ## [Coming up]
 
+### Changed
+
+- **Discord concierge approvals**: Discord concierge prompts now render
+  native urgency buttons, resume the pending request from button clicks,
+  disable the prompt buttons after selection, and keep normal progress
+  reactions visible while the resumed run executes.
+
+### Fixed
+
+- **Provider `maxTokens` policy**: Provider-facing model requests now omit
+  `maxTokens` for non-Anthropic models and always send a discovered Anthropic
+  limit, falling back to `32000` when discovery metadata is unavailable.
+
 ## [0.12.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.1)
 
 ### Added

@@ -98,6 +98,13 @@ export function parseConciergeChoice(content: string): ConciergeProfile | null {
   ) {
     return 'no_hurry';
   }
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => normalizeToken(line))
+    .filter(Boolean);
+  if (lines.length > 1) {
+    return parseConciergeChoice(lines[lines.length - 1]);
+  }
   return normalizeConciergeProfileName(normalized);
 }
 

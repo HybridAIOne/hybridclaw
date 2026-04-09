@@ -147,6 +147,7 @@ import {
 } from '../providers/hybridai-bots.js';
 import {
   getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
 import {
@@ -179,6 +180,7 @@ import {
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -3296,6 +3298,9 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         const info = getLocalModelInfo(modelId);
         const hybridaiContextWindow =
           getDiscoveredHybridAIModelContextWindow(modelId);
+        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
+        const openRouterMaxTokens =
+          getDiscoveredOpenRouterModelMaxTokens(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
@@ -3305,7 +3310,8 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           discovered: Boolean(info),
           backend: info?.backend || null,
           contextWindow: info?.contextWindow ?? hybridaiContextWindow ?? null,
-          maxTokens: info?.maxTokens ?? null,
+          maxTokens:
+            info?.maxTokens ?? hybridaiMaxTokens ?? openRouterMaxTokens ?? null,
           isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,

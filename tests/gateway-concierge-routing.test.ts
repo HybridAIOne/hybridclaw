@@ -36,6 +36,11 @@ test('parseConciergeChoice maps numeric replies', () => {
   expect(parseConciergeChoice('1')).toBe('asap');
   expect(parseConciergeChoice('2')).toBe('balanced');
   expect(parseConciergeChoice('3')).toBe('no_hurry');
+  expect(
+    parseConciergeChoice(
+      '[Known participants]\n- @ben_03867 id:439508376087560193 aliases: ben_03867\n1',
+    ),
+  ).toBe('asap');
   expect(parseConciergeChoice('later')).toBeNull();
 });
 

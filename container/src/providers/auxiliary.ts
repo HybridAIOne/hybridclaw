@@ -6,6 +6,7 @@ import type {
   TaskModelPolicies,
   ToolDefinition,
 } from '../types.js';
+import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   callRoutedModel,
   callVisionProviderModel,
@@ -151,6 +152,13 @@ export async function callAuxiliaryModel(
   if (contextError) throw new Error(contextError);
 
   if (params.task !== 'vision') {
+    const maxTokens = resolveProviderRequestMaxTokens({
+      provider: context.provider,
+      model: context.model,
+      requestedMaxTokens: context.maxTokens ?? params.maxTokens,
+      discoveredMaxTokens: context.maxTokens,
+      isLocal: context.isLocal,
+    });
     const response = await callRoutedModel({
       provider: context.provider,
       baseUrl: context.baseUrl,
@@ -164,7 +172,7 @@ export async function callAuxiliaryModel(
       thinkingFormat: context.thinkingFormat,
       messages: params.messages,
       tools: Array.isArray(params.tools) ? params.tools : [],
-      maxTokens: context.maxTokens ?? params.maxTokens,
+      maxTokens,
     });
     const content = extractResponseTextContent(
       response.choices[0]?.message?.content,
@@ -180,6 +188,13 @@ export async function callAuxiliaryModel(
   }
 
   try {
+    const maxTokens = resolveProviderRequestMaxTokens({
+      provider: context.provider,
+      model: context.model,
+      requestedMaxTokens: context.maxTokens,
+      discoveredMaxTokens: context.maxTokens,
+      isLocal: context.isLocal,
+    });
     return await callVisionProviderModel({
       provider: context.provider,
       baseUrl: context.baseUrl,
@@ -192,7 +207,7 @@ export async function callAuxiliaryModel(
       thinkingFormat: context.thinkingFormat,
       question: params.question,
       imageDataUrl: params.imageDataUrl,
-      maxTokens: context.maxTokens,
+      maxTokens,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

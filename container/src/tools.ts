@@ -112,6 +112,7 @@ let currentModelApiKey = '';
 let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
+let currentModelMaxTokens: number | undefined;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -504,6 +505,7 @@ export function setModelContext(
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
+  maxTokens?: number,
 ): void {
   currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
@@ -511,6 +513,10 @@ export function setModelContext(
   currentModelName = String(model || '').trim();
   currentChatbotId = String(chatbotId || '').trim();
   currentModelHeaders = { ...(requestHeaders || {}) };
+  currentModelMaxTokens =
+    typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
+      ? Math.floor(maxTokens)
+      : undefined;
   setBrowserModelContext(
     provider,
     baseUrl,
@@ -518,6 +524,7 @@ export function setModelContext(
     model,
     chatbotId,
     requestHeaders,
+    currentModelMaxTokens,
   );
 }
 
@@ -1685,6 +1692,7 @@ function currentAuxiliaryFallbackContext() {
     model: currentModelName,
     chatbotId: currentChatbotId,
     requestHeaders: { ...currentModelHeaders },
+    maxTokens: currentModelMaxTokens,
   };
 }
 

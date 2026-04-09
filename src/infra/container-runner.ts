@@ -29,7 +29,6 @@ import {
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
   LOCAL_DEFAULT_MAX_TOKENS,
   MAX_CONCURRENT_CONTAINERS,
@@ -49,6 +48,8 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import type { RuntimeProviderId } from '../providers/provider-ids.js';
+import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
@@ -85,23 +86,19 @@ const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
 function resolveExecutorMaxTokens(params: {
   requestedMaxTokens?: number;
-  provider?: string;
+  provider?: RuntimeProviderId;
+  model: string;
+  discoveredMaxTokens?: number;
   isLocal?: boolean;
 }): number | undefined {
-  if (
-    typeof params.requestedMaxTokens === 'number' &&
-    Number.isFinite(params.requestedMaxTokens) &&
-    params.requestedMaxTokens > 0
-  ) {
-    return Math.floor(params.requestedMaxTokens);
-  }
-  if (params.provider === 'hybridai') {
-    return HYBRIDAI_MAX_TOKENS;
-  }
-  if (params.isLocal) {
-    return LOCAL_DEFAULT_MAX_TOKENS;
-  }
-  return undefined;
+  return resolveProviderRequestMaxTokens({
+    provider: params.provider,
+    model: params.model,
+    requestedMaxTokens: params.requestedMaxTokens,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+    isLocal: params.isLocal,
+    localDefaultMaxTokens: LOCAL_DEFAULT_MAX_TOKENS,
+  });
 }
 
 interface PoolEntry {
@@ -802,6 +799,8 @@ export async function runContainer(
     maxTokens: resolveExecutorMaxTokens({
       requestedMaxTokens: maxTokens,
       provider: modelRuntime.provider,
+      model,
+      discoveredMaxTokens: modelRuntime.maxTokens,
       isLocal: modelRuntime.isLocal,
     }),
     channelId,

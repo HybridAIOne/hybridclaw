@@ -1556,6 +1556,7 @@ async function main(): Promise<void> {
     firstInput.model,
     firstInput.chatbotId,
     storedRequestHeaders,
+    firstInput.maxTokens,
   );
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
@@ -1701,6 +1702,7 @@ async function main(): Promise<void> {
       input.model,
       input.chatbotId,
       requestHeaders,
+      input.maxTokens,
     );
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);

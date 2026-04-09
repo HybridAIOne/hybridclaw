@@ -87,6 +87,7 @@ export interface OpenRouterDiscoveryStore {
   getModelNames: () => string[];
   isModelFree: (model: string) => boolean;
   getModelContextWindow: (model: string) => number | null;
+  getModelMaxTokens: (model: string) => number | null;
   isModelVisionCapable: (model: string) => boolean;
 }
 
@@ -94,6 +95,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
   let discoveredModelNames: string[] = [];
   let freeModelNames = new Set<string>();
   let contextWindowByModel = new Map<string, number>();
+  let maxTokensByModel = new Map<string, number>();
   let visionCapableModels = new Set<string>();
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<string[]> | null = null;
@@ -102,12 +104,14 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     modelNames: string[],
     nextFreeModelNames: Iterable<string> = [],
     nextContextWindows: Iterable<[string, number]> = [],
+    nextMaxTokens: Iterable<[string, number]> = [],
     nextVisionCapable: Iterable<string> = [],
     opts?: { cacheResult?: boolean },
   ): void {
     discoveredModelNames = [...modelNames];
     freeModelNames = new Set(nextFreeModelNames);
     contextWindowByModel = new Map(nextContextWindows);
+    maxTokensByModel = new Map(nextMaxTokens);
     visionCapableModels = new Set(nextVisionCapable);
     discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
   }
@@ -133,6 +137,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     const discovered = new Set<string>();
     const freeDiscovered = new Set<string>();
     const contextWindows = new Map<string, number>();
+    const maxTokens = new Map<string, number>();
     const visionCapable = new Set<string>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
@@ -142,6 +147,25 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
         const contextWindow = readOpenRouterContextWindow(entry);
         if (contextWindow != null) {
           contextWindows.set(normalized, contextWindow);
+        }
+        const topProvider = isRecord(entry.top_provider)
+          ? entry.top_provider
+          : null;
+        const modelMaxTokens =
+          readPositiveInteger(entry.maxTokens) ??
+          readPositiveInteger(entry.max_tokens) ??
+          readPositiveInteger(entry.maxOutputTokens) ??
+          readPositiveInteger(entry.max_output_tokens) ??
+          readPositiveInteger(entry.maxCompletionTokens) ??
+          readPositiveInteger(entry.max_completion_tokens) ??
+          readPositiveInteger(topProvider?.maxTokens) ??
+          readPositiveInteger(topProvider?.max_tokens) ??
+          readPositiveInteger(topProvider?.maxOutputTokens) ??
+          readPositiveInteger(topProvider?.max_output_tokens) ??
+          readPositiveInteger(topProvider?.maxCompletionTokens) ??
+          readPositiveInteger(topProvider?.max_completion_tokens);
+        if (modelMaxTokens != null) {
+          maxTokens.set(normalized, modelMaxTokens);
         }
         if (isFreeOpenRouterModel(entry)) {
           freeDiscovered.add(normalized);
@@ -155,6 +179,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       [...discovered],
       freeDiscovered,
       contextWindows,
+      maxTokens,
       visionCapable,
     );
     return [...discovered];
@@ -162,13 +187,13 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!OPENROUTER_ENABLED) {
-      replaceDiscoveryCache([], [], [], [], { cacheResult: false });
+      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
       return [];
     }
 
     const apiKey = readOpenRouterApiKey({ required: false });
     if (!apiKey) {
-      replaceDiscoveryCache([], [], [], [], { cacheResult: false });
+      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
       return [];
     }
 
@@ -207,6 +232,10 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       const normalized = normalizeOpenRouterModelName(model);
       return contextWindowByModel.get(normalized) ?? null;
     },
+    getModelMaxTokens: (model: string) => {
+      const normalized = normalizeOpenRouterModelName(model);
+      return maxTokensByModel.get(normalized) ?? null;
+    },
     isModelVisionCapable: (model: string) => {
       const normalized = normalizeOpenRouterModelName(model);
       return visionCapableModels.has(normalized);
@@ -234,6 +263,12 @@ export function getDiscoveredOpenRouterModelContextWindow(
   model: string,
 ): number | null {
   return defaultOpenRouterDiscoveryStore.getModelContextWindow(model);
+}
+
+export function getDiscoveredOpenRouterModelMaxTokens(
+  model: string,
+): number | null {
+  return defaultOpenRouterDiscoveryStore.getModelMaxTokens(model);
 }
 
 export function isDiscoveredOpenRouterModelVisionCapable(

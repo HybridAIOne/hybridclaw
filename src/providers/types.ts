@@ -14,6 +14,7 @@ export interface ResolvedModelRuntimeCredentials {
   accountId?: string;
   isLocal?: boolean;
   contextWindow?: number;
+  maxTokens?: number;
   thinkingFormat?: LocalThinkingFormat;
 }
 
