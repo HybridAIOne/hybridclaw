@@ -157,6 +157,31 @@ test('getGatewayStatus includes Codex auth state', async () => {
     },
     homeDir,
   );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'gpt-5-codex',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+              {
+                id: 'gpt-5.4',
+                context_window: 400_000,
+                max_output_tokens: 128_000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
   initDatabase({ quiet: true });
 
   const { getGatewayStatus } = await import(
@@ -174,7 +199,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: expect.any(Number),
+    modelCount: 2,
   });
   expect(status.providerHealth?.hybridai).toMatchObject({
     kind: 'remote',

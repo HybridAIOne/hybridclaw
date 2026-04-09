@@ -135,6 +135,7 @@ import {
   listLoadedPluginCommands,
 } from '../plugins/plugin-manager.js';
 import {
+  discoverCodexModels,
   getDiscoveredCodexModelContextWindow,
   getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
@@ -2633,11 +2634,15 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
+  const codex = getCodexAuthStatus();
   const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
     await Promise.allSettled([
       localBackendsProbe.get(),
       hybridAIProbe.get(),
       getWhatsAppAuthStatus(),
+      codex.authenticated && !codex.reloginRequired
+        ? discoverCodexModels()
+        : Promise.resolve([]),
     ]);
   const runtimeConfig = getRuntimeConfig();
   const storedSecrets = readStoredRuntimeSecrets();
@@ -2655,7 +2660,6 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       : { linked: false, jid: null };
   const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
-  const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
       backend,

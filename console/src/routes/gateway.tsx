@@ -4,11 +4,7 @@ import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
-import {
-  formatDateTime,
-  formatRelativeTime,
-  formatUptime,
-} from '../lib/format';
+import { formatDateTime, formatUptime } from '../lib/format';
 
 const GATEWAY_RESTART_POLL_MS = 1000;
 
@@ -95,9 +91,7 @@ export function GatewayPage() {
                   live.connection === 'open' ? 'status-dot live' : 'status-dot'
                 }
               />
-              {live.connection === 'open'
-                ? `live updates ${live.lastEventAt ? formatRelativeTime(new Date(live.lastEventAt).toISOString()) : ''}`.trim()
-                : 'status snapshot'}
+              {live.connection === 'open' ? 'connected' : 'status snapshot'}
             </div>
             <button
               type="button"

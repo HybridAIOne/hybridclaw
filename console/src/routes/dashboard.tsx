@@ -125,9 +125,7 @@ export function DashboardPage() {
                 live.connection === 'open' ? 'status-dot live' : 'status-dot'
               }
             />
-            {live.connection === 'open'
-              ? `live updates ${live.lastEventAt ? formatRelativeTime(new Date(live.lastEventAt).toISOString()) : ''}`.trim()
-              : 'polling fallback'}
+            {live.connection === 'open' ? 'connected' : 'polling fallback'}
           </div>
         }
       />
