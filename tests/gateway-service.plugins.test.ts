@@ -23,8 +23,12 @@ const {
     collectPromptContextDetails: vi.fn(async () => ({
       sections: ['plugin-memory-context'],
       pluginIds: ['qmd-memory'],
+      replacesBuiltInMemory: false,
     })),
     collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
+    getMemoryLayerBehavior: vi.fn(async () => ({
+      replacesBuiltInMemory: false,
+    })),
     findCommand: vi.fn(() => undefined),
     getToolDefinitions: vi.fn(() => [
       {
@@ -40,6 +44,7 @@ const {
       },
     ]),
     notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifyMemoryWrites: vi.fn(async () => {}),
     notifyTurnComplete: vi.fn(async () => {}),
     notifyAgentEnd: vi.fn(async () => {}),
     handleSessionReset: vi.fn(async () => {}),
@@ -181,9 +186,11 @@ const { setupHome } = setupGatewayTest({
     setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
+    pluginManagerMock.getMemoryLayerBehavior.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.handleInboundWebhook.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
+    pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifyTurnComplete.mockClear();
     pluginManagerMock.notifyAgentEnd.mockClear();
     pluginManagerMock.handleSessionReset.mockClear();
@@ -338,6 +345,131 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
       toolNames: ['memory_lookup'],
     }),
   );
+});
+
+test('handleGatewayMessage forwards successful native memory writes to plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Saved that memory.',
+    toolsUsed: ['memory'],
+    toolExecutions: [
+      {
+        name: 'memory',
+        arguments:
+          '{"action":"append","file_path":"memory/2026-04-08.md","content":"Remember Clerk reduced auth integration time."}',
+        result: 'Appended 45 chars to memory/2026-04-08.md',
+        durationMs: 15,
+      },
+    ],
+  });
+
+  await handleGatewayMessage({
+    sessionId: 'session-plugin-memory-write',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'Please save the auth migration reason.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith({
+    sessionId: 'session-plugin-memory-write',
+    agentId: 'main',
+    channelId: 'web',
+    toolExecutions: [
+      expect.objectContaining({
+        name: 'memory',
+        result: 'Appended 45 chars to memory/2026-04-08.md',
+      }),
+    ],
+  });
+  expect(
+    pluginManagerMock.notifyMemoryWrites.mock.invocationCallOrder[0],
+  ).toBeLessThan(pluginManagerMock.notifyAgentEnd.mock.invocationCallOrder[0]);
+});
+
+test('handleGatewayMessage lets a plugin memory layer replace built-in memory', async () => {
+  setupHome();
+
+  pluginManagerMock.getMemoryLayerBehavior.mockResolvedValueOnce({
+    replacesBuiltInMemory: true,
+  });
+  pluginManagerMock.collectPromptContextDetails.mockResolvedValueOnce({
+    sections: ['mempalace-memory-context'],
+    pluginIds: ['mempalace-memory'],
+    replacesBuiltInMemory: true,
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const buildPromptMemorySpy = vi.spyOn(
+    memoryService,
+    'buildPromptMemoryContext',
+  );
+  const storeTurnSpy = vi.spyOn(memoryService, 'storeTurn');
+  const appendCanonicalSpy = vi.spyOn(memoryService, 'appendCanonicalMessages');
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'replacement-aware reply',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const sessionId = 'session-plugin-replacement';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'What should you remember about the auth migration?',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.pluginsUsed).toEqual(['mempalace-memory']);
+  expect(buildPromptMemorySpy).not.toHaveBeenCalled();
+  expect(storeTurnSpy).not.toHaveBeenCalled();
+  expect(appendCanonicalSpy).not.toHaveBeenCalled();
+
+  const systemMessage = (
+    runAgentMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages?.find((message) => message.role === 'system');
+  expect(systemMessage?.content).toContain('## Session Summary');
+  expect(systemMessage?.content).toContain('mempalace-memory-context');
+  expect(systemMessage?.content).not.toContain('## Retrieved Context');
+
+  const history = memoryService.getConversationHistory(sessionId, 10);
+  expect(history.map((message) => message.role)).toEqual(['assistant', 'user']);
+
+  const canonicalContext = memoryService.getCanonicalContext({
+    agentId: 'main',
+    userId: 'user-42',
+    windowSize: 12,
+    excludeSessionId: sessionId,
+  });
+  expect(canonicalContext).toEqual({
+    summary: null,
+    recent_messages: [],
+  });
 });
 
 test('handleGatewayMessage continues without plugins when plugin manager init fails', async () => {
@@ -661,6 +793,60 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain('Required env vars: DEMO_PLUGIN_TOKEN');
   expect(result.text).toContain('required config keys: workspaceId');
   expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand reports missing binary guidance after plugin install', async () => {
+  setupHome();
+  installPluginMock.mockResolvedValueOnce({
+    pluginId: 'mempalace-memory',
+    pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+    source: './plugins/mempalace-memory',
+    alreadyInstalled: false,
+    dependenciesInstalled: true,
+    requiresEnv: [],
+    requiredConfigKeys: [],
+    missingRequiredBins: [
+      {
+        name: 'mempalace',
+        command: 'mempalace',
+        configKey: 'command',
+        installHint: 'pip install mempalace',
+        installUrl: 'https://github.com/milla-jovovich/mempalace',
+      },
+    ],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-mempalace',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'Missing required binaries right now: mempalace.',
+  );
+  expect(result.text).toContain('Install mempalace: `pip install mempalace`');
+  expect(result.text).toContain(
+    'Install docs for mempalace: https://github.com/milla-jovovich/mempalace',
+  );
+  expect(result.text).toContain(
+    'If mempalace is installed outside PATH, set it with: `/plugin config mempalace-memory command /absolute/path/to/mempalace`',
+  );
+  expect(result.text).toContain(
+    'Until the missing binaries are installed, the plugin will remain unavailable.',
+  );
 });
 
 test('handleGatewayCommand rejects plugin install outside local TUI/web sessions', async () => {

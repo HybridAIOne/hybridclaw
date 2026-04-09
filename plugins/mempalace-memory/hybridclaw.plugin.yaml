@@ -2,12 +2,14 @@ id: mempalace-memory
 name: MemPalace Memory
 version: 0.1.0
 kind: memory
-description: Query a local MemPalace CLI for wake-up context and semantic recall.
+description: Augment HybridClaw's built-in memory with a local MemPalace CLI for recall and hook-driven auto-save updates.
 entrypoint: src/index.js
 requires:
   bins:
     - name: mempalace
       configKey: command
+      installHint: pip install mempalace
+      installUrl: https://github.com/milla-jovovich/mempalace
 configSchema:
   type: object
   additionalProperties: false
@@ -18,6 +20,8 @@ configSchema:
     workingDirectory:
       type: string
     palacePath:
+      type: string
+    sessionExportDir:
       type: string
     wakeUpEnabled:
       type: boolean
@@ -31,6 +35,16 @@ configSchema:
       type: string
     searchRoom:
       type: string
+    updateWing:
+      type: string
+    updateAgent:
+      type: string
+      default: hybridclaw
+    saveEveryMessages:
+      type: number
+      default: 15
+      minimum: 1
+      maximum: 200
     maxResults:
       type: number
       default: 3

@@ -33,6 +33,8 @@ export interface PluginConfigUiHint {
 export interface PluginBinaryRequirement {
   name: string;
   configKey?: string;
+  installHint?: string;
+  installUrl?: string;
 }
 
 export interface PluginConfigSchema {
@@ -138,7 +140,11 @@ export interface PluginPromptBuildContext {
   extraContext: string[];
 }
 
-export interface PluginPromptContextResult {
+export interface PluginMemoryBehavior {
+  replacesBuiltInMemory: boolean;
+}
+
+export interface PluginPromptContextResult extends PluginMemoryBehavior {
   sections: string[];
   pluginIds: string[];
 }
@@ -199,6 +205,21 @@ export interface PluginMemoryFlushContext {
   olderMessages: StoredMessage[];
 }
 
+export type PluginMemoryWriteAction = 'append' | 'write' | 'replace' | 'remove';
+
+export interface PluginMemoryWriteContext {
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  action: PluginMemoryWriteAction;
+  memoryFilePath: string;
+  arguments: Record<string, unknown>;
+  result: string;
+  content?: string;
+  oldText?: string;
+  newText?: string;
+}
+
 export interface PluginGatewayLifecycleContext {
   startedAt: string;
 }
@@ -214,6 +235,7 @@ export type PluginHookName =
   | 'after_tool_call'
   | 'before_compaction'
   | 'after_compaction'
+  | 'memory_write'
   | 'memory_flush'
   | 'gateway_start'
   | 'gateway_stop';
@@ -249,6 +271,7 @@ export interface PluginHookHandlerMap {
   ) => Promise<void> | void;
   before_compaction: (context: PluginCompactionContext) => Promise<void> | void;
   after_compaction: (context: PluginCompactionContext) => Promise<void> | void;
+  memory_write: (context: PluginMemoryWriteContext) => Promise<void> | void;
   memory_flush: (context: PluginMemoryFlushContext) => Promise<void> | void;
   gateway_start: (
     context: PluginGatewayLifecycleContext,
@@ -269,6 +292,7 @@ export interface PluginPromptHook {
 export interface MemoryLayerPlugin {
   id: string;
   priority: number;
+  replacesBuiltInMemory?: boolean;
   getContextForPrompt?: (params: {
     sessionId: string;
     userId: string;

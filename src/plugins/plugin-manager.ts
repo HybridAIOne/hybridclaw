@@ -20,6 +20,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import type { ToolExecution } from '../types/execution.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
@@ -42,7 +43,10 @@ import type {
   PluginInstallSpec,
   PluginLogger,
   PluginManifest,
+  PluginMemoryBehavior,
   PluginMemoryFlushContext,
+  PluginMemoryWriteAction,
+  PluginMemoryWriteContext,
   PluginPromptBuildContext,
   PluginPromptContextResult,
   PluginPromptHook,
@@ -65,6 +69,9 @@ const DEFAULT_ENTRYPOINT_CANDIDATES = [
   path.join('dist', 'index.js'),
   'index.ts',
 ];
+
+const PLUGIN_MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
+const PLUGIN_DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 
 const pluginConfigValidator = new Ajv({
   allErrors: false,
@@ -198,6 +205,73 @@ function normalizeStringArray(value: unknown): string[] {
   return out;
 }
 
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMemoryWriteAction(
+  value: unknown,
+): PluginMemoryWriteAction | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'append' ||
+    normalized === 'write' ||
+    normalized === 'replace' ||
+    normalized === 'remove'
+    ? normalized
+    : null;
+}
+
+function normalizeMemoryFilePath(rawPath: unknown): string | null {
+  if (typeof rawPath !== 'string') return null;
+  const normalized = rawPath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.?\//, '');
+  if (!normalized) return null;
+  if (PLUGIN_MEMORY_ROOT_FILES.has(normalized)) return normalized;
+  if (PLUGIN_DAILY_MEMORY_FILE_RE.test(normalized)) return normalized;
+  return null;
+}
+
+function memoryFilePathFromResult(result: string): string | null {
+  const normalized = result.trim();
+  if (!normalized) return null;
+  const directMatch =
+    /^Appended \d+ chars to (.+)$/u.exec(normalized) ||
+    /^Wrote \d+ chars to (.+)$/u.exec(normalized) ||
+    /^Updated (.+)$/u.exec(normalized) ||
+    /^Removed matching text from (.+)$/u.exec(normalized);
+  return directMatch ? normalizeMemoryFilePath(directMatch[1]) : null;
+}
+
+function resolveMemoryWriteFilePath(
+  args: Record<string, unknown>,
+  result: string,
+): string | null {
+  const direct =
+    normalizeMemoryFilePath(args.file_path) ||
+    normalizeMemoryFilePath(args.path);
+  if (direct) return direct;
+
+  const target =
+    typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
+  if (target === 'memory') return 'MEMORY.md';
+  if (target === 'user') return 'USER.md';
+  if (target === 'daily' && typeof args.date === 'string') {
+    return normalizeMemoryFilePath(`memory/${args.date.trim()}.md`);
+  }
+
+  return memoryFilePathFromResult(result);
+}
+
 function normalizeTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim();
@@ -247,7 +321,14 @@ function normalizePluginBinaryRequirements(
     const name = normalizeTrimmedString(entry.name);
     if (!name) continue;
     const configKey = normalizeTrimmedString(entry.configKey);
-    out.push(configKey ? { name, configKey } : { name });
+    const installHint = normalizeTrimmedString(entry.installHint);
+    const installUrl = normalizeTrimmedString(entry.installUrl);
+    out.push({
+      name,
+      ...(configKey ? { configKey } : {}),
+      ...(installHint ? { installHint } : {}),
+      ...(installUrl ? { installUrl } : {}),
+    });
   }
   return out;
 }
@@ -1356,6 +1437,7 @@ export class PluginManager {
     recentMessages: StoredMessage[];
   }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
+    const memoryBehavior = this.getMemoryBehaviorSnapshot();
 
     const extraContext: string[] = [];
     const pluginIds = new Set<string>();
@@ -1422,6 +1504,7 @@ export class PluginManager {
       }
     }
     return {
+      ...memoryBehavior,
       sections: extraContext.filter(
         (value, index, list) => list.indexOf(value) === index,
       ),
@@ -1440,6 +1523,11 @@ export class PluginManager {
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
     return result.sections;
+  }
+
+  async getMemoryLayerBehavior(): Promise<PluginMemoryBehavior> {
+    await this.ensureInitialized();
+    return this.getMemoryBehaviorSnapshot();
   }
 
   async notifySessionStart(params: {
@@ -1534,6 +1622,18 @@ export class PluginManager {
     await this.dispatchHook('memory_flush', context);
   }
 
+  async notifyMemoryWrites(params: {
+    sessionId: string;
+    agentId: string;
+    channelId: string;
+    toolExecutions: ToolExecution[];
+  }): Promise<void> {
+    await this.ensureInitialized();
+    for (const context of this.collectMemoryWriteContexts(params)) {
+      await this.dispatchHook('memory_write', context);
+    }
+  }
+
   async executeTool(params: ExecutePluginToolParams): Promise<string> {
     await this.ensureInitialized();
     const entry = this.tools.get(params.toolName);
@@ -1589,6 +1689,65 @@ export class PluginManager {
     return [...this.memoryLayers].sort(
       (left, right) => left.layer.priority - right.layer.priority,
     );
+  }
+
+  private getMemoryBehaviorSnapshot(): PluginMemoryBehavior {
+    return {
+      replacesBuiltInMemory: this.memoryLayers.some(
+        (entry) => entry.layer.replacesBuiltInMemory === true,
+      ),
+    };
+  }
+
+  private collectMemoryWriteContexts(params: {
+    sessionId: string;
+    agentId: string;
+    channelId: string;
+    toolExecutions: ToolExecution[];
+  }): PluginMemoryWriteContext[] {
+    const contexts: PluginMemoryWriteContext[] = [];
+    for (const execution of params.toolExecutions) {
+      if (
+        String(execution.name || '')
+          .trim()
+          .toLowerCase() !== 'memory'
+      ) {
+        continue;
+      }
+      if (execution.isError || execution.blocked) continue;
+
+      const args = parseJsonObject(execution.arguments || '');
+      if (!args) continue;
+
+      const action = normalizeMemoryWriteAction(args.action);
+      if (!action) continue;
+
+      const memoryFilePath = resolveMemoryWriteFilePath(args, execution.result);
+      if (!memoryFilePath) continue;
+
+      const context: PluginMemoryWriteContext = {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        action,
+        memoryFilePath,
+        arguments: args,
+        result: String(execution.result || ''),
+      };
+
+      if (typeof args.content === 'string') {
+        context.content = args.content;
+      }
+      if (typeof args.old_text === 'string') {
+        context.oldText = args.old_text;
+      }
+      if (typeof args.new_text === 'string') {
+        context.newText = args.new_text;
+      }
+
+      contexts.push(context);
+    }
+    return contexts;
   }
 
   private async startMemoryLayers(): Promise<void> {

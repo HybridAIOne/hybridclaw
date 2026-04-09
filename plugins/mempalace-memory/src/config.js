@@ -29,11 +29,20 @@ export function resolveMempalacePluginConfig(pluginConfig, runtime) {
     command: normalizeString(pluginConfig?.command) || 'mempalace',
     workingDirectory,
     palacePath: resolveRuntimePath(pluginConfig?.palacePath, runtime) || '',
+    sessionExportDir:
+      resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||
+      path.resolve(runtime.cwd, '.hybridclaw', 'mempalace-turns'),
     wakeUpEnabled: pluginConfig?.wakeUpEnabled !== false,
     wakeUpWing: normalizeString(pluginConfig?.wakeUpWing),
     searchEnabled: pluginConfig?.searchEnabled !== false,
     searchWing: normalizeString(pluginConfig?.searchWing),
     searchRoom: normalizeString(pluginConfig?.searchRoom),
+    updateWing: normalizeString(pluginConfig?.updateWing),
+    updateAgent: normalizeString(pluginConfig?.updateAgent) || 'hybridclaw',
+    saveEveryMessages: normalizeValidatedInteger(
+      pluginConfig?.saveEveryMessages,
+      'saveEveryMessages',
+    ),
     maxResults: normalizeValidatedInteger(
       pluginConfig?.maxResults,
       'maxResults',

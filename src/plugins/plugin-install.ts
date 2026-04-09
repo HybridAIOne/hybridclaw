@@ -9,8 +9,12 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { hasExecutableCommand } from '../utils/executables.js';
 import { loadPluginManifest } from './plugin-manager.js';
-import type { PluginManifest } from './plugin-types.js';
+import type {
+  PluginBinaryRequirement,
+  PluginManifest,
+} from './plugin-types.js';
 
 const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
 
@@ -46,10 +50,19 @@ export interface InstallPluginResult {
   dependenciesInstalled: boolean;
   requiresEnv: string[];
   requiredConfigKeys: string[];
+  missingRequiredBins?: MissingPluginBinaryRequirement[];
 }
 
 export interface ReinstallPluginResult extends InstallPluginResult {
   replacedExistingInstall: boolean;
+}
+
+export interface MissingPluginBinaryRequirement {
+  name: string;
+  command: string;
+  configKey?: string;
+  installHint?: string;
+  installUrl?: string;
 }
 
 type PluginConfigGetter = () => RuntimeConfig;
@@ -309,6 +322,57 @@ function getRequiredConfigKeys(manifest: PluginManifest): string[] {
   );
 }
 
+function getManifestConfigDefault(
+  manifest: PluginManifest,
+  key: string,
+): string | undefined {
+  const properties = manifest.configSchema?.properties;
+  if (!properties || typeof properties !== 'object') return undefined;
+  const schema = properties[key];
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return undefined;
+  }
+  const value = schema.default;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function resolveRequiredBinaryCommand(
+  requirement: PluginBinaryRequirement,
+  manifest: PluginManifest,
+): string {
+  if (requirement.configKey) {
+    const configuredDefault = getManifestConfigDefault(
+      manifest,
+      requirement.configKey,
+    );
+    if (configuredDefault) return configuredDefault;
+  }
+  return requirement.name;
+}
+
+function collectMissingRequiredBins(
+  manifest: PluginManifest,
+  cwd: string,
+): MissingPluginBinaryRequirement[] {
+  const missing: MissingPluginBinaryRequirement[] = [];
+  for (const requirement of manifest.requires?.bins ?? []) {
+    const command = resolveRequiredBinaryCommand(requirement, manifest);
+    if (hasExecutableCommand(command, { cwd })) continue;
+    missing.push({
+      name: requirement.name,
+      command,
+      ...(requirement.configKey ? { configKey: requirement.configKey } : {}),
+      ...(requirement.installHint
+        ? { installHint: requirement.installHint }
+        : {}),
+      ...(requirement.installUrl ? { installUrl: requirement.installUrl } : {}),
+    });
+  }
+  return missing;
+}
+
 function countPluginConfigOverrides(
   pluginId: string,
   config: RuntimeConfig,
@@ -323,6 +387,7 @@ function installPreparedPlugin(
   sourceLabel: string,
   options: {
     homeDir: string;
+    cwd: string;
     runCommand: PluginInstallCommandRunner;
     replaceExisting: boolean;
   },
@@ -333,6 +398,7 @@ function installPreparedPlugin(
   assertPluginManifestDir(sourceDir);
   const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
   const pluginDir = path.join(installRoot, manifest.id);
+  const missingRequiredBins = collectMissingRequiredBins(manifest, options.cwd);
   const cleanupDirs: string[] = [];
 
   try {
@@ -361,6 +427,7 @@ function installPreparedPlugin(
           dependenciesInstalled,
           requiresEnv: manifest.requires?.env ?? [],
           requiredConfigKeys: getRequiredConfigKeys(manifest),
+          ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
         };
       }
     }
@@ -387,6 +454,7 @@ function installPreparedPlugin(
       dependenciesInstalled,
       requiresEnv: manifest.requires?.env ?? [],
       requiredConfigKeys: getRequiredConfigKeys(manifest),
+      ...(missingRequiredBins.length > 0 ? { missingRequiredBins } : {}),
     };
   } finally {
     for (const dir of cleanupDirs.reverse()) {
@@ -415,6 +483,7 @@ export async function installPlugin(
   try {
     return installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
       homeDir,
+      cwd,
       runCommand,
       replaceExisting: false,
     });
@@ -454,6 +523,7 @@ export async function reinstallPlugin(
       trimmedSource,
       {
         homeDir,
+        cwd,
         runCommand,
         replaceExisting: true,
       },

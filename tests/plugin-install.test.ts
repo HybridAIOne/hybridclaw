@@ -80,6 +80,51 @@ function writeManifestOnlyPluginDir(dir: string): void {
   );
 }
 
+function writePluginDirWithMissingBin(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: bin-plugin',
+      'name: Bin Plugin',
+      'version: 1.0.0',
+      'kind: tool',
+      'requires:',
+      '  bins:',
+      '    - name: mempalace',
+      '      configKey: command',
+      '      installHint: pip install mempalace',
+      '      installUrl: https://github.com/milla-jovovich/mempalace',
+      'configSchema:',
+      '  type: object',
+      '  properties:',
+      '    command:',
+      '      type: string',
+      '      default: mempalace',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'index.js'),
+    "export default { id: 'bin-plugin', register() {} };\n",
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: '@scope/bin-plugin',
+        version: '1.0.0',
+        type: 'module',
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -264,6 +309,31 @@ describe('plugin install', () => {
         ],
       }),
     );
+  });
+
+  test('reports missing required binaries after install', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'bin-plugin');
+    writePluginDirWithMissingBin(sourceDir);
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await installPlugin(sourceDir, {
+      homeDir,
+      cwd,
+      runCommand,
+    });
+
+    expect(result.missingRequiredBins).toEqual([
+      {
+        name: 'mempalace',
+        command: 'mempalace',
+        configKey: 'command',
+        installHint: 'pip install mempalace',
+        installUrl: 'https://github.com/milla-jovovich/mempalace',
+      },
+    ]);
   });
 
   test('reinstalls a local plugin directory without removing config overrides', async () => {

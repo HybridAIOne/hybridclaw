@@ -5,6 +5,7 @@ import {
   runMempalace,
   runMempalaceCommandText,
 } from './mempalace-process.js';
+import { writeTurnExport } from './session-export.js';
 
 const MAX_SEARCH_QUERY_CHARS = 800;
 
@@ -64,6 +65,207 @@ function buildWakeUpArgs(config) {
     args.push('--wing', config.wakeUpWing);
   }
   return args;
+}
+
+function resolveUpdateWing(config, agentId) {
+  return (
+    String(config.updateWing || '').trim() ||
+    String(config.wakeUpWing || '').trim() ||
+    String(config.searchWing || '').trim() ||
+    String(agentId || '').trim() ||
+    'hybridclaw'
+  );
+}
+
+function buildMineArgs(turnDir, config, agentId) {
+  return [
+    'mine',
+    turnDir,
+    '--mode',
+    'convos',
+    '--wing',
+    resolveUpdateWing(config, agentId),
+    '--agent',
+    config.updateAgent,
+  ];
+}
+
+function cloneMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((message) => ({ ...message }));
+}
+
+function buildMemoryWriteMirrorMessages(context) {
+  const createdAt = new Date().toISOString();
+  const userContent = [
+    'Mirror this explicit HybridClaw native memory write into MemPalace.',
+    `File: ${context.memoryFilePath}`,
+    `Action: ${context.action}`,
+  ].join('\n');
+
+  let assistantContent = '';
+  if (context.action === 'append' || context.action === 'write') {
+    assistantContent = String(context.content || '').trim();
+  } else if (context.action === 'replace') {
+    assistantContent = String(context.newText || '').trim();
+  } else if (context.action === 'remove') {
+    assistantContent = `HybridClaw removed content from ${context.memoryFilePath}.`;
+  }
+
+  if (!assistantContent) {
+    assistantContent = `HybridClaw updated ${context.memoryFilePath} with action ${context.action}.`;
+  }
+
+  return [
+    {
+      role: 'user',
+      content: userContent,
+      created_at: createdAt,
+    },
+    {
+      role: 'assistant',
+      content: assistantContent,
+      created_at: createdAt,
+    },
+  ];
+}
+
+async function mineMessages(params) {
+  const exportResult = await writeTurnExport({
+    exportDir: params.config.sessionExportDir,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    agentId: params.agentId,
+    messages: params.messages,
+  });
+  const commandArgs = buildMineArgs(
+    exportResult.turnDir,
+    params.config,
+    params.agentId,
+  );
+  const mineOutput = await runMempalaceCommandText(commandArgs, params.config, {
+    maxChars: 2_000,
+    timeoutMs: Math.max(params.config.timeoutMs, 30_000),
+  });
+  params.api.logger.debug(
+    {
+      sessionId: params.sessionId,
+      reason: params.reason,
+      messageCount: params.messages.length,
+      filePath: exportResult.filePath,
+      turnDir: exportResult.turnDir,
+      wing: resolveUpdateWing(params.config, params.agentId),
+      output: truncateText(mineOutput, 400),
+    },
+    'MemPalace transcript batch mined',
+  );
+}
+
+function createAutoSaveBuffer(config, api) {
+  const sessionBuffers = new Map();
+  const flushQueue = new Map();
+
+  function getSessionBuffer(sessionId, meta = {}) {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      throw new Error('MemPalace auto-save requires a session id.');
+    }
+    const existing = sessionBuffers.get(normalizedSessionId);
+    if (existing) {
+      if (meta.userId) existing.userId = String(meta.userId);
+      if (meta.agentId) existing.agentId = String(meta.agentId);
+      if (meta.channelId) existing.channelId = String(meta.channelId);
+      return existing;
+    }
+    const created = {
+      sessionId: normalizedSessionId,
+      userId: String(meta.userId || ''),
+      agentId: String(meta.agentId || ''),
+      channelId: String(meta.channelId || ''),
+      messages: [],
+    };
+    sessionBuffers.set(normalizedSessionId, created);
+    return created;
+  }
+
+  async function flushSessionNow(sessionId, reason) {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return false;
+    const buffer = sessionBuffers.get(normalizedSessionId);
+    if (!buffer || buffer.messages.length === 0) return false;
+
+    const snapshot = cloneMessages(buffer.messages);
+    const userId = buffer.userId;
+    const agentId = buffer.agentId;
+    buffer.messages = [];
+
+    try {
+      await mineMessages({
+        api,
+        config,
+        sessionId: normalizedSessionId,
+        userId,
+        agentId,
+        messages: snapshot,
+        reason,
+      });
+      if (buffer.messages.length === 0) {
+        sessionBuffers.delete(normalizedSessionId);
+      }
+      return true;
+    } catch (error) {
+      buffer.messages = [...snapshot, ...buffer.messages];
+      api.logger.warn(
+        {
+          error,
+          sessionId: normalizedSessionId,
+          reason,
+          exportDir: config.sessionExportDir,
+        },
+        'MemPalace transcript batch mining failed',
+      );
+      return false;
+    }
+  }
+
+  async function queueFlush(sessionId, reason) {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return false;
+    const previous = flushQueue.get(normalizedSessionId) || Promise.resolve();
+    const next = previous
+      .catch(() => false)
+      .then(() => flushSessionNow(normalizedSessionId, reason));
+    flushQueue.set(normalizedSessionId, next);
+    try {
+      return await next;
+    } finally {
+      if (flushQueue.get(normalizedSessionId) === next) {
+        flushQueue.delete(normalizedSessionId);
+      }
+    }
+  }
+
+  return {
+    async appendMessages(params) {
+      const buffer = getSessionBuffer(params.sessionId, params);
+      const additions = cloneMessages(params.messages);
+      if (additions.length === 0) return false;
+      buffer.messages.push(...additions);
+      if (buffer.messages.length < config.saveEveryMessages) {
+        return false;
+      }
+      return await queueFlush(buffer.sessionId, 'message threshold');
+    },
+    async flushSession(sessionId, reason) {
+      return await queueFlush(sessionId, reason);
+    },
+    async flushAll(reason) {
+      const sessionIds = [...sessionBuffers.keys()];
+      await Promise.all(
+        sessionIds.map((sessionId) => queueFlush(sessionId, reason)),
+      );
+    },
+  };
 }
 
 async function buildPromptContext(config, recentMessages) {
@@ -131,6 +333,7 @@ export default {
   kind: 'memory',
   register(api) {
     const config = resolveMempalacePluginConfig(api.pluginConfig, api.runtime);
+    const autoSave = createAutoSaveBuffer(config, api);
 
     api.registerMemoryLayer({
       id: 'mempalace-memory-layer',
@@ -194,6 +397,47 @@ export default {
       },
     });
 
+    api.on(
+      'agent_end',
+      async ({ sessionId, userId, agentId, channelId, messages }) => {
+        await autoSave.appendMessages({
+          sessionId,
+          userId,
+          agentId,
+          channelId,
+          messages,
+        });
+      },
+    );
+
+    api.on('memory_write', async (context) => {
+      await mineMessages({
+        api,
+        config,
+        sessionId: context.sessionId,
+        userId: 'hybridclaw-memory',
+        agentId: context.agentId,
+        messages: buildMemoryWriteMirrorMessages(context),
+        reason: `native memory ${context.action}`,
+      });
+    });
+
+    api.on('before_compaction', async ({ sessionId }) => {
+      await autoSave.flushSession(sessionId, 'before compaction');
+    });
+
+    api.on('session_end', async ({ sessionId }) => {
+      await autoSave.flushSession(sessionId, 'session end');
+    });
+
+    api.on('session_reset', async ({ previousSessionId }) => {
+      await autoSave.flushSession(previousSessionId, 'session reset');
+    });
+
+    api.on('gateway_stop', async () => {
+      await autoSave.flushAll('gateway stop');
+    });
+
     api.registerCommand({
       name: 'mempalace',
       description: 'Run MemPalace CLI commands (defaults to status)',
@@ -222,6 +466,8 @@ export default {
         wakeUpEnabled: config.wakeUpEnabled,
         searchEnabled: config.searchEnabled,
         palacePath: config.palacePath || null,
+        sessionExportDir: config.sessionExportDir,
+        saveEveryMessages: config.saveEveryMessages,
       },
       'MemPalace memory plugin registered',
     );

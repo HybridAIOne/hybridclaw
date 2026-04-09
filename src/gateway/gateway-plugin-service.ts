@@ -63,6 +63,53 @@ function formatPluginConfigValue(value: unknown): string {
   }
 }
 
+function formatMissingBinaryRequirement(params: {
+  name: string;
+  command: string;
+  configKey?: string;
+}): string {
+  if (params.configKey && params.command.trim() !== params.name.trim()) {
+    return `${params.name} (from ${params.configKey}=${params.command})`;
+  }
+  return params.name;
+}
+
+function buildMissingBinaryGuidanceLines(
+  pluginId: string,
+  missingRequiredBins:
+    | Array<{
+        name: string;
+        command: string;
+        configKey?: string;
+        installHint?: string;
+        installUrl?: string;
+      }>
+    | undefined,
+): string[] {
+  if (!missingRequiredBins || missingRequiredBins.length === 0) return [];
+
+  const lines = [
+    `Missing required binaries right now: ${missingRequiredBins.map((entry) => formatMissingBinaryRequirement(entry)).join(', ')}.`,
+  ];
+  for (const entry of missingRequiredBins) {
+    if (entry.installHint) {
+      lines.push(`Install ${entry.name}: \`${entry.installHint}\``);
+    }
+    if (entry.installUrl) {
+      lines.push(`Install docs for ${entry.name}: ${entry.installUrl}`);
+    }
+    if (entry.configKey) {
+      lines.push(
+        `If ${entry.name} is installed outside PATH, set it with: \`/plugin config ${pluginId} ${entry.configKey} /absolute/path/to/${entry.name}\``,
+      );
+    }
+  }
+  lines.push(
+    'Until the missing binaries are installed, the plugin will remain unavailable.',
+  );
+  return lines;
+}
+
 export async function reloadPluginRuntime(): Promise<{
   ok: boolean;
   message: string;
@@ -354,6 +401,10 @@ export async function handlePluginGatewayCommand(params: {
           ? ['Installed plugin npm dependencies.']
           : []),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...buildMissingBinaryGuidanceLines(
+          result.pluginId,
+          result.missingRequiredBins,
+        ),
         ...(result.requiresEnv.length > 0
           ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
           : []),
@@ -393,6 +444,10 @@ export async function handlePluginGatewayCommand(params: {
           ? ['Installed plugin npm dependencies.']
           : []),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...buildMissingBinaryGuidanceLines(
+          result.pluginId,
+          result.missingRequiredBins,
+        ),
         ...(result.requiresEnv.length > 0
           ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
           : []),

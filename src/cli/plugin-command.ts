@@ -3,6 +3,52 @@ import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printPluginUsage } from './help.js';
 
+function formatMissingBinaryRequirement(params: {
+  name: string;
+  command: string;
+  configKey?: string;
+}): string {
+  if (params.configKey && params.command.trim() !== params.name.trim()) {
+    return `${params.name} (from ${params.configKey}=${params.command})`;
+  }
+  return params.name;
+}
+
+function printMissingBinaryGuidance(
+  pluginId: string,
+  missingRequiredBins:
+    | Array<{
+        name: string;
+        command: string;
+        configKey?: string;
+        installHint?: string;
+        installUrl?: string;
+      }>
+    | undefined,
+): void {
+  if (!missingRequiredBins || missingRequiredBins.length === 0) return;
+
+  console.log(
+    `Missing required binaries right now: ${missingRequiredBins.map((entry) => formatMissingBinaryRequirement(entry)).join(', ')}`,
+  );
+  for (const entry of missingRequiredBins) {
+    if (entry.installHint) {
+      console.log(`Install ${entry.name}: ${entry.installHint}`);
+    }
+    if (entry.installUrl) {
+      console.log(`Install docs for ${entry.name}: ${entry.installUrl}`);
+    }
+    if (entry.configKey) {
+      console.log(
+        `If ${entry.name} is installed outside PATH, set it with: hybridclaw plugin config ${pluginId} ${entry.configKey} /absolute/path/to/${entry.name}`,
+      );
+    }
+  }
+  console.log(
+    'Until the missing binaries are installed, the plugin will remain unavailable.',
+  );
+}
+
 function formatPluginConfigValue(value: unknown): string {
   if (value === undefined) return '(not set)';
   if (typeof value === 'string') return JSON.stringify(value);
@@ -161,6 +207,7 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     console.log(
       `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
     );
+    printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
     if (result.requiresEnv.length > 0) {
       console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
     }
@@ -212,6 +259,7 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     console.log(
       `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
     );
+    printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
     if (result.requiresEnv.length > 0) {
       console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
     }

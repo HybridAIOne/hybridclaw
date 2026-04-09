@@ -244,6 +244,13 @@ async function importFreshCli(options?: {
     dependenciesInstalled: boolean;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginReinstallError?: Error | null;
   pluginReinstallResult?: {
@@ -255,6 +262,13 @@ async function importFreshCli(options?: {
     dependenciesInstalled: boolean;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginUninstallError?: Error | null;
   pluginUninstallResult?: {
@@ -2727,6 +2741,48 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('to set required config keys: workspaceId'),
+    );
+  });
+
+  it('prints missing binary guidance after plugin install', async () => {
+    const { cli } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'mempalace-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+        source: './plugins/mempalace-memory',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: [],
+        requiredConfigKeys: [],
+        missingRequiredBins: [
+          {
+            name: 'mempalace',
+            command: 'mempalace',
+            configKey: 'command',
+            installHint: 'pip install mempalace',
+            installUrl: 'https://github.com/milla-jovovich/mempalace',
+          },
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'install', './plugins/mempalace-memory']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Missing required binaries right now: mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install mempalace: pip install mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install docs for mempalace: https://github.com/milla-jovovich/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'If mempalace is installed outside PATH, set it with: hybridclaw plugin config mempalace-memory command /absolute/path/to/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Until the missing binaries are installed, the plugin will remain unavailable.',
     );
   });
 
