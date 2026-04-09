@@ -810,6 +810,7 @@ async function startDiscordIntegration(): Promise<boolean> {
                 username,
                 content,
                 media,
+                source: 'discord',
                 onTextDelta: (delta) => {
                   const filteredDelta = streamFilter.push(delta);
                   if (!filteredDelta) return;
@@ -913,6 +914,11 @@ async function startDiscordIntegration(): Promise<boolean> {
           await clearPendingApproval(effectiveSessionId, {
             disableButtons: true,
           });
+          if (result.components && !sawTextDelta) {
+            await _reply(responseText, attachments, result.components);
+            await context.stream.discard();
+            return;
+          }
           await context.stream.finalize(responseText, attachments);
         } catch (error) {
           const text = error instanceof Error ? error.message : String(error);

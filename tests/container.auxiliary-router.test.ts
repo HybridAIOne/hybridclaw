@@ -20,8 +20,8 @@ describe('container auxiliary router', () => {
         >;
         expect(body).toMatchObject({
           model: 'qwen/qwen2.5-vl',
-          max_tokens: 321,
         });
+        expect(body.max_tokens).toBeUndefined();
         return new Response(
           JSON.stringify({
             id: 'resp_aux',
@@ -152,8 +152,8 @@ describe('container auxiliary router', () => {
         >;
         expect(body).toMatchObject({
           model: 'mistral-small',
-          max_tokens: 222,
         });
+        expect(body.max_tokens).toBeUndefined();
         return new Response(
           JSON.stringify({
             id: 'resp_aux_text',
@@ -207,5 +207,109 @@ describe('container auxiliary router', () => {
       content: 'Compressed via text auxiliary wrapper.',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('omits max_tokens for non-Anthropic OpenRouter fallback text calls', async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.max_tokens).toBeUndefined();
+        return new Response(
+          JSON.stringify({
+            id: 'resp_aux_text',
+            model: 'qwen/qwen3.5-27b',
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: 'OpenRouter fallback response.',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      fallbackContext: {
+        provider: 'openrouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: 'fallback-key',
+        model: 'openrouter/qwen/qwen3.5-27b',
+        chatbotId: '',
+        requestHeaders: {},
+      },
+      messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+      maxTokens: 222,
+    });
+
+    expect(result).toMatchObject({
+      model: 'openrouter/qwen/qwen3.5-27b',
+      content: 'OpenRouter fallback response.',
+    });
+  });
+
+  test('falls back to 32000 max_tokens for Anthropic OpenRouter fallback text calls', async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.max_tokens).toBe(32_000);
+        return new Response(
+          JSON.stringify({
+            id: 'resp_aux_text',
+            model: 'anthropic/claude-sonnet-4',
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: 'Anthropic fallback response.',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      fallbackContext: {
+        provider: 'openrouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: 'fallback-key',
+        model: 'openrouter/anthropic/claude-sonnet-4',
+        chatbotId: '',
+        requestHeaders: {},
+      },
+      messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+      maxTokens: 222,
+    });
+
+    expect(result).toMatchObject({
+      model: 'openrouter/anthropic/claude-sonnet-4',
+      content: 'Anthropic fallback response.',
+    });
   });
 });

@@ -29,9 +29,7 @@ import {
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
-  LOCAL_DEFAULT_MAX_TOKENS,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
@@ -49,6 +47,7 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
@@ -84,24 +83,13 @@ import { computeWorkerSignature } from './worker-signature.js';
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
 function resolveExecutorMaxTokens(params: {
-  requestedMaxTokens?: number;
-  provider?: string;
-  isLocal?: boolean;
+  model: string;
+  discoveredMaxTokens?: number;
 }): number | undefined {
-  if (
-    typeof params.requestedMaxTokens === 'number' &&
-    Number.isFinite(params.requestedMaxTokens) &&
-    params.requestedMaxTokens > 0
-  ) {
-    return Math.floor(params.requestedMaxTokens);
-  }
-  if (params.provider === 'hybridai') {
-    return HYBRIDAI_MAX_TOKENS;
-  }
-  if (params.isLocal) {
-    return LOCAL_DEFAULT_MAX_TOKENS;
-  }
-  return undefined;
+  return resolveProviderRequestMaxTokens({
+    model: params.model,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+  });
 }
 
 interface PoolEntry {
@@ -743,7 +731,6 @@ export async function runContainer(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    maxTokens,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -800,9 +787,8 @@ export async function runContainer(
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
     maxTokens: resolveExecutorMaxTokens({
-      requestedMaxTokens: maxTokens,
-      provider: modelRuntime.provider,
-      isLocal: modelRuntime.isLocal,
+      model,
+      discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),

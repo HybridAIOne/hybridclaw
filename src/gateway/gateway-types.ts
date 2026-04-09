@@ -52,6 +52,7 @@ export interface GatewayChatResult {
   toolsUsed: string[];
   pluginsUsed?: string[];
   memoryCitations?: MemoryCitation[];
+  components?: GatewayMessageComponents;
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;

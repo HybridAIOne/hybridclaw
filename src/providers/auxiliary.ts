@@ -8,6 +8,7 @@ import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import type { RuntimeProviderId } from './provider-ids.js';
+import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
@@ -134,6 +135,8 @@ function buildResolvedContext(params: {
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
   maxTokens?: number;
+  discoveredMaxTokens?: number;
+  isLocal?: boolean;
 }): AuxiliaryTextCallContext {
   const context: Partial<AuxiliaryTextCallContext> = {
     provider: params.provider,
@@ -143,7 +146,10 @@ function buildResolvedContext(params: {
     chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
-    maxTokens: normalizeMaxTokens(params.maxTokens),
+    maxTokens: resolveProviderRequestMaxTokens({
+      model: params.model,
+      discoveredMaxTokens: params.discoveredMaxTokens,
+    }),
   };
   validateContext(params.task, context);
   return context;
@@ -186,6 +192,8 @@ async function resolveContextFromModel(params: {
     enableRag: resolved.enableRag,
     requestHeaders: resolved.requestHeaders,
     maxTokens: params.maxTokens,
+    discoveredMaxTokens: resolved.maxTokens,
+    isLocal: resolved.isLocal,
   });
 }
 

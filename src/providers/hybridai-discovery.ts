@@ -52,21 +52,25 @@ export interface HybridAIDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
+  getModelMaxTokens: (model: string) => number | null;
 }
 
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   let discoveredModelNames: string[] = [];
   let contextWindowByModel = new Map<string, number>();
+  let maxTokensByModel = new Map<string, number>();
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<string[]> | null = null;
 
   function replaceDiscoveryCache(
     modelNames: string[],
     nextContextWindows: Iterable<[string, number]> = [],
+    nextMaxTokens: Iterable<[string, number]> = [],
     opts?: { cacheResult?: boolean },
   ): void {
     discoveredModelNames = [...modelNames];
     contextWindowByModel = new Map(nextContextWindows);
+    maxTokensByModel = new Map(nextMaxTokens);
     discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
   }
 
@@ -96,6 +100,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const payload = (await response.json()) as unknown;
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
+    const maxTokens = new Map<string, number>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
@@ -106,9 +111,19 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (contextWindow != null) {
         contextWindows.set(normalized, contextWindow);
       }
+      const modelMaxTokens =
+        readPositiveInteger(entry.maxTokens) ??
+        readPositiveInteger(entry.max_tokens) ??
+        readPositiveInteger(entry.maxOutputTokens) ??
+        readPositiveInteger(entry.max_output_tokens) ??
+        readPositiveInteger(entry.maxCompletionTokens) ??
+        readPositiveInteger(entry.max_completion_tokens);
+      if (modelMaxTokens != null) {
+        maxTokens.set(normalized, modelMaxTokens);
+      }
     }
 
-    replaceDiscoveryCache([...discovered], contextWindows);
+    replaceDiscoveryCache([...discovered], contextWindows, maxTokens);
     return [...discovered];
   }
 
@@ -121,7 +136,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error instanceof MissingRequiredEnvVarError &&
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
-        replaceDiscoveryCache([], [], { cacheResult: false });
+        replaceDiscoveryCache([], [], [], { cacheResult: false });
         return [];
       }
       throw error;
@@ -160,6 +175,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       const normalized = normalizeHybridAIModelName(model);
       return contextWindowByModel.get(normalized) ?? null;
     },
+    getModelMaxTokens: (model: string) => {
+      const normalized = normalizeHybridAIModelName(model);
+      return maxTokensByModel.get(normalized) ?? null;
+    },
   };
 }
 
@@ -179,4 +198,10 @@ export function getDiscoveredHybridAIModelContextWindow(
   model: string,
 ): number | null {
   return defaultHybridAIDiscoveryStore.getModelContextWindow(model);
+}
+
+export function getDiscoveredHybridAIModelMaxTokens(
+  model: string,
+): number | null {
+  return defaultHybridAIDiscoveryStore.getModelMaxTokens(model);
 }

@@ -1,7 +1,6 @@
 # Changelog
 
 ## [Coming up]
-
 ### Added
 
 - **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
@@ -28,6 +27,10 @@
   ids from the repo `plugins/` directory, prefer plugin-local executables after
   dependency setup, and reuse the normal local approval flow when dependency
   installers need permission to modify the plugin environment.
+- **Discord concierge approvals**: Discord concierge prompts now render
+  native urgency buttons, resume the pending request from button clicks,
+  disable the prompt buttons after selection, and keep normal progress
+  reactions visible while the resumed run executes.
 - **MemPalace recall routing**: The bundled MemPalace plugin keeps HybridClaw's
   built-in memory active, falls back to CLI `wake-up` / `search` recall when no
   MemPalace MCP server is enabled, and automatically switches prompt-time
@@ -35,6 +38,9 @@
 
 ### Fixed
 
+- **Provider `maxTokens` policy**: Provider-facing model requests now omit
+  `maxTokens` for non-Anthropic models and always send a discovered Anthropic
+  limit, falling back to `32000` when discovery metadata is unavailable.
 - **Plugin dependency safety**: Manifest-provided external dependency checks no
   longer execute through a shell, and already-installed plugins now recompute
   their dependency plan from the installed directory before reinstalling

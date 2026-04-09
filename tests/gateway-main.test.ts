@@ -1052,6 +1052,52 @@ describe('gateway bootstrap', () => {
     expect(stream.fail).not.toHaveBeenCalled();
   });
 
+  test('replies directly when a Discord chat result includes components', async () => {
+    const state = await importFreshGatewayMain();
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Choose an option',
+      toolsUsed: [],
+      artifacts: [],
+      components: [{ type: 1, components: [] }],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      null,
+      '123456789012345678',
+      'user',
+      'alice',
+      'hello',
+      [],
+      reply,
+      context,
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      'Choose an option',
+      [],
+      [{ type: 1, components: [] }],
+    );
+    expect(stream.discard).toHaveBeenCalled();
+    expect(stream.finalize).not.toHaveBeenCalled();
+  });
+
   test('finalizes Teams message responses with uploaded artifact attachments', async () => {
     const state = await importFreshGatewayMain();
     state.buildTeamsArtifactAttachments.mockResolvedValue([
