@@ -869,7 +869,9 @@ test('honcho-memory guarantees first prompt context when prefetch is not ready y
       ],
     });
 
-    expect(promptContextAgain.join('\n\n')).toContain('# Honcho Memory Context');
+    expect(promptContextAgain.join('\n\n')).toContain(
+      '# Honcho Memory Context',
+    );
     expect(honcho.contextRequests.length).toBe(contextRequestsBefore);
   } finally {
     await manager.shutdown();

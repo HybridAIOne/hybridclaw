@@ -390,7 +390,8 @@ export class HonchoRuntime {
 
     const contextEntry = this.contextPrefetch.get(params.sessionId);
     const dialecticEntry = this.dialecticPrefetch.get(params.sessionId);
-    let payload = contextEntry?.status === 'fulfilled' ? contextEntry.value : null;
+    let payload =
+      contextEntry?.status === 'fulfilled' ? contextEntry.value : null;
     const dialectic =
       dialecticEntry?.status === 'fulfilled' ? dialecticEntry.value : '';
     if (!payload && sessionState.promptInjections === 0) {
@@ -473,9 +474,14 @@ export class HonchoRuntime {
   }
 
   async backfillStoredSessionHistory(sessionContext, options = {}) {
-    const platformSessionId = normalizeString(sessionContext?.platformSessionId);
+    const platformSessionId = normalizeString(
+      sessionContext?.platformSessionId,
+    );
     if (!platformSessionId) return;
-    const sessionState = getSessionState(this.persistedState, platformSessionId);
+    const sessionState = getSessionState(
+      this.persistedState,
+      platformSessionId,
+    );
     if (sessionState.historyBackfilled) return;
 
     const storedMessages = this.api.getSessionMessages(platformSessionId);
