@@ -16,18 +16,12 @@ import {
   buildOpenRouterAttributionHeaders,
   readOpenRouterApiKey,
 } from '../providers/openrouter-utils.js';
-import { normalizeBaseUrl } from '../providers/utils.js';
+import { isRecord, normalizeBaseUrl } from '../providers/utils.js';
 
 export interface ProviderProbeResult {
   reachable: boolean;
   detail: string;
   modelCount?: number;
-}
-
-function normalizeCodexProbeModel(model: string): string {
-  const trimmed = model.trim();
-  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
-  return trimmed.slice('openai-codex/'.length) || trimmed;
 }
 
 export async function probeHybridAI(): Promise<ProviderProbeResult> {
@@ -161,7 +155,7 @@ export async function probeMistral(): Promise<ProviderProbeResult> {
   };
 }
 
-export async function probeCodex(model: string): Promise<ProviderProbeResult> {
+export async function probeCodex(): Promise<ProviderProbeResult> {
   const credentials = await resolveCodexCredentials();
   const baseUrl = (
     process.env.HYBRIDCLAW_CODEX_BASE_URL ||
@@ -171,29 +165,27 @@ export async function probeCodex(model: string): Promise<ProviderProbeResult> {
     .trim()
     .replace(/\/+$/g, '');
   const startedAt = Date.now();
-  const response = await fetch(`${baseUrl}/responses`, {
-    method: 'POST',
+  const response = await fetch(`${baseUrl}/models`, {
     headers: credentials.headers,
-    body: JSON.stringify({
-      model: normalizeCodexProbeModel(model),
-      input: [],
-      tools: 'invalid',
-    }),
     signal: AbortSignal.timeout(5_000),
   });
 
-  if (
-    response.ok ||
-    response.status === 400 ||
-    response.status === 404 ||
-    response.status === 422
-  ) {
+  if (response.ok || response.status === 404) {
+    const payload = response.ok ? ((await response.json()) as unknown) : null;
+    const data = isRecord(payload)
+      ? Array.isArray(payload.data)
+        ? payload.data
+        : []
+      : Array.isArray(payload)
+        ? payload
+        : [];
     return {
       reachable: response.status !== 404,
       detail:
         response.status === 404
-          ? 'responses endpoint not found'
+          ? 'models endpoint not found'
           : `${Date.now() - startedAt}ms`,
+      modelCount: response.ok ? data.length : 0,
     };
   }
 

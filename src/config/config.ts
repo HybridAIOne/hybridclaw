@@ -308,41 +308,13 @@ export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
-let HYBRIDAI_MODELS: string[] = [
-  'gpt-4.1-mini',
-  'gpt-5-nano',
-  'gpt-5-mini',
-  'gpt-5',
-];
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
-let CODEX_MODELS: string[] = [
-  'openai-codex/gpt-5-codex',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex-spark',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.1-codex-max',
-  'openai-codex/gpt-5.2',
-  'openai-codex/gpt-5.1-codex-mini',
-];
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
 export let MISTRAL_ENABLED = false;
 export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
-let MISTRAL_MODELS: string[] = ['mistral/mistral-large-latest'];
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
-let HUGGINGFACE_MODELS: string[] = [
-  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-];
-export let CONFIGURED_MODELS: string[] = dedupeStringList([
-  ...HYBRIDAI_MODELS,
-  ...CODEX_MODELS,
-  ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
-  ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
-  ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
-]);
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_LMSTUDIO_ENABLED = false;
@@ -674,24 +646,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
-  CODEX_MODELS = [...config.codex.models];
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
-  OPENROUTER_MODELS = [...config.openrouter.models];
   MISTRAL_ENABLED = config.mistral.enabled;
   MISTRAL_BASE_URL = config.mistral.baseUrl;
-  MISTRAL_MODELS = [...config.mistral.models];
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
-  HUGGINGFACE_MODELS = [...config.huggingface.models];
-  HYBRIDAI_MODELS = [...config.hybridai.models];
-  CONFIGURED_MODELS = dedupeStringList([
-    ...HYBRIDAI_MODELS,
-    ...CODEX_MODELS,
-    ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
-    ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
-    ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
-  ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;

@@ -19,6 +19,11 @@
   sends now accept explicit `In-Reply-To` and `References` headers through the
   `message` tool/API and the repo-shipped `brevo-email` plugin, keeping
   follow-up replies inside the existing mail thread.
+- **Admin console tools and gateway UX**: The `/admin/tools` catalog now only
+  shows live built-in and enabled plugin tools, all admin tables support
+  click-to-sort headers, the Tools view now labels usage as `Invocations`,
+  and the Gateway page adds a managed restart action with clearer restart
+  state handling.
 - **Email credential wiring**: Email setup and runtime config now support
   `email.password` as a SecretRef-backed field so stored `EMAIL_PASSWORD`
   secrets can stay referenced from config without falling back to plaintext
@@ -42,6 +47,9 @@
   tells the model to emit offset-bearing one-shot timestamps that mirror the
   user's timezone instead of defaulting to UTC-style `Z` timestamps in the
   prompt examples.
+- **Built-in email config reloads**: Gateway config changes to built-in email
+  transport settings now restart the email integration automatically so SMTP /
+  IMAP updates apply without a full gateway restart.
 - **Provider `maxTokens` policy**: Provider-facing model requests now omit
   `maxTokens` for non-Anthropic models and always send a discovered Anthropic
   limit, falling back to `32000` when discovery metadata is unavailable.

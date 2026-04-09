@@ -377,7 +377,7 @@ code {
 }
 
 .status-dot.live {
-  background: var(--accent);
+  background: var(--success);
 }
 
 .status-dot-success {
@@ -1043,6 +1043,34 @@ th {
   background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger-border);
+}
+
+.primary-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.button-with-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes button-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .table-link-button {

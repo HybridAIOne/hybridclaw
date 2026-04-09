@@ -12,7 +12,6 @@ import { registerChannel } from './channels/channel-registry.js';
 import { buildLocalSessionSlashHelpEntries } from './command-registry.js';
 import {
   APP_VERSION,
-  CONFIGURED_MODELS,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
@@ -53,6 +52,7 @@ import {
   sortSelectableModelEntries,
 } from './model-selection.js';
 import {
+  formatHybridAIModelForCatalog,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from './providers/model-names.js';
@@ -1536,9 +1536,9 @@ async function fetchSelectableModels(): Promise<
   Array<{ label: string; value: string; isFree: boolean; recommended: boolean }>
 > {
   const fallback = sortSelectableModelEntries(
-    normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
+    normalizeModelCandidates([HYBRIDAI_MODEL]).map((model) => ({
       label: formatModelForDisplay(model),
-      value: normalizeHybridAIModelForRuntime(model),
+      value: model,
       isFree: false,
       recommended: false,
     })),
@@ -1573,7 +1573,7 @@ async function fetchSelectableModels(): Promise<
       ? sortSelectableModelEntries(
           models.map((model) => ({
             label: model,
-            value: normalizeHybridAIModelForRuntime(model),
+            value: model,
             isFree: false,
             recommended: false,
           })),
@@ -1655,7 +1655,11 @@ async function promptModelSelection(
   const matchedEntry = models.find(
     (entry) =>
       entry.label === trimmed ||
-      entry.value === normalizeHybridAIModelForRuntime(trimmed),
+      entry.value === trimmed ||
+      entry.value ===
+        formatHybridAIModelForCatalog(
+          normalizeHybridAIModelForRuntime(trimmed),
+        ),
   );
   if (matchedEntry) return matchedEntry.value;
 

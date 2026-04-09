@@ -1,4 +1,4 @@
-import { normalizeHybridAIModelForRuntime } from '../providers/model-names.js';
+import { stripHybridAIModelPrefix } from '../providers/model-names.js';
 import {
   isOpenAICompatProviderId,
   type RuntimeProviderId,
@@ -184,7 +184,7 @@ function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
   return {
-    model: normalizeHybridAIModelForRuntime(params.model),
+    model: stripHybridAIModelPrefix(params.model),
     chatbot_id: params.runtime.chatbotId,
     messages: params.messages,
     tools: params.tools,

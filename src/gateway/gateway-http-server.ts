@@ -94,6 +94,7 @@ import {
   handleGatewayPluginWebhook,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
+import { requestGatewayRestart } from './gateway-restart.js';
 import {
   getGatewayAdminScheduler,
   moveGatewayAdminSchedulerJob,
@@ -2147,6 +2148,25 @@ function handleApiShutdown(res: ServerResponse): void {
   }, 50);
 }
 
+function handleApiRestart(res: ServerResponse): void {
+  const restart = requestGatewayRestart();
+  if (!restart.restartSupported) {
+    sendJson(res, 409, {
+      error:
+        restart.restartReason || 'Gateway restart is unavailable right now.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway restart requested.',
+  });
+  setTimeout(() => {
+    process.kill(process.pid, 'SIGTERM');
+  }, 50);
+}
+
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
@@ -2373,8 +2393,6 @@ async function handleApiAdminModels(
 
   const body = (await readJsonBody(req)) as {
     defaultModel?: unknown;
-    hybridaiModels?: unknown;
-    codexModels?: unknown;
   };
   sendJson(res, 200, await saveGatewayAdminModels(body));
 }
@@ -3212,6 +3230,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
             handleApiShutdown(res);
+            return;
+          }
+          if (pathname === '/api/admin/restart' && method === 'POST') {
+            handleApiRestart(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {

@@ -128,6 +128,15 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
+export function restartGateway(
+  token: string,
+): Promise<{ status: 'ok'; message: string }> {
+  return requestJson<{ status: 'ok'; message: string }>('/api/admin/restart', {
+    token,
+    method: 'POST',
+  });
+}
+
 export function startAdminTerminal(
   token: string,
   payload?: { cols?: number; rows?: number },
@@ -283,8 +292,6 @@ export function saveModels(
   token: string,
   payload: {
     defaultModel: string;
-    hybridaiModels?: string[];
-    codexModels?: string[];
   },
 ): Promise<AdminModelsResponse> {
   return requestJson<AdminModelsResponse>('/api/admin/models', {

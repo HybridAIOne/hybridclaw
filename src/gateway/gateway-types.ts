@@ -329,6 +329,10 @@ export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
   pid?: number;
+  lifecycle?: {
+    restartSupported: boolean;
+    restartReason: string | null;
+  };
   version: string;
   uptime: number;
   sessions: number;
@@ -641,8 +645,6 @@ export interface GatewayAdminConfigResponse {
 
 export interface GatewayAdminModelCatalogEntry {
   id: string;
-  configuredInHybridai: boolean;
-  configuredInCodex: boolean;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
@@ -657,8 +659,6 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
-  hybridaiModels: string[];
-  codexModels: string[];
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }

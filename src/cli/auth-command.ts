@@ -7,6 +7,7 @@ import {
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
@@ -356,7 +357,7 @@ interface RouterProviderConfigFlowOptions {
   providerId: 'openrouter' | 'mistral' | 'huggingface';
   providerLabel: 'OpenRouter' | 'Mistral' | 'Hugging Face';
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
-  getCurrentProviderConfig: () => { baseUrl: string; models: string[] };
+  getCurrentProviderConfig: () => { baseUrl: string };
   defaultModel: string;
   normalizeModelId: (modelId: string) => string;
   normalizeBaseUrl: (baseUrl: string) => string;
@@ -376,8 +377,12 @@ async function configureRouterProvider(
   ensureRuntimeConfigFile();
   const parsed = options.parseArgs(options.args);
   const currentProviderConfig = options.getCurrentProviderConfig();
+  const currentDefaultModel = getRuntimeConfig().hybridai.defaultModel.trim();
   const configuredModel =
-    parsed.modelId || currentProviderConfig.models[0] || options.defaultModel;
+    parsed.modelId ||
+    (resolveModelProvider(currentDefaultModel) === options.providerId
+      ? currentDefaultModel
+      : options.defaultModel);
   const fullModelName = options.normalizeModelId(configuredModel);
   if (!fullModelName) {
     throw new Error(`${options.providerLabel} model ID cannot be empty.`);
@@ -429,9 +434,6 @@ async function configureOpenRouter(args: string[]): Promise<void> {
       updateRuntimeConfig((draft) => {
         draft.openrouter.enabled = true;
         draft.openrouter.baseUrl = normalizedBaseUrl;
-        draft.openrouter.models = Array.from(
-          new Set([fullModelName, ...draft.openrouter.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -456,9 +458,6 @@ async function configureMistral(args: string[]): Promise<void> {
       updateRuntimeConfig((draft) => {
         draft.mistral.enabled = true;
         draft.mistral.baseUrl = normalizedBaseUrl;
-        draft.mistral.models = Array.from(
-          new Set([fullModelName, ...draft.mistral.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -483,9 +482,6 @@ async function configureHuggingFace(args: string[]): Promise<void> {
       updateRuntimeConfig((draft) => {
         draft.huggingface.enabled = true;
         draft.huggingface.baseUrl = normalizedBaseUrl;
-        draft.huggingface.models = Array.from(
-          new Set([fullModelName, ...draft.huggingface.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -628,9 +624,7 @@ function printOpenRouterStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function printMistralStatus(): void {
@@ -661,9 +655,7 @@ function printMistralStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.mistral.models.length > 0 ? config.mistral.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function printHuggingFaceStatus(): void {
@@ -697,9 +689,7 @@ function printHuggingFaceStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.huggingface.models.length > 0 ? config.huggingface.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function clearOpenRouterCredentials(): void {

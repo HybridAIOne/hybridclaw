@@ -125,6 +125,34 @@ test('callRoutedModel strips the HybridAI display prefix from request models', a
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('callRoutedModel strips HybridAI provider-family prefixes from request models', async () => {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(body.model).toBe('mistral/mistral-small');
+    return new Response(JSON.stringify(okResponse), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await callRoutedModel({
+    provider: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'hybridai/mistral/mistral-small',
+    chatbotId: 'bot_1',
+    enableRag: true,
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+  });
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('callRoutedModel routes OpenRouter requests through the OpenAI-compatible transport', async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');

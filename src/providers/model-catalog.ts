@@ -1,4 +1,8 @@
-import { CONFIGURED_MODELS } from '../config/config.js';
+import { HYBRIDAI_MODEL } from '../config/config.js';
+import {
+  discoverCodexModels,
+  getDiscoveredCodexModelNames,
+} from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
 import {
   discoverHuggingFaceModels,
@@ -22,7 +26,10 @@ import {
   resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
-import { formatModelForDisplay } from './model-names.js';
+import {
+  formatHybridAIModelForCatalog,
+  formatModelForDisplay,
+} from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenRouterModels,
@@ -146,7 +153,12 @@ function dedupeModelList(models: string[]): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const rawModel of models) {
-    const model = String(rawModel || '').trim();
+    const originalModel = String(rawModel || '').trim();
+    const model =
+      resolveModelProvider(originalModel) === 'hybridai' &&
+      !isLocalPrefixedModel(originalModel)
+        ? formatHybridAIModelForCatalog(originalModel)
+        : originalModel;
     if (!model || seen.has(model)) continue;
     const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
       ? resolveDiscoveredMistralModelCanonicalName(model)
@@ -173,7 +185,8 @@ export function getAvailableModelListWithOptions(
   _opts?: { expanded?: boolean },
 ): string[] {
   const models = dedupeModelList([
-    ...CONFIGURED_MODELS,
+    HYBRIDAI_MODEL,
+    ...getDiscoveredCodexModelNames(),
     ...getDiscoveredHuggingFaceModelNames(),
     ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
@@ -197,6 +210,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
   includeHybridAI?: boolean;
 }): Promise<void> {
   await Promise.allSettled([
+    discoverCodexModels(),
     discoverAllLocalModels(),
     discoverHuggingFaceModels(),
     discoverMistralModels(),
