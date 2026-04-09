@@ -886,6 +886,49 @@ test('plugin manager allows only one external memory provider plugin', async () 
   ]);
 });
 
+test('plugin manager prefers configured external memory providers over auto-discovered ones', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-a');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-b');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'memory-provider-b',
+      enabled: true,
+      config: {},
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getMemoryLayers()).toEqual([
+    expect.objectContaining({ id: 'memory-provider-b-layer' }),
+  ]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'memory-provider-b',
+      enabled: true,
+      status: 'loaded',
+    }),
+    expect.objectContaining({
+      id: 'memory-provider-a',
+      enabled: false,
+      status: 'failed',
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-b" is already loaded.',
+    }),
+  ]);
+});
+
 test('plugin manager accepts required env vars from stored runtime secrets', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

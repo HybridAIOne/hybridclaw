@@ -676,6 +676,102 @@ test('honcho-memory seeds workspace identity, mirrors turns once, and exposes Ho
   }
 });
 
+test('honcho-memory uses the active workspace root for session strategies and mappings', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const [{ PluginManager }, dbModule, ipcModule] = await Promise.all([
+    import('../src/plugins/plugin-manager.js'),
+    import('../src/memory/db.js'),
+    import('../src/infra/ipc.js'),
+  ]);
+
+  vi.spyOn(dbModule, 'getSessionById').mockReturnValue({
+    agent_id: 'main',
+  } as never);
+  vi.spyOn(dbModule, 'getRecentMessages').mockReturnValue([
+    {
+      role: 'user',
+      user_id: 'user-1',
+    },
+  ] as never);
+
+  const seedWorkspacePath = ipcModule.agentWorkspaceDir('main');
+  fs.mkdirSync(seedWorkspacePath, { recursive: true });
+
+  const activeWorkspacePath = path.join(cwd, 'projects', 'client-alpha');
+  fs.mkdirSync(activeWorkspacePath, { recursive: true });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+        sessionStrategy: 'per-directory',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  try {
+    await manager.ensureInitialized();
+
+    await manager.notifySessionStart({
+      sessionId: 'session-map',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+      workspacePath: activeWorkspacePath,
+    });
+
+    await waitFor(() =>
+      honcho.contextRequests.some(
+        (request) => request.sessionId === 'client-alpha',
+      ),
+    );
+    await waitFor(() =>
+      honcho.chatRequests.some(
+        (request) => String(request.session_id || '') === 'client-alpha',
+      ),
+    );
+
+    const command = manager.findCommand('honcho');
+    const mapText = await command?.handler(['map', 'shared-client'], {
+      sessionId: 'session-map',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(mapText)).toBe(
+      `Mapped ${activeWorkspacePath} to Honcho session shared-client.`,
+    );
+
+    const mappingsText = await command?.handler(['map'], {
+      sessionId: 'session-map',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(mappingsText)).toContain(
+      `* ${activeWorkspacePath} → shared-client`,
+    );
+  } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
 test('honcho-memory backfills stored session history once when activated mid-session', async () => {
   const honcho = createHonchoStubServer();
   const baseUrl = await honcho.listen();

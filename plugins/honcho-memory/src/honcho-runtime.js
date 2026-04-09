@@ -18,6 +18,25 @@ function normalizeString(value) {
   return String(value || '').trim();
 }
 
+function resolveSessionRootPath(explicitPath, cachedPath, workspacePath, cwd) {
+  const explicit = normalizeString(explicitPath);
+  if (explicit) return explicit;
+
+  const cached = normalizeString(cachedPath);
+  if (cached) return cached;
+
+  const workspace = normalizeString(workspacePath);
+  if (workspace) {
+    const normalized = path.resolve(workspace);
+    if (path.basename(normalized) === 'workspace') {
+      return path.dirname(normalized);
+    }
+    return normalized;
+  }
+
+  return normalizeString(cwd) || process.cwd();
+}
+
 function truncateText(value, maxChars) {
   const normalized = normalizeString(value);
   if (!maxChars || normalized.length <= maxChars) return normalized;
@@ -774,10 +793,16 @@ export class HonchoRuntime {
       normalizeString(sessionInfo.agentId) ||
       normalizeString(cachedContext?.agentId) ||
       'main';
-    const sessionRoot =
+    const workspacePath =
       normalizeString(sessionInfo.workspacePath) ||
       normalizeString(cachedContext?.workspacePath) ||
       this.api.runtime.cwd;
+    const sessionRoot = resolveSessionRootPath(
+      params.workspacePath,
+      cachedContext?.sessionRoot,
+      workspacePath,
+      this.api.runtime.cwd,
+    );
     const honchoSessionId = sanitizeHonchoSessionId(
       resolveHonchoSessionKey({
         config: this.config,
@@ -790,7 +815,8 @@ export class HonchoRuntime {
       honchoSessionId,
       userId,
       agentId,
-      workspacePath: sessionRoot,
+      workspacePath,
+      sessionRoot,
       userPeerId: buildUserPeerId(userId),
       agentPeerId: buildAgentPeerId(agentId, this.config.aiPeer),
     };
@@ -1006,30 +1032,30 @@ export class HonchoRuntime {
   }
 
   async handleMapCommand(args, context) {
-    const workspacePath = this.resolveSessionContext(context).workspacePath;
+    const sessionRoot = this.resolveSessionContext(context).sessionRoot;
     if (args.length === 0) {
-      return formatMappingsText(this.config, workspacePath);
+      return formatMappingsText(this.config, sessionRoot);
     }
     if (
       args.includes('--clear') ||
       normalizeString(args[0]).toLowerCase() === 'clear'
     ) {
       const sessions = { ...(this.config.sessions || {}) };
-      delete sessions[workspacePath];
+      delete sessions[sessionRoot];
       if (Object.keys(sessions).length === 0) {
         await this.api.unsetConfigValue('sessions');
       } else {
         await this.persistConfigValue('sessions', sessions);
       }
       this.config.sessions = sessions;
-      return `Removed Honcho session mapping for ${workspacePath}.`;
+      return `Removed Honcho session mapping for ${sessionRoot}.`;
     }
     const mappingName = sanitizeHonchoSessionId(args.join(' '));
     const sessions = { ...(this.config.sessions || {}) };
-    sessions[workspacePath] = mappingName;
+    sessions[sessionRoot] = mappingName;
     await this.persistConfigValue('sessions', sessions);
     this.config.sessions = sessions;
-    return `Mapped ${workspacePath} to Honcho session ${mappingName}.`;
+    return `Mapped ${sessionRoot} to Honcho session ${mappingName}.`;
   }
 
   async handleModeCommand(args) {

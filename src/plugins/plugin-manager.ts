@@ -91,6 +91,19 @@ type RuntimePluginConfigEntryLike = {
   config: Record<string, unknown>;
 };
 
+function comparePluginCandidates(
+  left: PluginCandidate,
+  right: PluginCandidate,
+  configuredIds: ReadonlySet<string>,
+): number {
+  const leftConfigured = configuredIds.has(left.id);
+  const rightConfigured = configuredIds.has(right.id);
+  if (leftConfigured !== rightConfigured) {
+    return leftConfigured ? -1 : 1;
+  }
+  return left.id.localeCompare(right.id);
+}
+
 type RegisteredMemoryLayer = {
   pluginId: string;
   layer: MemoryLayerPlugin;
@@ -879,6 +892,12 @@ export class PluginManager {
     config: RuntimeConfig = this.getConfig(),
   ): Promise<PluginCandidate[]> {
     const configuredEntries = toPluginConfigEntries(config);
+    const configuredIds = new Set(
+      configuredEntries
+        .filter((entry) => entry.enabled)
+        .map((entry) => String(entry.id || '').trim())
+        .filter((entry) => entry.length > 0),
+    );
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
       path.join(this.homeDir, 'plugins'),
@@ -935,7 +954,9 @@ export class PluginManager {
         );
       }
     }
-    return [...selected.values()];
+    return [...selected.values()].sort((left, right) =>
+      comparePluginCandidates(left, right, configuredIds),
+    );
   }
 
   private scanDirectory(
@@ -946,6 +967,7 @@ export class PluginManager {
     const entries = fs
       .readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name))
       .map((entry) => path.join(dir, entry.name));
     const out: PluginCandidate[] = [];
     for (const entry of entries) {
@@ -1524,6 +1546,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
     recentMessages: StoredMessage[];
   }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
@@ -1540,6 +1563,7 @@ export class PluginManager {
           sessionId: params.sessionId,
           userId: params.userId,
           agentId: params.agentId,
+          workspacePath: params.workspacePath,
           recentMessages: params.recentMessages,
         });
         if (typeof value === 'string' && value.trim()) {
@@ -1609,6 +1633,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
     recentMessages: StoredMessage[];
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
@@ -1634,6 +1659,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
     await this.dispatchHook('session_start', params);
@@ -1644,6 +1670,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
     await this.dispatchHook('session_end', params);
@@ -1669,6 +1696,7 @@ export class PluginManager {
     sessionId: string;
     userId: string;
     agentId: string;
+    workspacePath?: string;
     messages: StoredMessage[];
   }): Promise<void> {
     await this.ensureInitialized();

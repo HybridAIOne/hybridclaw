@@ -153,6 +153,7 @@ export interface PluginPromptBuildContext {
   userId: string;
   agentId: string;
   channelId: string;
+  workspacePath?: string;
   recentMessages: StoredMessage[];
   extraContext: string[];
 }
@@ -263,12 +264,14 @@ export interface PluginHookHandlerMap {
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }) => Promise<void> | void;
   session_end: (context: {
     sessionId: string;
     userId: string;
     agentId: string;
     channelId: string;
+    workspacePath?: string;
   }) => Promise<void> | void;
   session_reset: (context: PluginSessionResetContext) => Promise<void> | void;
   before_prompt_build: (
@@ -314,12 +317,14 @@ export interface MemoryLayerPlugin {
     sessionId: string;
     userId: string;
     agentId: string;
+    workspacePath?: string;
     recentMessages: StoredMessage[];
   }) => Promise<string | null>;
   onTurnComplete?: (params: {
     sessionId: string;
     userId: string;
     agentId: string;
+    workspacePath?: string;
     messages: StoredMessage[];
   }) => Promise<void>;
   onSessionReset?: (params: {
@@ -342,6 +347,7 @@ export interface PluginCommandDefinition {
       userId?: string | null;
       username?: string | null;
       guildId?: string | null;
+      workspacePath?: string;
     },
   ) => Promise<unknown> | unknown;
 }
