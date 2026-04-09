@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import * as ipc from '../src/infra/ipc.js';
+import * as db from '../src/memory/db.js';
 import { createPluginApi } from '../src/plugins/plugin-api.js';
 import type { PluginManager } from '../src/plugins/plugin-manager.js';
 
@@ -12,7 +14,9 @@ function loadRuntimeConfig(): RuntimeConfig {
   ) as RuntimeConfig;
 }
 
-function makePluginManagerStub(): PluginManager {
+function makePluginManagerStub(
+  overrides: Partial<PluginManager> = {},
+): PluginManager {
   return {
     registerMemoryLayer() {},
     registerProvider() {},
@@ -30,6 +34,13 @@ function makePluginManagerStub(): PluginManager {
       });
     },
     registerHook() {},
+    getSessionWorkspaceRoot() {
+      return null;
+    },
+    getSessionUserId() {
+      return null;
+    },
+    ...overrides,
   } as unknown as PluginManager;
 }
 
@@ -220,4 +231,84 @@ test('createPluginApi delegates inbound webhook registration and inbound turn di
       sessionId: 'session-2',
     }),
   );
+});
+
+test('createPluginApi derives session info from stored session and cached session user id', () => {
+  vi.spyOn(db, 'getSessionById').mockReturnValue({
+    agent_id: 'writer',
+  } as never);
+  const getRecentMessagesSpy = vi.spyOn(db, 'getRecentMessages');
+  vi.spyOn(ipc, 'agentWorkspaceDir').mockReturnValue(
+    '/tmp/home/data/agents/writer/workspace',
+  );
+
+  const api = createPluginApi({
+    manager: makePluginManagerStub({
+      getSessionUserId() {
+        return 'user-42';
+      },
+      getSessionWorkspaceRoot() {
+        return '/tmp/project/clients/client-alpha';
+      },
+    }),
+    pluginId: 'demo-plugin',
+    pluginDir: '/tmp/demo-plugin',
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+
+  expect(api.getSessionInfo('session-42')).toEqual({
+    sessionId: 'session-42',
+    agentId: 'writer',
+    userId: 'user-42',
+    workspacePath: '/tmp/home/data/agents/writer/workspace',
+    workspaceRoot: '/tmp/project/clients/client-alpha',
+  });
+  expect(getRecentMessagesSpy).not.toHaveBeenCalled();
+});
+
+test('createPluginApi exposes immutable stored session messages', () => {
+  vi.spyOn(db, 'getRecentMessages').mockReturnValue([
+    {
+      id: 1,
+      session_id: 'session-7',
+      role: 'user',
+      content: 'Earlier turn',
+    },
+  ] as never);
+
+  const api = createPluginApi({
+    manager: makePluginManagerStub(),
+    pluginId: 'demo-plugin',
+    pluginDir: '/tmp/demo-plugin',
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+
+  const messages = api.getSessionMessages('session-7');
+
+  expect(db.getRecentMessages).toHaveBeenCalledWith('session-7', undefined);
+  expect(messages).toEqual([
+    {
+      id: 1,
+      session_id: 'session-7',
+      role: 'user',
+      content: 'Earlier turn',
+    },
+  ]);
+  expect(() => {
+    (
+      messages as Array<{
+        content: string;
+      }>
+    )[0].content = 'Mutated';
+  }).toThrow(TypeError);
 });

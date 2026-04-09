@@ -5,8 +5,9 @@ import {
   runtimeConfigPath,
 } from '../config/runtime-config.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getSessionById } from '../memory/db.js';
+import { getRecentMessages, getSessionById } from '../memory/db.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -55,6 +56,7 @@ export function createPluginApi(params: {
   config: RuntimeConfig;
   pluginConfig: Record<string, unknown>;
   declaredEnv: readonly string[];
+  declaredCredentials?: readonly string[];
   homeDir: string;
   cwd: string;
 }): HybridClawPluginApi {
@@ -66,10 +68,34 @@ export function createPluginApi(params: {
       .map((key) => (typeof key === 'string' ? key.trim() : ''))
       .filter((key) => key.length > 0),
   );
+  const declaredCredentials = new Set(
+    (params.declaredCredentials || [])
+      .map((key) => (typeof key === 'string' ? key.trim() : ''))
+      .filter((key) => key.length > 0),
+  );
   const config = deepFreezeClone(params.config);
   const pluginConfig = deepFreezeClone(params.pluginConfig);
   const defaultAgentId =
     String(params.config.agents?.defaultAgentId || 'main').trim() || 'main';
+  const resolvePluginSessionAgentId = (sessionId: string): string => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return defaultAgentId;
+
+    let sessionAgentId = '';
+    try {
+      sessionAgentId = String(
+        getSessionById(normalizedSessionId)?.agent_id || '',
+      ).trim();
+    } catch {
+      sessionAgentId = '';
+    }
+    if (sessionAgentId) return sessionAgentId;
+
+    const parsed = parseSessionKey(normalizedSessionId);
+    if (parsed?.agentId) return parsed.agentId;
+
+    return defaultAgentId;
+  };
   const runtime: PluginRuntime = Object.freeze({
     cwd: params.cwd,
     homeDir: params.homeDir,
@@ -127,7 +153,12 @@ export function createPluginApi(params: {
     getCredential(key: string): string | undefined {
       const normalized = String(key || '').trim();
       if (!normalized) return undefined;
-      if (!declaredEnv.has(normalized)) return undefined;
+      if (
+        !declaredEnv.has(normalized) &&
+        !declaredCredentials.has(normalized)
+      ) {
+        return undefined;
+      }
       const value = process.env[normalized];
       if (typeof value === 'string') {
         const trimmed = value.trim();
@@ -140,29 +171,48 @@ export function createPluginApi(params: {
       return params.manager.getMcpServerConfig(name);
     },
     async writeConfigValue(key: string, rawValue: string): Promise<void> {
-      await writePluginConfigValue(params.pluginId, key, rawValue);
+      await writePluginConfigValue(params.pluginId, key, rawValue, {
+        homeDir: params.homeDir,
+        cwd: params.cwd,
+      });
     },
     async unsetConfigValue(key: string): Promise<void> {
-      await unsetPluginConfigValue(params.pluginId, key);
+      await unsetPluginConfigValue(params.pluginId, key, {
+        homeDir: params.homeDir,
+        cwd: params.cwd,
+      });
     },
     resolveSessionAgentId(sessionId: string): string {
+      return resolvePluginSessionAgentId(sessionId);
+    },
+    getSessionInfo(sessionId: string): {
+      sessionId: string;
+      agentId: string;
+      userId: string | null;
+      workspacePath: string;
+      workspaceRoot: string;
+    } {
       const normalizedSessionId = String(sessionId || '').trim();
-      if (!normalizedSessionId) return defaultAgentId;
-
-      let sessionAgentId = '';
+      const agentId = resolvePluginSessionAgentId(normalizedSessionId);
+      const workspacePath = agentWorkspaceDir(agentId);
+      return {
+        sessionId: normalizedSessionId,
+        agentId,
+        userId: params.manager.getSessionUserId(normalizedSessionId),
+        workspacePath,
+        workspaceRoot:
+          params.manager.getSessionWorkspaceRoot(normalizedSessionId) ||
+          workspacePath,
+      };
+    },
+    getSessionMessages(sessionId: string, limit?: number) {
+      const normalizedSessionId = String(sessionId || '').trim();
+      if (!normalizedSessionId) return [];
       try {
-        sessionAgentId = String(
-          getSessionById(normalizedSessionId)?.agent_id || '',
-        ).trim();
+        return deepFreezeClone(getRecentMessages(normalizedSessionId, limit));
       } catch {
-        sessionAgentId = '';
+        return [];
       }
-      if (sessionAgentId) return sessionAgentId;
-
-      const parsed = parseSessionKey(normalizedSessionId);
-      if (parsed?.agentId) return parsed.agentId;
-
-      return defaultAgentId;
     },
   });
 }

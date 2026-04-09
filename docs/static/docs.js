@@ -38,6 +38,10 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
       { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
       {
+        title: 'Honcho Memory Plugin',
+        path: 'extensibility/honcho-memory-plugin.md',
+      },
+      {
         title: 'MemPalace Memory Plugin',
         path: 'extensibility/mempalace-memory-plugin.md',
       },

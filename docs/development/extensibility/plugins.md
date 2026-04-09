@@ -189,10 +189,18 @@ configSchema:
 The manifest supports:
 
 - identity fields such as `id`, `name`, `version`, `description`, `kind`
+- `memoryProvider: true` for plugins that act as an external memory provider
 - runtime requirements under `requires.bins`, `requires.env`, and `requires.node`
+- `credentials` for optional `/secret` or environment-backed plugin credentials
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
+
+`memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
+only for plugins that should behave like a primary external memory system.
+HybridClaw keeps built-in memory on at all times and allows at most one active
+external memory provider, while other `kind: memory` plugins can still inject
+retrieval or prompt context in parallel.
 
 `configSchema` is validated with Ajv, so standard JSON Schema keywords such as
 `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum` are enforced.
@@ -207,8 +215,11 @@ If a plugin config allows overriding an executable path, that path is trusted
 operator input and is executed directly by the gateway process. HybridClaw does
 not sandbox those binaries separately, so only point executable overrides at
 programs you trust to run with the gateway's OS-level access.
-Plugins can only read environment variables declared in `requires.env` through
-`api.getCredential(...)`; undeclared process environment values are not exposed.
+Plugins can only read credentials declared in `requires.env` or `credentials`
+through `api.getCredential(...)`; undeclared process environment values are not
+exposed. Use `requires.env` when the plugin must not load without the value, and
+use `credentials` when the value is optional but should still be readable from
+`/secret` or the process environment.
 
 ## Runtime API
 

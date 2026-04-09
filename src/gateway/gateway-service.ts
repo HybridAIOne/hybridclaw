@@ -4238,6 +4238,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         agentId: resolved.agentId,
         channelId,
+        workspacePath,
       });
       await pluginManager.notifyBeforeAgentStart({
         sessionId: session.id,
