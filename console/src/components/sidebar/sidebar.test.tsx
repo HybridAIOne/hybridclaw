@@ -12,11 +12,8 @@ import {
   Sidebar,
   SidebarContent,
   type SidebarContextSnapshot,
-  SidebarFooter,
-  SidebarHeader,
   SidebarInset,
   SidebarProvider,
-  SidebarRail,
   SidebarTrigger,
   useSidebar,
 } from './index';
@@ -178,106 +175,14 @@ describe('SidebarProvider', () => {
   });
 });
 
-describe('Sidebar — desktop collapsible (default)', () => {
-  beforeEach(() => setViewport(1440));
-  afterEach(cleanup);
-
-  it('starts expanded with no data-collapsible', () => {
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarHeader>Header</SidebarHeader>
-          <SidebarContent>Content</SidebarContent>
-          <SidebarFooter>Footer</SidebarFooter>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    const aside = container.querySelector('aside');
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
-    expect(aside?.getAttribute('data-collapsible')).toBeNull();
-    expect(aside?.getAttribute('data-mobile')).toBeNull();
-  });
-
-  it('collapses when trigger is clicked and sets data-collapsible', () => {
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarHeader>Header</SidebarHeader>
-        </Sidebar>
-        <SidebarInset>
-          <SidebarTrigger />
-        </SidebarInset>
-      </SidebarProvider>,
-    );
-    const aside = container.querySelector('aside');
-    const trigger = screen.getByRole('button', { name: 'Collapse sidebar' });
-
-    fireEvent.click(trigger);
-
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
-    expect(aside?.getAttribute('data-collapsible')).toBe('offcanvas');
-    expect(
-      screen.getByRole('button', { name: 'Expand sidebar' }),
-    ).toBeDefined();
-  });
-
-  it('toggles via Ctrl+B keyboard shortcut', () => {
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarContent>Content</SidebarContent>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    const aside = container.querySelector('aside');
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
-
-    fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
-
-    fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
-  });
-
-  it('ignores keyboard shortcut when focus is in an input', () => {
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarContent>
-            <input aria-label="Search" />
-          </SidebarContent>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    const aside = container.querySelector('aside');
-    const input = screen.getByLabelText('Search');
-
-    fireEvent.keyDown(input, { key: 'b', ctrlKey: true });
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
-  });
-
-  it('renders SidebarRail in collapsible mode', () => {
-    render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarContent>Content</SidebarContent>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    expect(
-      screen.getByRole('button', { name: 'Toggle sidebar' }),
-    ).toBeDefined();
-  });
-});
-
-describe('Sidebar — desktop collapsible="none"', () => {
+describe('Sidebar — desktop', () => {
   beforeEach(() => setViewport(1440));
   afterEach(cleanup);
 
   it('always renders expanded with no rail', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar collapsible="none">
+        <Sidebar>
           <SidebarContent>Content</SidebarContent>
         </Sidebar>
       </SidebarProvider>,
@@ -291,7 +196,7 @@ describe('Sidebar — desktop collapsible="none"', () => {
   it('trigger renders but clicking does not change sidebar data-state', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar collapsible="none">
+        <Sidebar>
           <SidebarContent>Content</SidebarContent>
         </Sidebar>
         <SidebarInset>
@@ -304,9 +209,8 @@ describe('Sidebar — desktop collapsible="none"', () => {
 
     fireEvent.click(trigger);
 
-    // sidebar has no visual collapse, but context open toggles
-    // The important thing is data-state stays "expanded" because collapsible="none"
-    // bypasses collapse rendering
+    // Sidebar is always-expanded on desktop; trigger toggles context open
+    // but data-state stays "expanded".
     expect(aside?.getAttribute('data-state')).toBe('expanded');
   });
 });
@@ -450,16 +354,6 @@ describe('Sidebar — mobile overlay', () => {
     expect(captured.value?.open).toBe(true);
   });
 
-  it('does not render SidebarRail on mobile', () => {
-    render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarContent>Content</SidebarContent>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).toBeNull();
-  });
 });
 
 describe('SidebarTrigger', () => {
@@ -499,7 +393,7 @@ describe('SidebarTrigger', () => {
 
   it('calls custom onClick before toggling', () => {
     setViewport(1440);
-    const onClick = vi.fn((e: React.MouseEvent) => e.preventDefault());
+    const onClick = vi.fn((e: { preventDefault(): void }) => e.preventDefault());
     render(
       <SidebarProvider>
         <Sidebar>
@@ -527,48 +421,6 @@ describe('SidebarTrigger', () => {
     expect(onClick).toHaveBeenCalled();
     // preventDefault stops toggle
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-  });
-});
-
-describe('SidebarRail', () => {
-  afterEach(cleanup);
-
-  it('renders on desktop', () => {
-    setViewport(1440);
-    render(
-      <SidebarProvider>
-        <SidebarRail />
-      </SidebarProvider>,
-    );
-    expect(
-      screen.getByRole('button', { name: 'Toggle sidebar' }),
-    ).toBeDefined();
-  });
-
-  it('does not render on mobile', () => {
-    setViewport(800);
-    render(
-      <SidebarProvider>
-        <SidebarRail />
-      </SidebarProvider>,
-    );
-    expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).toBeNull();
-  });
-
-  it('toggles sidebar when clicked', () => {
-    setViewport(1440);
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarContent>Content</SidebarContent>
-        </Sidebar>
-      </SidebarProvider>,
-    );
-    const aside = container.querySelector('aside');
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
   });
 });
 

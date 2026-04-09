@@ -1,5 +1,4 @@
 import {
-  type AnchorHTMLAttributes,
   type ButtonHTMLAttributes,
   type CSSProperties,
   createContext,
@@ -10,6 +9,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { cx } from '../../lib/cx';
 import {
   Sheet,
   SheetContent,
@@ -17,7 +17,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../sheet';
-import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -35,7 +34,6 @@ type SidebarContextValue = {
 type SidebarProps = {
   children: ReactNode;
   side?: 'left' | 'right';
-  collapsible?: 'offcanvas' | 'icon' | 'none';
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -142,11 +140,7 @@ export function useSidebar(): SidebarContextSnapshot {
   return useSidebarContext();
 }
 
-export function Sidebar({
-  side = 'left',
-  collapsible = 'offcanvas',
-  children,
-}: SidebarProps) {
+export function Sidebar({ side = 'left', children }: SidebarProps) {
   const context = useSidebarContext();
 
   // Mobile: delegate entirely to Sheet which owns portalling, focus trap,
@@ -172,26 +166,10 @@ export function Sidebar({
     );
   }
 
-  // Desktop: always-visible panel (no collapse)
-  if (collapsible === 'none') {
-    return (
-      <aside className={styles.root} data-side={side} data-state="expanded">
-        {children}
-      </aside>
-    );
-  }
-
-  // Desktop: collapsible panel
-  const state = context.open ? 'expanded' : 'collapsed';
+  // Desktop: always-visible panel.
   return (
-    <aside
-      className={styles.root}
-      data-side={side}
-      data-state={state}
-      data-collapsible={!context.open ? collapsible : undefined}
-    >
+    <aside className={styles.root} data-side={side} data-state="expanded">
       {children}
-      <SidebarRail />
     </aside>
   );
 }
@@ -263,19 +241,6 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   );
 }
 
-export function SidebarRail() {
-  const { isMobile, toggleSidebar } = useSidebar();
-  if (isMobile) return null;
-  return (
-    <button
-      type="button"
-      className={styles.rail}
-      aria-label="Toggle sidebar"
-      onClick={toggleSidebar}
-    />
-  );
-}
-
 export function SidebarGroup(props: { children: ReactNode }) {
   return <section className={styles.group}>{props.children}</section>;
 }
@@ -301,54 +266,6 @@ export function SidebarMenu(props: {
 
 export function SidebarMenuItem(props: { children: ReactNode }) {
   return <div className={styles.menuItem}>{props.children}</div>;
-}
-
-export function SidebarMenuButton(
-  props: ButtonHTMLAttributes<HTMLButtonElement> & {
-    children: ReactNode;
-    isActive?: boolean;
-    className?: string;
-  },
-) {
-  const { className, isActive, children, ...rest } = props;
-  return (
-    <button
-      {...rest}
-      type={props.type ?? 'button'}
-      className={cx(
-        styles.menuButton,
-        isActive && styles.menuButtonActive,
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-export function SidebarMenuAnchor(
-  props: AnchorHTMLAttributes<HTMLAnchorElement> & {
-    children: ReactNode;
-    isActive?: boolean;
-  },
-) {
-  const { className, isActive, children, ...rest } = props;
-  return (
-    <a
-      {...rest}
-      className={cx(
-        styles.menuButton,
-        isActive && styles.menuButtonActive,
-        className,
-      )}
-    >
-      {children}
-    </a>
-  );
-}
-
-export function SidebarMenuBadge(props: { children: ReactNode }) {
-  return <span className={styles.menuBadge}>{props.children}</span>;
 }
 
 export function SidebarFooterActions(props: { children: ReactNode }) {
