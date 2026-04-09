@@ -8,7 +8,11 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { PluginManager, validatePluginConfig } from './plugin-manager.js';
+import {
+  PluginManager,
+  resolveEffectivePluginConfigSchema,
+  validatePluginConfig,
+} from './plugin-manager.js';
 
 export interface PluginConfigReadResult {
   pluginId: string;
@@ -105,7 +109,8 @@ async function validatePluginOverride(
       `Plugin \`${pluginId}\` was not found. Install or discover it before changing config.`,
     );
   }
-  validatePluginConfig(candidate.manifest.configSchema, candidate.config);
+  const schema = await resolveEffectivePluginConfigSchema(candidate);
+  validatePluginConfig(schema, candidate.config);
 }
 
 async function ensurePluginExistsForConfig(

@@ -13,35 +13,9 @@ import {
   loadPersistedState,
   savePersistedState,
 } from './runtime-state.js';
+import { normalizeString, truncateText } from './utils.js';
 
-function normalizeString(value) {
-  return String(value || '').trim();
-}
-
-function resolveSessionRootPath(explicitPath, cachedPath, workspacePath, cwd) {
-  const explicit = normalizeString(explicitPath);
-  if (explicit) return explicit;
-
-  const cached = normalizeString(cachedPath);
-  if (cached) return cached;
-
-  const workspace = normalizeString(workspacePath);
-  if (workspace) {
-    const normalized = path.resolve(workspace);
-    if (path.basename(normalized) === 'workspace') {
-      return path.dirname(normalized);
-    }
-    return normalized;
-  }
-
-  return normalizeString(cwd) || process.cwd();
-}
-
-function truncateText(value, maxChars) {
-  const normalized = normalizeString(value);
-  if (!maxChars || normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
+const SESSION_HISTORY_BACKFILL_LIMIT = 500;
 
 function latestUserQuery(messages) {
   let latest = null;
@@ -126,78 +100,6 @@ function formatPromptContext(payload, config) {
 
   if (sections.length === 1) return null;
   return truncateText(sections.join('\n\n'), config.maxInjectedChars);
-}
-
-function formatProfileText(params) {
-  const sections = ['Honcho profile'];
-  const representation = normalizeString(params.representation);
-  const peerCard = formatPeerCard(params.peerCard);
-  if (representation) {
-    sections.push('', 'Representation:', representation);
-  }
-  if (peerCard) {
-    sections.push('', 'Peer card:', peerCard);
-  }
-  if (!representation && !peerCard) {
-    sections.push('', 'No Honcho profile data is available yet.');
-  }
-  return sections.join('\n');
-}
-
-function formatSearchResult(results) {
-  if (!Array.isArray(results) || results.length === 0) {
-    return 'No Honcho message results found for this session.';
-  }
-  return results
-    .map((message, index) =>
-      [
-        `[${index + 1}] ${normalizeString(message.peer_id) || 'peer'} @ ${
-          normalizeString(message.created_at) || 'unknown'
-        }`,
-        normalizeString(message.content),
-      ].join('\n'),
-    )
-    .join('\n\n');
-}
-
-function formatMappingsText(config, cwd) {
-  const rows = Object.entries(config.sessions || {});
-  if (rows.length === 0) {
-    return [
-      'Honcho session mappings',
-      'No directory mappings configured.',
-      '',
-      'Use `/honcho map <name>` to map the current working directory.',
-    ].join('\n');
-  }
-  return [
-    'Honcho session mappings',
-    ...rows
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(
-        ([mappedPath, name]) =>
-          `${mappedPath === cwd ? '* ' : '  '}${mappedPath} → ${name}`,
-      ),
-  ].join('\n');
-}
-
-function parseFlagValue(args, flag) {
-  const index = args.indexOf(flag);
-  if (index === -1) return null;
-  return args[index + 1] ?? '';
-}
-
-function parsePeerSelection(value, fallback = 'user') {
-  const normalized = normalizeString(value).toLowerCase();
-  if (
-    normalized === 'ai' ||
-    normalized === 'assistant' ||
-    normalized === 'agent'
-  ) {
-    return 'agent';
-  }
-  if (normalized === 'user') return 'user';
-  return fallback;
 }
 
 function normalizeConclusionText(value) {
@@ -297,6 +199,8 @@ export class HonchoRuntime {
     this.pendingWrites = new Map();
     this.bufferedMessages = new Map();
     this.sessionContexts = new Map();
+    this.stateWriteDirty = false;
+    this.stateWritePromise = null;
   }
 
   async start() {
@@ -310,14 +214,13 @@ export class HonchoRuntime {
         'Honcho startup health-check passed',
       );
     } catch (error) {
-      this.api.logger.warn(
-        {
-          error,
-          baseUrl: this.config.baseUrl,
-          workspaceId: this.config.workspaceId,
-        },
-        'Honcho startup health-check failed',
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error || 'Unknown error');
+      throw new Error(`Honcho startup health-check failed: ${message}`, {
+        cause: error instanceof Error ? error : undefined,
+      });
     }
   }
 
@@ -327,21 +230,22 @@ export class HonchoRuntime {
     }
     await Promise.allSettled([...this.pendingWrites.values()]);
     this.persistState();
+    await this.flushPendingStateWrite();
   }
 
   async onSessionStart(context) {
     void this.prepareSession(context, {
-      seedWorkspace: true,
       prewarm: true,
       query: 'What should I know about this user?',
     });
   }
 
   async onSessionEnd(context) {
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-    });
+    const sessionContext = await this.prepareSession(context);
     await this.flushBufferedMessages(context.sessionId, sessionContext);
+    this.contextPrefetch.delete(context.sessionId);
+    this.dialecticPrefetch.delete(context.sessionId);
+    this.bufferedMessages.delete(context.sessionId);
     this.sessionContexts.delete(context.sessionId);
   }
 
@@ -360,13 +264,10 @@ export class HonchoRuntime {
     if (conclusions.length === 0) return;
 
     try {
-      const sessionContext = await this.prepareSession(
-        {
-          sessionId: context.sessionId,
-          agentId: context.agentId,
-        },
-        { seedWorkspace: true },
-      );
+      const sessionContext = await this.prepareSession({
+        sessionId: context.sessionId,
+        agentId: context.agentId,
+      });
       await this.client.createConclusions({
         ...sessionContext,
         observerPeerId: this.config.agentObserveOthers
@@ -415,9 +316,7 @@ export class HonchoRuntime {
       dialecticEntry?.status === 'fulfilled' ? dialecticEntry.value : '';
     if (!payload && sessionState.promptInjections === 0) {
       try {
-        const sessionContext = await this.prepareSession(params, {
-          seedWorkspace: true,
-        });
+        const sessionContext = await this.prepareSession(params);
         payload = await this.fetchPromptContextPayload(sessionContext);
         this.contextPrefetch.set(params.sessionId, {
           status: 'fulfilled',
@@ -434,9 +333,7 @@ export class HonchoRuntime {
       }
     }
     if (!payload && !dialectic) {
-      void this.prepareSession(params, {
-        seedWorkspace: true,
-      })
+      void this.prepareSession(params)
         .then((sessionContext) =>
           this.schedulePrefetch(
             sessionContext,
@@ -503,7 +400,10 @@ export class HonchoRuntime {
     );
     if (sessionState.historyBackfilled) return;
 
-    const storedMessages = this.api.getSessionMessages(platformSessionId);
+    const storedMessages = this.api.getSessionMessages(
+      platformSessionId,
+      SESSION_HISTORY_BACKFILL_LIMIT,
+    );
     const historyToMirror = filterMirrorableMessages(storedMessages, {
       afterId: Number(sessionState.lastSyncedMessageId || 0),
       beforeIdExclusive:
@@ -543,7 +443,6 @@ export class HonchoRuntime {
     sessionState.turnCount += 1;
     const currentTurnStartId = minPositiveMessageId(params.messages);
     const sessionContext = await this.prepareSession(params, {
-      seedWorkspace: true,
       prewarm: false,
       backfillBeforeMessageId: currentTurnStartId,
     });
@@ -607,22 +506,14 @@ export class HonchoRuntime {
     const buffered = this.bufferedMessages.get(sessionId) || [];
     if (buffered.length === 0) return;
     const sessionContext =
-      preparedContext ||
-      (await this.prepareSession({ sessionId }, { seedWorkspace: true }));
+      preparedContext || (await this.prepareSession({ sessionId }));
     const sessionState = getSessionState(this.persistedState, sessionId);
-    const messagesToMirror = [];
-    for (const message of buffered) {
-      const role = normalizeString(message.role).toLowerCase();
-      if (role !== 'user' && role !== 'assistant') continue;
-      messagesToMirror.push(message);
-    }
-
-    if (messagesToMirror.length > 0) {
+    if (buffered.length > 0) {
       await this.client.syncMessages({
         honchoSessionId: sessionContext.honchoSessionId,
         userId: sessionContext.userId,
         agentId: sessionContext.agentId,
-        messages: messagesToMirror,
+        messages: buffered,
       });
     }
 
@@ -690,23 +581,24 @@ export class HonchoRuntime {
   }
 
   async fetchPromptContextPayload(sessionContext) {
-    const user = await this.client.getSessionContext({
+    const userPromise = this.client.getSessionContext({
       ...sessionContext,
       includeSummary: this.config.includeSummary,
       limitToSession: this.config.limitToSession,
       peerTargetId: sessionContext.userPeerId,
       peerPerspectiveId: sessionContext.agentPeerId,
     });
-    const ai =
+    const aiPromise =
       this.config.includeAiPeerRepresentation || this.config.includeAiPeerCard
-        ? await this.client.getSessionContext({
+        ? this.client.getSessionContext({
             ...sessionContext,
             includeSummary: false,
             limitToSession: this.config.limitToSession,
             peerTargetId: sessionContext.agentPeerId,
             peerPerspectiveId: sessionContext.userPeerId,
           })
-        : null;
+        : Promise.resolve(null);
+    const [user, ai] = await Promise.all([userPromise, aiPromise]);
     return {
       user,
       ai,
@@ -750,16 +642,16 @@ export class HonchoRuntime {
     this.dialecticPrefetch.set(sessionContext.platformSessionId, entry);
     void (async () => {
       try {
-        const floor =
-          this.config.dialecticReasoningLevel === 'minimal'
-            ? 'minimal'
-            : this.config.dialecticReasoningLevel;
         const value = await this.client.chatWithPeer({
           peerId: sessionContext.agentPeerId,
           targetPeerId: sessionContext.userPeerId,
           honchoSessionId: sessionContext.honchoSessionId,
           query,
-          reasoningLevel: dynamicReasoningLevel(this.config, query, floor),
+          reasoningLevel: dynamicReasoningLevel(
+            this.config,
+            query,
+            this.config.dialecticReasoningLevel,
+          ),
         });
         entry.status = 'fulfilled';
         entry.value = value;
@@ -797,12 +689,11 @@ export class HonchoRuntime {
       normalizeString(sessionInfo.workspacePath) ||
       normalizeString(cachedContext?.workspacePath) ||
       this.api.runtime.cwd;
-    const sessionRoot = resolveSessionRootPath(
-      params.workspacePath,
-      cachedContext?.sessionRoot,
-      workspacePath,
-      this.api.runtime.cwd,
-    );
+    const sessionRoot =
+      normalizeString(params.workspacePath) ||
+      normalizeString(cachedContext?.sessionRoot) ||
+      normalizeString(sessionInfo.workspaceRoot) ||
+      this.api.runtime.cwd;
     const honchoSessionId = sanitizeHonchoSessionId(
       resolveHonchoSessionKey({
         config: this.config,
@@ -833,7 +724,7 @@ export class HonchoRuntime {
       userId: sessionContext.userId,
       agentId: sessionContext.agentId,
     });
-    if (options.seedWorkspace) {
+    if (options.seedWorkspace !== false) {
       await this.seedWorkspaceFiles(sessionContext);
     }
     await this.backfillStoredSessionHistory(sessionContext, {
@@ -866,7 +757,6 @@ export class HonchoRuntime {
         name: 'SOUL.md',
         role: 'assistant',
         source: 'workspace:SOUL.md',
-        enabled: true,
         wrap: (content) =>
           `<ai_identity_seed>\n<source>SOUL.md</source>\n\n${content}\n</ai_identity_seed>`,
       },
@@ -874,7 +764,6 @@ export class HonchoRuntime {
         name: 'IDENTITY.md',
         role: 'assistant',
         source: 'workspace:IDENTITY.md',
-        enabled: true,
         wrap: (content) =>
           `<ai_identity_seed>\n<source>IDENTITY.md</source>\n\n${content}\n</ai_identity_seed>`,
       },
@@ -882,7 +771,6 @@ export class HonchoRuntime {
         name: 'AGENTS.md',
         role: 'assistant',
         source: 'workspace:AGENTS.md',
-        enabled: true,
         wrap: (content) =>
           `<ai_identity_seed>\n<source>AGENTS.md</source>\n\n${content}\n</ai_identity_seed>`,
       },
@@ -890,7 +778,6 @@ export class HonchoRuntime {
         name: 'USER.md',
         role: 'user',
         source: 'workspace:USER.md',
-        enabled: true,
         wrap: (content) =>
           `<prior_memory_file>\n<source>USER.md</source>\n\n${content}\n</prior_memory_file>`,
       },
@@ -898,14 +785,12 @@ export class HonchoRuntime {
         name: 'MEMORY.md',
         role: 'user',
         source: 'workspace:MEMORY.md',
-        enabled: true,
         wrap: (content) =>
           `<prior_memory_file>\n<source>MEMORY.md</source>\n\n${content}\n</prior_memory_file>`,
       },
     ];
 
     for (const file of seedableFiles) {
-      if (!file.enabled) continue;
       if (honchoSessionState.seededSources.includes(file.source)) {
         continue;
       }
@@ -932,479 +817,39 @@ export class HonchoRuntime {
   }
 
   persistState() {
-    savePersistedState(this.statePath, this.persistedState);
+    this.stateWriteDirty = true;
+    if (this.stateWritePromise) return;
+    this.stateWritePromise = new Promise((resolve) => {
+      setImmediate(() => {
+        this.stateWritePromise = null;
+        this.writePersistedStateNow();
+        resolve();
+      });
+    });
   }
 
-  async handleCommand(args, context) {
-    const normalizedArgs = (args || [])
-      .map((arg) => normalizeString(arg))
-      .filter(Boolean);
-    const subcommand = normalizeString(
-      normalizedArgs[0] || 'status',
-    ).toLowerCase();
+  async flushPendingStateWrite() {
+    while (this.stateWritePromise) {
+      await this.stateWritePromise;
+    }
+    if (this.stateWriteDirty) {
+      this.writePersistedStateNow();
+    }
+  }
+
+  writePersistedStateNow() {
+    if (!this.stateWriteDirty) return;
+    this.stateWriteDirty = false;
     try {
-      if (subcommand === 'search') {
-        return await this.handleSearchCommand(normalizedArgs.slice(1), context);
-      }
-      if (subcommand === 'sessions') {
-        return formatMappingsText(
-          this.config,
-          this.resolveSessionContext(context).workspacePath,
-        );
-      }
-      if (subcommand === 'map') {
-        return await this.handleMapCommand(normalizedArgs.slice(1), context);
-      }
-      if (subcommand === 'mode') {
-        return await this.handleModeCommand(normalizedArgs.slice(1));
-      }
-      if (subcommand === 'recall') {
-        return await this.handleRecallCommand(normalizedArgs.slice(1));
-      }
-      if (subcommand === 'peer') {
-        return await this.handlePeerCommand(normalizedArgs.slice(1));
-      }
-      if (subcommand === 'tokens') {
-        return await this.handleTokensCommand(normalizedArgs.slice(1));
-      }
-      if (subcommand === 'identity') {
-        return await this.handleIdentityCommand(
-          normalizedArgs.slice(1),
-          context,
-        );
-      }
-      if (subcommand === 'setup') {
-        return await this.handleSetupCommand(context);
-      }
-      if (subcommand === 'sync') {
-        return await this.handleSyncCommand(context);
-      }
-      return await this.handleStatusCommand(context);
+      savePersistedState(this.statePath, this.persistedState);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : String(error || 'Unknown error');
-      return [
-        'Honcho command failed.',
-        `Workspace: ${this.config.workspaceId}`,
-        '',
-        message,
-      ].join('\n');
-    }
-  }
-
-  async handleStatusCommand(context) {
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-    });
-    const status = await this.client.getQueueStatus(
-      sessionContext.honchoSessionId,
-    );
-    return [
-      'Honcho status',
-      `Base URL: ${this.config.baseUrl}`,
-      `Workspace: ${this.config.workspaceId}`,
-      `Honcho session: ${sessionContext.honchoSessionId}`,
-      'Built-in memory: always on',
-      `Honcho recall mode: ${this.config.recallMode}`,
-      `Write frequency: ${this.config.writeFrequency}`,
-      `Pending work units: ${Number(status?.pending_work_units || 0)}`,
-      `In-progress work units: ${Number(status?.in_progress_work_units || 0)}`,
-      `Completed work units: ${Number(status?.completed_work_units || 0)}`,
-    ].join('\n');
-  }
-
-  async handleSearchCommand(args, context) {
-    const query = args.join(' ').trim();
-    if (!query) {
-      return 'Usage: /honcho search <query>';
-    }
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-    });
-    const results = await this.client.searchSession({
-      honchoSessionId: sessionContext.honchoSessionId,
-      query,
-      limit: this.config.searchLimit,
-    });
-    return formatSearchResult(results);
-  }
-
-  async handleMapCommand(args, context) {
-    const sessionRoot = this.resolveSessionContext(context).sessionRoot;
-    if (args.length === 0) {
-      return formatMappingsText(this.config, sessionRoot);
-    }
-    if (
-      args.includes('--clear') ||
-      normalizeString(args[0]).toLowerCase() === 'clear'
-    ) {
-      const sessions = { ...(this.config.sessions || {}) };
-      delete sessions[sessionRoot];
-      if (Object.keys(sessions).length === 0) {
-        await this.api.unsetConfigValue('sessions');
-      } else {
-        await this.persistConfigValue('sessions', sessions);
-      }
-      this.config.sessions = sessions;
-      return `Removed Honcho session mapping for ${sessionRoot}.`;
-    }
-    const mappingName = sanitizeHonchoSessionId(args.join(' '));
-    const sessions = { ...(this.config.sessions || {}) };
-    sessions[sessionRoot] = mappingName;
-    await this.persistConfigValue('sessions', sessions);
-    this.config.sessions = sessions;
-    return `Mapped ${sessionRoot} to Honcho session ${mappingName}.`;
-  }
-
-  async handleModeCommand(args) {
-    if (args.length === 0) {
-      return [
-        'Honcho recall mode',
-        'Built-in HybridClaw memory stays on; this command only changes Honcho recall behavior.',
-        `Current: ${this.config.recallMode}`,
-        '',
-        'Set with `/honcho mode <hybrid|context|tools>`.',
-        'Alias: `/honcho recall <hybrid|context|tools>`.',
-      ].join('\n');
-    }
-    const nextMode = normalizeString(args[0]).toLowerCase();
-    if (!['hybrid', 'context', 'tools'].includes(nextMode)) {
-      return 'Usage: /honcho mode <hybrid|context|tools>';
-    }
-    this.config.recallMode = nextMode;
-    await this.persistConfigValue('recallMode', nextMode);
-    return [
-      `Updated Honcho recall mode to ${nextMode}.`,
-      'Run `/plugin reload` or restart the gateway to refresh tool visibility.',
-    ].join('\n');
-  }
-
-  async handleRecallCommand(args) {
-    const result = await this.handleModeCommand(args);
-    if (args.length > 0) return result;
-    return String(result).replace('/honcho mode', '/honcho recall');
-  }
-
-  async handlePeerCommand(args) {
-    if (args.length === 0) {
-      return [
-        'Honcho peers',
-        `User label: ${this.config.peerName || '(derived from session user id)'}`,
-        `AI peer: ${this.config.aiPeer || '(derived from current agent id)'}`,
-        `Dialectic reasoning floor: ${this.config.dialecticReasoningLevel}`,
-      ].join('\n');
-    }
-    const userValue = parseFlagValue(args, '--user');
-    const aiValue = parseFlagValue(args, '--ai');
-    const reasoningValue = parseFlagValue(args, '--reasoning');
-    if (userValue != null && userValue) {
-      this.config.peerName = userValue;
-      await this.persistConfigValue('peerName', userValue);
-    }
-    if (aiValue != null && aiValue) {
-      this.config.aiPeer = aiValue;
-      await this.persistConfigValue('aiPeer', aiValue);
-    }
-    if (reasoningValue != null && reasoningValue) {
-      if (
-        !['minimal', 'low', 'medium', 'high', 'max'].includes(reasoningValue)
-      ) {
-        return 'Usage: /honcho peer [--user <name>] [--ai <name>] [--reasoning <minimal|low|medium|high|max>]';
-      }
-      this.config.dialecticReasoningLevel = reasoningValue;
-      await this.persistConfigValue('dialecticReasoningLevel', reasoningValue);
-    }
-    return [
-      'Updated Honcho peer configuration.',
-      `User label: ${this.config.peerName || '(derived from session user id)'}`,
-      `AI peer: ${this.config.aiPeer || '(derived from current agent id)'}`,
-      `Dialectic reasoning floor: ${this.config.dialecticReasoningLevel}`,
-    ].join('\n');
-  }
-
-  async handleTokensCommand(args) {
-    if (args.length === 0) {
-      return [
-        'Honcho budgets',
-        `Context tokens: ${this.config.contextTokens}`,
-        `Dialectic max chars: ${this.config.dialecticMaxChars}`,
-        `Dialectic max input chars: ${this.config.dialecticMaxInputChars}`,
-      ].join('\n');
-    }
-    const contextValue = parseFlagValue(args, '--context');
-    const dialecticValue = parseFlagValue(args, '--dialectic');
-    const inputValue = parseFlagValue(args, '--input');
-    if (contextValue != null && contextValue) {
-      const parsed = Number(contextValue);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return 'Usage: /honcho tokens [--context <n>] [--dialectic <n>] [--input <n>]';
-      }
-      this.config.contextTokens = Math.trunc(parsed);
-      await this.persistConfigValue('contextTokens', this.config.contextTokens);
-    }
-    if (dialecticValue != null && dialecticValue) {
-      const parsed = Number(dialecticValue);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return 'Usage: /honcho tokens [--context <n>] [--dialectic <n>] [--input <n>]';
-      }
-      this.config.dialecticMaxChars = Math.trunc(parsed);
-      await this.persistConfigValue(
-        'dialecticMaxChars',
-        this.config.dialecticMaxChars,
-      );
-    }
-    if (inputValue != null && inputValue) {
-      const parsed = Number(inputValue);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return 'Usage: /honcho tokens [--context <n>] [--dialectic <n>] [--input <n>]';
-      }
-      this.config.dialecticMaxInputChars = Math.trunc(parsed);
-      await this.persistConfigValue(
-        'dialecticMaxInputChars',
-        this.config.dialecticMaxInputChars,
-      );
-    }
-    return [
-      'Updated Honcho budgets.',
-      `Context tokens: ${this.config.contextTokens}`,
-      `Dialectic max chars: ${this.config.dialecticMaxChars}`,
-      `Dialectic max input chars: ${this.config.dialecticMaxInputChars}`,
-    ].join('\n');
-  }
-
-  async handleSyncCommand(context) {
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-    });
-    await this.flushBufferedMessages(context.sessionId, sessionContext);
-    await this.schedulePrefetch(
-      sessionContext,
-      'What should I know about this conversation right now?',
-      { force: true },
-    );
-    return [
-      'Honcho sync complete.',
-      `Honcho session: ${sessionContext.honchoSessionId}`,
-      'Buffered messages were flushed and prompt context was refreshed.',
-    ].join('\n');
-  }
-
-  async handleIdentityCommand(args, context) {
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-    });
-    if (args.includes('--show')) {
-      const user = await this.client.getSessionContext({
-        ...sessionContext,
-        includeSummary: false,
-        limitToSession: false,
-        peerTargetId: sessionContext.userPeerId,
-        peerPerspectiveId: sessionContext.agentPeerId,
-      });
-      const ai = await this.client.getSessionContext({
-        ...sessionContext,
-        includeSummary: false,
-        limitToSession: false,
-        peerTargetId: sessionContext.agentPeerId,
-        peerPerspectiveId: sessionContext.userPeerId,
-      });
-      return [
-        'Honcho identity',
-        '',
-        formatProfileText({
-          representation: user?.peer_representation,
-          peerCard: user?.peer_card,
-        }),
-        '',
-        'AI peer',
-        normalizeString(ai?.peer_representation) ||
-          'No AI representation is available yet.',
-        formatPeerCard(ai?.peer_card),
-      ]
-        .filter(Boolean)
-        .join('\n');
-    }
-    const fileArg = args.find((arg) => !arg.startsWith('--'));
-    if (!fileArg) {
-      return [
-        'Usage: /honcho identity --show',
-        '   or: /honcho identity <path>',
-      ].join('\n');
-    }
-    const resolvedPath = path.isAbsolute(fileArg)
-      ? fileArg
-      : path.resolve(this.api.runtime.cwd, fileArg);
-    if (!fs.existsSync(resolvedPath)) {
-      return `File not found: ${resolvedPath}`;
-    }
-    const content = normalizeString(fs.readFileSync(resolvedPath, 'utf-8'));
-    if (!content) {
-      return `File is empty: ${resolvedPath}`;
-    }
-    await this.client.syncMessages({
-      honchoSessionId: sessionContext.honchoSessionId,
-      userId: sessionContext.userId,
-      agentId: sessionContext.agentId,
-      messages: [
+      this.api.logger.warn(
         {
-          id: Date.now(),
-          role: 'assistant',
-          content: `<ai_identity_seed>\n<source>${path.basename(
-            resolvedPath,
-          )}</source>\n\n${content}\n</ai_identity_seed>`,
-          created_at: new Date().toISOString(),
+          error,
+          statePath: this.statePath,
         },
-      ],
-    });
-    return `Seeded Honcho AI identity from ${resolvedPath}.`;
-  }
-
-  async handleSetupCommand(context) {
-    const sessionContext = await this.prepareSession(context, {
-      seedWorkspace: true,
-      prewarm: true,
-      query: 'What should I know about this user?',
-    });
-    return [
-      'Honcho setup',
-      `Workspace: ${this.config.workspaceId}`,
-      `Honcho session: ${sessionContext.honchoSessionId}`,
-      `Recall mode: ${this.config.recallMode}`,
-      '',
-      'Workspace memory files were checked and seeded where available.',
-      'Use `/honcho status` to verify connectivity and `/honcho identity --show` to inspect the current peer representations.',
-    ].join('\n');
-  }
-
-  async persistConfigValue(key, value) {
-    const raw =
-      typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-    await this.api.writeConfigValue(key, raw);
-  }
-
-  async buildProfile(sessionContext, targetPeer) {
-    const peerTargetId =
-      targetPeer === 'agent'
-        ? sessionContext.agentPeerId
-        : sessionContext.userPeerId;
-    const peerPerspectiveId =
-      targetPeer === 'agent'
-        ? sessionContext.userPeerId
-        : sessionContext.agentPeerId;
-    const result = await this.client.getSessionContext({
-      ...sessionContext,
-      includeSummary: false,
-      limitToSession: false,
-      peerTargetId,
-      peerPerspectiveId,
-    });
-    return {
-      representation: result?.peer_representation || '',
-      peerCard: result?.peer_card || [],
-    };
-  }
-
-  async handleToolProfile(args, context) {
-    const targetPeer = parsePeerSelection(args.peer);
-    const sessionContext = await this.prepareSession(
-      {
-        sessionId: context.sessionId,
-      },
-      { seedWorkspace: true },
-    );
-    const profile = await this.buildProfile(sessionContext, targetPeer);
-    return formatProfileText(profile);
-  }
-
-  async handleToolSearch(args, context) {
-    const query = normalizeString(args.query);
-    if (!query) {
-      throw new Error('Missing required parameter: query');
+        'Honcho state persistence failed',
+      );
     }
-    const sessionContext = await this.prepareSession(
-      {
-        sessionId: context.sessionId,
-      },
-      { seedWorkspace: true },
-    );
-    const targetPeer = parsePeerSelection(args.peer);
-    const targetPeerId =
-      targetPeer === 'agent' ? undefined : sessionContext.userPeerId;
-    const representation = await this.client.getPeerRepresentation({
-      peerId: sessionContext.agentPeerId,
-      targetPeerId,
-      honchoSessionId: sessionContext.honchoSessionId,
-      query,
-    });
-    const messageResults = await this.client.searchSession({
-      honchoSessionId: sessionContext.honchoSessionId,
-      query,
-      limit: this.config.searchLimit,
-    });
-    return [
-      'Honcho search',
-      '',
-      formatProfileText({
-        representation:
-          representation?.representation || representation?.peer_representation,
-        peerCard: representation?.peer_card || representation?.card || [],
-      }),
-      '',
-      'Session message matches:',
-      formatSearchResult(messageResults),
-    ].join('\n');
-  }
-
-  async handleToolContext(args, context) {
-    const query = normalizeString(args.query);
-    if (!query) {
-      throw new Error('Missing required parameter: query');
-    }
-    const peer = parsePeerSelection(args.peer);
-    const sessionContext = await this.prepareSession(
-      {
-        sessionId: context.sessionId,
-      },
-      { seedWorkspace: true },
-    );
-    const queryPeerId = sessionContext.agentPeerId;
-    const targetPeerId =
-      peer === 'user' ? sessionContext.userPeerId : undefined;
-    const result = await this.client.chatWithPeer({
-      peerId: queryPeerId,
-      targetPeerId,
-      honchoSessionId: sessionContext.honchoSessionId,
-      query,
-      reasoningLevel: dynamicReasoningLevel(
-        this.config,
-        query,
-        peer === 'user' ? 'medium' : this.config.dialecticReasoningLevel,
-      ),
-    });
-    return result || 'No Honcho answer was returned.';
-  }
-
-  async handleToolConclude(args, context) {
-    const conclusion = normalizeString(args.conclusion);
-    if (!conclusion) {
-      throw new Error('Missing required parameter: conclusion');
-    }
-    const sessionContext = await this.prepareSession(
-      {
-        sessionId: context.sessionId,
-      },
-      { seedWorkspace: true },
-    );
-    const observerPeerId = sessionContext.agentPeerId;
-    const observedPeerId = sessionContext.userPeerId;
-    await this.client.createConclusions({
-      ...sessionContext,
-      observerPeerId,
-      observedPeerId,
-      conclusions: [conclusion],
-    });
-    return `Conclusion saved: ${conclusion}`;
   }
 }

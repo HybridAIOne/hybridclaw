@@ -1,17 +1,9 @@
+import { normalizeString, truncateText } from './utils.js';
+
 function normalizeBaseUrl(value) {
   return String(value || '')
     .trim()
     .replace(/\/+$/, '');
-}
-
-function normalizeString(value) {
-  return String(value || '').trim();
-}
-
-function truncateText(value, maxChars) {
-  const normalized = normalizeString(value);
-  if (!maxChars || normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
 function encodePathSegment(value) {

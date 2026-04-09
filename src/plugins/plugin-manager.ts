@@ -742,6 +742,30 @@ function resolvePluginDefinition(mod: unknown): HybridClawPluginDefinition {
   return candidate as unknown as HybridClawPluginDefinition;
 }
 
+export async function resolveEffectivePluginConfigSchema(
+  candidate: PluginCandidate,
+): Promise<PluginConfigSchema | undefined> {
+  let importedModule: { module: unknown; snapshotRootDir: string } | null =
+    null;
+  try {
+    importedModule = await importPluginModule(
+      candidate.entrypoint,
+      candidate.dir,
+    );
+    const definition = resolvePluginDefinition(importedModule.module);
+    if (definition.id.trim() !== candidate.id) {
+      return candidate.manifest.configSchema;
+    }
+    return definition.configSchema || candidate.manifest.configSchema;
+  } catch {
+    return candidate.manifest.configSchema;
+  } finally {
+    if (importedModule?.snapshotRootDir) {
+      cleanupPluginImportSnapshot(importedModule.snapshotRootDir);
+    }
+  }
+}
+
 function normalizeToolResult(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value == null) return '';
@@ -769,6 +793,8 @@ export class PluginManager {
   private channels: RegisteredChannel[] = [];
   private commands = new Map<string, RegisteredCommand>();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
+  private sessionWorkspaceRoots = new Map<string, string>();
+  private sessionUserIds = new Map<string, string>();
   private importSnapshotRoots: string[] = [];
   private dispatchInboundMessageHost:
     | ((
@@ -1372,6 +1398,38 @@ export class PluginManager {
     });
   }
 
+  getSessionWorkspaceRoot(sessionId: string): string | null {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return null;
+    return this.sessionWorkspaceRoots.get(normalizedSessionId) || null;
+  }
+
+  getSessionUserId(sessionId: string): string | null {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return null;
+    return this.sessionUserIds.get(normalizedSessionId) || null;
+  }
+
+  private rememberSessionWorkspaceRoot(
+    sessionId: string,
+    workspacePath?: string,
+  ): void {
+    const normalizedSessionId = String(sessionId || '').trim();
+    const normalizedWorkspacePath = String(workspacePath || '').trim();
+    if (!normalizedSessionId || !normalizedWorkspacePath) return;
+    this.sessionWorkspaceRoots.set(
+      normalizedSessionId,
+      path.resolve(normalizedWorkspacePath),
+    );
+  }
+
+  private rememberSessionUserId(sessionId: string, userId?: string): void {
+    const normalizedSessionId = String(sessionId || '').trim();
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedSessionId || !normalizedUserId) return;
+    this.sessionUserIds.set(normalizedSessionId, normalizedUserId);
+  }
+
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
     return {
       plugins: [...this.plugins],
@@ -1444,6 +1502,52 @@ export class PluginManager {
     }
 
     return [...registered].sort((left, right) => left.localeCompare(right));
+  }
+
+  private disableFailedMemoryProviderPlugin(
+    pluginId: string,
+    errorMessage: string,
+  ): void {
+    const plugin = this.plugins.find((entry) => entry.id === pluginId);
+    if (
+      !plugin ||
+      (plugin.manifest.kind !== 'memory' &&
+        plugin.manifest.memoryProvider !== true)
+    ) {
+      return;
+    }
+
+    plugin.enabled = false;
+    plugin.status = 'failed';
+    plugin.error = errorMessage;
+
+    this.memoryLayers = this.memoryLayers.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+    this.promptHooks = this.promptHooks.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+    this.services = this.services.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+
+    for (const [name, entry] of this.tools.entries()) {
+      if (entry.pluginId === pluginId) {
+        this.tools.delete(name);
+      }
+    }
+
+    for (const [name, entries] of [...this.hooks.entries()]) {
+      const remaining = entries.filter((entry) => entry.pluginId !== pluginId);
+      if (remaining.length === 0) {
+        this.hooks.delete(name);
+        continue;
+      }
+      this.hooks.set(name, remaining);
+    }
+
+    plugin.toolsRegistered = this.getPluginToolNames(pluginId);
+    plugin.hooksRegistered = this.getPluginHookNames(pluginId);
   }
 
   getMemoryLayers(): MemoryLayerPlugin[] {
@@ -1550,6 +1654,8 @@ export class PluginManager {
     recentMessages: StoredMessage[];
   }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
     const memoryBehavior = this.getMemoryBehaviorSnapshot();
 
     const extraContext: string[] = [];
@@ -1662,6 +1768,8 @@ export class PluginManager {
     workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
     await this.dispatchHook('session_start', params);
   }
 
@@ -1673,7 +1781,10 @@ export class PluginManager {
     workspacePath?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
     await this.dispatchHook('session_end', params);
+    this.sessionWorkspaceRoots.delete(params.sessionId);
+    this.sessionUserIds.delete(params.sessionId);
   }
 
   async notifyBeforeAgentStart(params: {
@@ -1684,11 +1795,13 @@ export class PluginManager {
     model?: string;
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
     await this.dispatchHook('before_agent_start', params);
   }
 
   async notifyAgentEnd(context: PluginAgentEndContext): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(context.sessionId, context.userId);
     await this.dispatchHook('agent_end', context);
   }
 
@@ -1700,6 +1813,8 @@ export class PluginManager {
     messages: StoredMessage[];
   }): Promise<void> {
     await this.ensureInitialized();
+    this.rememberSessionUserId(params.sessionId, params.userId);
+    this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onTurnComplete) continue;
       try {
@@ -1715,6 +1830,20 @@ export class PluginManager {
 
   async handleSessionReset(context: PluginSessionResetContext): Promise<void> {
     await this.ensureInitialized();
+    const previousWorkspaceRoot =
+      this.sessionWorkspaceRoots.get(context.previousSessionId) || null;
+    const previousUserId =
+      this.sessionUserIds.get(context.previousSessionId) || null;
+    if (previousWorkspaceRoot) {
+      this.sessionWorkspaceRoots.set(context.sessionId, previousWorkspaceRoot);
+    }
+    if (previousUserId) {
+      this.sessionUserIds.set(context.sessionId, previousUserId);
+    } else {
+      this.rememberSessionUserId(context.sessionId, context.userId);
+    }
+    this.sessionWorkspaceRoots.delete(context.previousSessionId);
+    this.sessionUserIds.delete(context.previousSessionId);
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onSessionReset) continue;
       try {
@@ -1884,6 +2013,10 @@ export class PluginManager {
         if (!start) continue;
         await start.call(entry.layer);
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : String(error || 'Unknown error');
         this.logger.warn(
           {
             pluginId: entry.pluginId,
@@ -1892,6 +2025,7 @@ export class PluginManager {
           },
           'Plugin memory layer failed to start',
         );
+        this.disableFailedMemoryProviderPlugin(entry.pluginId, errorMessage);
       }
     }
   }

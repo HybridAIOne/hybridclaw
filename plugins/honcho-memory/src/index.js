@@ -1,8 +1,10 @@
 import { resolveHonchoPluginConfig } from './config.js';
+import { buildHonchoConfigSchema } from './config-schema.js';
 import { HonchoClient } from './honcho-client.js';
+import { HonchoControls } from './honcho-controls.js';
 import { HonchoRuntime } from './honcho-runtime.js';
 
-function registerHonchoTools(api, runtime) {
+function registerHonchoTools(api, controls) {
   api.registerTool({
     name: 'honcho_profile',
     description:
@@ -19,7 +21,7 @@ function registerHonchoTools(api, runtime) {
       required: [],
     },
     handler(args, context) {
-      return runtime.handleToolProfile(args, context);
+      return controls.handleToolProfile(args, context);
     },
   });
 
@@ -43,7 +45,7 @@ function registerHonchoTools(api, runtime) {
       required: ['query'],
     },
     handler(args, context) {
-      return runtime.handleToolSearch(args, context);
+      return controls.handleToolSearch(args, context);
     },
   });
 
@@ -67,7 +69,7 @@ function registerHonchoTools(api, runtime) {
       required: ['query'],
     },
     handler(args, context) {
-      return runtime.handleToolContext(args, context);
+      return controls.handleToolContext(args, context);
     },
   });
 
@@ -86,7 +88,7 @@ function registerHonchoTools(api, runtime) {
       required: ['conclusion'],
     },
     handler(args, context) {
-      return runtime.handleToolConclude(args, context);
+      return controls.handleToolConclude(args, context);
     },
   });
 }
@@ -94,15 +96,16 @@ function registerHonchoTools(api, runtime) {
 export default {
   id: 'honcho-memory',
   kind: 'memory',
+  configSchema: buildHonchoConfigSchema(),
   register(api) {
     const config = resolveHonchoPluginConfig({
       pluginConfig: api.pluginConfig,
       runtime: api.runtime,
       credentialApiKey: api.getCredential('HONCHO_API_KEY'),
-      processEnvApiKey: process.env.HONCHO_API_KEY,
     });
     const client = new HonchoClient(config);
     const runtime = new HonchoRuntime(api, config, client);
+    const controls = new HonchoControls(runtime);
 
     api.registerMemoryLayer({
       id: 'honcho-memory-layer',
@@ -138,7 +141,7 @@ export default {
       description:
         'Inspect Honcho sync state, session mappings, identity seeding, and memory recall controls.',
       handler(args, context) {
-        return runtime.handleCommand(args, context);
+        return controls.handleCommand(args, context);
       },
     });
 
@@ -153,7 +156,7 @@ export default {
     });
 
     if (config.recallMode !== 'context') {
-      registerHonchoTools(api, runtime);
+      registerHonchoTools(api, controls);
     }
 
     api.logger.info(

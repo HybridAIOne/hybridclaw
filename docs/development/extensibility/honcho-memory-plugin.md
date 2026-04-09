@@ -93,11 +93,11 @@ looks like this:
 ```
 
 The plugin reads `HONCHO_API_KEY` from `/secret` first-class through
-`api.getCredential(...)`. A process environment variable with the same name also
-works, but `/secret` is the preferred operator path.
+`api.getCredential(...)`. Plaintext plugin config keys and process environment
+fallbacks are not supported for Honcho credentials.
 
 For a self-hosted Honcho instance with auth disabled, point `baseUrl` at your
-server and omit `apiKey`.
+server and leave `HONCHO_API_KEY` unset.
 
 ## Actual Defaults
 
@@ -451,6 +451,8 @@ If you already have useful context in `SOUL.md`, `IDENTITY.md`, `USER.md`, or
 
 - Use the defaults first. In most cases, `/secret set HONCHO_API_KEY ...` plus
   `/honcho setup` is enough to get started.
+- Do not store Honcho credentials in plugin config. The plugin only reads
+  `HONCHO_API_KEY` from `/secret`.
 - Keep `writeFrequency: async` for normal use when you care more about latency
   than immediate search visibility.
 - Switch to `writeFrequency: turn` when you are debugging or demoing Honcho and

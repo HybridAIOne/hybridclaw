@@ -190,30 +190,19 @@ export function createPluginApi(params: {
       agentId: string;
       userId: string | null;
       workspacePath: string;
+      workspaceRoot: string;
     } {
       const normalizedSessionId = String(sessionId || '').trim();
       const agentId = resolvePluginSessionAgentId(normalizedSessionId);
-      let userId: string | null = null;
-      if (normalizedSessionId) {
-        try {
-          const recentMessages = getRecentMessages(normalizedSessionId, 200);
-          const userMessage = recentMessages.find(
-            (message) =>
-              String(message.role || '')
-                .trim()
-                .toLowerCase() === 'user' &&
-              String(message.user_id || '').trim().length > 0,
-          );
-          userId = userMessage?.user_id?.trim() || null;
-        } catch {
-          userId = null;
-        }
-      }
+      const workspacePath = agentWorkspaceDir(agentId);
       return {
         sessionId: normalizedSessionId,
         agentId,
-        userId,
-        workspacePath: agentWorkspaceDir(agentId),
+        userId: params.manager.getSessionUserId(normalizedSessionId),
+        workspacePath,
+        workspaceRoot:
+          params.manager.getSessionWorkspaceRoot(normalizedSessionId) ||
+          workspacePath,
       };
     },
     getSessionMessages(sessionId: string, limit?: number) {

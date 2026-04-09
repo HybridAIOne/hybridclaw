@@ -435,6 +435,7 @@ export interface HybridClawPluginApi {
     agentId: string;
     userId: string | null;
     workspacePath: string;
+    workspaceRoot: string;
   };
   getSessionMessages(sessionId: string, limit?: number): StoredMessage[];
 }

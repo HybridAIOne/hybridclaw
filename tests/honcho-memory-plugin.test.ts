@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-
 import { afterEach, expect, test, vi } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
@@ -36,6 +36,359 @@ function installBundledPlugin(cwd: string): void {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
   fs.cpSync(sourceDir, targetDir, { recursive: true });
 }
+
+test('resolveHonchoPluginConfig only accepts HONCHO_API_KEY from credentials', async () => {
+  const { resolveHonchoPluginConfig } = await import(
+    '../plugins/honcho-memory/src/config.js'
+  );
+
+  const config = resolveHonchoPluginConfig({
+    pluginConfig: {
+      apiKey: 'plaintext-config-key',
+      workspaceId: 'hybridclaw-test',
+    },
+    runtime: {
+      cwd: '/tmp/hybridclaw',
+    },
+    credentialApiKey: 'secret-store-key',
+    processEnvApiKey: 'env-key-should-be-ignored',
+  });
+
+  expect(config.apiKey).toBe('secret-store-key');
+
+  const withoutCredential = resolveHonchoPluginConfig({
+    pluginConfig: {
+      apiKey: 'plaintext-config-key',
+      workspaceId: 'hybridclaw-test',
+    },
+    runtime: {
+      cwd: '/tmp/hybridclaw',
+    },
+    processEnvApiKey: 'env-key-should-be-ignored',
+  });
+
+  expect(withoutCredential.apiKey).toBe('');
+});
+
+test('resolveHonchoPluginConfig rejects invalid baseUrl values', async () => {
+  const { resolveHonchoPluginConfig } = await import(
+    '../plugins/honcho-memory/src/config.js'
+  );
+
+  expect(() =>
+    resolveHonchoPluginConfig({
+      pluginConfig: {
+        baseUrl: 'not-a-url',
+      },
+      runtime: {
+        cwd: '/tmp/hybridclaw',
+      },
+    }),
+  ).toThrow(
+    'honcho-memory plugin config.baseUrl must be a valid absolute URL.',
+  );
+});
+
+test('HonchoRuntime logs persisted-state write failures instead of throwing', async () => {
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const logger = {
+    warn: vi.fn(),
+    debug: vi.fn(),
+  };
+  const { HonchoRuntime } = await import(
+    '../plugins/honcho-memory/src/honcho-runtime.js'
+  );
+  const runtime = new HonchoRuntime(
+    {
+      runtime: {
+        homeDir: runtimeHome,
+        cwd: runtimeHome,
+      },
+      logger,
+    },
+    {},
+    {},
+  );
+
+  vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+    throw new Error('disk full');
+  });
+
+  await expect(
+    runtime.onSessionReset({
+      previousSessionId: 'session-old',
+      sessionId: 'session-new',
+    }),
+  ).resolves.toBeUndefined();
+  await runtime.flushPendingStateWrite();
+
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      error: expect.any(Error),
+      statePath: expect.stringContaining(
+        path.join('plugins', 'honcho-memory', 'state.json'),
+      ),
+    }),
+    'Honcho state persistence failed',
+  );
+});
+
+test('HonchoRuntime coalesces persisted-state writes within a single tick', async () => {
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const logger = {
+    warn: vi.fn(),
+    debug: vi.fn(),
+  };
+  const { HonchoRuntime } = await import(
+    '../plugins/honcho-memory/src/honcho-runtime.js'
+  );
+  const runtime = new HonchoRuntime(
+    {
+      runtime: {
+        homeDir: runtimeHome,
+        cwd: runtimeHome,
+      },
+      logger,
+    },
+    {},
+    {},
+  );
+
+  const writeSpy = vi.spyOn(runtime, 'writePersistedStateNow');
+
+  runtime.persistState();
+  runtime.persistState();
+  runtime.persistState();
+
+  expect(writeSpy).not.toHaveBeenCalled();
+
+  await runtime.flushPendingStateWrite();
+
+  expect(writeSpy).toHaveBeenCalledTimes(1);
+});
+
+test('HonchoRuntime clears session-scoped caches on session end', async () => {
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const logger = {
+    warn: vi.fn(),
+    debug: vi.fn(),
+  };
+  const { HonchoRuntime } = await import(
+    '../plugins/honcho-memory/src/honcho-runtime.js'
+  );
+  const client = {
+    ensureConversation: vi.fn().mockResolvedValue(undefined),
+    syncMessages: vi.fn().mockResolvedValue(undefined),
+  };
+  const runtime = new HonchoRuntime(
+    {
+      runtime: {
+        homeDir: runtimeHome,
+        cwd: runtimeHome,
+      },
+      logger,
+      getSessionInfo() {
+        return {
+          sessionId: 'session-end',
+          agentId: 'main',
+          userId: 'user-1',
+          workspacePath: runtimeHome,
+          workspaceRoot: runtimeHome,
+        };
+      },
+      getSessionMessages() {
+        return [];
+      },
+    },
+    {
+      sessions: {},
+      sessionStrategy: 'platform',
+      aiPeer: 'main',
+    },
+    client,
+  );
+
+  runtime.contextPrefetch.set('session-end', {
+    status: 'fulfilled',
+    value: { cached: true },
+  });
+  runtime.dialecticPrefetch.set('session-end', {
+    status: 'fulfilled',
+    value: 'cached-dialectic',
+  });
+  runtime.bufferedMessages.set('session-end', [
+    {
+      id: 7,
+      role: 'user',
+      content: 'Flush me before ending the session.',
+    },
+  ]);
+  runtime.sessionContexts.set('session-end', {
+    platformSessionId: 'session-end',
+    honchoSessionId: 'session-end',
+    userId: 'user-1',
+    agentId: 'main',
+    workspacePath: runtimeHome,
+    sessionRoot: runtimeHome,
+    userPeerId: 'user-user-1',
+    agentPeerId: 'agent-main',
+  });
+
+  await runtime.onSessionEnd({
+    sessionId: 'session-end',
+    userId: 'user-1',
+    agentId: 'main',
+  });
+
+  expect(client.syncMessages).toHaveBeenCalledWith(
+    expect.objectContaining({
+      honchoSessionId: 'session-end',
+      messages: [
+        expect.objectContaining({
+          id: 7,
+          role: 'user',
+          content: 'Flush me before ending the session.',
+        }),
+      ],
+    }),
+  );
+  expect(runtime.contextPrefetch.has('session-end')).toBe(false);
+  expect(runtime.dialecticPrefetch.has('session-end')).toBe(false);
+  expect(runtime.bufferedMessages.has('session-end')).toBe(false);
+  expect(runtime.sessionContexts.has('session-end')).toBe(false);
+});
+
+test('HonchoRuntime fetches user and AI prompt context in parallel', async () => {
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const logger = {
+    warn: vi.fn(),
+    debug: vi.fn(),
+  };
+  const { HonchoRuntime } = await import(
+    '../plugins/honcho-memory/src/honcho-runtime.js'
+  );
+
+  let resolveUserContext = () => {};
+  const userContext = new Promise((resolve) => {
+    resolveUserContext = () =>
+      resolve({
+        summary: 'user-summary',
+      });
+  });
+  const client = {
+    getSessionContext: vi.fn((params) => {
+      if (params.peerTargetId === 'user-peer') {
+        return userContext;
+      }
+      return Promise.resolve({
+        representation: 'assistant-profile',
+      });
+    }),
+  };
+  const runtime = new HonchoRuntime(
+    {
+      runtime: {
+        homeDir: runtimeHome,
+        cwd: runtimeHome,
+      },
+      logger,
+    },
+    {
+      includeSummary: true,
+      limitToSession: true,
+      includeAiPeerRepresentation: true,
+      includeAiPeerCard: false,
+    },
+    client,
+  );
+
+  const payloadPromise = runtime.fetchPromptContextPayload({
+    userPeerId: 'user-peer',
+    agentPeerId: 'agent-peer',
+  });
+
+  expect(client.getSessionContext).toHaveBeenCalledTimes(2);
+  resolveUserContext();
+
+  await expect(payloadPromise).resolves.toEqual({
+    user: {
+      summary: 'user-summary',
+    },
+    ai: {
+      representation: 'assistant-profile',
+    },
+    ids: {
+      userPeerId: 'user-peer',
+      agentPeerId: 'agent-peer',
+    },
+  });
+});
+
+test('honcho startup health-check failures surface as plugin load errors', async () => {
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl: 'http://127.0.0.1:9',
+        workspaceId: 'hybridclaw-test',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await expect(manager.ensureInitialized()).resolves.toBeUndefined();
+
+  expect(manager.getMemoryLayers()).toEqual([]);
+  expect(manager.getToolDefinitions()).toEqual([]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'honcho-memory',
+      enabled: false,
+      status: 'failed',
+      error: expect.stringContaining('Honcho startup health-check failed:'),
+    }),
+  ]);
+  expect(manager.listPluginSummary()).toEqual([
+    expect.objectContaining({
+      id: 'honcho-memory',
+      enabled: false,
+      error: expect.stringContaining('Honcho startup health-check failed:'),
+    }),
+  ]);
+});
+
+test('honcho manifest config schema stays in sync with the shared Honcho schema source', async () => {
+  const manifest = parseYaml(
+    fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'plugins',
+        'honcho-memory',
+        'hybridclaw.plugin.yaml',
+      ),
+      'utf-8',
+    ),
+  ) as { configSchema?: Record<string, unknown> };
+  const { buildHonchoConfigSchema } = await import(
+    '../plugins/honcho-memory/src/config-schema.js'
+  );
+
+  expect(manifest.configSchema).toEqual(buildHonchoConfigSchema());
+});
 
 async function waitFor(
   predicate: () => boolean,
@@ -772,6 +1125,125 @@ test('honcho-memory uses the active workspace root for session strategies and ma
   }
 });
 
+test('honcho-memory rejects identity file traversal outside the active workspace root', async () => {
+  const honcho = createHonchoStubServer();
+  const baseUrl = await honcho.listen();
+
+  const runtimeHome = makeTempDir('hybridclaw-honcho-home-');
+  const cwd = makeTempDir('hybridclaw-honcho-project-');
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  installBundledPlugin(cwd);
+
+  const [{ PluginManager }, dbModule, ipcModule] = await Promise.all([
+    import('../src/plugins/plugin-manager.js'),
+    import('../src/memory/db.js'),
+    import('../src/infra/ipc.js'),
+  ]);
+
+  vi.spyOn(dbModule, 'getSessionById').mockReturnValue({
+    agent_id: 'main',
+  } as never);
+  vi.spyOn(dbModule, 'getRecentMessages').mockReturnValue([
+    {
+      role: 'user',
+      user_id: 'user-1',
+    },
+  ] as never);
+
+  const seedWorkspacePath = ipcModule.agentWorkspaceDir('main');
+  fs.mkdirSync(seedWorkspacePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(seedWorkspacePath, 'IDENTITY.md'),
+    'Seed the assistant identity from the managed workspace only.',
+  );
+
+  const activeWorkspacePath = path.join(cwd, 'projects', 'client-alpha');
+  fs.mkdirSync(activeWorkspacePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(activeWorkspacePath, 'LOCAL_IDENTITY.md'),
+    'Allowed local identity seed.',
+  );
+
+  const secretDir = makeTempDir('hybridclaw-honcho-secret-');
+  const secretFile = path.join(secretDir, 'private-key.txt');
+  const secretMarker = 'PRIVATE KEY SHOULD NOT LEAK';
+  fs.writeFileSync(secretFile, secretMarker);
+  const traversalArg = path.relative(activeWorkspacePath, secretFile);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'honcho-memory',
+      enabled: true,
+      config: {
+        baseUrl,
+        workspaceId: 'hybridclaw-test',
+      },
+    },
+  ];
+
+  const manager = new PluginManager({
+    homeDir: runtimeHome,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  try {
+    await manager.ensureInitialized();
+
+    await manager.collectPromptContext({
+      sessionId: 'session-identity-paths',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+      workspacePath: activeWorkspacePath,
+      recentMessages: [
+        {
+          id: 1,
+          session_id: 'session-identity-paths',
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'Prime Honcho for this workspace.',
+          created_at: '2026-04-09T10:00:00.000Z',
+        },
+      ],
+    });
+
+    const command = manager.findCommand('honcho');
+    expect(command).toBeDefined();
+
+    const allowedText = await command?.handler(
+      ['identity', 'LOCAL_IDENTITY.md'],
+      {
+        sessionId: 'session-identity-paths',
+        channelId: 'web',
+        userId: 'user-1',
+      },
+    );
+    expect(String(allowedText)).toContain(
+      `Seeded Honcho AI identity from ${path.join(activeWorkspacePath, 'LOCAL_IDENTITY.md')}.`,
+    );
+
+    const deniedText = await command?.handler(['identity', traversalArg], {
+      sessionId: 'session-identity-paths',
+      channelId: 'web',
+      userId: 'user-1',
+    });
+    expect(String(deniedText)).toContain(
+      'Refusing to read files outside the active workspace root',
+    );
+    expect(
+      honcho.createdMessages.some((message) =>
+        String(message.content || '').includes(secretMarker),
+      ),
+    ).toBe(false);
+  } finally {
+    await manager.shutdown();
+    await honcho.close();
+  }
+});
+
 test('honcho-memory backfills stored session history once when activated mid-session', async () => {
   const honcho = createHonchoStubServer();
   const baseUrl = await honcho.listen();
@@ -810,14 +1282,14 @@ test('honcho-memory backfills stored session history once when activated mid-ses
   vi.spyOn(dbModule, 'getSessionById').mockReturnValue({
     agent_id: 'main',
   } as never);
-  vi.spyOn(dbModule, 'getRecentMessages').mockImplementation(
-    (sessionId: string) => {
+  const getRecentMessagesSpy = vi
+    .spyOn(dbModule, 'getRecentMessages')
+    .mockImplementation((sessionId: string) => {
       if (sessionId === 'session-backfill') {
         return priorMessages as never;
       }
       return [] as never;
-    },
-  );
+    });
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
@@ -874,6 +1346,7 @@ test('honcho-memory backfills stored session history once when activated mid-ses
       .map((message) => Number(message.metadata?.hybridclaw_message_id || 0))
       .filter(Boolean);
     expect(mirroredMessageIds).toEqual([1, 2, 10, 11]);
+    expect(getRecentMessagesSpy).toHaveBeenCalledWith('session-backfill', 500);
 
     await manager.notifyTurnComplete({
       sessionId: 'session-backfill',

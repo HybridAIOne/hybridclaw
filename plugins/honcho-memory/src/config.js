@@ -1,21 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  HONCHO_CONFIG_BOOLEAN_DEFAULTS,
+  HONCHO_CONFIG_NUMBER_FIELDS,
+  HONCHO_CONFIG_STRING_DEFAULTS,
+  HONCHO_INJECTION_FREQUENCIES,
+  HONCHO_OBSERVATION_MODES,
+  HONCHO_REASONING_LEVELS,
+  HONCHO_RECALL_MODES,
+  HONCHO_SESSION_STRATEGIES,
+  HONCHO_WRITE_FREQUENCY_DEFAULT,
+  HONCHO_WRITE_FREQUENCY_MODES,
+} from './config-schema.js';
+import { normalizeString } from './utils.js';
 
-const RECALL_MODES = new Set(['hybrid', 'context', 'tools']);
-const SESSION_STRATEGIES = new Set([
-  'platform',
-  'per-directory',
-  'per-repo',
-  'per-session',
-  'global',
-]);
-const REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'max'];
-const OBSERVATION_MODES = new Set(['directional', 'unified']);
-const INJECTION_FREQUENCIES = new Set(['every-turn', 'first-turn']);
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+const RECALL_MODES = new Set(HONCHO_RECALL_MODES);
+const SESSION_STRATEGIES = new Set(HONCHO_SESSION_STRATEGIES);
+const REASONING_LEVELS = [...HONCHO_REASONING_LEVELS];
+const OBSERVATION_MODES = new Set(HONCHO_OBSERVATION_MODES);
+const INJECTION_FREQUENCIES = new Set(HONCHO_INJECTION_FREQUENCIES);
 
 function normalizeInteger(value, fallback, key, bounds = {}) {
   const raw =
@@ -84,17 +87,26 @@ function normalizeWriteFrequency(value) {
     return nextValue;
   }
   const normalized = normalizeString(value).toLowerCase();
-  if (!normalized) return 'async';
-  if (
-    normalized === 'async' ||
-    normalized === 'turn' ||
-    normalized === 'session'
-  ) {
+  if (!normalized) return HONCHO_WRITE_FREQUENCY_DEFAULT;
+  if (HONCHO_WRITE_FREQUENCY_MODES.includes(normalized)) {
     return normalized;
   }
   throw new Error(
     'honcho-memory plugin config.writeFrequency must be a positive integer or one of: async, turn, session.',
   );
+}
+
+function normalizeBaseUrl(value) {
+  const normalized =
+    normalizeString(value) || HONCHO_CONFIG_STRING_DEFAULTS.baseUrl;
+  try {
+    new URL(normalized);
+  } catch {
+    throw new Error(
+      'honcho-memory plugin config.baseUrl must be a valid absolute URL.',
+    );
+  }
+  return normalized;
 }
 
 function defaultWorkspaceId(cwd) {
@@ -139,7 +151,7 @@ function normalizeObservationConfig(pluginConfig) {
   const observationMode = normalizeEnum(
     pluginConfig?.observationMode,
     OBSERVATION_MODES,
-    'directional',
+    HONCHO_CONFIG_STRING_DEFAULTS.observationMode,
     'observationMode',
   );
   const preset = resolveObservationPreset(observationMode);
@@ -183,7 +195,6 @@ export function resolveHonchoPluginConfig(params) {
   const pluginConfig = params?.pluginConfig || {};
   const runtime = params?.runtime || {};
   const credentialApiKey = normalizeString(params?.credentialApiKey);
-  const processEnvApiKey = normalizeString(params?.processEnvApiKey);
   const {
     observationMode,
     userObserveMe,
@@ -191,62 +202,79 @@ export function resolveHonchoPluginConfig(params) {
     agentObserveMe,
     agentObserveOthers,
   } = normalizeObservationConfig(pluginConfig);
-  const saveMessages =
-    typeof pluginConfig?.saveMessages === 'boolean'
-      ? pluginConfig.saveMessages
-      : normalizeBoolean(pluginConfig?.autoSync, true);
+  const saveMessages = normalizeBoolean(
+    pluginConfig?.saveMessages,
+    HONCHO_CONFIG_BOOLEAN_DEFAULTS.saveMessages,
+  );
 
   return {
-    baseUrl: normalizeString(pluginConfig?.baseUrl) || 'https://api.honcho.dev',
-    apiKey:
-      normalizeString(pluginConfig?.apiKey) ||
-      credentialApiKey ||
-      processEnvApiKey,
+    baseUrl: normalizeBaseUrl(pluginConfig?.baseUrl),
+    apiKey: credentialApiKey,
     workspaceId:
       normalizeString(pluginConfig?.workspaceId) ||
       defaultWorkspaceId(runtime.cwd),
-    peerName: normalizeString(pluginConfig?.peerName),
-    aiPeer: normalizeString(pluginConfig?.aiPeer),
+    peerName:
+      normalizeString(pluginConfig?.peerName) ||
+      HONCHO_CONFIG_STRING_DEFAULTS.peerName,
+    aiPeer:
+      normalizeString(pluginConfig?.aiPeer) ||
+      HONCHO_CONFIG_STRING_DEFAULTS.aiPeer,
     contextTokens: normalizeInteger(
       pluginConfig?.contextTokens,
-      4000,
+      HONCHO_CONFIG_NUMBER_FIELDS.contextTokens.default,
       'contextTokens',
-      { minimum: 500, maximum: 20000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.contextTokens,
     ),
-    searchLimit: normalizeInteger(pluginConfig?.searchLimit, 5, 'searchLimit', {
-      minimum: 1,
-      maximum: 50,
-    }),
+    searchLimit: normalizeInteger(
+      pluginConfig?.searchLimit,
+      HONCHO_CONFIG_NUMBER_FIELDS.searchLimit.default,
+      'searchLimit',
+      HONCHO_CONFIG_NUMBER_FIELDS.searchLimit,
+    ),
     maxInjectedChars: normalizeInteger(
       pluginConfig?.maxInjectedChars,
-      5000,
+      HONCHO_CONFIG_NUMBER_FIELDS.maxInjectedChars.default,
       'maxInjectedChars',
-      { minimum: 500, maximum: 50000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.maxInjectedChars,
     ),
-    includeSummary: normalizeBoolean(pluginConfig?.includeSummary, true),
+    includeSummary: normalizeBoolean(
+      pluginConfig?.includeSummary,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includeSummary,
+    ),
     includeRecentMessages: normalizeBoolean(
       pluginConfig?.includeRecentMessages,
-      true,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includeRecentMessages,
     ),
     includePeerRepresentation: normalizeBoolean(
       pluginConfig?.includePeerRepresentation,
-      true,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includePeerRepresentation,
     ),
-    includePeerCard: normalizeBoolean(pluginConfig?.includePeerCard, true),
+    includePeerCard: normalizeBoolean(
+      pluginConfig?.includePeerCard,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includePeerCard,
+    ),
     includeAiPeerRepresentation: normalizeBoolean(
       pluginConfig?.includeAiPeerRepresentation,
-      true,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includeAiPeerRepresentation,
     ),
-    includeAiPeerCard: normalizeBoolean(pluginConfig?.includeAiPeerCard, false),
-    limitToSession: normalizeBoolean(pluginConfig?.limitToSession, true),
-    timeoutMs: normalizeInteger(pluginConfig?.timeoutMs, 15000, 'timeoutMs', {
-      minimum: 1000,
-      maximum: 60000,
-    }),
+    includeAiPeerCard: normalizeBoolean(
+      pluginConfig?.includeAiPeerCard,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.includeAiPeerCard,
+    ),
+    limitToSession: normalizeBoolean(
+      pluginConfig?.limitToSession,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.limitToSession,
+    ),
+    timeoutMs: normalizeInteger(
+      pluginConfig?.timeoutMs,
+      HONCHO_CONFIG_NUMBER_FIELDS.timeoutMs.default,
+      'timeoutMs',
+      HONCHO_CONFIG_NUMBER_FIELDS.timeoutMs,
+    ),
     recallMode: normalizeEnum(
       pluginConfig?.recallMode,
       RECALL_MODES,
-      'hybrid',
+      HONCHO_CONFIG_STRING_DEFAULTS.recallMode,
       'recallMode',
     ),
     writeFrequency: normalizeWriteFrequency(pluginConfig?.writeFrequency),
@@ -254,56 +282,62 @@ export function resolveHonchoPluginConfig(params) {
     sessionStrategy: normalizeEnum(
       pluginConfig?.sessionStrategy,
       SESSION_STRATEGIES,
-      'platform',
+      HONCHO_CONFIG_STRING_DEFAULTS.sessionStrategy,
       'sessionStrategy',
     ),
-    sessionPeerPrefix: normalizeBoolean(pluginConfig?.sessionPeerPrefix, false),
+    sessionPeerPrefix: normalizeBoolean(
+      pluginConfig?.sessionPeerPrefix,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.sessionPeerPrefix,
+    ),
     sessions: normalizeSessionsMap(pluginConfig?.sessions),
     dialecticReasoningLevel: normalizeReasoningLevel(
       pluginConfig?.dialecticReasoningLevel,
-      'low',
+      HONCHO_CONFIG_STRING_DEFAULTS.dialecticReasoningLevel,
       'dialecticReasoningLevel',
     ),
-    dialecticDynamic: normalizeBoolean(pluginConfig?.dialecticDynamic, true),
+    dialecticDynamic: normalizeBoolean(
+      pluginConfig?.dialecticDynamic,
+      HONCHO_CONFIG_BOOLEAN_DEFAULTS.dialecticDynamic,
+    ),
     dialecticMaxChars: normalizeInteger(
       pluginConfig?.dialecticMaxChars,
-      600,
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticMaxChars.default,
       'dialecticMaxChars',
-      { minimum: 100, maximum: 10000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticMaxChars,
     ),
     dialecticMaxInputChars: normalizeInteger(
       pluginConfig?.dialecticMaxInputChars,
-      10000,
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticMaxInputChars.default,
       'dialecticMaxInputChars',
-      { minimum: 100, maximum: 50000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticMaxInputChars,
     ),
     messageMaxChars: normalizeInteger(
       pluginConfig?.messageMaxChars,
-      25000,
+      HONCHO_CONFIG_NUMBER_FIELDS.messageMaxChars.default,
       'messageMaxChars',
-      { minimum: 100, maximum: 50000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.messageMaxChars,
     ),
     injectionFrequency: normalizeEnum(
       pluginConfig?.injectionFrequency,
       INJECTION_FREQUENCIES,
-      'every-turn',
+      HONCHO_CONFIG_STRING_DEFAULTS.injectionFrequency,
       'injectionFrequency',
     ),
     contextCadence: normalizeInteger(
       pluginConfig?.contextCadence,
-      1,
+      HONCHO_CONFIG_NUMBER_FIELDS.contextCadence.default,
       'contextCadence',
-      { minimum: 1, maximum: 1000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.contextCadence,
     ),
     dialecticCadence: normalizeInteger(
       pluginConfig?.dialecticCadence,
-      1,
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticCadence.default,
       'dialecticCadence',
-      { minimum: 1, maximum: 1000 },
+      HONCHO_CONFIG_NUMBER_FIELDS.dialecticCadence,
     ),
     reasoningLevelCap: normalizeReasoningLevel(
       pluginConfig?.reasoningLevelCap,
-      '',
+      HONCHO_CONFIG_STRING_DEFAULTS.reasoningLevelCap,
       'reasoningLevelCap',
     ),
     observationMode,

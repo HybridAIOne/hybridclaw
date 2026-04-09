@@ -159,6 +159,49 @@ function writeMemoryProviderPlugin(rootDir: string, pluginId: string): void {
   );
 }
 
+function writeDefinitionSchemaPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'definition-schema-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: definition-schema-plugin',
+      'name: Definition Schema Plugin',
+      'kind: tool',
+      'configSchema:',
+      '  type: object',
+      '  properties:',
+      '    workspaceId:',
+      '      type: string',
+      '      default: manifest-default',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'definition-schema-plugin',",
+      '  configSchema: {',
+      "    type: 'object',",
+      '    properties: {',
+      "      workspaceId: { type: 'string', default: 'definition-default' },",
+      '    },',
+      '  },',
+      '  register() {},',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeEnvRequirementPlugin(rootDir: string): void {
   const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', 'env-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
@@ -786,6 +829,39 @@ test('validatePluginConfig applies defaults and strips additional properties', a
   });
 });
 
+test('resolveEffectivePluginConfigSchema prefers the plugin definition schema over the manifest copy', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeDefinitionSchemaPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager, resolveEffectivePluginConfigSchema } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  const [candidate] = await manager.discoverPlugins(config);
+  if (!candidate) {
+    throw new Error('Expected definition-schema-plugin to be discovered.');
+  }
+
+  expect(candidate.id).toBe('definition-schema-plugin');
+  await expect(resolveEffectivePluginConfigSchema(candidate)).resolves.toEqual({
+    type: 'object',
+    properties: {
+      workspaceId: {
+        type: 'string',
+        default: 'definition-default',
+      },
+    },
+  });
+});
+
 test('plugin manager auto-discovers plugins from project directories without config entries', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
@@ -1330,6 +1406,44 @@ test('plugin manager emits memory_write hooks for successful native memory write
       result: 'Appended 45 chars to memory/2026-04-08.md',
     }),
   ]);
+});
+
+test('plugin manager tracks the live workspace root separately from the seeded agent workspace', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  const sessionRoot = path.join(cwd, 'projects', 'client-alpha');
+
+  await manager.notifySessionStart({
+    sessionId: 'session-workspace-root',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: sessionRoot,
+  });
+
+  expect(manager.getSessionWorkspaceRoot('session-workspace-root')).toBe(
+    sessionRoot,
+  );
+
+  await manager.notifySessionEnd({
+    sessionId: 'session-workspace-root',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: sessionRoot,
+  });
+
+  expect(manager.getSessionWorkspaceRoot('session-workspace-root')).toBeNull();
 });
 
 test('plugin manager honors config overrides that disable an auto-discovered plugin', async () => {

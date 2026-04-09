@@ -14,7 +14,9 @@ function loadRuntimeConfig(): RuntimeConfig {
   ) as RuntimeConfig;
 }
 
-function makePluginManagerStub(): PluginManager {
+function makePluginManagerStub(
+  overrides: Partial<PluginManager> = {},
+): PluginManager {
   return {
     registerMemoryLayer() {},
     registerProvider() {},
@@ -32,6 +34,13 @@ function makePluginManagerStub(): PluginManager {
       });
     },
     registerHook() {},
+    getSessionWorkspaceRoot() {
+      return null;
+    },
+    getSessionUserId() {
+      return null;
+    },
+    ...overrides,
   } as unknown as PluginManager;
 }
 
@@ -224,26 +233,24 @@ test('createPluginApi delegates inbound webhook registration and inbound turn di
   );
 });
 
-test('createPluginApi derives session info from stored session and recent user messages', () => {
+test('createPluginApi derives session info from stored session and cached session user id', () => {
   vi.spyOn(db, 'getSessionById').mockReturnValue({
     agent_id: 'writer',
   } as never);
-  vi.spyOn(db, 'getRecentMessages').mockReturnValue([
-    {
-      role: 'assistant',
-      user_id: null,
-    },
-    {
-      role: 'user',
-      user_id: 'user-42',
-    },
-  ] as never);
+  const getRecentMessagesSpy = vi.spyOn(db, 'getRecentMessages');
   vi.spyOn(ipc, 'agentWorkspaceDir').mockReturnValue(
     '/tmp/home/data/agents/writer/workspace',
   );
 
   const api = createPluginApi({
-    manager: makePluginManagerStub(),
+    manager: makePluginManagerStub({
+      getSessionUserId() {
+        return 'user-42';
+      },
+      getSessionWorkspaceRoot() {
+        return '/tmp/project/clients/client-alpha';
+      },
+    }),
     pluginId: 'demo-plugin',
     pluginDir: '/tmp/demo-plugin',
     registrationMode: 'full',
@@ -259,7 +266,9 @@ test('createPluginApi derives session info from stored session and recent user m
     agentId: 'writer',
     userId: 'user-42',
     workspacePath: '/tmp/home/data/agents/writer/workspace',
+    workspaceRoot: '/tmp/project/clients/client-alpha',
   });
+  expect(getRecentMessagesSpy).not.toHaveBeenCalled();
 });
 
 test('createPluginApi exposes immutable stored session messages', () => {
