@@ -123,6 +123,85 @@ function writePassivePlugin(rootDir: string, pluginId: string): void {
   );
 }
 
+function writeMemoryProviderPlugin(rootDir: string, pluginId: string): void {
+  const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', pluginId);
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      `id: ${pluginId}`,
+      `name: ${pluginId}`,
+      'kind: memory',
+      'memoryProvider: true',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      `  id: '${pluginId}',`,
+      "  kind: 'memory',",
+      '  register(api) {',
+      '    api.registerMemoryLayer({',
+      `      id: '${pluginId}-layer',`,
+      '      priority: 50,',
+      '      getContextForPrompt() {',
+      `        return '${pluginId} context';`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+function writeDefinitionSchemaPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'definition-schema-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: definition-schema-plugin',
+      'name: Definition Schema Plugin',
+      'kind: tool',
+      'configSchema:',
+      '  type: object',
+      '  properties:',
+      '    workspaceId:',
+      '      type: string',
+      '      default: manifest-default',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'definition-schema-plugin',",
+      '  configSchema: {',
+      "    type: 'object',",
+      '    properties: {',
+      "      workspaceId: { type: 'string', default: 'definition-default' },",
+      '    },',
+      '  },',
+      '  register() {},',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeEnvRequirementPlugin(rootDir: string): void {
   const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', 'env-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
@@ -148,6 +227,47 @@ function writeEnvRequirementPlugin(rootDir: string): void {
       '    api.registerCommand({',
       "      name: 'env_status',",
       "      description: 'Show required credential status',",
+      '      handler() {',
+      "        return api.getCredential('TEST_PLUGIN_API_KEY') || 'missing';",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+function writeCredentialPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'credential-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: credential-plugin',
+      'name: Credential Plugin',
+      'kind: tool',
+      'credentials:',
+      '  - TEST_PLUGIN_API_KEY',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'credential-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'credential_status',",
+      "      description: 'Show optional credential status',",
       '      handler() {',
       "        return api.getCredential('TEST_PLUGIN_API_KEY') || 'missing';",
       '      },',
@@ -523,6 +643,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
       'version: " 1.2.3 "',
       'description: " Example plugin "',
       'kind: tool',
+      'memoryProvider: true',
       'author: " Example Author "',
       'entrypoint: " dist/index.js "',
       'requires:',
@@ -569,6 +690,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     version: '1.2.3',
     description: 'Example plugin',
     kind: 'tool',
+    memoryProvider: true,
     author: 'Example Author',
     entrypoint: 'dist/index.js',
     requires: {
@@ -707,6 +829,39 @@ test('validatePluginConfig applies defaults and strips additional properties', a
   });
 });
 
+test('resolveEffectivePluginConfigSchema prefers the plugin definition schema over the manifest copy', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeDefinitionSchemaPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager, resolveEffectivePluginConfigSchema } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  const [candidate] = await manager.discoverPlugins(config);
+  if (!candidate) {
+    throw new Error('Expected definition-schema-plugin to be discovered.');
+  }
+
+  expect(candidate.id).toBe('definition-schema-plugin');
+  await expect(resolveEffectivePluginConfigSchema(candidate)).resolves.toEqual({
+    type: 'object',
+    properties: {
+      workspaceId: {
+        type: 'string',
+        default: 'definition-default',
+      },
+    },
+  });
+});
+
 test('plugin manager auto-discovers plugins from project directories without config entries', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
@@ -741,6 +896,113 @@ test('plugin manager auto-discovers plugins from project directories without con
       channelId: 'web',
     }),
   ).resolves.toBe('workspace-auto:true:hello');
+});
+
+test('plugin manager allows only one external memory provider plugin', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-a');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-b');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getMemoryLayers()).toEqual([
+    expect.objectContaining({ id: 'memory-provider-a-layer' }),
+  ]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'memory-provider-a',
+      enabled: true,
+      status: 'loaded',
+    }),
+    expect.objectContaining({
+      id: 'memory-provider-b',
+      enabled: false,
+      status: 'failed',
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-a" is already loaded.',
+    }),
+  ]);
+  expect(manager.listPluginSummary()).toEqual([
+    {
+      id: 'memory-provider-a',
+      name: 'memory-provider-a',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: true,
+      error: undefined,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+    {
+      id: 'memory-provider-b',
+      name: 'memory-provider-b',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: false,
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-a" is already loaded.',
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
+});
+
+test('plugin manager prefers configured external memory providers over auto-discovered ones', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-a');
+  writeMemoryProviderPlugin(cwd, 'memory-provider-b');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'memory-provider-b',
+      enabled: true,
+      config: {},
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getMemoryLayers()).toEqual([
+    expect.objectContaining({ id: 'memory-provider-b-layer' }),
+  ]);
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'memory-provider-b',
+      enabled: true,
+      status: 'loaded',
+    }),
+    expect.objectContaining({
+      id: 'memory-provider-a',
+      enabled: false,
+      status: 'failed',
+      error:
+        'Only one external memory provider can be active at a time. "memory-provider-b" is already loaded.',
+    }),
+  ]);
 });
 
 test('plugin manager accepts required env vars from stored runtime secrets', async () => {
@@ -788,6 +1050,66 @@ test('plugin manager accepts required env vars from stored runtime secrets', asy
     expect(command).toBeDefined();
     if (!command) {
       throw new Error('Expected env_status command to be registered');
+    }
+    await expect(
+      Promise.resolve(
+        command.handler([], {
+          sessionId: 'session-1',
+          channelId: 'tui',
+        }),
+      ),
+    ).resolves.toBe('stored-secret');
+  } finally {
+    vi.doUnmock('../src/security/runtime-secrets.js');
+    vi.resetModules();
+  }
+});
+
+test('plugin manager exposes optional declared credentials from stored runtime secrets without gating plugin load', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeCredentialPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('../src/security/runtime-secrets.js')
+      >();
+    return {
+      ...actual,
+      readStoredRuntimeSecret: vi.fn((key: string) =>
+        key === 'TEST_PLUGIN_API_KEY' ? 'stored-secret' : null,
+      ),
+    };
+  });
+
+  try {
+    vi.resetModules();
+    const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+    const manager = new PluginManager({
+      homeDir,
+      cwd,
+      getRuntimeConfig: () => config,
+    });
+
+    await manager.ensureInitialized();
+
+    expect(manager.listPluginSummary()).toEqual([
+      expect.objectContaining({
+        id: 'credential-plugin',
+        enabled: true,
+        error: undefined,
+        commands: ['credential_status'],
+      }),
+    ]);
+
+    const command = manager.findCommand('credential_status');
+    expect(command).toBeDefined();
+    if (!command) {
+      throw new Error('Expected credential_status command to be registered');
     }
     await expect(
       Promise.resolve(
@@ -1084,6 +1406,44 @@ test('plugin manager emits memory_write hooks for successful native memory write
       result: 'Appended 45 chars to memory/2026-04-08.md',
     }),
   ]);
+});
+
+test('plugin manager tracks the live workspace root separately from the seeded agent workspace', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  const sessionRoot = path.join(cwd, 'projects', 'client-alpha');
+
+  await manager.notifySessionStart({
+    sessionId: 'session-workspace-root',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: sessionRoot,
+  });
+
+  expect(manager.getSessionWorkspaceRoot('session-workspace-root')).toBe(
+    sessionRoot,
+  );
+
+  await manager.notifySessionEnd({
+    sessionId: 'session-workspace-root',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: sessionRoot,
+  });
+
+  expect(manager.getSessionWorkspaceRoot('session-workspace-root')).toBeNull();
 });
 
 test('plugin manager honors config overrides that disable an auto-discovered plugin', async () => {

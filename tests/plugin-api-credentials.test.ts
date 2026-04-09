@@ -66,3 +66,36 @@ test('createPluginApi reads declared credentials from stored runtime secrets', a
     }
   }
 });
+
+test('createPluginApi reads optional declared credentials from stored runtime secrets', async () => {
+  const { createPluginApi } = await import('../src/plugins/plugin-api.js');
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  );
+
+  const original = process.env.HYBRIDAI_API_KEY;
+  delete process.env.HYBRIDAI_API_KEY;
+
+  try {
+    const api = createPluginApi({
+      manager: makePluginManagerStub() as never,
+      pluginId: 'demo-plugin',
+      pluginDir: '/tmp/demo-plugin',
+      registrationMode: 'full',
+      config,
+      pluginConfig: {},
+      declaredEnv: [],
+      declaredCredentials: ['HYBRIDAI_API_KEY'],
+      homeDir: '/tmp/home',
+      cwd: '/tmp/project',
+    });
+
+    expect(api.getCredential('HYBRIDAI_API_KEY')).toBe('hai-stored-secret');
+  } finally {
+    if (original === undefined) {
+      delete process.env.HYBRIDAI_API_KEY;
+    } else {
+      process.env.HYBRIDAI_API_KEY = original;
+    }
+  }
+});

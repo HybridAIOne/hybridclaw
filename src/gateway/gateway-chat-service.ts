@@ -366,6 +366,7 @@ export async function handleGatewayMessage(
         userId: req.userId,
         agentId,
         channelId: req.channelId,
+        workspacePath,
       });
     }
   }
@@ -635,6 +636,7 @@ export async function handleGatewayMessage(
         userId: req.userId,
         agentId,
         channelId: req.channelId,
+        workspacePath,
         recentMessages: pluginRecentMessages,
       })
     : { sections: [], pluginIds: [] };
@@ -1149,6 +1151,7 @@ export async function handleGatewayMessage(
           sessionId: req.sessionId,
           userId: req.userId,
           agentId,
+          workspacePath,
           messages: storedTurnMessages,
         })
         .catch((error) => {
