@@ -4,6 +4,7 @@ import {
   hasKnownNonHybridProviderPrefix,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
+  stripProviderPrefix,
 } from '../../container/shared/model-names.js';
 
 export {
@@ -11,6 +12,7 @@ export {
   HYBRIDAI_MODEL_PREFIX,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
+  stripProviderPrefix,
 };
 
 export function formatModelForDisplay(model: string): string {
