@@ -362,33 +362,25 @@ test('available model catalog discovers Codex models from the models endpoint', 
     homeDir,
   );
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      if (
-        url.origin === 'https://chatgpt.com' &&
-        url.pathname === '/backend-api/codex/models'
-      ) {
-        expect(url.searchParams.get('client_version')).toBeTruthy();
-        expect(init?.headers).toMatchObject({
-          Authorization: `Bearer ${accessToken}`,
-          'Chatgpt-Account-Id': 'acct_catalog',
-          'OpenAI-Beta': 'responses=experimental',
-        });
-        return new Response(
-          JSON.stringify({
-            data: [
-              { id: 'gpt-5-codex', context_window: 400_000 },
-              { id: 'gpt-5.4', context_window: 400_000 },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`Unexpected URL: ${input}`);
-    }),
-  );
+  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://chatgpt.com' &&
+      url.pathname === '/backend-api/codex/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            { id: 'gpt-5-codex', context_window: 400_000 },
+            { id: 'gpt-5.4', context_window: 400_000 },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
 
   const { catalog } = await importFreshCatalog(homeDir);
   const choices = await catalog.getAvailableModelChoices(25);
@@ -414,6 +406,23 @@ test('available model catalog discovers Codex models from the models endpoint', 
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
   ]);
+  const codexRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models',
+    );
+  expect(codexRequest).toBeDefined();
+  expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
+  expect(codexRequest?.init?.headers).toMatchObject({
+    Authorization: `Bearer ${accessToken}`,
+    'Chatgpt-Account-Id': 'acct_catalog',
+    'OpenAI-Beta': 'responses=experimental',
+  });
 });
 
 test('available model catalog discovers Codex models from the current models payload', async () => {
@@ -451,43 +460,40 @@ test('available model catalog discovers Codex models from the current models pay
     homeDir,
   );
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      if (
-        url.origin === 'https://chatgpt.com' &&
-        url.pathname === '/backend-api/codex/models'
-      ) {
-        expect(url.searchParams.get('client_version')).toBeTruthy();
-        expect(init?.headers).toMatchObject({
-          Authorization: `Bearer ${accessToken}`,
-          'Chatgpt-Account-Id': 'acct_catalog_current_shape',
-          'OpenAI-Beta': 'responses=experimental',
-        });
-        return new Response(
-          JSON.stringify({
-            models: [
-              {
-                slug: 'gpt-5.2-codex',
-                display_name: 'gpt-5.2-codex',
-                supported_in_api: true,
-                context_window: 272_000,
-              },
-              {
-                slug: 'internal-preview',
-                display_name: 'internal-preview',
-                supported_in_api: false,
-                context_window: 1,
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`Unexpected URL: ${input}`);
-    }),
-  );
+  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://chatgpt.com' &&
+      url.pathname === '/backend-api/codex/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              slug: 'gpt-5.2-codex',
+              display_name: 'gpt-5.2-codex',
+              supported_in_api: true,
+              context_window: 272_000,
+            },
+            {
+              display_name: 'GPT-5.2 Codex (Preview)',
+              supported_in_api: true,
+              context_window: 272_000,
+            },
+            {
+              slug: 'internal-preview',
+              display_name: 'internal-preview',
+              supported_in_api: false,
+              context_window: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
 
   const { catalog } = await importFreshCatalog(homeDir);
   const choices = await catalog.getAvailableModelChoices(25);
@@ -523,6 +529,26 @@ test('available model catalog discovers Codex models from the current models pay
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
   ]);
+  expect(catalog.getAvailableModelList('codex')).not.toContain(
+    'openai-codex/GPT-5.2 Codex (Preview)',
+  );
+  const codexRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models',
+    );
+  expect(codexRequest).toBeDefined();
+  expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
+  expect(codexRequest?.init?.headers).toMatchObject({
+    Authorization: `Bearer ${accessToken}`,
+    'Chatgpt-Account-Id': 'acct_catalog_current_shape',
+    'OpenAI-Beta': 'responses=experimental',
+  });
 });
 
 test('available model catalog returns the full Hugging Face discovery list', async () => {

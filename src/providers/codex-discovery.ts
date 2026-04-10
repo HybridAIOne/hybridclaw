@@ -7,6 +7,9 @@ import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const CODEX_DISCOVERY_TTL_MS = 3_600_000;
 const CODEX_MODEL_PREFIX = 'openai-codex/';
+// Keep entries ordered so any model used as a template appears earlier in the
+// list than models derived from it. appendForwardCompatCodexModels augments the
+// seen set as it walks this table once from top to bottom.
 const CODEX_FORWARD_COMPAT_MODELS = [
   {
     model: 'openai-codex/gpt-5.3-codex',
@@ -56,9 +59,6 @@ function readCodexModelEntries(payload: unknown): unknown[] {
 function readCodexModelId(entry: Record<string, unknown>): string {
   if (typeof entry.id === 'string' && entry.id.trim()) return entry.id;
   if (typeof entry.slug === 'string' && entry.slug.trim()) return entry.slug;
-  if (typeof entry.display_name === 'string' && entry.display_name.trim()) {
-    return entry.display_name;
-  }
   return '';
 }
 
@@ -86,16 +86,9 @@ function readCodexMaxTokens(entry: Record<string, unknown>): number | null {
   );
 }
 
-function addForwardCompatCodexModels(modelNames: string[]): string[] {
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-
-  for (const modelName of modelNames) {
-    const normalized = normalizeCodexModelName(modelName);
-    if (!normalized || seen.has(normalized)) continue;
-    ordered.push(normalized);
-    seen.add(normalized);
-  }
+function appendForwardCompatCodexModels(modelNames: string[]): string[] {
+  const ordered = [...modelNames];
+  const seen = new Set(modelNames);
 
   for (const entry of CODEX_FORWARD_COMPAT_MODELS) {
     if (seen.has(entry.model)) continue;
@@ -166,7 +159,12 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
         maxTokens.set(normalized, maxTokensForModel);
       }
     }
-    const discoveredModelNames = addForwardCompatCodexModels([...discovered]);
+    const discoveredModelNames = appendForwardCompatCodexModels([
+      ...discovered,
+    ]);
+    // Forward-compat models are catalog-only additions. Metadata maps stay
+    // limited to models returned directly by the API; downstream static
+    // fallbacks fill known context-window defaults for derived entries.
     replaceDiscoveryCache(discoveredModelNames, contextWindows, maxTokens);
     return discoveredModelNames;
   }

@@ -157,36 +157,33 @@ test('getGatewayStatus includes Codex auth state', async () => {
     },
     homeDir,
   );
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL) => {
-      const url = new URL(String(input));
-      if (
-        url.origin === 'https://chatgpt.com' &&
-        url.pathname === '/backend-api/codex/models'
-      ) {
-        expect(url.searchParams.get('client_version')).toBeTruthy();
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'gpt-5-codex',
-                context_window: 400_000,
-                max_output_tokens: 128_000,
-              },
-              {
-                id: 'gpt-5.4',
-                context_window: 400_000,
-                max_output_tokens: 128_000,
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`Unexpected URL: ${input}`);
-    }),
-  );
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://chatgpt.com' &&
+      url.pathname === '/backend-api/codex/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5-codex',
+              context_window: 400_000,
+              max_output_tokens: 128_000,
+            },
+            {
+              id: 'gpt-5.4',
+              context_window: 400_000,
+              max_output_tokens: 128_000,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
   initDatabase({ quiet: true });
 
   const { getGatewayStatus } = await import(
@@ -206,6 +203,18 @@ test('getGatewayStatus includes Codex auth state', async () => {
     reachable: true,
     modelCount: 3,
   });
+  const codexRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models',
+    );
+  expect(codexRequest).toBeDefined();
+  expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
   expect(status.providerHealth?.hybridai).toMatchObject({
     kind: 'remote',
     reachable: true,
@@ -251,36 +260,33 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
     config.local.backends.vllm.enabled = false;
   });
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL) => {
-      const url = new URL(String(input));
-      if (
-        url.origin === 'https://chatgpt.com' &&
-        url.pathname === '/backend-api/codex/models'
-      ) {
-        expect(url.searchParams.get('client_version')).toBeTruthy();
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'gpt-5-codex',
-                context_window: 400_000,
-                max_output_tokens: 128_000,
-              },
-              {
-                id: 'gpt-5.4',
-                context_window: 400_000,
-                max_output_tokens: 128_000,
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`Unexpected URL: ${input}`);
-    }),
-  );
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://chatgpt.com' &&
+      url.pathname === '/backend-api/codex/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5-codex',
+              context_window: 400_000,
+              max_output_tokens: 128_000,
+            },
+            {
+              id: 'gpt-5.4',
+              context_window: 400_000,
+              max_output_tokens: 128_000,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getGatewayAdminModels } = await import(
@@ -293,6 +299,18 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   expect(result.providerStatus?.codex).toMatchObject({
     modelCount: 3,
   });
+  const codexRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models',
+    );
+  expect(codexRequest).toBeDefined();
+  expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
   expect(result.models).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -351,43 +369,35 @@ test('model list codex uses the current Codex models payload shape', async () =>
     config.local.backends.vllm.enabled = false;
   });
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      if (
-        url.origin === 'https://chatgpt.com' &&
-        url.pathname === '/backend-api/codex/models'
-      ) {
-        expect(url.searchParams.get('client_version')).toBeTruthy();
-        expect(init?.headers).toMatchObject({
-          Authorization: `Bearer ${accessToken}`,
-          'Chatgpt-Account-Id': 'acct_gateway_model_list_codex',
-          'OpenAI-Beta': 'responses=experimental',
-        });
-        return new Response(
-          JSON.stringify({
-            models: [
-              {
-                slug: 'gpt-5.2-codex',
-                display_name: 'gpt-5.2-codex',
-                supported_in_api: true,
-                context_window: 272_000,
-              },
-              {
-                slug: 'legacy-hidden-preview',
-                display_name: 'legacy-hidden-preview',
-                supported_in_api: false,
-                context_window: 1,
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`Unexpected URL: ${input}`);
-    }),
-  );
+  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://chatgpt.com' &&
+      url.pathname === '/backend-api/codex/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              slug: 'gpt-5.2-codex',
+              display_name: 'gpt-5.2-codex',
+              supported_in_api: true,
+              context_window: 272_000,
+            },
+            {
+              slug: 'legacy-hidden-preview',
+              display_name: 'legacy-hidden-preview',
+              supported_in_api: false,
+              context_window: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayCommand } = await import(
@@ -415,6 +425,23 @@ test('model list codex uses the current Codex models payload shape', async () =>
   expect(result.text).toContain('openai-codex/gpt-5.4-mini');
   expect(result.text).not.toContain('legacy-hidden-preview');
   expect(result.text).not.toContain('No models available for provider');
+  const codexRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models',
+    );
+  expect(codexRequest).toBeDefined();
+  expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
+  expect(codexRequest?.init?.headers).toMatchObject({
+    Authorization: `Bearer ${accessToken}`,
+    'Chatgpt-Account-Id': 'acct_gateway_model_list_codex',
+    'OpenAI-Beta': 'responses=experimental',
+  });
 });
 
 test('getGatewayStatus includes enabled remote model providers in provider health', async () => {

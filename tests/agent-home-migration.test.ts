@@ -665,6 +665,17 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
 test('does not import Codex model lists from OpenClaw migration input', async () => {
   const homeDir = makeTempHome();
   const sourceRoot = path.join(homeDir, '.openclaw');
+  const loggerWarn = vi.fn();
+
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: loggerWarn,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+  }));
 
   fs.mkdirSync(sourceRoot, { recursive: true });
   fs.writeFileSync(
@@ -707,6 +718,20 @@ test('does not import Codex model lists from OpenClaw migration input', async ()
     'openai-codex/custom-preview',
   );
   expect(config.codex).not.toHaveProperty('models');
+  expect(loggerWarn).toHaveBeenCalledWith(
+    { model: 'openai-codex/custom-preview' },
+    'Preserved imported Codex default model, but Codex models are discovery-driven and not written to config',
+  );
+  expect(loggerWarn).toHaveBeenCalledWith(
+    {
+      provider: 'codex',
+      models: [
+        'openai-codex/custom-preview',
+        'openai-codex/custom-shadow',
+      ],
+    },
+    'Ignoring imported Codex model list; Codex models are discovery-driven and not written to config',
+  );
 });
 
 test('migrates compatible Hermes Agent state into HybridClaw', async () => {
