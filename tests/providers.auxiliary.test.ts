@@ -9,18 +9,13 @@ afterEach(() => {
   vi.doUnmock('../src/providers/factory.js');
 });
 
-test('host auxiliary caller uses the configured compression task model', async () => {
-  const resolveTaskModelPolicy = vi.fn(async () => ({
-    provider: 'lmstudio' as const,
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    apiKey: '',
-    requestHeaders: {},
-    isLocal: true,
-    model: 'lmstudio/qwen/qwen2.5-instruct',
-    chatbotId: '',
-    maxTokens: 321,
-  }));
-  const resolveModelRuntimeCredentials = vi.fn();
+function setupProviderMocks({
+  resolveTaskModelPolicy,
+  resolveModelRuntimeCredentials,
+}: {
+  resolveTaskModelPolicy: ReturnType<typeof vi.fn>;
+  resolveModelRuntimeCredentials: ReturnType<typeof vi.fn>;
+}): void {
   vi.doMock('../src/providers/task-routing.js', async () => {
     const actual = await vi.importActual<
       typeof import('../src/providers/task-routing.js')
@@ -38,6 +33,24 @@ test('host auxiliary caller uses the configured compression task model', async (
       ...actual,
       resolveModelRuntimeCredentials,
     };
+  });
+}
+
+test('host auxiliary caller uses the configured compression task model', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    provider: 'lmstudio' as const,
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    apiKey: '',
+    requestHeaders: {},
+    isLocal: true,
+    model: 'lmstudio/qwen/qwen2.5-instruct',
+    chatbotId: '',
+    maxTokens: 321,
+  }));
+  const resolveModelRuntimeCredentials = vi.fn();
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -105,23 +118,9 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
     contextWindow: 32_768,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -193,23 +192,9 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
     maxTokens: 2048,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -277,23 +262,9 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     contextWindow: 200_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const streamBody = [
@@ -357,23 +328,9 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
     maxTokens: 64_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi
@@ -473,23 +430,9 @@ test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthro
     contextWindow: 200_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -551,23 +494,9 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
     maxTokens: 48_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -632,23 +561,9 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
     contextWindow: 200_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
   const warn = vi.fn();
   vi.doMock('../src/logger.js', () => ({

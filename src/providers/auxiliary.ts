@@ -7,7 +7,10 @@ import {
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
-import { stripHybridAIModelPrefix } from './model-names.js';
+import {
+  stripHybridAIModelPrefix,
+  stripProviderPrefix,
+} from './model-names.js';
 import type { RuntimeProviderId } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
@@ -463,17 +466,11 @@ function normalizeOpenAICompatModelName(
 }
 
 function normalizeCodexModelName(model: string): string {
-  const trimmed = model.trim();
-  const prefix = 'openai-codex/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
+  return stripProviderPrefix(model, 'openai-codex');
 }
 
 function normalizeOllamaModelName(model: string): string {
-  const trimmed = model.trim();
-  const prefix = 'ollama/';
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
+  return stripProviderPrefix(model, 'ollama');
 }
 
 function normalizeOllamaBaseUrl(baseUrl: string): string {
