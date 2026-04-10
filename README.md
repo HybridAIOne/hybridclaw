@@ -138,35 +138,35 @@ Browse the full manual at
 [hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
 - Getting started:
-  [Installation](https://www.hybridclaw.io/docs/development/getting-started/installation),
-  [Authentication](https://www.hybridclaw.io/docs/development/getting-started/authentication), and
-  [Quick Start](https://www.hybridclaw.io/docs/development/getting-started/quickstart)
+  [Installation](https://www.hybridclaw.io/docs/getting-started/installation),
+  [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
+  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/development/internals/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/development/internals/architecture)
+  [Runtime Internals](https://www.hybridclaw.io/docs/internals/runtime) and
+  [Architecture](https://www.hybridclaw.io/docs/internals/architecture)
 - Operations:
-  [Remote Access](https://www.hybridclaw.io/docs/development/guides/remote-access)
+  [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
-  [Commands: Migration](https://www.hybridclaw.io/docs/development/reference/commands#migration) and
-  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
+  [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
+  [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](https://www.hybridclaw.io/docs/development/getting-started/channels),
+  [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
   [iMessage](https://www.hybridclaw.io/docs/imessage), and
   [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
-  [Extensibility](https://www.hybridclaw.io/docs/development/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills),
-  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins),
-  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/honcho-memory-plugin), and
-  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/mempalace-memory-plugin)
+  [Extensibility](https://www.hybridclaw.io/docs/extensibility),
+  [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
+  [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
 - Configuration:
-  [Configuration Reference](https://www.hybridclaw.io/docs/development/reference/configuration)
+  [Configuration Reference](https://www.hybridclaw.io/docs/reference/configuration)
 - CLI reference:
-  [Commands](https://www.hybridclaw.io/docs/development/reference/commands),
-  [Diagnostics](https://www.hybridclaw.io/docs/development/reference/diagnostics), and
-  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq)
+  [Commands](https://www.hybridclaw.io/docs/reference/commands),
+  [Diagnostics](https://www.hybridclaw.io/docs/reference/diagnostics), and
+  [FAQ](https://www.hybridclaw.io/docs/reference/faq)
 
 ## Contributing
 

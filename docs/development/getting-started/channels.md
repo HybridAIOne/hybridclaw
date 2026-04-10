@@ -71,8 +71,9 @@ No slash-command equivalent exists today for:
 
 ## From The Admin Console
 
-If the gateway is already running, open `http://127.0.0.1:9090/admin` and use
-the Channels page when you prefer a browser-based setup flow.
+If the gateway is already running, open
+`http://127.0.0.1:9090/admin/channels` when you prefer a browser-based setup
+flow.
 
 The Channels page can:
 
@@ -85,7 +86,7 @@ The Channels page can:
 - show the live WhatsApp pairing QR when the transport is enabled but not
   linked yet
 
-Channel edits in `/admin` write the same runtime config that
+Channel edits in `/admin/channels` write the same runtime config that
 `hybridclaw channels ... setup`, `/config set`, and `/secret set` use.
 
 ## Shared Inbound Media Cache
@@ -121,6 +122,12 @@ What this does:
 
 If you omit `--token`, HybridClaw leaves the token unchanged and tells you where
 to save `DISCORD_TOKEN` later.
+
+Admin console equivalent:
+
+- open `/admin/channels`
+- select Discord
+- save the same token, policy, and allowlist settings from the browser
 
 TUI or web chat equivalent:
 
@@ -217,6 +224,12 @@ Notes:
 - outbound `message` sends must use canonical Telegram ids like
   `telegram:123456789` or `telegram:-1001234567890:topic:42`; `@username`
   targets are not accepted there
+
+Admin console equivalent:
+
+- open `/admin/channels`
+- select Telegram
+- save the same bot token, DM/group policy, allowlist, and polling settings
 
 TUI or web chat equivalent:
 
@@ -345,6 +358,12 @@ Notes:
   can pass explicit `inReplyTo` and `references` Message-ID headers when they
   need to reply into an existing external thread
 
+Admin console equivalent:
+
+- open `/admin/channels`
+- select Email
+- save the same mailbox, IMAP/SMTP, folder, allowlist, and password settings
+
 TUI or web chat equivalent:
 
 ```text
@@ -441,6 +460,13 @@ For allowlisted DMs after pairing:
 /config set whatsapp.allowFrom ["+14155551212"]
 ```
 
+Admin console equivalent:
+
+- open `/admin/channels`
+- select WhatsApp
+- update the same DM/group policy and allowlist settings
+- use the page's QR flow when the transport is enabled but not paired yet
+
 ### Step 3: Scan the QR code
 
 In WhatsApp, open `Settings` -> `Linked Devices` -> `Link a Device`, then scan
@@ -490,6 +516,13 @@ Notes:
 - the remote backend stores `IMESSAGE_PASSWORD` only when `--password` is
   provided
 
+Admin console equivalent:
+
+- open `/admin/channels`
+- select iMessage
+- save the same backend, relay, allowlist, and password settings from the
+  browser
+
 TUI or web chat can write the underlying config directly.
 
 Local backend example:
@@ -538,6 +571,13 @@ hybridclaw auth login msteams \
 
 You can also run `hybridclaw auth login msteams` interactively and let
 HybridClaw prompt for the app ID, app password, and optional tenant ID.
+
+Admin console equivalent:
+
+- open `/admin/channels`
+- select Microsoft Teams
+- save the same app ID, tenant ID, password, and policy settings from the
+  browser
 
 TUI or web chat can write the same settings manually:
 
