@@ -47,6 +47,13 @@ import {
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
+  initSlack,
+  sendSlackFileToTarget,
+  sendToSlackTarget,
+  shutdownSlack,
+} from '../channels/slack/runtime.js';
+import { isSlackChannelTarget } from '../channels/slack/target.js';
+import {
   hasTelegramBotToken,
   initTelegram,
   sendTelegramMediaToChat,
@@ -76,6 +83,8 @@ import {
   MSTEAMS_APP_PASSWORD,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
+  SLACK_APP_TOKEN,
+  SLACK_BOT_TOKEN,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
@@ -221,6 +230,7 @@ function logGatewayStartup(params: {
   channels: {
     discord: boolean;
     msteams: boolean;
+    slack: boolean;
     email: boolean;
     imessage: boolean;
     telegram: boolean;
@@ -627,6 +637,41 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isSlackChannelTarget(channelId)) {
+    const slackConfigured =
+      getConfigSnapshot().slack.enabled &&
+      Boolean(trimValue(SLACK_BOT_TOKEN)) &&
+      Boolean(trimValue(SLACK_APP_TOKEN));
+    if (!slackConfigured) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Slack message suppressed: Slack is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToSlackTarget(channelId, text);
+      }
+      for (const artifact of artifacts || []) {
+        await sendSlackFileToTarget({
+          target: channelId,
+          filePath: artifact.path,
+          filename: artifact.filename,
+        });
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Slack conversation',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1643,6 +1688,120 @@ async function startTelegramIntegration(): Promise<boolean> {
   return true;
 }
 
+function trimValue(value: string | null | undefined): string {
+  return String(value || '').trim();
+}
+
+async function startSlackIntegration(): Promise<boolean> {
+  const slackConfig = getConfigSnapshot().slack;
+  const hasCredentials =
+    Boolean(trimValue(SLACK_BOT_TOKEN)) && Boolean(trimValue(SLACK_APP_TOKEN));
+
+  if (!slackConfig.enabled) {
+    logger.info('Slack integration disabled');
+    return false;
+  }
+  if (!hasCredentials) {
+    logger.info(
+      'Slack integration disabled: SLACK_BOT_TOKEN or SLACK_APP_TOKEN is missing',
+    );
+    return false;
+  }
+
+  try {
+    await initSlack(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'slack',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(
+              formatError('Agent Error', result.error || 'Unknown error'),
+            );
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          const responseText = cleanedResultText.trim()
+            ? buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+              )
+            : '';
+          if (responseText) {
+            await reply(responseText);
+          }
+          for (const artifact of artifacts) {
+            await sendSlackFileToTarget({
+              target: context.inbound.target,
+              filePath: artifact.path,
+              filename: artifact.filename,
+            });
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Slack message handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.error({ error }, 'Slack integration failed to start');
+    return false;
+  }
+
+  logger.info('Slack integration started inside gateway');
+  return true;
+}
+
 async function refreshEmailIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -1691,6 +1850,31 @@ async function refreshTelegramIntegrationForConfigChange(
     );
   });
   await startTelegramIntegration();
+}
+
+async function refreshSlackIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (JSON.stringify(next.slack) === JSON.stringify(prev.slack)) return;
+
+  logger.info(
+    {
+      enabled: next.slack.enabled,
+      dmPolicy: next.slack.dmPolicy,
+      groupPolicy: next.slack.groupPolicy,
+      requireMention: next.slack.requireMention,
+      replyStyle: next.slack.replyStyle,
+    },
+    'Config changed, restarting Slack integration',
+  );
+  await shutdownSlack().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Slack runtime during config-change restart',
+    );
+  });
+  await startSlackIntegration();
 }
 
 async function startIMessageIntegration(): Promise<boolean> {
@@ -1839,6 +2023,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     });
     await shutdownEmail().catch((error) => {
       logger.debug({ error }, 'Failed to stop email runtime during shutdown');
+    });
+    await shutdownSlack().catch((error) => {
+      logger.debug({ error }, 'Failed to stop Slack runtime during shutdown');
     });
     await shutdownTelegram().catch((error) => {
       logger.debug(
@@ -2075,6 +2262,7 @@ async function main(): Promise<void> {
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
+  const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
   const whatsappActive = await startWhatsAppIntegration();
@@ -2104,6 +2292,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshSlackIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Slack integration restart failed after config change',
+      );
+    });
 
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
@@ -2184,6 +2378,7 @@ async function main(): Promise<void> {
     channels: {
       discord: discordActive,
       msteams: msteamsActive,
+      slack: slackActive,
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,

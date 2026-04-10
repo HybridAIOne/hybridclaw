@@ -149,6 +149,16 @@ function syncRuntimeSecretExports(): void {
     'MSTEAMS_APP_PASSWORD',
     storedSecrets,
   );
+  SLACK_BOT_TOKEN = readRuntimeSecretValue(
+    ['SLACK_BOT_TOKEN'],
+    'SLACK_BOT_TOKEN',
+    storedSecrets,
+  );
+  SLACK_APP_TOKEN = readRuntimeSecretValue(
+    ['SLACK_APP_TOKEN'],
+    'SLACK_APP_TOKEN',
+    storedSecrets,
+  );
   HYBRIDAI_API_KEY = readRuntimeSecretValue(
     ['HYBRIDAI_API_KEY'],
     'HYBRIDAI_API_KEY',
@@ -177,6 +187,8 @@ export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
 export let IMESSAGE_PASSWORD = '';
 export let MSTEAMS_APP_PASSWORD = '';
+export let SLACK_BOT_TOKEN = '';
+export let SLACK_APP_TOKEN = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
@@ -267,6 +279,16 @@ export let MSTEAMS_MEDIA_MAX_MB = 20;
 export let MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING = false;
 export let MSTEAMS_MEDIA_ALLOW_HOSTS: string[] = [];
 export let MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: string[] = [];
+export let SLACK_ENABLED = false;
+export let SLACK_GROUP_POLICY: RuntimeConfig['slack']['groupPolicy'] =
+  'allowlist';
+export let SLACK_DM_POLICY: RuntimeConfig['slack']['dmPolicy'] = 'allowlist';
+export let SLACK_ALLOW_FROM: string[] = [];
+export let SLACK_GROUP_ALLOW_FROM: string[] = [];
+export let SLACK_REQUIRE_MENTION = true;
+export let SLACK_TEXT_CHUNK_LIMIT = 12_000;
+export let SLACK_REPLY_STYLE: RuntimeConfig['slack']['replyStyle'] = 'thread';
+export let SLACK_MEDIA_MAX_MB = 20;
 export let WHATSAPP_DM_POLICY: RuntimeConfig['whatsapp']['dmPolicy'] =
   'pairing';
 export let WHATSAPP_GROUP_POLICY: RuntimeConfig['whatsapp']['groupPolicy'] =
@@ -566,6 +588,30 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.msteams.dangerouslyAllowNameMatching;
   MSTEAMS_MEDIA_ALLOW_HOSTS = [...config.msteams.mediaAllowHosts];
   MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS = [...config.msteams.mediaAuthAllowHosts];
+  SLACK_ENABLED = config.slack.enabled;
+  SLACK_BOT_TOKEN =
+    readRuntimeSecretValue(
+      ['SLACK_BOT_TOKEN'],
+      'SLACK_BOT_TOKEN',
+      storedSecrets,
+    ) || '';
+  SLACK_APP_TOKEN =
+    readRuntimeSecretValue(
+      ['SLACK_APP_TOKEN'],
+      'SLACK_APP_TOKEN',
+      storedSecrets,
+    ) || '';
+  SLACK_GROUP_POLICY = config.slack.groupPolicy;
+  SLACK_DM_POLICY = config.slack.dmPolicy;
+  SLACK_ALLOW_FROM = [...config.slack.allowFrom];
+  SLACK_GROUP_ALLOW_FROM = [...config.slack.groupAllowFrom];
+  SLACK_REQUIRE_MENTION = config.slack.requireMention;
+  SLACK_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(40_000, config.slack.textChunkLimit),
+  );
+  SLACK_REPLY_STYLE = config.slack.replyStyle;
+  SLACK_MEDIA_MAX_MB = Math.max(1, config.slack.mediaMaxMb);
   WHATSAPP_DM_POLICY = config.whatsapp.dmPolicy;
   WHATSAPP_GROUP_POLICY = config.whatsapp.groupPolicy;
   WHATSAPP_ALLOW_FROM = [...config.whatsapp.allowFrom];

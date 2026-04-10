@@ -3000,6 +3000,22 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     tokenConfigured: Boolean(discordCredential.value),
     tokenSource: discordCredential.source,
   } as NonNullable<GatewayStatus['discord']>;
+  const slackBotCredential = resolveRuntimeCredentialStatus(
+    'SLACK_BOT_TOKEN',
+    [process.env.SLACK_BOT_TOKEN],
+    storedSecrets.SLACK_BOT_TOKEN,
+  );
+  const slackAppCredential = resolveRuntimeCredentialStatus(
+    'SLACK_APP_TOKEN',
+    [process.env.SLACK_APP_TOKEN],
+    storedSecrets.SLACK_APP_TOKEN,
+  );
+  const slack = {
+    botTokenConfigured: Boolean(slackBotCredential.value),
+    botTokenSource: slackBotCredential.source,
+    appTokenConfigured: Boolean(slackAppCredential.value),
+    appTokenSource: slackAppCredential.source,
+  } as NonNullable<GatewayStatus['slack']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
     envValues: [process.env.TELEGRAM_BOT_TOKEN],
@@ -3047,6 +3063,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       jobs: getSchedulerStatus(),
     },
     discord,
+    slack,
     telegram,
     email,
     imessage,
@@ -3509,6 +3526,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     defaultRateLimitPerUser: runtimeConfig.discord.rateLimitPerUser,
     defaultMaxConcurrentPerChannel:
       runtimeConfig.discord.maxConcurrentPerChannel,
+    slack: {
+      enabled: runtimeConfig.slack.enabled,
+      groupPolicy: runtimeConfig.slack.groupPolicy,
+      dmPolicy: runtimeConfig.slack.dmPolicy,
+      defaultRequireMention: runtimeConfig.slack.requireMention,
+      defaultReplyStyle: runtimeConfig.slack.replyStyle,
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,

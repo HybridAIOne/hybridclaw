@@ -166,6 +166,9 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackReplyStyle = 'thread' | 'top-level';
 export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
@@ -336,6 +339,18 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSlackConfig {
+  enabled: boolean;
+  groupPolicy: SlackGroupPolicy;
+  dmPolicy: SlackDmPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  requireMention: boolean;
+  textChunkLimit: number;
+  replyStyle: SlackReplyStyle;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeTelegramConfig {
   enabled: boolean;
   botToken: string;
@@ -477,6 +492,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
   imessage: RuntimeIMessageConfig;
@@ -844,6 +860,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       'botframework.com',
       'teams.microsoft.com',
     ],
+  },
+  slack: {
+    enabled: false,
+    groupPolicy: 'allowlist',
+    dmPolicy: 'allowlist',
+    allowFrom: [],
+    groupAllowFrom: [],
+    requireMention: true,
+    textChunkLimit: 12_000,
+    replyStyle: 'thread',
+    mediaMaxMb: 20,
   },
   telegram: {
     enabled: false,
@@ -1843,6 +1870,51 @@ function normalizeTelegramPolicy(
   return fallback;
 }
 
+function normalizeSlackGroupPolicy(
+  value: unknown,
+  fallback: SlackGroupPolicy,
+): SlackGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackDmPolicy(
+  value: unknown,
+  fallback: SlackDmPolicy,
+): SlackDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackReplyStyle(
+  value: unknown,
+  fallback: SlackReplyStyle,
+): SlackReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
+  return fallback;
+}
+
 function normalizeIMessageBackend(
   value: unknown,
   fallback: IMessageBackend,
@@ -1973,6 +2045,43 @@ function normalizeTelegramConfig(
         max: 4_000,
       },
     ),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeSlackConfig(
+  value: unknown,
+  fallback: RuntimeSlackConfig,
+): RuntimeSlackConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    groupPolicy: normalizeSlackGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    dmPolicy: normalizeSlackDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 40_000,
+      },
+    ),
+    replyStyle: normalizeSlackReplyStyle(raw.replyStyle, fallback.replyStyle),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,
@@ -3324,6 +3433,7 @@ function normalizeRuntimeConfig(
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
@@ -3772,6 +3882,7 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
     telegram: normalizeTelegramConfig(
       rawTelegram,
       DEFAULT_RUNTIME_CONFIG.telegram,

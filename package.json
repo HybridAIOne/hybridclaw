@@ -79,6 +79,7 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
+    "@slack/bolt": "4.7.0",
     "@huggingface/transformers": "3.8.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "ajv": "8.18.0",

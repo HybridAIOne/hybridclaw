@@ -12,6 +12,7 @@
     "channelDisabled": {
       "discord": [],
       "msteams": [],
+      "slack": [],
       "telegram": [],
       "whatsapp": [],
       "email": []
@@ -121,6 +122,17 @@
       "botframework.com",
       "teams.microsoft.com"
     ]
+  },
+  "slack": {
+    "enabled": false,
+    "groupPolicy": "allowlist",
+    "dmPolicy": "allowlist",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "requireMention": true,
+    "textChunkLimit": 12000,
+    "replyStyle": "thread",
+    "mediaMaxMb": 20
   },
   "telegram": {
     "enabled": false,

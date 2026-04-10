@@ -388,6 +388,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slack?: {
+    botTokenConfigured: boolean;
+    botTokenSource: 'env' | 'runtime-secrets' | null;
+    appTokenConfigured: boolean;
+    appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -701,6 +707,13 @@ export interface GatewayAdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  slack: {
+    enabled: boolean;
+    groupPolicy: RuntimeConfig['slack']['groupPolicy'];
+    dmPolicy: RuntimeConfig['slack']['dmPolicy'];
+    defaultRequireMention: boolean;
+    defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];

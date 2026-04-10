@@ -30,6 +30,9 @@ function createGatewayMainTestState(options?: {
   emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  slackInitError?: Error;
+  hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -41,6 +44,7 @@ function createGatewayMainTestState(options?: {
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    slackMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     telegramMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -67,6 +71,17 @@ function createGatewayMainTestState(options?: {
         imapSecure: true,
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+      },
+      slack: {
+        enabled: options?.slackEnabled ?? false,
+        groupPolicy: 'allowlist',
+        dmPolicy: 'allowlist',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        textChunkLimit: 12_000,
+        replyStyle: 'thread',
+        mediaMaxMb: 20,
       },
       telegram: {
         enabled: false,
@@ -148,6 +163,7 @@ function createGatewayMainTestState(options?: {
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initSlack: vi.fn(),
     initTelegram: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
@@ -264,6 +280,12 @@ async function importFreshGatewayMain(options?: {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
   });
+  state.initSlack.mockImplementation((messageHandler) => {
+    if (options?.slackInitError) {
+      throw options.slackInitError;
+    }
+    state.slackMessageHandler = messageHandler;
+  });
   state.initTelegram.mockImplementation((messageHandler) => {
     state.telegramMessageHandler = messageHandler;
   });
@@ -370,6 +392,12 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
+  vi.doMock('../src/channels/slack/runtime.js', () => ({
+    initSlack: state.initSlack,
+    sendSlackFileToTarget: vi.fn(async () => {}),
+    sendToSlackTarget: vi.fn(async () => {}),
+    shutdownSlack: vi.fn(async () => {}),
+  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
@@ -397,6 +425,10 @@ async function importFreshGatewayMain(options?: {
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-password',
+    SLACK_APP_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'slack-app-token',
+    SLACK_BOT_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
@@ -537,6 +569,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/telegram/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
+  vi.doUnmock('../src/channels/slack/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/auth.js');

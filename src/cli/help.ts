@@ -199,9 +199,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -216,25 +216,30 @@ Examples:
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
+  hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status msteams
+  hybridclaw auth status slack
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout msteams
+  hybridclaw auth logout slack
 
 Notes:
   - \`auth login\` without a provider runs the normal interactive onboarding flow.
   - \`local logout\` disables configured local backends and clears any saved vLLM API key.
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
+  - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
-  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
+  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
+  - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
 
 export function printChannelsUsage(): void {
@@ -265,6 +270,7 @@ Notes:
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
+  - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
   - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
   - iMessage setup stores \`IMESSAGE_PASSWORD\` only when \`--password\` is provided for the remote relay backend.
   - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
@@ -365,6 +371,19 @@ Notes:
   - \`--tenant-id\` is optional.
   - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
   - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
+}
+
+export function printSlackUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
+  hybridclaw auth status slack
+  hybridclaw auth logout slack
+
+Notes:
+  - \`auth login slack\` enables the Slack integration in ${runtimeConfigPath()}.
+  - \`auth login slack\` stores \`SLACK_BOT_TOKEN\` and \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
+  - Slack uses Socket Mode, so both a bot token and an app token are required.
+  - If either token is omitted and the terminal is interactive, HybridClaw prompts for the missing value.`);
 }
 
 export function printCodexUsage(): void {
@@ -642,6 +661,7 @@ Topics:
   config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
+  slack       Help for Slack auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
@@ -724,6 +744,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'msteams':
     case 'teams':
       printMSTeamsUsage();
+      return true;
+    case 'slack':
+      printSlackUsage();
       return true;
     case 'local':
       printLocalUsage();
