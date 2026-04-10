@@ -1417,9 +1417,42 @@ export interface SkillInvocation {
   args: string;
 }
 
-export interface ExpandedSkillInvocation {
+export function resolveSkillInvocationForTurn(params: {
   content: string;
-  invocation: SkillInvocation | null;
+  skills: Skill[];
+  previousUserContent?: string | null;
+}): SkillInvocation | null {
+  const directInvocation = parseSkillInvocation(params.content, params.skills);
+  if (directInvocation) {
+    return directInvocation;
+  }
+
+  const currentContent = params.content.trim();
+  if (
+    !currentContent ||
+    currentContent.startsWith('/') ||
+    currentContent.startsWith('$')
+  ) {
+    return null;
+  }
+
+  const previousContent = params.previousUserContent?.trim() || '';
+  if (!previousContent) {
+    return null;
+  }
+
+  const previousInvocation = parseSkillInvocation(
+    previousContent,
+    params.skills,
+  );
+  if (!previousInvocation) {
+    return null;
+  }
+
+  return {
+    skill: previousInvocation.skill,
+    args: currentContent,
+  };
 }
 
 function parseToolExecutionArguments(
@@ -1557,7 +1590,7 @@ export function expandSkillInvocation(
   content: string,
   skills: Skill[],
 ): string {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
+  const invocation = resolveSkillInvocationForTurn({ content, skills });
   if (!invocation) return content;
 
   return expandResolvedSkillInvocation(invocation, invocation.args);
@@ -1583,19 +1616,6 @@ export function expandResolvedSkillInvocation(
   }
 
   return lines.join('\n');
-}
-
-export function expandSkillInvocationWithResolution(
-  content: string,
-  skills: Skill[],
-): ExpandedSkillInvocation {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
-  return {
-    content: invocation
-      ? expandResolvedSkillInvocation(invocation, invocation.args)
-      : content,
-    invocation,
-  };
 }
 
 export interface SkillCatalogEntry {
