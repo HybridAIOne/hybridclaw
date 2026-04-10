@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-gbrain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw plugin for GBrain retrieval and tool dispatch",
+  "engines": {
+    "node": "22.x"
+  }
+}

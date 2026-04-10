@@ -65,6 +65,9 @@ or change one top-level `plugins.list[].config` key without editing
 
 ## Repo-Shipped Examples
 
+- `gbrain` shells out to the GBrain CLI, injects search results into prompt
+  context, and mirrors the discovered GBrain operations as `gbrain_*` plugin
+  tools
 - `qmd-memory` injects external markdown retrieval context into prompts
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
