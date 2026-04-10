@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 /**
  * Fires `onEscape` when the Escape key is pressed, unless focus is inside an
- * editable element (input, textarea, contenteditable) where Escape has its
+ * editable element (input, textarea, select, contenteditable) where Escape has its
  * own meaning.
  */
 export function useEscapeKeydown(onEscape: () => void, active: boolean): void {

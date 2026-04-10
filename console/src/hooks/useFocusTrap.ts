@@ -33,19 +33,16 @@ export function useFocusTrap(
     if (!container) return;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    // Snapshot focusable elements once at activation. The sidebar content is
-    // static while the trap is active so this avoids repeated querySelectorAll
-    // on every Tab keydown and focusout event.
-    const items = getFocusable(container);
 
     // Defer initial focus one frame so the element is visible after any
     // CSS transition that runs synchronously with the state change.
     const raf = requestAnimationFrame(() => {
-      items[0]?.focus({ preventScroll: true });
+      getFocusable(container)[0]?.focus({ preventScroll: true });
     });
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !container) return;
+      const items = getFocusable(container);
       if (!items.length) {
         e.preventDefault();
         return;
@@ -71,12 +68,13 @@ export function useFocusTrap(
     // call, pull it back on the next frame.
     function onFocusOut() {
       requestAnimationFrame(() => {
+        // Container may have been removed from DOM between focusout and rAF callback
         if (
           container &&
           container.isConnected &&
           !container.contains(document.activeElement)
         ) {
-          items[0]?.focus({ preventScroll: true });
+          getFocusable(container)[0]?.focus({ preventScroll: true });
         }
       });
     }

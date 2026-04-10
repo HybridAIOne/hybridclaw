@@ -124,6 +124,8 @@ export function SheetContent({
     bottom: styles.bottom,
   }[side];
 
+  if (typeof document === 'undefined') return null;
+
   return createPortal(
     <>
       {/* Overlay — click to dismiss; permanently aria-hidden because Escape
@@ -191,9 +193,3 @@ export function SheetDescription({ children }: { children: ReactNode }) {
   return <p id={descriptionId}>{children}</p>;
 }
 
-// ---------------------------------------------------------------------------
-// sr-only helper class (exposed for callers who want to suppress SheetHeader)
-// ---------------------------------------------------------------------------
-
-/** CSS class that visually hides an element while keeping it in the a11y tree. */
-export const sheetSrOnly = styles.srOnly;

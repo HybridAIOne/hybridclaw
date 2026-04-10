@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { cx } from '../../lib/cx';
-import { Cog, HybridClaw } from '../icons';
+import { HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
@@ -60,7 +60,7 @@ export function AppSidebar(props: {
   );
 }
 
-export function SidebarBrand() {
+function SidebarBrand() {
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
@@ -76,7 +76,7 @@ export function SidebarBrand() {
   );
 }
 
-export function SidebarNavLink(props: { item: SidebarNavItem }) {
+function SidebarNavLink(props: { item: SidebarNavItem }) {
   const { isMobile, setOpenMobile } = useSidebar();
 
   return (
@@ -101,7 +101,7 @@ export function SidebarNavLink(props: { item: SidebarNavItem }) {
   );
 }
 
-export function SidebarMeta(props: { version?: string }) {
+function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>
@@ -110,7 +110,7 @@ export function SidebarMeta(props: { version?: string }) {
   );
 }
 
-export function SidebarActions(props: {
+function SidebarActions(props: {
   showLogout: boolean;
   onLogout: () => void;
 }) {
@@ -128,7 +128,7 @@ export function SidebarActions(props: {
               onClick={props.onLogout}
             >
               <span className={styles.icon} aria-hidden="true">
-                <Cog />
+                <LogOut />
               </span>
               Forget token
             </button>

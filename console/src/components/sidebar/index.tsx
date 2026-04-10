@@ -16,6 +16,7 @@ import {
   SheetContent,
   SheetDescription,
   SheetHeader,
+  type SheetSide,
   SheetTitle,
 } from '../sheet';
 import styles from './index.module.css';
@@ -34,7 +35,7 @@ type SidebarContextValue = {
 
 type SidebarProps = {
   children: ReactNode;
-  side?: 'left' | 'right';
+  side?: Extract<SheetSide, 'left' | 'right'>;
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -169,9 +170,13 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
     );
   }
 
-  // Desktop: always-visible panel.
+  // Desktop: collapsible panel.
   return (
-    <aside className={styles.root} data-side={side} data-state="expanded">
+    <aside
+      className={styles.root}
+      data-side={side}
+      data-state={context.open ? 'expanded' : 'collapsed'}
+    >
       {children}
     </aside>
   );

@@ -24,7 +24,26 @@
   overflow: visible;
 }
 
-/* Mobile positioning is now owned by Sheet — rootMobile / rootVisible removed */
+.root[data-state="collapsed"] {
+  width: var(--sidebar-width-icon);
+  overflow: hidden;
+}
+
+.root[data-state="collapsed"] .groupLabel,
+.root[data-state="collapsed"] .brandText,
+.root[data-state="collapsed"] .footerMeta,
+.root[data-state="collapsed"] .footerButton span:not(.icon) {
+  display: none;
+}
+
+.root[data-state="collapsed"] .menuButton {
+  justify-content: center;
+  padding: 7px;
+}
+
+.root[data-state="collapsed"] .menuButton > span:not(.menuIcon) {
+  display: none;
+}
 
 .header,
 .footer {

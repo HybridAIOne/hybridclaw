@@ -45,7 +45,6 @@ code {
   min-width: 0;
 }
 
-.brand-block,
 .page-content,
 .page-stack,
 .detail-stack,
@@ -62,27 +61,12 @@ code {
   min-height: 0;
 }
 
-.brand-block {
-  padding: 4px 8px;
-}
-
-.brand-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.brand-block h1,
 .topbar h2,
 .panel h4,
 .login-card h1 {
   margin: 0;
   font-weight: 600;
   letter-spacing: -0.02em;
-}
-
-.brand-block h1 {
-  font-size: 1.1rem;
 }
 
 .topbar h2 {
@@ -194,12 +178,6 @@ code {
   word-break: break-word;
 }
 
-.nav-section {
-  display: grid;
-  gap: 6px;
-  margin-top: 18px;
-}
-
 .nav-link-icon {
   display: inline-flex;
   align-items: center;
@@ -306,10 +284,6 @@ code {
   color: var(--muted-foreground);
   font-size: 0.84rem;
   font-weight: 500;
-}
-
-.brand-block .status-pill {
-  justify-self: start;
 }
 
 .status-pill-success {

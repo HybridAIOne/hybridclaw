@@ -3,6 +3,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
 } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
@@ -179,7 +180,7 @@ describe('Sidebar — desktop', () => {
   beforeEach(() => setViewport(1440));
   afterEach(cleanup);
 
-  it('always renders expanded with no rail', () => {
+  it('renders expanded by default', () => {
     const { container } = render(
       <SidebarProvider>
         <Sidebar>
@@ -189,11 +190,9 @@ describe('Sidebar — desktop', () => {
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-    expect(aside?.getAttribute('data-collapsible')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).toBeNull();
   });
 
-  it('trigger renders but clicking does not change sidebar data-state', () => {
+  it('trigger collapses and re-expands the sidebar', () => {
     const { container } = render(
       <SidebarProvider>
         <Sidebar>
@@ -208,9 +207,9 @@ describe('Sidebar — desktop', () => {
     const trigger = screen.getByRole('button', { name: 'Collapse sidebar' });
 
     fireEvent.click(trigger);
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
 
-    // Sidebar is always-expanded on desktop; trigger toggles context open
-    // but data-state stays "expanded".
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
     expect(aside?.getAttribute('data-state')).toBe('expanded');
   });
 });
@@ -533,7 +532,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('uses collapsible="none" so desktop sidebar is always data-state="expanded"', () => {
+  it('desktop sidebar starts expanded and collapses on trigger click', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -541,11 +540,16 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
+        <SidebarInset>
+          <SidebarTrigger />
+        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-    expect(aside?.getAttribute('data-collapsible')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {
@@ -590,5 +594,110 @@ describe('AppSidebar', () => {
     // Sheet portals a section[role="dialog"] to document.body.
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('data-mobile')).toBe('true');
+  });
+});
+
+describe('Editable-element guards', () => {
+  afterEach(cleanup);
+
+  it('Escape does not close mobile drawer when focus is in an input', () => {
+    setViewport(800);
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>
+            <input data-testid="inner-input" />
+          </SidebarContent>
+        </Sidebar>
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
+      </SidebarProvider>,
+    );
+
+    act(() => captured.value?.setOpenMobile(true));
+    expect(captured.value?.openMobile).toBe(true);
+
+    const input = screen.getByTestId('inner-input');
+    input.focus();
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(captured.value?.openMobile).toBe(true);
+  });
+
+  it('Ctrl+B does not toggle when focus is in a textarea', () => {
+    setViewport(1440);
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>
+            <textarea data-testid="inner-textarea" />
+          </SidebarContent>
+        </Sidebar>
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
+      </SidebarProvider>,
+    );
+
+    expect(captured.value?.open).toBe(true);
+
+    const textarea = screen.getByTestId('inner-textarea');
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: 'b', ctrlKey: true });
+
+    expect(captured.value?.open).toBe(true);
+  });
+});
+
+describe('Error boundaries', () => {
+  afterEach(cleanup);
+
+  it('useSidebar throws when used outside SidebarProvider', () => {
+    // Suppress React error boundary console noise
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => renderHook(() => useSidebar())).toThrow(
+      'Sidebar components must be used within SidebarProvider.',
+    );
+    spy.mockRestore();
+  });
+});
+
+describe('useHideOthers', () => {
+  afterEach(cleanup);
+
+  it('sets aria-hidden on siblings when mobile drawer is open', () => {
+    setViewport(800);
+    const sibling = document.createElement('div');
+    sibling.setAttribute('data-testid', 'app-sibling');
+    document.body.appendChild(sibling);
+
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
+      </SidebarProvider>,
+    );
+
+    act(() => captured.value?.setOpenMobile(true));
+    expect(sibling.getAttribute('aria-hidden')).toBe('true');
+
+    act(() => captured.value?.setOpenMobile(false));
+    expect(sibling.hasAttribute('aria-hidden')).toBe(false);
+
+    document.body.removeChild(sibling);
   });
 });
