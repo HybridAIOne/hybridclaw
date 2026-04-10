@@ -178,6 +178,91 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
   });
 });
 
+test('host auxiliary caller strips the HybridAI display prefix from request models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'hybridai-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 2048,
+    thinkingFormat: undefined,
+  }));
+  vi.doMock('../src/providers/task-routing.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/task-routing.js')
+    >('../src/providers/task-routing.js');
+    return {
+      ...actual,
+      resolveTaskModelPolicy,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://hybridai.one/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({
+        model: 'gpt-5-nano',
+        chatbot_id: 'bot_123',
+        enable_rag: false,
+        temperature: 0.1,
+      });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'HybridAI cleanup response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: 'main',
+    fallbackModel: 'hybridai/gpt-5-nano',
+    fallbackChatbotId: 'bot_123',
+    maxTokens: 2048,
+    temperature: 0.1,
+    messages: [{ role: 'user', content: 'Rewrite this memory.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'hybridai',
+    model: 'hybridai/gpt-5-nano',
+    content: 'HybridAI cleanup response.',
+  });
+});
+
 test('host auxiliary caller streams Codex responses for auxiliary tasks', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({

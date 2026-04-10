@@ -7,6 +7,7 @@ import {
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
+import { stripHybridAIModelPrefix } from './model-names.js';
 import type { RuntimeProviderId } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
@@ -543,7 +544,7 @@ async function callHybridAITextModel(
 ): Promise<string> {
   const body = withCoreRequestBody(
     {
-      model: context.model,
+      model: stripHybridAIModelPrefix(context.model),
       chatbot_id: context.chatbotId,
       messages,
       tools: options.tools,
