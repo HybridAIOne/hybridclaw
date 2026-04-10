@@ -176,10 +176,10 @@ hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
+hybridclaw skill install <skill-name> <dependency>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
-hybridclaw skill install <skill-name> [install-id]
 hybridclaw tool list
 hybridclaw tool enable <tool-name>
 hybridclaw tool disable <tool-name>
@@ -201,6 +201,9 @@ hybridclaw audit instructions [--sync]
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`skill install <skill-name> <dependency>` runs one declared dependency from the
+named skill. Use `skill list` first to discover the dependency ids exposed by a
+skill.
 `update` checks for a newer installed release and can upgrade a global npm
 install; source checkouts receive git-based update instructions instead.
 
@@ -257,10 +260,15 @@ the same gateway command surface used by TUI and web chat.
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,
-  `/skill import`, `/skill learn`, `/schedule`, `/status`, and related slash
-  commands
+  `/skill install`, `/skill import`, `/skill learn`, `/schedule`, `/status`,
+  and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
+- local TUI and web chat support `/skill list` to inspect dependency ids and
+  `/skill install <skill> <dependency>` to run one declared skill dependency
+- an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
+  the next plain-text follow-up in the same session; a new slash command
+  cancels that carry-over
 - `/status` shows both the current session and current agent
 - `/compact` runs session compaction, and `/reset` runs the confirmed
   workspace reset flow
@@ -285,3 +293,11 @@ Example secret flow:
 
 With that route in place, the model can use `http_request` to call matching
 URLs without seeing the plaintext API key.
+
+Example skill dependency flow:
+
+```text
+/skill list
+/skill install manim-video uv-manim
+/skill install manim-video brew-ffmpeg
+```

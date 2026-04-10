@@ -240,8 +240,9 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
-    description: 'Manage skill config, health, runs, amendments, and imports',
+      '/skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+    description:
+      'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
   usage: {
     command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
@@ -1861,7 +1862,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, manage amendments, and import or sync community skills',
+        'Inspect skill dependencies and health, review recent runs, manage amendments, and import or sync community skills',
       tuiOnly: true,
       options: [
         {
@@ -1905,6 +1906,30 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'name',
               description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install one declared dependency for a skill',
+          tuiMenu: {
+            label: '/skill install <skill> <dependency>',
+            insertText: '/skill install ',
+            aliases: ['/skill install <skill> <dependency>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'skill',
+              description: 'Skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'dependency',
+              description: 'Dependency id declared by that skill',
               required: true,
             },
           ],

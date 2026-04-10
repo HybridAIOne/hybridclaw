@@ -5,19 +5,27 @@ import type {
 } from '../skills/adaptive-skills-types.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
-import { loadSkillCatalog } from '../skills/skills.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 const SKILL_LIST_LINE_MAX_CHARS = 113;
 
 interface SkillCommandContext {
   args: string[];
   sessionAgentId: string;
+  guildId: string | null;
+  channelId: string;
   badCommand: (title: string, text: string) => GatewayCommandResult;
   infoCommand: (title: string, text: string) => GatewayCommandResult;
   plainCommand: (text: string) => GatewayCommandResult;
+}
+
+function isLocalSession(context: SkillCommandContext): boolean {
+  return (
+    context.guildId === null &&
+    (context.channelId === 'web' || context.channelId === 'tui')
+  );
 }
 
 function isForeignSkillSource(source: string): boolean {
@@ -139,7 +147,10 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'list') {
-    const catalog = loadSkillCatalog();
+    const { listSkillCatalogEntries } = await import(
+      '../skills/skills-management.js'
+    );
+    const catalog = listSkillCatalogEntries();
     if (catalog.length === 0) {
       return context.plainCommand('No skills are available.');
     }
@@ -165,6 +176,15 @@ export async function handleSkillCommand(
         skill.metadata.hybridclaw.shortDescription || skill.description;
       const description = truncateSkillListDescription(prefix, listDescription);
       lines.push(`${prefix}${description ? ` — ${description}` : ''}`);
+      if (skill.installs.length > 0) {
+        const installs = skill.installs
+          .map((install) => {
+            const label = install.label ? ` — ${install.label}` : '';
+            return `${install.id} (${install.kind})${label}`;
+          })
+          .join('; ');
+        lines.push(`    installs: ${installs}`);
+      }
     }
     if (hasForeignSkills) {
       lines.push('', '* foreign skill source');
@@ -369,6 +389,38 @@ export async function handleSkillCommand(
       `Skill Runs (${skillName})`,
       runs.map(formatSkillObservationRun).join('\n\n'),
     );
+  }
+
+  if (sub === 'install') {
+    const skillName = String(context.args[2] || '').trim();
+    const installId = String(context.args[3] || '').trim() || undefined;
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Install Restricted',
+        '`skill install` is only available from local TUI/web sessions.',
+      );
+    }
+    if (!skillName || !installId) {
+      return context.badCommand(
+        'Usage',
+        'Usage: `skill install <skill> <dependency>`',
+      );
+    }
+
+    const { installSkillDependency } = await import(
+      '../skills/skills-install.js'
+    );
+    const result = await installSkillDependency({ skillName, installId });
+    const lines = [result.message];
+    if (result.stdout) {
+      lines.push('', 'stdout:', result.stdout);
+    }
+    if (result.stderr) {
+      lines.push('', 'stderr:', result.stderr);
+    }
+    return result.ok
+      ? context.infoCommand('Skill Installed', lines.join('\n'))
+      : context.badCommand('Skill Install Failed', lines.join('\n'));
   }
 
   if (sub === 'import') {
