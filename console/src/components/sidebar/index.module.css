@@ -61,9 +61,7 @@
   min-height: 100dvh;
 }
 
-.trigger,
-.rail,
-.iconButton {
+.trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -83,8 +81,7 @@
     background 120ms ease;
 }
 
-.trigger:hover,
-.iconButton:hover {
+.trigger:hover {
   color: var(--text);
   background: var(--accent-soft);
   border-color: var(--line-strong);
@@ -284,12 +281,6 @@
 .footerButton:hover {
   background: var(--accent-soft);
   color: var(--text);
-}
-
-.iconButton {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-md);
 }
 
 /* Collapsed desktop state — placed after base selectors for specificity */
