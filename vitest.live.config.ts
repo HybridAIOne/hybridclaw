@@ -1,10 +1,11 @@
-import { defineConfig, mergeConfig } from 'vitest/config';
-import unitConfig from './vitest.unit.config.ts';
+import { defineConfig } from 'vitest/config';
+import { sharedTestConfig } from './vitest.unit.config.ts';
 
-export default mergeConfig(unitConfig, defineConfig({
+export default defineConfig({
   test: {
+    ...sharedTestConfig,
     include: ['tests/**/*.live.test.ts'],
     exclude: ['node_modules/**', 'dist/**', 'container/**'],
     maxWorkers: 1,
   },
-}));
+});
