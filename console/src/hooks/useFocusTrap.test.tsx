@@ -112,7 +112,7 @@ describe('useFocusTrap', () => {
     // the isConnected guard — should not throw.
     unmount();
     expect(() => {
-      fireEvent.focusOut(button);
+      fireEvent.focusOut(button as HTMLButtonElement);
     }).not.toThrow();
   });
 });
