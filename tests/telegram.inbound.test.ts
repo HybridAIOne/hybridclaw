@@ -1,10 +1,10 @@
-import { DEFAULT_AGENT_ID } from '../src/agents/agent-types.js';
 import { expect, test } from 'vitest';
-import { buildSessionKey } from '../src/session/session-key.js';
+import { DEFAULT_AGENT_ID } from '../src/agents/agent-types.js';
 import {
   evaluateTelegramAccessPolicy,
   processInboundTelegramMessage,
 } from '../src/channels/telegram/inbound.js';
+import { buildSessionKey } from '../src/session/session-key.js';
 
 const BASE_TELEGRAM_CONFIG = {
   enabled: true,

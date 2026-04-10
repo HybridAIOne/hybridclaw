@@ -248,7 +248,7 @@ test('resolves Telegram hints from explicit Telegram context', () => {
       ),
     ),
   ).toBe(true);
-  expect(
-    hints.some((entry) => entry.includes('group or topic thread')),
-  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('group or topic thread'))).toBe(
+    true,
+  );
 });
