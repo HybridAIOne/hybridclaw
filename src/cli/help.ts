@@ -124,7 +124,7 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
@@ -458,6 +458,7 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <skill-name> <dependency>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -465,10 +466,10 @@ Commands:
   hybridclaw skill history <skill-name>
   hybridclaw skill sync [--skip-skill-scan] <source>
   hybridclaw skill import [--force] [--skip-skill-scan] <source>
-  hybridclaw skill install <skill-name> [install-id]
 
 Notes:
-  - \`list\` shows declared install options from skill frontmatter.
+  - \`list\` shows declared dependency ids from skill frontmatter.
+  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -479,7 +480,7 @@ Notes:
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
+  - \`install\` runs one declared installer from a skill's \`install:\` or \`metadata.hybridclaw.install:\` frontmatter (brew, uv, pip, npm, node, go, download).`);
 }
 
 export function printToolUsage(): void {

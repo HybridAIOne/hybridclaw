@@ -6,8 +6,9 @@ import {
 import {
   expandSkillInvocation,
   loadSkills,
-  resolveExplicitSkillInvocation,
+  resolveSkillInvocationForTurn,
   type Skill,
+  type SkillInvocation,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import {
@@ -27,6 +28,7 @@ export interface ConversationContext {
   messages: ChatMessage[];
   skills: Skill[];
   historyStats: HistoryOptimizationStats;
+  explicitSkillInvocation: SkillInvocation | null;
 }
 
 export function buildConversationContext(params: {
@@ -64,9 +66,15 @@ export function buildConversationContext(params: {
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
   );
+  const previousUserContent =
+    history.find((message) => message.role === 'user')?.content || null;
   const explicitSkillInvocation =
     typeof currentUserContent === 'string' && currentUserContent.trim()
-      ? resolveExplicitSkillInvocation(currentUserContent, skills)
+      ? resolveSkillInvocationForTurn({
+          content: currentUserContent,
+          skills,
+          previousUserContent,
+        }).invocation
       : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
@@ -115,5 +123,6 @@ export function buildConversationContext(params: {
     messages,
     skills,
     historyStats: optimizedHistory.stats,
+    explicitSkillInvocation,
   };
 }

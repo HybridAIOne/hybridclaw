@@ -24,7 +24,8 @@ HybridClaw currently ships with 32 bundled skills. A few notable categories:
 
 ```bash
 hybridclaw skill list
-hybridclaw skill install pdf [install-id]
+hybridclaw skill install pdf brew-poppler
+hybridclaw skill install pdf brew-qpdf
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
 hybridclaw skill inspect <name>

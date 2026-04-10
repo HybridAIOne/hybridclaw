@@ -36,6 +36,7 @@ type SkillSource =
 export type SkillInstallKind =
   | 'brew'
   | 'uv'
+  | 'pip'
   | 'npm'
   | 'node'
   | 'go'
@@ -291,6 +292,7 @@ function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
     if (
       kindRaw !== 'brew' &&
       kindRaw !== 'uv' &&
+      kindRaw !== 'pip' &&
       kindRaw !== 'npm' &&
       kindRaw !== 'node' &&
       kindRaw !== 'go' &&
@@ -699,12 +701,41 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
+  const directInstallLookup = resolveTopLevelSectionLookup(
+    frontmatter,
+    'install',
+  );
+  const directInstallInlineJson = directInstallLookup.inlineObject
+    ? [directInstallLookup.inlineObject]
+    : directInstallLookup.section
+      ? tryParseJsonArray(directInstallLookup.section.inline)
+      : null;
+  const directInstallSpecs = normalizeInstallSpecs(
+    directInstallInlineJson ??
+      parseSectionObjectList(directInstallLookup.section || undefined),
+  );
   const metadataLookup = resolveMetadataSectionLookup(frontmatter);
   if (metadataLookup.inlineObject) {
-    return normalizeCompatibleMetadata(metadataLookup.inlineObject);
+    const normalized = normalizeCompatibleMetadata(metadataLookup.inlineObject);
+    return {
+      ...normalized,
+      install: mergeUniqueInstallSpecs([
+        directInstallSpecs,
+        normalized.install,
+      ]),
+    };
   }
   if (metadataLookup.compatibleInlineObject) {
-    return normalizeCompatibleMetadata(metadataLookup.compatibleInlineObject);
+    const normalized = normalizeCompatibleMetadata(
+      metadataLookup.compatibleInlineObject,
+    );
+    return {
+      ...normalized,
+      install: mergeUniqueInstallSpecs([
+        directInstallSpecs,
+        normalized.install,
+      ]),
+    };
   }
 
   const installSection = metadataLookup.compatibleSectionFields.get('install');
@@ -733,9 +764,12 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
         ),
       ]),
     ),
-    install: normalizeInstallSpecs(
-      installInlineJson ?? parseSectionObjectList(installSection),
-    ),
+    install: mergeUniqueInstallSpecs([
+      directInstallSpecs,
+      normalizeInstallSpecs(
+        installInlineJson ?? parseSectionObjectList(installSection),
+      ),
+    ]),
   };
 }
 
@@ -1420,6 +1454,60 @@ export interface SkillInvocation {
 export interface ExpandedSkillInvocation {
   content: string;
   invocation: SkillInvocation | null;
+  inherited: boolean;
+}
+
+export function resolveSkillInvocationForTurn(params: {
+  content: string;
+  skills: Skill[];
+  previousUserContent?: string | null;
+}): { invocation: SkillInvocation | null; inherited: boolean } {
+  const directInvocation = parseSkillInvocation(params.content, params.skills);
+  if (directInvocation) {
+    return {
+      invocation: directInvocation,
+      inherited: false,
+    };
+  }
+
+  const currentContent = params.content.trim();
+  if (
+    !currentContent ||
+    currentContent.startsWith('/') ||
+    currentContent.startsWith('$')
+  ) {
+    return {
+      invocation: null,
+      inherited: false,
+    };
+  }
+
+  const previousContent = params.previousUserContent?.trim() || '';
+  if (!previousContent) {
+    return {
+      invocation: null,
+      inherited: false,
+    };
+  }
+
+  const previousInvocation = parseSkillInvocation(
+    previousContent,
+    params.skills,
+  );
+  if (!previousInvocation) {
+    return {
+      invocation: null,
+      inherited: false,
+    };
+  }
+
+  return {
+    invocation: {
+      skill: previousInvocation.skill,
+      args: currentContent,
+    },
+    inherited: true,
+  };
 }
 
 function parseToolExecutionArguments(
@@ -1557,10 +1645,13 @@ export function expandSkillInvocation(
   content: string,
   skills: Skill[],
 ): string {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
-  if (!invocation) return content;
+  const resolved = resolveSkillInvocationForTurn({ content, skills });
+  if (!resolved.invocation) return content;
 
-  return expandResolvedSkillInvocation(invocation, invocation.args);
+  return expandResolvedSkillInvocation(
+    resolved.invocation,
+    resolved.invocation.args,
+  );
 }
 
 export function expandResolvedSkillInvocation(
@@ -1588,13 +1679,24 @@ export function expandResolvedSkillInvocation(
 export function expandSkillInvocationWithResolution(
   content: string,
   skills: Skill[],
+  options?: {
+    previousUserContent?: string | null;
+  },
 ): ExpandedSkillInvocation {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
+  const resolved = resolveSkillInvocationForTurn({
+    content,
+    skills,
+    previousUserContent: options?.previousUserContent,
+  });
   return {
-    content: invocation
-      ? expandResolvedSkillInvocation(invocation, invocation.args)
+    content: resolved.invocation
+      ? expandResolvedSkillInvocation(
+          resolved.invocation,
+          resolved.invocation.args,
+        )
       : content,
-    invocation,
+    invocation: resolved.invocation,
+    inherited: resolved.inherited,
   };
 }
 

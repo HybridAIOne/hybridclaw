@@ -1,8 +1,37 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+function createMockSpawnProcess(params?: {
+  code?: number | null;
+  stdout?: string;
+  stderr?: string;
+}): EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+} {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  queueMicrotask(() => {
+    if (params?.stdout) {
+      child.stdout.emit('data', Buffer.from(params.stdout));
+    }
+    if (params?.stderr) {
+      child.stderr.emit('data', Buffer.from(params.stderr));
+    }
+    child.emit('close', params?.code ?? 0);
+  });
+
+  return child;
+}
 
 describe('skill install metadata', () => {
   const originalHome = process.env.HOME;
@@ -22,6 +51,9 @@ describe('skill install metadata', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.doUnmock('../src/logger.js');
+    vi.doUnmock('../src/skills/skills-guard.ts');
+    vi.doUnmock('../src/skills/skills.ts');
+    vi.doUnmock('node:child_process');
     vi.resetModules();
     if (originalHome === undefined) {
       delete process.env.HOME;
@@ -221,6 +253,354 @@ describe('skill install metadata', () => {
         source: 'requires',
       },
       'Ignoring malformed skill requires declaration',
+    );
+  });
+
+  test('loads pip install metadata declared by a skill', async () => {
+    vi.doMock('../src/skills/skills-guard.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills-guard.ts')
+      >('../src/skills/skills-guard.ts');
+      return {
+        ...actual,
+        guardSkillDirectory: () => ({ allowed: true }),
+      };
+    });
+
+    const { findSkillCatalogEntry } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-test',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-test',
+        'description: Test pip install parsing.',
+        'metadata: {"hybridclaw":{"install":[{"id":"pip-manim","kind":"pip","package":"manim==0.19.0","label":"Install Manim (pip)"}]}}',
+        '---',
+        '',
+        '# Manim Test',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const skill = findSkillCatalogEntry('manim-test');
+
+    expect(skill).not.toBeNull();
+    expect(skill?.metadata.hybridclaw.install).toEqual([
+      {
+        id: 'pip-manim',
+        kind: 'pip',
+        package: 'manim==0.19.0',
+        label: 'Install Manim (pip)',
+        bins: [],
+      },
+    ]);
+  });
+
+  test('loads top-level install metadata declared by a skill', async () => {
+    vi.doMock('../src/skills/skills-guard.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills-guard.ts')
+      >('../src/skills/skills-guard.ts');
+      return {
+        ...actual,
+        guardSkillDirectory: () => ({ allowed: true }),
+      };
+    });
+
+    const { findSkillCatalogEntry } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-top-level',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-top-level',
+        'description: Test top-level install parsing.',
+        'install:',
+        '  - id: pip-manim',
+        '    kind: pip',
+        '    package: manim==0.19.0',
+        '    label: Install Manim (pip)',
+        '---',
+        '',
+        '# Manim Top Level',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const skill = findSkillCatalogEntry('manim-top-level');
+
+    expect(skill).not.toBeNull();
+    expect(skill?.metadata.hybridclaw.install).toEqual([
+      {
+        id: 'pip-manim',
+        kind: 'pip',
+        package: 'manim==0.19.0',
+        label: 'Install Manim (pip)',
+        bins: [],
+      },
+    ]);
+  });
+
+  test('requires the explicit skill name and dependency id', async () => {
+    vi.doMock('../src/skills/skills-guard.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills-guard.ts')
+      >('../src/skills/skills-guard.ts');
+      return {
+        ...actual,
+        guardSkillDirectory: () => ({ allowed: true }),
+      };
+    });
+
+    const { resolveSkillInstallSelection } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-shortcut',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-shortcut',
+        'description: Test explicit install command requirement.',
+        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim-shortcut","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
+        '---',
+        '',
+        '# Manim Shortcut',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const selection = resolveSkillInstallSelection({
+      skillName: 'manim-shortcut',
+    });
+
+    expect(selection).toEqual({
+      error: expect.stringContaining(
+        'Missing dependency id for "manim-shortcut"',
+      ),
+    });
+    if (!('error' in selection)) {
+      throw new Error('Expected install selection failure');
+    }
+    expect(selection.error).toContain(
+      'retry: skill install manim-shortcut uv-manim-shortcut',
+    );
+  });
+
+  test('lists explicit retry commands when a skill has multiple install options', async () => {
+    vi.doMock('../src/skills/skills-guard.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills-guard.ts')
+      >('../src/skills/skills-guard.ts');
+      return {
+        ...actual,
+        guardSkillDirectory: () => ({ allowed: true }),
+      };
+    });
+
+    const { resolveSkillInstallSelection } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-multi',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-multi',
+        'description: Test multiple install options.',
+        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim","kind":"uv","package":"manim","label":"Install Manim (uv)"},{"id":"brew-ffmpeg","kind":"brew","formula":"ffmpeg","label":"Install ffmpeg (brew)"}]}}',
+        '---',
+        '',
+        '# Manim Multi',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const selection = resolveSkillInstallSelection({
+      skillName: 'manim-multi',
+    });
+
+    expect(selection).toEqual({
+      error: expect.stringContaining(
+        'retry: skill install manim-multi uv-manim',
+      ),
+    });
+    if (!('error' in selection)) {
+      throw new Error('Expected install selection failure');
+    }
+    expect(selection.error).toContain(
+      'retry: skill install manim-multi brew-ffmpeg',
+    );
+  });
+
+  test('installs pip packages via python -m pip', async () => {
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-pip',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-pip',
+        'description: Test pip installer execution.',
+        'metadata: {"hybridclaw":{"install":[{"id":"pip-manim","kind":"pip","package":"manim==0.19.0","label":"Install Manim (pip)"}]}}',
+        '---',
+        '',
+        '# Manim Pip',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const spawnMock = vi.fn(() => createMockSpawnProcess({ code: 0 }));
+    vi.doMock('node:child_process', () => ({
+      spawn: spawnMock,
+    }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return {
+        ...actual,
+        hasBinary: (binName: string) => binName === 'python3',
+      };
+    });
+
+    const { installSkillDependency } = await import(
+      '../src/skills/skills-install.ts'
+    );
+    const result = await installSkillDependency({
+      skillName: 'manim-pip',
+      installId: 'pip-manim',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe('Installed manim-pip via pip-manim');
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      1,
+      'python3',
+      ['-m', 'pip', 'install', 'manim==0.19.0'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  });
+
+  test('bootstraps uv with brew before running a uv installer', async () => {
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'manim-uv',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manim-uv',
+        'description: Test uv installer bootstrap.',
+        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
+        '---',
+        '',
+        '# Manim Uv',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const spawnMock = vi
+      .fn()
+      .mockImplementationOnce(() => createMockSpawnProcess({ code: 0 }))
+      .mockImplementationOnce(() =>
+        createMockSpawnProcess({ code: 0, stdout: '/opt/homebrew\n' }),
+      )
+      .mockImplementationOnce(() => createMockSpawnProcess({ code: 0 }));
+    vi.doMock('node:child_process', () => ({
+      spawn: spawnMock,
+    }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return {
+        ...actual,
+        hasBinary: (binName: string) => binName === 'brew',
+      };
+    });
+
+    const { installSkillDependency } = await import(
+      '../src/skills/skills-install.ts'
+    );
+    const result = await installSkillDependency({
+      skillName: 'manim-uv',
+      installId: 'uv-manim',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe('Installed manim-uv via uv-manim');
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      1,
+      'brew',
+      ['install', 'uv'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      2,
+      'brew',
+      ['--prefix'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      3,
+      'uv',
+      ['tool', 'install', 'manim'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: expect.objectContaining({
+          PATH: expect.stringContaining('/opt/homebrew/bin'),
+        }),
+      }),
     );
   });
 });
