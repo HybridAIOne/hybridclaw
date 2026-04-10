@@ -19,11 +19,19 @@ function ToggleHarness() {
   const [active, setActive] = useState(false);
   return (
     <>
-      <button type="button" data-testid="outside" onClick={() => setActive(true)}>
+      <button
+        type="button"
+        data-testid="outside"
+        onClick={() => setActive(true)}
+      >
         Outside
       </button>
       <TrapHarness active={active} />
-      <button type="button" data-testid="deactivate" onClick={() => setActive(false)}>
+      <button
+        type="button"
+        data-testid="deactivate"
+        onClick={() => setActive(false)}
+      >
         Deactivate
       </button>
     </>
@@ -38,7 +46,9 @@ describe('useFocusTrap', () => {
     // Let the rAF initial focus run
     await new Promise((r) => requestAnimationFrame(r));
 
-    const buttons = document.querySelectorAll<HTMLElement>('[data-testid="trap"] button');
+    const buttons = document.querySelectorAll<HTMLElement>(
+      '[data-testid="trap"] button',
+    );
     const last = buttons[buttons.length - 1];
     last.focus();
     expect(document.activeElement).toBe(last);
@@ -51,7 +61,9 @@ describe('useFocusTrap', () => {
     render(<TrapHarness active={true} />);
     await new Promise((r) => requestAnimationFrame(r));
 
-    const buttons = document.querySelectorAll<HTMLElement>('[data-testid="trap"] button');
+    const buttons = document.querySelectorAll<HTMLElement>(
+      '[data-testid="trap"] button',
+    );
     const first = buttons[0];
     first.focus();
 
@@ -61,20 +73,28 @@ describe('useFocusTrap', () => {
 
   it('restores focus to previously focused element on deactivation', async () => {
     render(<ToggleHarness />);
-    const outside = document.querySelector<HTMLElement>('[data-testid="outside"]')!;
-    outside.focus();
+    const outside = document.querySelector<HTMLElement>(
+      '[data-testid="outside"]',
+    );
+    expect(outside).not.toBeNull();
+    outside?.focus();
     expect(document.activeElement).toBe(outside);
 
     // Activate trap
-    fireEvent.click(outside);
+    fireEvent.click(outside as HTMLElement);
     await new Promise((r) => requestAnimationFrame(r));
 
     // Focus should have moved inside the trap
-    const trap = document.querySelector('[data-testid="trap"]')!;
-    expect(trap.contains(document.activeElement)).toBe(true);
+    const trap = document.querySelector('[data-testid="trap"]');
+    expect(trap).not.toBeNull();
+    expect(trap?.contains(document.activeElement)).toBe(true);
 
     // Deactivate trap — focus should return to the outside button
-    fireEvent.click(document.querySelector<HTMLElement>('[data-testid="deactivate"]')!);
+    const deactivate = document.querySelector<HTMLElement>(
+      '[data-testid="deactivate"]',
+    );
+    expect(deactivate).not.toBeNull();
+    fireEvent.click(deactivate as HTMLElement);
     expect(document.activeElement).toBe(outside);
   });
 
@@ -82,9 +102,11 @@ describe('useFocusTrap', () => {
     const { unmount } = render(<TrapHarness active={true} />);
     await new Promise((r) => requestAnimationFrame(r));
 
-    const trap = document.querySelector<HTMLElement>('[data-testid="trap"]')!;
-    const button = trap.querySelector('button')!;
-    button.focus();
+    const trap = document.querySelector<HTMLElement>('[data-testid="trap"]');
+    expect(trap).not.toBeNull();
+    const button = trap?.querySelector('button');
+    expect(button).not.toBeNull();
+    button?.focus();
 
     // Unmount removes the container from the DOM; fire focusout to exercise
     // the isConnected guard — should not throw.

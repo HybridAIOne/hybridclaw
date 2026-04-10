@@ -70,8 +70,7 @@ export function useFocusTrap(
       requestAnimationFrame(() => {
         // Container may have been removed from DOM between focusout and rAF callback
         if (
-          container &&
-          container.isConnected &&
+          container?.isConnected &&
           !container.contains(document.activeElement)
         ) {
           getFocusable(container)[0]?.focus({ preventScroll: true });
