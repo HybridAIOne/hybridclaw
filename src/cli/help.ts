@@ -480,7 +480,7 @@ Notes:
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer from a skill's \`install:\` or \`metadata.hybridclaw.install:\` frontmatter (brew, uv, pip, npm, node, go, download).`);
+  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
 }
 
 export function printToolUsage(): void {

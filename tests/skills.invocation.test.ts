@@ -115,9 +115,8 @@ test('inherits the previous explicit skill for a short follow-up turn', () => {
     previousUserContent: '/apple_music queue Phil Collins',
   });
 
-  expect(resolved.inherited).toBe(true);
-  expect(resolved.invocation?.skill.name).toBe('apple-music');
-  expect(resolved.invocation?.args).toBe('Continue and play the next track');
+  expect(resolved?.skill.name).toBe('apple-music');
+  expect(resolved?.args).toBe('Continue and play the next track');
 });
 
 test('does not inherit the previous explicit skill for a new slash-style turn', () => {
@@ -129,8 +128,7 @@ test('does not inherit the previous explicit skill for a new slash-style turn', 
     previousUserContent: '/apple_music queue Phil Collins',
   });
 
-  expect(resolved.inherited).toBe(false);
-  expect(resolved.invocation).toBeNull();
+  expect(resolved).toBeNull();
 });
 
 test('resolves a single implicitly read skill as observed skill use', () => {

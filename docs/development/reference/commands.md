@@ -294,6 +294,5 @@ Example skill dependency flow:
 ```text
 /skill list
 /skill install manim-video uv-manim
-/skill install manim-video pip-manim
 /skill install manim-video brew-ffmpeg
 ```

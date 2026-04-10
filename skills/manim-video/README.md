@@ -31,5 +31,5 @@ Python 3.10+, Manim CE, LaTeX for `MathTex`/`Tex`, and ffmpeg.
 Install Manim with either `uv tool install manim` or `python3 -m pip install manim`.
 
 ```bash
-python3 skills/manim-video/scripts/check_setup.py --format text
+python3 skills/manim-video/scripts/check_setup.py
 ```

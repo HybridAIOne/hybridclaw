@@ -21,7 +21,17 @@ import { mergeBlockedToolNames } from './tool-policy.js';
 
 interface HistoryMessage {
   role: string;
-  content: string;
+  content: ChatMessage['content'];
+}
+
+function resolvePreviousUserContent(history: HistoryMessage[]): string | null {
+  // Conversation history enters this function newest-first from storage.
+  const previousUserMessage = history.find(
+    (message) => message.role === 'user',
+  );
+  return typeof previousUserMessage?.content === 'string'
+    ? previousUserMessage.content
+    : null;
 }
 
 export interface ConversationContext {
@@ -44,7 +54,7 @@ export function buildConversationContext(params: {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
-  currentUserContent?: string;
+  currentUserContent?: ChatMessage['content'];
 }): ConversationContext {
   const {
     agentId,
@@ -66,15 +76,14 @@ export function buildConversationContext(params: {
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
   );
-  const previousUserContent =
-    history.find((message) => message.role === 'user')?.content || null;
+  const previousUserContent = resolvePreviousUserContent(history);
   const explicitSkillInvocation =
     typeof currentUserContent === 'string' && currentUserContent.trim()
       ? resolveSkillInvocationForTurn({
           content: currentUserContent,
           skills,
           previousUserContent,
-        }).invocation
+        })
       : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,

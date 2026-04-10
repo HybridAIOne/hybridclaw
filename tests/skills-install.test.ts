@@ -256,7 +256,7 @@ describe('skill install metadata', () => {
     );
   });
 
-  test('loads pip install metadata declared by a skill', async () => {
+  test('rejects download installers that do not use https', async () => {
     vi.doMock('../src/skills/skills-guard.ts', async () => {
       const actual = await vi.importActual<
         typeof import('../src/skills/skills-guard.ts')
@@ -267,7 +267,7 @@ describe('skill install metadata', () => {
       };
     });
 
-    const { findSkillCatalogEntry } = await import(
+    const { installSkillDependency } = await import(
       '../src/skills/skills-install.ts'
     );
 
@@ -275,38 +275,33 @@ describe('skill install metadata', () => {
       process.env.HOME || '',
       '.codex',
       'skills',
-      'manim-test',
+      'download-http',
     );
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
       path.join(skillDir, 'SKILL.md'),
       [
         '---',
-        'name: manim-test',
-        'description: Test pip install parsing.',
-        'metadata: {"hybridclaw":{"install":[{"id":"pip-manim","kind":"pip","package":"manim==0.19.0","label":"Install Manim (pip)"}]}}',
+        'name: download-http',
+        'description: Reject insecure download urls.',
+        'metadata: {"hybridclaw":{"install":[{"id":"download-tool","kind":"download","url":"http://169.254.169.254/latest/meta-data/","path":"tools/example.bin","label":"Download example"}]}}',
         '---',
         '',
-        '# Manim Test',
+        '# Download Http',
       ].join('\n'),
       'utf8',
     );
 
-    const skill = findSkillCatalogEntry('manim-test');
+    const result = await installSkillDependency({
+      skillName: 'download-http',
+      installId: 'download-tool',
+    });
 
-    expect(skill).not.toBeNull();
-    expect(skill?.metadata.hybridclaw.install).toEqual([
-      {
-        id: 'pip-manim',
-        kind: 'pip',
-        package: 'manim==0.19.0',
-        label: 'Install Manim (pip)',
-        bins: [],
-      },
-    ]);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('download url must use https');
   });
 
-  test('loads top-level install metadata declared by a skill', async () => {
+  test('rejects download installers that escape the safe downloads directory', async () => {
     vi.doMock('../src/skills/skills-guard.ts', async () => {
       const actual = await vi.importActual<
         typeof import('../src/skills/skills-guard.ts')
@@ -317,7 +312,7 @@ describe('skill install metadata', () => {
       };
     });
 
-    const { findSkillCatalogEntry } = await import(
+    const { installSkillDependency } = await import(
       '../src/skills/skills-install.ts'
     );
 
@@ -325,39 +320,32 @@ describe('skill install metadata', () => {
       process.env.HOME || '',
       '.codex',
       'skills',
-      'manim-top-level',
+      'download-traversal',
     );
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
       path.join(skillDir, 'SKILL.md'),
       [
         '---',
-        'name: manim-top-level',
-        'description: Test top-level install parsing.',
-        'install:',
-        '  - id: pip-manim',
-        '    kind: pip',
-        '    package: manim==0.19.0',
-        '    label: Install Manim (pip)',
+        'name: download-traversal',
+        'description: Reject escaping download paths.',
+        'metadata: {"hybridclaw":{"install":[{"id":"download-tool","kind":"download","url":"https://example.com/tool.bin","path":"../../.ssh/authorized_keys","label":"Download example"}]}}',
         '---',
         '',
-        '# Manim Top Level',
+        '# Download Traversal',
       ].join('\n'),
       'utf8',
     );
 
-    const skill = findSkillCatalogEntry('manim-top-level');
+    const result = await installSkillDependency({
+      skillName: 'download-traversal',
+      installId: 'download-tool',
+    });
 
-    expect(skill).not.toBeNull();
-    expect(skill?.metadata.hybridclaw.install).toEqual([
-      {
-        id: 'pip-manim',
-        kind: 'pip',
-        package: 'manim==0.19.0',
-        label: 'Install Manim (pip)',
-        bins: [],
-      },
-    ]);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain(
+      'download path must be inside ~/.hybridclaw/downloads',
+    );
   });
 
   test('requires the explicit skill name and dependency id', async () => {
@@ -463,63 +451,6 @@ describe('skill install metadata', () => {
     }
     expect(selection.error).toContain(
       'retry: skill install manim-multi brew-ffmpeg',
-    );
-  });
-
-  test('installs pip packages via python -m pip', async () => {
-    const skillDir = path.join(
-      process.env.HOME || '',
-      '.codex',
-      'skills',
-      'manim-pip',
-    );
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(skillDir, 'SKILL.md'),
-      [
-        '---',
-        'name: manim-pip',
-        'description: Test pip installer execution.',
-        'metadata: {"hybridclaw":{"install":[{"id":"pip-manim","kind":"pip","package":"manim==0.19.0","label":"Install Manim (pip)"}]}}',
-        '---',
-        '',
-        '# Manim Pip',
-      ].join('\n'),
-      'utf8',
-    );
-
-    const spawnMock = vi.fn(() => createMockSpawnProcess({ code: 0 }));
-    vi.doMock('node:child_process', () => ({
-      spawn: spawnMock,
-    }));
-    vi.doMock('../src/skills/skills.ts', async () => {
-      const actual = await vi.importActual<
-        typeof import('../src/skills/skills.ts')
-      >('../src/skills/skills.ts');
-      return {
-        ...actual,
-        hasBinary: (binName: string) => binName === 'python3',
-      };
-    });
-
-    const { installSkillDependency } = await import(
-      '../src/skills/skills-install.ts'
-    );
-    const result = await installSkillDependency({
-      skillName: 'manim-pip',
-      installId: 'pip-manim',
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.message).toBe('Installed manim-pip via pip-manim');
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock).toHaveBeenNthCalledWith(
-      1,
-      'python3',
-      ['-m', 'pip', 'install', 'manim==0.19.0'],
-      expect.objectContaining({
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }),
     );
   });
 

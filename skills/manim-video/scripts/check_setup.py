@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import json
 import os
 import shutil
 import subprocess
@@ -169,12 +168,6 @@ def print_text(summary: dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description='Check Manim video prerequisites')
     parser.add_argument(
-        '--format',
-        choices=('text', 'json'),
-        default='text',
-        help='Output format',
-    )
-    parser.add_argument(
         '--strict',
         action='store_true',
         help='Exit nonzero when any render-blocking dependency is missing',
@@ -201,11 +194,7 @@ def main() -> int:
         ),
     ]
     summary = summarize(checks)
-
-    if args.format == 'json':
-        print(json.dumps(summary, indent=2))
-    else:
-        print_text(summary)
+    print_text(summary)
 
     return 1 if args.strict and not summary['render_ready'] else 0
 

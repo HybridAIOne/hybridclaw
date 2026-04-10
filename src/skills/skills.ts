@@ -36,7 +36,6 @@ type SkillSource =
 export type SkillInstallKind =
   | 'brew'
   | 'uv'
-  | 'pip'
   | 'npm'
   | 'node'
   | 'go'
@@ -292,7 +291,6 @@ function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
     if (
       kindRaw !== 'brew' &&
       kindRaw !== 'uv' &&
-      kindRaw !== 'pip' &&
       kindRaw !== 'npm' &&
       kindRaw !== 'node' &&
       kindRaw !== 'go' &&
@@ -701,41 +699,12 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
-  const directInstallLookup = resolveTopLevelSectionLookup(
-    frontmatter,
-    'install',
-  );
-  const directInstallInlineJson = directInstallLookup.inlineObject
-    ? [directInstallLookup.inlineObject]
-    : directInstallLookup.section
-      ? tryParseJsonArray(directInstallLookup.section.inline)
-      : null;
-  const directInstallSpecs = normalizeInstallSpecs(
-    directInstallInlineJson ??
-      parseSectionObjectList(directInstallLookup.section || undefined),
-  );
   const metadataLookup = resolveMetadataSectionLookup(frontmatter);
   if (metadataLookup.inlineObject) {
-    const normalized = normalizeCompatibleMetadata(metadataLookup.inlineObject);
-    return {
-      ...normalized,
-      install: mergeUniqueInstallSpecs([
-        directInstallSpecs,
-        normalized.install,
-      ]),
-    };
+    return normalizeCompatibleMetadata(metadataLookup.inlineObject);
   }
   if (metadataLookup.compatibleInlineObject) {
-    const normalized = normalizeCompatibleMetadata(
-      metadataLookup.compatibleInlineObject,
-    );
-    return {
-      ...normalized,
-      install: mergeUniqueInstallSpecs([
-        directInstallSpecs,
-        normalized.install,
-      ]),
-    };
+    return normalizeCompatibleMetadata(metadataLookup.compatibleInlineObject);
   }
 
   const installSection = metadataLookup.compatibleSectionFields.get('install');
@@ -764,12 +733,9 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
         ),
       ]),
     ),
-    install: mergeUniqueInstallSpecs([
-      directInstallSpecs,
-      normalizeInstallSpecs(
-        installInlineJson ?? parseSectionObjectList(installSection),
-      ),
-    ]),
+    install: normalizeInstallSpecs(
+      installInlineJson ?? parseSectionObjectList(installSection),
+    ),
   };
 }
 
@@ -1451,23 +1417,14 @@ export interface SkillInvocation {
   args: string;
 }
 
-export interface ExpandedSkillInvocation {
-  content: string;
-  invocation: SkillInvocation | null;
-  inherited: boolean;
-}
-
 export function resolveSkillInvocationForTurn(params: {
   content: string;
   skills: Skill[];
   previousUserContent?: string | null;
-}): { invocation: SkillInvocation | null; inherited: boolean } {
+}): SkillInvocation | null {
   const directInvocation = parseSkillInvocation(params.content, params.skills);
   if (directInvocation) {
-    return {
-      invocation: directInvocation,
-      inherited: false,
-    };
+    return directInvocation;
   }
 
   const currentContent = params.content.trim();
@@ -1476,18 +1433,12 @@ export function resolveSkillInvocationForTurn(params: {
     currentContent.startsWith('/') ||
     currentContent.startsWith('$')
   ) {
-    return {
-      invocation: null,
-      inherited: false,
-    };
+    return null;
   }
 
   const previousContent = params.previousUserContent?.trim() || '';
   if (!previousContent) {
-    return {
-      invocation: null,
-      inherited: false,
-    };
+    return null;
   }
 
   const previousInvocation = parseSkillInvocation(
@@ -1495,18 +1446,12 @@ export function resolveSkillInvocationForTurn(params: {
     params.skills,
   );
   if (!previousInvocation) {
-    return {
-      invocation: null,
-      inherited: false,
-    };
+    return null;
   }
 
   return {
-    invocation: {
-      skill: previousInvocation.skill,
-      args: currentContent,
-    },
-    inherited: true,
+    skill: previousInvocation.skill,
+    args: currentContent,
   };
 }
 
@@ -1645,13 +1590,10 @@ export function expandSkillInvocation(
   content: string,
   skills: Skill[],
 ): string {
-  const resolved = resolveSkillInvocationForTurn({ content, skills });
-  if (!resolved.invocation) return content;
+  const invocation = resolveSkillInvocationForTurn({ content, skills });
+  if (!invocation) return content;
 
-  return expandResolvedSkillInvocation(
-    resolved.invocation,
-    resolved.invocation.args,
-  );
+  return expandResolvedSkillInvocation(invocation, invocation.args);
 }
 
 export function expandResolvedSkillInvocation(
@@ -1674,30 +1616,6 @@ export function expandResolvedSkillInvocation(
   }
 
   return lines.join('\n');
-}
-
-export function expandSkillInvocationWithResolution(
-  content: string,
-  skills: Skill[],
-  options?: {
-    previousUserContent?: string | null;
-  },
-): ExpandedSkillInvocation {
-  const resolved = resolveSkillInvocationForTurn({
-    content,
-    skills,
-    previousUserContent: options?.previousUserContent,
-  });
-  return {
-    content: resolved.invocation
-      ? expandResolvedSkillInvocation(
-          resolved.invocation,
-          resolved.invocation.args,
-        )
-      : content,
-    invocation: resolved.invocation,
-    inherited: resolved.inherited,
-  };
 }
 
 export interface SkillCatalogEntry {

@@ -150,7 +150,7 @@ Text density rules:
 
 1. Run the bundled setup check first:
 ```bash
-python3 skills/manim-video/scripts/check_setup.py --format text
+python3 skills/manim-video/scripts/check_setup.py
 ```
 Treat the setup check as advisory by default. Missing `manim`, `ffmpeg`, or `pdflatex` should stop render commands, but it must not stop planning or script editing.
 2. If the user wants a new project, create the target directory and write `plan.md`, `script.py`, and `concat.txt` directly. Preserve the exact requested output path.
@@ -225,13 +225,13 @@ If required tools are missing, the fallback is still useful:
 Setup check:
 
 ```bash
-python3 skills/manim-video/scripts/check_setup.py --format text
+python3 skills/manim-video/scripts/check_setup.py
 ```
 
 Strict render gate:
 
 ```bash
-python3 skills/manim-video/scripts/check_setup.py --format text --strict
+python3 skills/manim-video/scripts/check_setup.py --strict
 ```
 
 Install Manim globally with uv:

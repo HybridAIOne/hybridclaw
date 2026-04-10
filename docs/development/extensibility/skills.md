@@ -32,15 +32,13 @@ Skill roots include:
 
 - required: `name`, `description`
 - optional: `user-invocable`, `disable-model-invocation`, `always`,
-  `requires.*`, top-level `install`, `metadata.hybridclaw.*`
+  `requires.*`, `metadata.hybridclaw.*`
 - `metadata.hybridclaw.category` groups `skill list`, TUI, and admin catalog
   views under one normalized label
 - `metadata.hybridclaw.short_description`, `tags`, `related_skills`, and
   `install` feed operator-facing summaries, related-skill hints, and install
   helpers
-- installer metadata can be declared either at top level with `install:` or
-  under `metadata.hybridclaw.install:`; both forms normalize to the same skill
-  catalog data
+- installer metadata lives under `metadata.hybridclaw.install:`
 
 ## Invocation Paths
 
@@ -59,7 +57,6 @@ Supported install kinds:
 
 - `brew`
 - `uv`
-- `pip`
 - `npm`
 - `node`
 - `go`
@@ -71,19 +68,21 @@ Example:
 ---
 name: manim-video
 description: Render Manim explainers.
-install:
-  - id: pip-manim
-    kind: pip
-    package: manim==0.19.0
-    bins:
-      - manim
-    label: Install Manim (pip)
-  - id: brew-ffmpeg
-    kind: brew
-    formula: ffmpeg
-    bins:
-      - ffmpeg
-    label: Install ffmpeg (brew)
+metadata:
+  hybridclaw:
+    install:
+      - id: uv-manim
+        kind: uv
+        package: manim
+        bins:
+          - manim
+        label: Install Manim (uv)
+      - id: brew-ffmpeg
+        kind: brew
+        formula: ffmpeg
+        bins:
+          - ffmpeg
+        label: Install ffmpeg (brew)
 ---
 ```
 

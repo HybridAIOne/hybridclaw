@@ -163,3 +163,123 @@ test('does not inherit the previous explicit skill for a new slash-style turn', 
   expect(userMessage?.content).toBe('/help');
   expect(userMessage?.content).not.toContain('[Explicit skill invocation]');
 });
+
+test('inherits the most recent explicit skill for a later follow-up turn', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'agent result',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+    '../src/config/runtime-paths.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  writeInvocableSkill(DEFAULT_RUNTIME_HOME_DIR, 'render-demo');
+  writeInvocableSkill(DEFAULT_RUNTIME_HOME_DIR, 'voiceover-demo');
+
+  await handleGatewayMessage({
+    sessionId: 'session-skill-followup-most-recent',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    content: '/render_demo create a short explainer',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  await handleGatewayMessage({
+    sessionId: 'session-skill-followup-most-recent',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Continue and render the video',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  await handleGatewayMessage({
+    sessionId: 'session-skill-followup-most-recent',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    content: '/voiceover_demo add narration',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  runAgentMock.mockClear();
+
+  await handleGatewayMessage({
+    sessionId: 'session-skill-followup-most-recent',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Continue and polish the narration',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ content: string; role: string }>;
+      }
+    | undefined;
+  const userMessage = request?.messages?.at(-1);
+
+  expect(userMessage?.role).toBe('user');
+  expect(userMessage?.content).toContain('[Explicit skill invocation]');
+  expect(userMessage?.content).toContain(
+    'Use the "voiceover-demo" skill for this request.',
+  );
+  expect(userMessage?.content).toContain(
+    'Skill input: Continue and polish the narration',
+  );
+});
+
+test('ignores non-string previous user content when resolving follow-up skills', async () => {
+  const runtimeHomeDir = setupHome();
+  writeInvocableSkill(runtimeHomeDir, 'render-demo');
+
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.ts'
+  );
+
+  const context = buildConversationContext({
+    agentId: 'main',
+    history: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/render-demo.png' },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: 'Rendered the draft video.',
+      },
+      {
+        role: 'user',
+        content: '/render_demo create a short explainer',
+      },
+    ],
+    currentUserContent: 'Continue and render the video',
+  });
+
+  expect(context.explicitSkillInvocation).toBeNull();
+});

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -30,8 +31,11 @@ const SAFE_NODE_PACKAGE =
 const SAFE_GO_MODULE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*@[a-z0-9v._-]+$/;
 const SAFE_UV_PACKAGE =
   /^[a-z0-9][a-z0-9._-]*(\[[a-z0-9,._-]+\])?(([><=!~]=?|===?)[a-z0-9.*_-]+)?$/i;
-const SAFE_PIP_PACKAGE =
-  /^[a-z0-9][a-z0-9._-]*(\[[a-z0-9,._-]+\])?((===?|~=|!=|<=?|>=?)[a-z0-9.*_-]+)?$/i;
+const SKILL_DOWNLOADS_DIR = path.resolve(
+  os.homedir(),
+  '.hybridclaw',
+  'downloads',
+);
 
 function normalizeSkillLookup(value: string): string {
   return value
@@ -95,11 +99,28 @@ function resolveBrewExecutable(): string | null {
   return null;
 }
 
-function resolvePythonExecutable(): string | null {
-  if (process.platform === 'win32' && hasBinary('py')) return 'py';
-  if (hasBinary('python3')) return 'python3';
-  if (hasBinary('python')) return 'python';
-  return null;
+function isSafeDownloadUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function resolveDownloadTargetPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  const resolved = path.isAbsolute(trimmed)
+    ? path.resolve(trimmed)
+    : path.resolve(SKILL_DOWNLOADS_DIR, trimmed);
+  if (
+    resolved === SKILL_DOWNLOADS_DIR ||
+    !resolved.startsWith(`${SKILL_DOWNLOADS_DIR}${path.sep}`)
+  ) {
+    return null;
+  }
+  return resolved;
 }
 
 export function resolveSkillInstallId(
@@ -177,14 +198,6 @@ function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
       return spec.formula ? ['brew', 'install', spec.formula] : null;
     case 'uv':
       return spec.package ? ['uv', 'tool', 'install', spec.package] : null;
-    case 'pip': {
-      if (!spec.package) return null;
-      const python = resolvePythonExecutable();
-      if (!python) return null;
-      return python === 'py'
-        ? ['py', '-m', 'pip', 'install', spec.package]
-        : [python, '-m', 'pip', 'install', spec.package];
-    }
     case 'npm':
     case 'node':
       return spec.package
@@ -215,14 +228,6 @@ function validateInstallSpec(spec: SkillInstallSpec): string | null {
         'uv package',
         SAFE_UV_PACKAGE,
       );
-    case 'pip':
-      if (!spec.package) return 'missing package';
-      if (!resolvePythonExecutable()) return 'missing python interpreter';
-      return assertSafeInstallerValue(
-        spec.package,
-        'pip package',
-        SAFE_PIP_PACKAGE,
-      );
     case 'npm':
     case 'node':
       if (!spec.package) return 'missing package';
@@ -234,8 +239,16 @@ function validateInstallSpec(spec: SkillInstallSpec): string | null {
     case 'go':
       if (!spec.module) return 'missing module';
       return assertSafeInstallerValue(spec.module, 'go module', SAFE_GO_MODULE);
-    case 'download':
-      return spec.url && spec.path ? null : 'missing url or path';
+    case 'download': {
+      if (!spec.url || !spec.path) return 'missing url or path';
+      if (!isSafeDownloadUrl(spec.url)) {
+        return 'download url must use https';
+      }
+      if (!resolveDownloadTargetPath(spec.path)) {
+        return 'download path must be inside ~/.hybridclaw/downloads';
+      }
+      return null;
+    }
     default:
       return 'unsupported install kind';
   }
@@ -339,7 +352,12 @@ async function ensureUvInstalled(): Promise<
 async function runDownloadInstall(
   spec: SkillInstallSpec,
 ): Promise<SkillInstallResult> {
-  const targetPath = path.resolve(spec.path || '');
+  const targetPath = resolveDownloadTargetPath(spec.path || '');
+  if (!targetPath) {
+    return createInstallFailure({
+      message: 'download path must be inside ~/.hybridclaw/downloads',
+    });
+  }
   try {
     const response = await fetch(spec.url || '');
     if (!response.ok) {
