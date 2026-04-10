@@ -159,8 +159,13 @@ test('getGatewayStatus includes Codex auth state', async () => {
   );
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) => {
-      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models'
+      ) {
+        expect(url.searchParams.get('client_version')).toBeTruthy();
         return new Response(
           JSON.stringify({
             data: [
@@ -199,7 +204,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: 2,
+    modelCount: 3,
   });
   expect(status.providerHealth?.hybridai).toMatchObject({
     kind: 'remote',
@@ -248,8 +253,13 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
 
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) => {
-      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models'
+      ) {
+        expect(url.searchParams.get('client_version')).toBeTruthy();
         return new Response(
           JSON.stringify({
             data: [
@@ -281,7 +291,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   const result = await getGatewayAdminModels();
 
   expect(result.providerStatus?.codex).toMatchObject({
-    modelCount: 2,
+    modelCount: 3,
   });
   expect(result.models).toEqual(
     expect.arrayContaining([
@@ -295,8 +305,116 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
         contextWindow: 400_000,
         maxTokens: 128_000,
       }),
+      expect.objectContaining({
+        id: 'openai-codex/gpt-5.4-mini',
+        contextWindow: 272_000,
+        maxTokens: null,
+      }),
     ]),
   );
+});
+
+test('model list codex uses the current Codex models payload shape', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { saveCodexAuthStore, extractExpiresAtFromJwt } = await import(
+    '../src/auth/codex-auth.ts'
+  );
+  const accessToken = makeJwt({
+    exp: Math.floor(Date.now() / 1000) + 600,
+    chatgpt_account_id: 'acct_gateway_model_list_codex',
+  });
+  saveCodexAuthStore(
+    {
+      version: 1,
+      credentials: {
+        accessToken,
+        refreshToken: 'refresh_gateway_model_list_codex',
+        accountId: 'acct_gateway_model_list_codex',
+        expiresAt: extractExpiresAtFromJwt(accessToken),
+        provider: 'openai-codex',
+        authMethod: 'oauth',
+        source: 'device-code',
+        lastRefresh: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+    homeDir,
+  );
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models'
+      ) {
+        expect(url.searchParams.get('client_version')).toBeTruthy();
+        expect(init?.headers).toMatchObject({
+          Authorization: `Bearer ${accessToken}`,
+          'Chatgpt-Account-Id': 'acct_gateway_model_list_codex',
+          'OpenAI-Beta': 'responses=experimental',
+        });
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                slug: 'gpt-5.2-codex',
+                display_name: 'gpt-5.2-codex',
+                supported_in_api: true,
+                context_window: 272_000,
+              },
+              {
+                slug: 'legacy-hidden-preview',
+                display_name: 'legacy-hidden-preview',
+                supported_in_api: false,
+                context_window: 1,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-codex-current-shape',
+    guildId: null,
+    channelId: 'channel-model-list-codex-current-shape',
+    args: ['model', 'list', 'codex'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (codex)');
+  expect(result.text).toContain('openai-codex/gpt-5.2-codex');
+  expect(result.text).toContain('openai-codex/gpt-5.3-codex');
+  expect(result.text).toContain('openai-codex/gpt-5.3-codex-spark');
+  expect(result.text).toContain('openai-codex/gpt-5.4');
+  expect(result.text).toContain('openai-codex/gpt-5.4-mini');
+  expect(result.text).not.toContain('legacy-hidden-preview');
+  expect(result.text).not.toContain('No models available for provider');
 });
 
 test('getGatewayStatus includes enabled remote model providers in provider health', async () => {

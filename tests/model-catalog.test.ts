@@ -364,8 +364,13 @@ test('available model catalog discovers Codex models from the models endpoint', 
 
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string, init?: RequestInit) => {
-      if (input.startsWith('https://chatgpt.com/backend-api/codex/models')) {
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models'
+      ) {
+        expect(url.searchParams.get('client_version')).toBeTruthy();
         expect(init?.headers).toMatchObject({
           Authorization: `Bearer ${accessToken}`,
           'Chatgpt-Account-Id': 'acct_catalog',
@@ -398,11 +403,125 @@ test('available model catalog discovers Codex models from the models endpoint', 
         name: 'openai-codex/gpt-5.4',
         value: 'openai-codex/gpt-5.4',
       },
+      {
+        name: 'openai-codex/gpt-5.4-mini',
+        value: 'openai-codex/gpt-5.4-mini',
+      },
     ]),
   );
   expect(catalog.getAvailableModelList('codex')).toEqual([
     'openai-codex/gpt-5-codex',
     'openai-codex/gpt-5.4',
+    'openai-codex/gpt-5.4-mini',
+  ]);
+});
+
+test('available model catalog discovers Codex models from the current models payload', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const { saveCodexAuthStore, extractExpiresAtFromJwt } = await import(
+    '../src/auth/codex-auth.ts'
+  );
+  const accessToken = makeJwt({
+    exp: Math.floor(Date.now() / 1000) + 600,
+    chatgpt_account_id: 'acct_catalog_current_shape',
+  });
+  saveCodexAuthStore(
+    {
+      version: 1,
+      credentials: {
+        accessToken,
+        refreshToken: 'refresh_catalog_current_shape',
+        accountId: 'acct_catalog_current_shape',
+        expiresAt: extractExpiresAtFromJwt(accessToken),
+        provider: 'openai-codex',
+        authMethod: 'oauth',
+        source: 'device-code',
+        lastRefresh: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+    homeDir,
+  );
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://chatgpt.com' &&
+        url.pathname === '/backend-api/codex/models'
+      ) {
+        expect(url.searchParams.get('client_version')).toBeTruthy();
+        expect(init?.headers).toMatchObject({
+          Authorization: `Bearer ${accessToken}`,
+          'Chatgpt-Account-Id': 'acct_catalog_current_shape',
+          'OpenAI-Beta': 'responses=experimental',
+        });
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                slug: 'gpt-5.2-codex',
+                display_name: 'gpt-5.2-codex',
+                supported_in_api: true,
+                context_window: 272_000,
+              },
+              {
+                slug: 'internal-preview',
+                display_name: 'internal-preview',
+                supported_in_api: false,
+                context_window: 1,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  const choices = await catalog.getAvailableModelChoices(25);
+
+  expect(choices).toEqual(
+    expect.arrayContaining([
+      {
+        name: 'openai-codex/gpt-5.2-codex',
+        value: 'openai-codex/gpt-5.2-codex',
+      },
+      {
+        name: 'openai-codex/gpt-5.3-codex',
+        value: 'openai-codex/gpt-5.3-codex',
+      },
+      {
+        name: 'openai-codex/gpt-5.3-codex-spark',
+        value: 'openai-codex/gpt-5.3-codex-spark',
+      },
+      {
+        name: 'openai-codex/gpt-5.4',
+        value: 'openai-codex/gpt-5.4',
+      },
+      {
+        name: 'openai-codex/gpt-5.4-mini',
+        value: 'openai-codex/gpt-5.4-mini',
+      },
+    ]),
+  );
+  expect(catalog.getAvailableModelList('codex')).toEqual([
+    'openai-codex/gpt-5.2-codex',
+    'openai-codex/gpt-5.3-codex',
+    'openai-codex/gpt-5.3-codex-spark',
+    'openai-codex/gpt-5.4',
+    'openai-codex/gpt-5.4-mini',
   ]);
 });
 

@@ -603,7 +603,6 @@ function applyOpenClawProviderConfig(
     if (name.includes('codex') || name.includes('openai-codex')) {
       if (baseUrl && (overwrite || !draft.codex.baseUrl))
         draft.codex.baseUrl = baseUrl;
-      draft.codex.models = applyModels(draft.codex.models);
       imported.push(providerName);
       continue;
     }
@@ -818,7 +817,7 @@ function applyImportedModel(draft: RuntimeConfig, model: string): void {
     return;
   }
   if (trimmed.startsWith('openai-codex/')) {
-    draft.codex.models = mergeUniqueStrings(draft.codex.models, [trimmed]);
+    return;
   }
 }
 
