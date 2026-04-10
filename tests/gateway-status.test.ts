@@ -36,6 +36,7 @@ function writeRuntimeConfig(
   );
   mutator?.(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  fs.chmodSync(configPath, 0o600);
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {

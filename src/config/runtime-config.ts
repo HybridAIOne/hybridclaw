@@ -4488,7 +4488,7 @@ function writeConfigFile(
   }
 
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, nextText, 'utf-8');
+  fs.writeFileSync(tmpPath, nextText, { encoding: 'utf-8', mode: 0o600 });
   fs.renameSync(tmpPath, CONFIG_PATH);
   syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
     exists: true,

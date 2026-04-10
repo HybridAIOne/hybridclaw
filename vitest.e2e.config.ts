@@ -1,18 +1,10 @@
-import { defineConfig } from 'vitest/config';
-import unitConfig from './vitest.unit.config.js';
+import { defineConfig, mergeConfig } from 'vitest/config';
+import unitConfig from './vitest.unit.config.ts';
 
-const base = unitConfig as unknown as Record<string, unknown>;
-const baseTest = (unitConfig as { test?: { exclude?: string[] } }).test ?? {};
-const exclude = (baseTest.exclude ?? []).filter(
-  (entry) => entry !== 'tests/**/*.e2e.test.ts',
-);
-
-export default defineConfig({
-  ...base,
+export default mergeConfig(unitConfig, defineConfig({
   test: {
-    ...baseTest,
     include: ['tests/**/*.e2e.test.ts'],
-    exclude,
+    exclude: ['node_modules/**', 'dist/**', 'container/**'],
     globalSetup: ['tests/helpers/e2e-global-setup.ts'],
   },
-});
+}));
