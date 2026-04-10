@@ -30,6 +30,8 @@ import type {
   LoadedPlugin,
   MemoryLayerPlugin,
   PluginAgentEndContext,
+  PluginBeforeAgentReplyContext,
+  PluginBeforeAgentReplyResult,
   PluginBinaryRequirement,
   PluginCandidate,
   PluginCommandDefinition,
@@ -139,6 +141,10 @@ type RegisteredHook<K extends PluginHookName = PluginHookName> = {
   pluginId: string;
   priority: number;
   handler: PluginHookHandlerMap[K];
+};
+
+type PluginBeforeAgentReplyResolution = PluginBeforeAgentReplyResult & {
+  pluginId: string;
 };
 
 type RegisteredCommand = {
@@ -1797,6 +1803,35 @@ export class PluginManager {
     await this.ensureInitialized();
     this.rememberSessionUserId(params.sessionId, params.userId);
     await this.dispatchHook('before_agent_start', params);
+  }
+
+  async runBeforeAgentReply(
+    context: PluginBeforeAgentReplyContext,
+  ): Promise<PluginBeforeAgentReplyResolution | undefined> {
+    await this.ensureInitialized();
+    this.rememberSessionUserId(context.sessionId, context.userId);
+    this.rememberSessionWorkspaceRoot(context.sessionId, context.workspacePath);
+    const handlers =
+      (this.hooks.get('before_agent_reply') as
+        | RegisteredHook<'before_agent_reply'>[]
+        | undefined) || [];
+    for (const entry of handlers) {
+      try {
+        const result = await entry.handler(context);
+        if (result?.handled === true) {
+          return {
+            ...result,
+            pluginId: entry.pluginId,
+          };
+        }
+      } catch (error) {
+        this.logger.warn(
+          { pluginId: entry.pluginId, hookName: 'before_agent_reply', error },
+          'Plugin lifecycle hook failed',
+        );
+      }
+    }
+    return undefined;
   }
 
   async notifyAgentEnd(context: PluginAgentEndContext): Promise<void> {

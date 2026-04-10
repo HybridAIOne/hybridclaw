@@ -843,6 +843,155 @@ export async function handleGatewayMessage(
     if (conciergeExecutionNotice) {
       req.onTextDelta?.(conciergeExecutionNotice);
     }
+    if (pluginManager) {
+      await pluginManager.notifyBeforeAgentStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        model: model || undefined,
+      });
+    }
+    const beforeAgentReplyResult = pluginManager
+      ? await pluginManager.runBeforeAgentReply({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          prompt: agentUserContent,
+          trigger: 'chat',
+          workspacePath,
+          model: model || undefined,
+        })
+      : undefined;
+    if (beforeAgentReplyResult?.handled) {
+      pluginsUsed = [
+        ...new Set([...pluginsUsed, beforeAgentReplyResult.pluginId]),
+      ];
+      const syntheticResultText = String(beforeAgentReplyResult.text || '');
+      const durationMs = Date.now() - startedAt;
+      logger.debug(
+        {
+          ...debugMeta,
+          durationMs,
+          pluginId: beforeAgentReplyResult.pluginId,
+          reason: beforeAgentReplyResult.reason ?? null,
+          syntheticReply: syntheticResultText.trim().length > 0,
+        },
+        'Gateway chat intercepted before agent reply',
+      );
+      if (syntheticResultText.trim()) {
+        const storedUserContent = buildStoredUserTurnContent(
+          userTurnContent,
+          media,
+        );
+        const storedTurn = recordSuccessfulTurn({
+          sessionId: req.sessionId,
+          agentId,
+          chatbotId,
+          enableRag,
+          model,
+          channelId: req.channelId,
+          promptMode: req.promptMode,
+          runId,
+          turnIndex,
+          userId: req.userId,
+          username: req.username,
+          canonicalScopeId: canonicalContextScope,
+          userContent: storedUserContent,
+          resultText: syntheticResultText,
+          toolCallCount: 0,
+          startedAt,
+          replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        });
+        const storedTurnMessages = buildStoredTurnMessages({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          username: req.username,
+          userContent: storedUserContent,
+          resultText: syntheticResultText,
+        });
+        if (pluginManager) {
+          void pluginManager
+            .notifyTurnComplete({
+              sessionId: req.sessionId,
+              userId: req.userId,
+              agentId,
+              workspacePath,
+              messages: storedTurnMessages,
+            })
+            .catch((error) => {
+              logger.warn(
+                { sessionId: req.sessionId, agentId, error },
+                'Plugin turn-complete hooks failed',
+              );
+            });
+        }
+        if (requestMessages !== null) {
+          maybeRecordGatewayRequestLog({
+            sessionId: req.sessionId,
+            model,
+            chatbotId,
+            messages: requestMessages,
+            status: 'success',
+            response: syntheticResultText,
+            toolExecutions: [],
+            toolsUsed: [],
+            durationMs,
+          });
+        }
+        return attachSessionIdentity({
+          status: 'success',
+          result: syntheticResultText,
+          toolsUsed: [],
+          pluginsUsed,
+          userMessageId: storedTurn.userMessageId,
+          assistantMessageId: storedTurn.assistantMessageId,
+        });
+      }
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'plugin_silent',
+        },
+      });
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: 1,
+            assistantMessages: 0,
+            toolCalls: 0,
+            durationMs,
+          },
+        },
+      });
+      if (requestMessages !== null) {
+        maybeRecordGatewayRequestLog({
+          sessionId: req.sessionId,
+          model,
+          chatbotId,
+          messages: requestMessages,
+          status: 'success',
+          response: '',
+          toolExecutions: [],
+          toolsUsed: [],
+          durationMs,
+        });
+      }
+      return attachSessionIdentity({
+        status: 'success',
+        result: '',
+        toolsUsed: [],
+        pluginsUsed,
+      });
+    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -855,15 +1004,6 @@ export async function handleGatewayMessage(
         systemPrompt: readSystemPromptMessage(messages),
       },
     });
-    if (pluginManager) {
-      await pluginManager.notifyBeforeAgentStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        model: model || undefined,
-      });
-    }
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.executionSessionId || req.sessionId,

@@ -23,6 +23,7 @@ import {
   HEARTBEAT_ENABLED,
   HYBRIDAI_CHATBOT_ID,
 } from '../config/config.js';
+import { tryEnsurePluginManagerInitializedForGateway } from '../gateway/gateway-plugin-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getTasksForSession } from '../memory/db.js';
@@ -157,6 +158,7 @@ export function startHeartbeat(
         ? resolvedRuntime.chatbotId || HYBRIDAI_CHATBOT_ID || agentId
         : resolvedRuntime.chatbotId;
       const resolvedAgentId = resolvedRuntime.agentId;
+      const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       const enableRag = session.enable_rag !== 0;
       const workspacePath = agentWorkspaceDir(resolvedAgentId);
       const sessionContext = buildSessionContext({
@@ -173,27 +175,6 @@ export function startHeartbeat(
         sessionKey: session.session_key,
         mainSessionKey: session.main_session_key,
       });
-      const { messages } = buildConversationContext({
-        agentId: resolvedAgentId,
-        sessionSummary: memoryContext.promptSummary,
-        history,
-        runtimeInfo: {
-          channel: getChannel('heartbeat'),
-          chatbotId,
-          model,
-          defaultModel: model,
-          channelType: 'heartbeat',
-          channelId,
-          guildId: null,
-          sessionContext,
-          workspacePath,
-        },
-        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
-      });
-      messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
-
-      const provider = resolveModelProvider(model);
-      const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       recordAuditEvent({
         sessionId,
         runId,
@@ -216,6 +197,147 @@ export function startHeartbeat(
           source: 'heartbeat',
         },
       });
+      const { pluginManager } =
+        await tryEnsurePluginManagerInitializedForGateway({
+          sessionId,
+          channelId: heartbeatChannelId,
+          agentId: resolvedAgentId,
+          surface: 'heartbeat',
+        });
+      const beforeAgentReplyResult = pluginManager
+        ? await pluginManager.runBeforeAgentReply({
+            sessionId,
+            userId: 'heartbeat',
+            agentId: resolvedAgentId,
+            channelId: heartbeatChannelId,
+            prompt: HEARTBEAT_PROMPT,
+            trigger: 'heartbeat',
+            workspacePath,
+            model: model || undefined,
+          })
+        : undefined;
+      if (beforeAgentReplyResult?.handled) {
+        const syntheticResult = String(
+          beforeAgentReplyResult.text || '',
+        ).trim();
+        logger.debug(
+          {
+            sessionId,
+            pluginId: beforeAgentReplyResult.pluginId,
+            reason: beforeAgentReplyResult.reason ?? null,
+            syntheticReply: syntheticResult.length > 0,
+          },
+          'Heartbeat intercepted before agent reply',
+        );
+        if (!syntheticResult) {
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'turn.end',
+              turnIndex,
+              finishReason: 'plugin_silent',
+            },
+          });
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'session.end',
+              reason: 'normal',
+              stats: {
+                userMessages: 1,
+                assistantMessages: 0,
+                toolCalls: 0,
+                durationMs: Date.now() - startedAt,
+              },
+            },
+          });
+          return;
+        }
+        memoryService.storeTurn({
+          sessionId,
+          user: {
+            userId: 'heartbeat',
+            username: 'heartbeat',
+            content: HEARTBEAT_PROMPT,
+          },
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            content: syntheticResult,
+          },
+        });
+        appendSessionTranscript(resolvedAgentId, {
+          sessionId,
+          channelId: heartbeatChannelId,
+          role: 'user',
+          userId: 'heartbeat',
+          username: 'heartbeat',
+          content: HEARTBEAT_PROMPT,
+        });
+        appendSessionTranscript(resolvedAgentId, {
+          sessionId,
+          channelId: heartbeatChannelId,
+          role: 'assistant',
+          userId: 'assistant',
+          username: null,
+          content: syntheticResult,
+        });
+        await maybeCompactSession({
+          sessionId,
+          agentId: resolvedAgentId,
+          chatbotId,
+          enableRag,
+          model,
+          channelId: heartbeatChannelId,
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'completed',
+          },
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'normal',
+            stats: {
+              userMessages: 1,
+              assistantMessages: 1,
+              toolCalls: 0,
+              durationMs: Date.now() - startedAt,
+            },
+          },
+        });
+        onMessage(syntheticResult);
+        return;
+      }
+      const { messages } = buildConversationContext({
+        agentId: resolvedAgentId,
+        sessionSummary: memoryContext.promptSummary,
+        history,
+        runtimeInfo: {
+          channel: getChannel('heartbeat'),
+          chatbotId,
+          model,
+          defaultModel: model,
+          channelType: 'heartbeat',
+          channelId,
+          guildId: null,
+          sessionContext,
+          workspacePath,
+        },
+        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
+      });
+      messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
+
+      const provider = resolveModelProvider(model);
 
       const scheduledTasks = getTasksForSession(sessionId);
       const output = await runAgent({

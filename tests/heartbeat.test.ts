@@ -1,40 +1,50 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  agentWorkspaceDir: vi.fn(() => '/tmp/hybridclaw-heartbeat-workspace'),
-  appendSessionTranscript: vi.fn(),
-  buildConversationContext: vi.fn(() => ({ messages: [] })),
-  emitToolExecutionAuditEvents: vi.fn(),
-  estimateTokenCountFromMessages: vi.fn(() => 1),
-  estimateTokenCountFromText: vi.fn(() => 1),
-  getTasksForSession: vi.fn(() => []),
-  isWithinActiveHours: vi.fn(() => true),
-  logger: {
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  },
-  makeAuditRunId: vi.fn(() => 'heartbeat-run'),
-  maybeCompactSession: vi.fn(),
-  memoryService: {
-    buildPromptMemoryContext: vi.fn(() => ({ promptSummary: '' })),
-    getConversationHistory: vi.fn(() => []),
-    getOrCreateSession: vi.fn(() => ({ message_count: 0 })),
-    storeTurn: vi.fn(),
-  },
-  modelRequiresChatbotId: vi.fn(() => false),
-  processSideEffects: vi.fn(),
-  proactiveWindowLabel: vi.fn(() => 'always-on'),
-  recordAuditEvent: vi.fn(),
-  resolveAgentForRequest: vi.fn(() => ({
-    agentId: 'vllm',
-    model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
-    chatbotId: '',
-  })),
-  resolveModelProvider: vi.fn(() => 'vllm'),
-  runAgent: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const pluginManager = {
+    runBeforeAgentReply: vi.fn(async () => undefined),
+  };
+  return {
+    agentWorkspaceDir: vi.fn(() => '/tmp/hybridclaw-heartbeat-workspace'),
+    appendSessionTranscript: vi.fn(),
+    buildConversationContext: vi.fn(() => ({ messages: [] })),
+    emitToolExecutionAuditEvents: vi.fn(),
+    estimateTokenCountFromMessages: vi.fn(() => 1),
+    estimateTokenCountFromText: vi.fn(() => 1),
+    getTasksForSession: vi.fn(() => []),
+    isWithinActiveHours: vi.fn(() => true),
+    logger: {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
+    makeAuditRunId: vi.fn(() => 'heartbeat-run'),
+    maybeCompactSession: vi.fn(),
+    memoryService: {
+      buildPromptMemoryContext: vi.fn(() => ({ promptSummary: '' })),
+      getConversationHistory: vi.fn(() => []),
+      getOrCreateSession: vi.fn(() => ({ message_count: 0 })),
+      storeTurn: vi.fn(),
+    },
+    pluginManager,
+    modelRequiresChatbotId: vi.fn(() => false),
+    processSideEffects: vi.fn(),
+    proactiveWindowLabel: vi.fn(() => 'always-on'),
+    recordAuditEvent: vi.fn(),
+    resolveAgentForRequest: vi.fn(() => ({
+      agentId: 'vllm',
+      model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+      chatbotId: '',
+    })),
+    resolveModelProvider: vi.fn(() => 'vllm'),
+    runAgent: vi.fn(),
+    tryEnsurePluginManagerInitializedForGateway: vi.fn(async () => ({
+      pluginManager,
+      pluginInitError: null,
+    })),
+  };
+});
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: mocks.runAgent,
@@ -69,6 +79,11 @@ vi.mock('../src/config/config.js', () => ({
   HYBRIDAI_CHATBOT_ID: '',
   HYBRIDAI_ENABLE_RAG: false,
   HYBRIDAI_MODEL: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+}));
+
+vi.mock('../src/gateway/gateway-plugin-runtime.js', () => ({
+  tryEnsurePluginManagerInitializedForGateway:
+    mocks.tryEnsurePluginManagerInitializedForGateway,
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({
@@ -173,6 +188,37 @@ test('delivers substantive heartbeat messages', async () => {
   stopHeartbeat();
 
   expect(onMessage).toHaveBeenCalledWith('Review the queued tasks today.');
+  expect(mocks.memoryService.storeTurn).toHaveBeenCalledTimes(1);
+  expect(mocks.appendSessionTranscript).toHaveBeenCalledTimes(2);
+  expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);
+});
+
+test('heartbeat plugins can claim a turn with a synthetic reply', async () => {
+  vi.useFakeTimers();
+  mocks.pluginManager.runBeforeAgentReply.mockResolvedValueOnce({
+    handled: true,
+    text: 'Synthetic heartbeat follow-up.',
+    pluginId: 'memory-core',
+  });
+
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
+
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
+
+  expect(mocks.pluginManager.runBeforeAgentReply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'agent:vllm:channel:heartbeat:chat:system:peer:default',
+      channelId: 'heartbeat',
+      trigger: 'heartbeat',
+    }),
+  );
+  expect(mocks.runAgent).not.toHaveBeenCalled();
+  expect(onMessage).toHaveBeenCalledWith('Synthetic heartbeat follow-up.');
   expect(mocks.memoryService.storeTurn).toHaveBeenCalledTimes(1);
   expect(mocks.appendSessionTranscript).toHaveBeenCalledTimes(2);
   expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);

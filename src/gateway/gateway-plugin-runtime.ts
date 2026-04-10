@@ -8,7 +8,13 @@ export async function tryEnsurePluginManagerInitializedForGateway(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
-  surface: 'chat' | 'command' | 'webhook';
+  surface:
+    | 'chat'
+    | 'command'
+    | 'webhook'
+    | 'bootstrap'
+    | 'heartbeat'
+    | 'scheduler';
 }): Promise<{
   pluginManager: PluginManager | null;
   pluginInitError: unknown;

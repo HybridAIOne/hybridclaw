@@ -6,6 +6,7 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
+import { tryEnsurePluginManagerInitializedForGateway } from '../gateway/gateway-plugin-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -76,25 +77,6 @@ export async function runIsolatedScheduledTask(params: {
     sessionKey: cronSessionId,
     mainSessionKey: mainSessionKey?.trim() || cronSessionId,
   });
-  const { messages } = buildConversationContext({
-    agentId,
-    history: [],
-    currentUserContent: prompt,
-    runtimeInfo: {
-      channel: getChannel('scheduler'),
-      chatbotId,
-      model,
-      defaultModel: model,
-      channelType: 'scheduler',
-      channelId,
-      guildId: null,
-      sessionContext,
-      workspacePath,
-    },
-    blockedTools: ['cron'],
-  });
-  messages.push({ role: 'user', content: prompt });
-
   recordAuditEvent({
     sessionId: activeSessionId,
     runId,
@@ -119,6 +101,72 @@ export async function runIsolatedScheduledTask(params: {
       taskId,
     },
   });
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
+    sessionId: activeSessionId,
+    channelId,
+    agentId,
+    surface: 'scheduler',
+  });
+  const beforeAgentReplyResult = pluginManager
+    ? await pluginManager.runBeforeAgentReply({
+        sessionId: activeSessionId,
+        userId: 'scheduler',
+        agentId,
+        channelId,
+        prompt,
+        trigger: 'scheduler',
+        workspacePath,
+        model: model || undefined,
+      })
+    : undefined;
+  if (beforeAgentReplyResult?.handled) {
+    const syntheticResult = String(beforeAgentReplyResult.text || '').trim();
+    recordAuditEvent({
+      sessionId: activeSessionId,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex: 1,
+        finishReason: syntheticResult ? 'completed' : 'plugin_silent',
+      },
+    });
+    recordAuditEvent({
+      sessionId: activeSessionId,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'normal',
+        stats: {
+          userMessages: 1,
+          assistantMessages: syntheticResult ? 1 : 0,
+          toolCalls: 0,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
+    if (syntheticResult) {
+      await onResult({ text: syntheticResult });
+    }
+    return;
+  }
+  const { messages } = buildConversationContext({
+    agentId,
+    history: [],
+    currentUserContent: prompt,
+    runtimeInfo: {
+      channel: getChannel('scheduler'),
+      chatbotId,
+      model,
+      defaultModel: model,
+      channelType: 'scheduler',
+      channelId,
+      guildId: null,
+      sessionContext,
+      workspacePath,
+    },
+    blockedTools: ['cron'],
+  });
+  messages.push({ role: 'user', content: prompt });
 
   try {
     const output = await runAgent({

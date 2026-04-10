@@ -103,6 +103,7 @@ import {
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
   initGatewayService,
   stopGatewayPlugins,
@@ -1711,6 +1712,60 @@ async function runScheduledTask(
   }
 
   if (request.actionKind === 'system_event') {
+    const systemChannelId =
+      request.channelId || resolvedDeliveryChannelId || 'scheduler';
+    const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
+      {
+        sessionId: request.sessionId,
+        channelId: systemChannelId,
+        agentId: request.agentId ?? null,
+        surface: 'scheduler',
+      },
+    );
+    const beforeAgentReplyResult = pluginManager
+      ? await pluginManager.runBeforeAgentReply({
+          sessionId: request.sessionId,
+          userId: 'scheduler',
+          agentId: request.agentId || 'main',
+          channelId: systemChannelId,
+          prompt: request.prompt,
+          trigger: 'scheduler',
+        })
+      : undefined;
+    if (beforeAgentReplyResult?.handled) {
+      const syntheticResult = String(beforeAgentReplyResult.text || '').trim();
+      if (!syntheticResult) {
+        logger.debug(
+          {
+            jobId: request.jobId,
+            taskId: request.taskId,
+            pluginId: beforeAgentReplyResult.pluginId,
+            reason: beforeAgentReplyResult.reason ?? null,
+          },
+          'Scheduled system event intercepted without delivery',
+        );
+        return;
+      }
+      if (request.delivery.kind === 'webhook') {
+        await deliverWebhookMessage(
+          request.delivery.webhookUrl,
+          syntheticResult,
+          `${sourceLabel}:system`,
+        );
+        return;
+      }
+      if (!resolvedDeliveryChannelId) {
+        throw new Error(
+          'No delivery channel available for scheduled system event delivery.',
+        );
+      }
+      await deliverProactiveMessage(
+        resolvedDeliveryChannelId,
+        syntheticResult,
+        `${sourceLabel}:system`,
+      );
+      return;
+    }
     if (request.delivery.kind === 'webhook') {
       await deliverWebhookMessage(
         request.delivery.webhookUrl,

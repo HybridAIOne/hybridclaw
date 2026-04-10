@@ -16,6 +16,7 @@ const {
     notifyBeforeAgentStart: vi.fn(async () => {}),
     notifyMemoryWrites: vi.fn(async () => {}),
     notifySessionStart: vi.fn(async () => {}),
+    runBeforeAgentReply: vi.fn(async () => undefined),
   };
   return {
     runAgentMock: vi.fn(),
@@ -60,6 +61,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
     pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
+    pluginManagerMock.runBeforeAgentReply.mockClear();
   },
 });
 

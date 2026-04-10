@@ -162,6 +162,29 @@ export interface PluginMemoryBehavior {
   replacesBuiltInMemory: boolean;
 }
 
+export type PluginBeforeAgentReplyTrigger =
+  | 'chat'
+  | 'bootstrap'
+  | 'heartbeat'
+  | 'scheduler';
+
+export interface PluginBeforeAgentReplyContext {
+  sessionId: string;
+  userId: string;
+  agentId: string;
+  channelId: string;
+  prompt: string;
+  trigger: PluginBeforeAgentReplyTrigger;
+  workspacePath?: string;
+  model?: string;
+}
+
+export interface PluginBeforeAgentReplyResult {
+  handled: boolean;
+  text?: string;
+  reason?: string;
+}
+
 export interface PluginPromptContextResult extends PluginMemoryBehavior {
   sections: string[];
   pluginIds: string[];
@@ -248,6 +271,7 @@ export type PluginHookName =
   | 'session_reset'
   | 'before_prompt_build'
   | 'before_agent_start'
+  | 'before_agent_reply'
   | 'agent_end'
   | 'before_tool_call'
   | 'after_tool_call'
@@ -284,6 +308,12 @@ export interface PluginHookHandlerMap {
     channelId: string;
     model?: string;
   }) => Promise<void> | void;
+  before_agent_reply: (
+    context: PluginBeforeAgentReplyContext,
+  ) =>
+    | Promise<PluginBeforeAgentReplyResult | undefined>
+    | PluginBeforeAgentReplyResult
+    | undefined;
   agent_end: (context: PluginAgentEndContext) => Promise<void> | void;
   before_tool_call: (context: PluginToolHookContext) => Promise<void> | void;
   after_tool_call: (

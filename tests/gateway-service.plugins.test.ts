@@ -46,6 +46,7 @@ const {
       },
     ]),
     notifyBeforeAgentStart: vi.fn(async () => {}),
+    runBeforeAgentReply: vi.fn(async () => undefined),
     notifyMemoryWrites: vi.fn(async () => {}),
     notifyTurnComplete: vi.fn(async () => {}),
     notifyAgentEnd: vi.fn(async () => {}),
@@ -239,6 +240,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.handleInboundWebhook.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
+    pluginManagerMock.runBeforeAgentReply.mockClear();
     pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifyTurnComplete.mockClear();
     pluginManagerMock.notifyAgentEnd.mockClear();
@@ -395,6 +397,70 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
       toolNames: ['memory_lookup'],
     }),
   );
+});
+
+test('handleGatewayMessage returns a synthetic plugin reply before agent execution', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.runBeforeAgentReply.mockResolvedValueOnce({
+    handled: true,
+    text: 'synthetic plugin reply',
+    pluginId: 'demo-plugin',
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-plugin-claim',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'Use the plugin fast path.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result).toEqual(
+    expect.objectContaining({
+      status: 'success',
+      result: 'synthetic plugin reply',
+      toolsUsed: [],
+      pluginsUsed: ['qmd-memory', 'demo-plugin'],
+    }),
+  );
+  expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalledTimes(1);
+  expect(pluginManagerMock.runBeforeAgentReply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-plugin-claim',
+      userId: 'user-42',
+      channelId: 'web',
+      trigger: 'chat',
+      prompt: 'Use the plugin fast path.',
+    }),
+  );
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(pluginManagerMock.notifyTurnComplete).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-plugin-claim',
+      userId: 'user-42',
+      messages: [
+        expect.objectContaining({
+          role: 'user',
+          content: 'Use the plugin fast path.',
+        }),
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'synthetic plugin reply',
+        }),
+      ],
+    }),
+  );
+  expect(pluginManagerMock.notifyAgentEnd).not.toHaveBeenCalled();
 });
 
 test('handleGatewayMessage forwards successful native memory writes to plugins', async () => {

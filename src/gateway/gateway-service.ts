@@ -4114,6 +4114,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const enableRag = session.enable_rag === 1;
     const provider = resolveModelProvider(resolved.model);
     const turnIndex = Math.max(1, session.message_count + 1);
+    const bootstrapPrompt = buildBootstrapAutostartPrompt(bootstrapFile);
 
     recordAuditEvent({
       sessionId: session.id,
@@ -4133,7 +4134,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       event: {
         type: 'turn.start',
         turnIndex,
-        userInput: buildBootstrapAutostartPrompt(bootstrapFile),
+        userInput: bootstrapPrompt,
         username: normalizedUsername,
         mediaCount: 0,
         source: BOOTSTRAP_AUTOSTART_SOURCE,
@@ -4205,7 +4206,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const { messages } = buildConversationContext({
       agentId: resolved.agentId,
       history: [],
-      currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      currentUserContent: bootstrapPrompt,
       extraSafetyText:
         'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
       runtimeInfo: {
@@ -4221,7 +4222,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     messages.push({
       role: 'user',
-      content: buildBootstrapAutostartPrompt(bootstrapFile),
+      content: bootstrapPrompt,
     });
 
     const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
@@ -4229,7 +4230,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         sessionId: session.id,
         channelId,
         agentId: resolved.agentId,
-        surface: 'chat',
+        surface: 'bootstrap',
       },
     );
     if (pluginManager) {
@@ -4247,6 +4248,96 @@ export async function ensureGatewayBootstrapAutostart(params: {
         channelId,
         model: resolved.model || undefined,
       });
+    }
+    const beforeAgentReplyResult = pluginManager
+      ? await pluginManager.runBeforeAgentReply({
+          sessionId: session.id,
+          userId: normalizedUserId,
+          agentId: resolved.agentId,
+          channelId,
+          prompt: bootstrapPrompt,
+          trigger: 'bootstrap',
+          workspacePath,
+          model: resolved.model || undefined,
+        })
+      : undefined;
+    if (beforeAgentReplyResult?.handled) {
+      const syntheticResultText = String(beforeAgentReplyResult.text || '');
+      const durationMs = Date.now() - startedAt;
+      if (!syntheticResultText.trim()) {
+        setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        });
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'plugin_silent',
+          },
+        });
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'normal',
+            stats: {
+              userMessages: 0,
+              assistantMessages: 0,
+              toolCalls: 0,
+              durationMs,
+            },
+          },
+        });
+        return;
+      }
+      const assistantMessageId = memoryService.storeMessage({
+        sessionId: session.id,
+        userId: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: syntheticResultText,
+      });
+      appendSessionTranscript(resolved.agentId, {
+        sessionId: session.id,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content: syntheticResultText,
+      });
+      setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+        status: 'completed',
+        assistantMessageId,
+        completedAt: new Date().toISOString(),
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'completed',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 1,
+            toolCalls: 0,
+            durationMs,
+          },
+        },
+      });
+      return;
     }
 
     recordAuditEvent({
