@@ -1,7 +1,7 @@
 /**
  * Sheet — a slide-in panel (drawer) built on our own accessibility primitives.
  *
- * Mirrors the shadcn Sheet API:
+ * Usage:
  *   <Sheet open={open} onOpenChange={setOpen}>
  *     <SheetContent side="left">
  *       <SheetHeader className="sr-only">

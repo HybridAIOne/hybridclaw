@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
-import { Cog, HybridClaw } from '../icons';
 import { cx } from '../../lib/cx';
+import { Cog, HybridClaw } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,

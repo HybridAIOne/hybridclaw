@@ -109,8 +109,6 @@ export function SidebarProvider(props: {
     };
   }, []);
 
-  // Scroll locking is Sheet's responsibility — SidebarProvider only manages state.
-
   const value = useMemo<SidebarContextValue>(
     () => ({
       state: open ? 'expanded' : 'collapsed',

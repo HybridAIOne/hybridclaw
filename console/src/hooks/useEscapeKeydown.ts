@@ -9,7 +9,7 @@ export function useEscapeKeydown(onEscape: () => void, active: boolean): void {
   const onEscapeRef = useRef(onEscape);
   useEffect(() => {
     onEscapeRef.current = onEscape;
-  });
+  }, [onEscape]);
 
   useEffect(() => {
     if (!active) return;
@@ -20,6 +20,7 @@ export function useEscapeKeydown(onEscape: () => void, active: boolean): void {
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
         target.isContentEditable
       ) {
         return;

@@ -74,7 +74,7 @@ describe('SidebarProvider', () => {
   beforeEach(() => setViewport(1440));
   afterEach(cleanup);
 
-  it('exposes full shadcn-aligned context shape', () => {
+  it('exposes full context shape', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
