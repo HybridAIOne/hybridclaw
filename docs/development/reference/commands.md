@@ -18,6 +18,7 @@ hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway reset [yes|no]
 hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -55,6 +56,8 @@ HybridClaw's loopback OpenAI-compatible API.
 ```bash
 hybridclaw eval list
 hybridclaw eval env
+hybridclaw eval locomo setup
+hybridclaw eval locomo run --budget 4000 --num-samples 2
 hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
@@ -64,7 +67,9 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `tau2` and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- `locomo` runs a native HybridClaw memory harness against the official
+  LoCoMo conversations and compares recent-tail context with semantic recall
 - `swebench-verified`, `agentbench`, and `gaia` currently print starter
   recipes and setup guidance rather than a native managed runner
 - the default eval mode keeps the current agent workspace but opens a fresh

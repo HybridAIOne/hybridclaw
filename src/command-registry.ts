@@ -1707,6 +1707,32 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Stub entry for a planned SWE-bench Verified runner',
         },
         {
+          id: 'eval.locomo',
+          label: '/eval locomo',
+          insertText: '/eval locomo',
+          description: 'Show the native LOCOMO memory benchmark commands',
+        },
+        {
+          id: 'eval.locomo.setup',
+          label: '/eval locomo setup',
+          insertText: '/eval locomo setup',
+          description:
+            'Download the official LOCOMO dataset into the local eval workspace',
+        },
+        {
+          id: 'eval.locomo.run',
+          label: '/eval locomo run --budget 4000 --num-samples 2',
+          insertText: '/eval locomo run --budget 4000 --num-samples 2',
+          description:
+            'Run a small native LOCOMO memory benchmark sample with recent-tail and semantic-recall modes',
+        },
+        {
+          id: 'eval.locomo.results',
+          label: '/eval locomo results',
+          insertText: '/eval locomo results',
+          description: 'Show the latest LOCOMO summary and comparison metrics',
+        },
+        {
           id: 'eval.terminal-bench-2.0',
           label: '/eval terminal-bench-2.0',
           insertText: '/eval terminal-bench-2.0',

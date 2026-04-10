@@ -45,6 +45,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/plugin check <plugin-id>');
   expect(labels).toContain('/eval [list|env|<suite>|<command...>]');
   expect(labels).toContain('/eval list');
+  expect(labels).toContain('/eval locomo');
   expect(labels).toContain('/eval tau2');
   expect(labels).toContain('/eval swebench-verified');
   expect(labels).not.toContain('/eval tau2-bench');

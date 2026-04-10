@@ -19,6 +19,7 @@ import {
 
 type EvalSuiteId =
   | 'swebench-verified'
+  | 'locomo'
   | 'terminal-bench-2.0'
   | 'agentbench'
   | 'gaia';
@@ -79,7 +80,7 @@ interface EvalRunPreparation {
 
 interface EvalSetupCommand {
   command: string;
-  strategy: 'uv' | 'system-python';
+  strategy: 'native' | 'uv' | 'system-python';
 }
 
 interface EvalRunMeta {
@@ -171,6 +172,23 @@ interface TerminalBenchNativeTokenUsage {
   apiUsageAvailable: boolean;
 }
 
+interface LocomoNativeModeAggregate {
+  overallF1: number;
+  overallHitRate: number;
+  totalQuestions: number;
+}
+
+interface LocomoNativeSummary {
+  jobDir: string;
+  resultPath: string;
+  dataset: string | null;
+  budgetTokens: number | null;
+  topK: number | null;
+  sampleCount: number | null;
+  requestedMode: string | null;
+  modes: Record<string, LocomoNativeModeAggregate>;
+}
+
 const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
 const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
@@ -205,6 +223,26 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     notes: [
       'This step evaluates a predictions JSONL; produce patches with your HybridClaw-driven harness first.',
       '`/eval ...` injects the OpenAI-compatible HybridClaw endpoint for any predictor step you run through this helper.',
+    ],
+  },
+  {
+    id: 'locomo',
+    title: 'LOCOMO',
+    summary:
+      'Native HybridClaw long-conversation memory benchmark over the official LoCoMo dataset.',
+    aliases: ['lo-co-mo', 'locomo-memory'],
+    prereqs: [
+      'Node.js 22',
+      'network access during `setup` to download `locomo10.json`',
+    ],
+    starter: [
+      '/eval locomo setup',
+      '/eval locomo run --budget 4000 --num-samples 2',
+    ],
+    notes: [
+      'This native harness evaluates retrieval quality directly instead of delegating answer generation to an external Python benchmark.',
+      'Results compare a naive recent-tail baseline against HybridClaw semantic memory recall on the official LoCoMo conversations.',
+      'Prompt/profile eval flags are accepted on the outer `/eval` command but do not change the native LoCoMo scoring path.',
     ],
   },
   {
@@ -330,7 +368,7 @@ function renderSuiteList(): string[] {
 }
 
 function isImplementedManagedSuite(suite: EvalSuiteDefinition): boolean {
-  return suite.id === 'terminal-bench-2.0';
+  return suite.id === 'terminal-bench-2.0' || suite.id === 'locomo';
 }
 
 function renderUnimplementedSuite(
@@ -351,6 +389,7 @@ function renderUnimplementedSuite(
     ...describeEvalProfile(env.profile).map((entry) => `- ${entry}`),
     '',
     'Implemented suites today:',
+    '- `/eval locomo ...`',
     '- `/eval terminal-bench-2.0 ...`',
     '- `/eval tau2 ...`',
   ].join('\n');
@@ -363,6 +402,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Usage:',
     '- `/eval list`',
     '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `/eval locomo [setup|run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
@@ -379,7 +419,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `terminal-bench-2.0` and `tau2` are implemented today.',
+    'Only `locomo`, `terminal-bench-2.0`, and `tau2` are implemented today.',
   ].join('\n');
 }
 
@@ -523,7 +563,7 @@ function renderRecipe(
     '',
     'Managed commands:',
     `- \`/eval ${suite.id} setup\``,
-    `- \`/eval ${suite.id} run --num-tasks 10\``,
+    `- \`${getManagedSuiteRunExample(suite)}\``,
     `- \`/eval ${suite.id} status\``,
     `- \`/eval ${suite.id} stop\``,
     `- \`/eval ${suite.id} results\``,
@@ -531,6 +571,17 @@ function renderRecipe(
     '',
     'Launch the starter or your own command with `/eval <shell command...>`.',
   ].join('\n');
+}
+
+function getManagedSuiteRunExample(suite: EvalSuiteDefinition): string {
+  switch (suite.id) {
+    case 'locomo':
+      return '/eval locomo run --budget 4000 --num-samples 2';
+    case 'terminal-bench-2.0':
+      return '/eval terminal-bench-2.0 run --num-tasks 10';
+    default:
+      return `/eval ${suite.id} run`;
+  }
 }
 
 function renderTau2Usage(env: EvalEnvironment, dataDir: string): string {
@@ -602,12 +653,22 @@ function getTau2InstallDir(dataDir: string): string {
 function getManagedSuiteSetup(
   suite: EvalSuiteDefinition,
 ): ManagedEvalSuiteSetup | null {
-  if (suite.id !== 'terminal-bench-2.0') return null;
-  return {
-    installDirName: 'terminal-bench-2.0',
-    strategyDescription:
-      'uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test',
-  };
+  switch (suite.id) {
+    case 'locomo':
+      return {
+        installDirName: 'locomo',
+        strategyDescription:
+          'native HybridClaw LOCOMO harness with official locomo10 dataset download',
+      };
+    case 'terminal-bench-2.0':
+      return {
+        installDirName: 'terminal-bench-2.0',
+        strategyDescription:
+          'uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test',
+      };
+    default:
+      return null;
+  }
 }
 
 function getManagedSuiteInstallDir(
@@ -629,6 +690,10 @@ function getManagedSuiteMarkerPath(
     getManagedSuiteInstallDir(suite, dataDir),
     '.hybridclaw-setup-ok',
   );
+}
+
+function getLocomoDatasetPath(dataDir: string): string {
+  return path.join(getEvalBaseDir(dataDir), 'locomo', 'data', 'locomo10.json');
 }
 
 function getManagedSuitePythonPath(
@@ -654,6 +719,12 @@ function isManagedSuiteInstalled(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): boolean {
+  if (suite.id === 'locomo') {
+    return (
+      fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
+      fs.existsSync(getLocomoDatasetPath(dataDir))
+    );
+  }
   return (
     fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
     fs.existsSync(getManagedSuitePythonPath(suite, dataDir))
@@ -684,6 +755,17 @@ function getManagedSuiteSetupCommand(
   }
 
   const installDir = getManagedSuiteInstallDir(suite, dataDir);
+  if (suite.id === 'locomo') {
+    return {
+      strategy: 'native',
+      command: buildInternalEvalCommand('__eval-locomo-native', [
+        'setup',
+        '--install-dir',
+        installDir,
+      ]),
+    };
+  }
+
   const installDirQuoted = quoteShellArg(installDir);
   const markerFile = '.hybridclaw-setup-ok';
   const venvPython =
@@ -761,12 +843,30 @@ function getManagedSuiteNextStep(
   _dataDir: string,
 ): string {
   switch (suite.id) {
+    case 'locomo': {
+      return '/eval locomo run --budget 4000 --num-samples 2';
+    }
     case 'terminal-bench-2.0': {
       return `/eval terminal-bench-2.0 run --num-tasks 10`;
     }
     default:
       return `/eval ${suite.id}`;
   }
+}
+
+function buildInternalEvalCommand(commandName: string, args: string[]): string {
+  const cliEntry = process.argv[1]?.trim();
+  if (!cliEntry) {
+    throw new Error('Unable to resolve the HybridClaw CLI entry point.');
+  }
+  return buildCommandString([
+    quoteShellArg(process.execPath),
+    quoteShellArg(path.resolve(cliEntry)),
+    commandName,
+    ...args.map((entry) =>
+      entry.startsWith('--') ? entry : quoteShellArg(entry),
+    ),
+  ]);
 }
 
 function getTerminalBenchDatasetHelperPath(dataDir: string): string {
@@ -831,6 +931,19 @@ function prepareManagedSuiteRun(
   effectiveAgentId: string,
   args: string[],
 ): ManagedSuiteRunPreparation | null {
+  if (suite.id === 'locomo') {
+    return {
+      commandArgs: ['locomo', 'run', ...args],
+      command: buildInternalEvalCommand('__eval-locomo-native', [
+        'run',
+        '--install-dir',
+        getManagedSuiteInstallDir(suite, dataDir),
+        ...args,
+      ]),
+      displayCommand: buildCommandString([suite.id, 'run', ...args]),
+      cwd: dataDir,
+    };
+  }
   if (suite.id !== 'terminal-bench-2.0') return null;
   ensureTerminalBenchDatasetHelper(dataDir);
 
@@ -1343,6 +1456,95 @@ function readTerminalBenchNativeProgress(
     pending,
     tokenUsage: readTerminalBenchJobTokenUsage(jobDir),
   };
+}
+
+function readLocomoJobDir(meta: EvalRunMeta): string | null {
+  if (meta.suiteId !== 'locomo' || meta.operation !== 'run') {
+    return null;
+  }
+  const stdoutText = readLogFileText(meta.stdoutPath);
+  const match = stdoutText.match(/^Job dir:\s*(.+)$/m);
+  const jobDir = String(match?.[1] || '').trim();
+  return jobDir || null;
+}
+
+function readLocomoNativeSummary(
+  meta: EvalRunMeta,
+): LocomoNativeSummary | null {
+  const jobDir = readLocomoJobDir(meta);
+  if (!jobDir) return null;
+  const resultPath = path.join(jobDir, 'result.json');
+  if (!fs.existsSync(resultPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as {
+      dataset?: unknown;
+      budgetTokens?: unknown;
+      topK?: unknown;
+      sampleCount?: unknown;
+      requestedMode?: unknown;
+      modes?: Record<
+        string,
+        {
+          overallF1?: unknown;
+          overallHitRate?: unknown;
+          totalQuestions?: unknown;
+        }
+      >;
+    };
+    const modes = Object.fromEntries(
+      Object.entries(parsed.modes || {}).map(([mode, value]) => [
+        mode,
+        {
+          overallF1:
+            typeof value?.overallF1 === 'number' &&
+            Number.isFinite(value.overallF1)
+              ? value.overallF1
+              : 0,
+          overallHitRate:
+            typeof value?.overallHitRate === 'number' &&
+            Number.isFinite(value.overallHitRate)
+              ? value.overallHitRate
+              : 0,
+          totalQuestions:
+            typeof value?.totalQuestions === 'number' &&
+            Number.isFinite(value.totalQuestions)
+              ? value.totalQuestions
+              : 0,
+        },
+      ]),
+    ) as Record<string, LocomoNativeModeAggregate>;
+    return {
+      jobDir,
+      resultPath,
+      dataset: typeof parsed.dataset === 'string' ? parsed.dataset : null,
+      budgetTokens:
+        typeof parsed.budgetTokens === 'number' &&
+        Number.isFinite(parsed.budgetTokens)
+          ? parsed.budgetTokens
+          : null,
+      topK:
+        typeof parsed.topK === 'number' && Number.isFinite(parsed.topK)
+          ? parsed.topK
+          : null,
+      sampleCount:
+        typeof parsed.sampleCount === 'number' &&
+        Number.isFinite(parsed.sampleCount)
+          ? parsed.sampleCount
+          : null,
+      requestedMode:
+        typeof parsed.requestedMode === 'string' ? parsed.requestedMode : null,
+      modes,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatLocomoModeValue(
+  value: LocomoNativeModeAggregate | undefined,
+): string | null {
+  if (!value) return null;
+  return `Hit ${value.overallHitRate.toFixed(3)} | F1 ${value.overallF1.toFixed(3)} | Q ${value.totalQuestions}`;
 }
 
 function describeManagedSuiteRunLifecycle(
@@ -2300,6 +2502,10 @@ function renderManagedSuiteStatus(
     suite.id === 'terminal-bench-2.0' && latestRun
       ? readTerminalBenchNativeSummary(latestRun)
       : null;
+  const latestLocomoSummary =
+    suite.id === 'locomo' && latestRun
+      ? readLocomoNativeSummary(latestRun)
+      : null;
   const setupFailure =
     !installed && latestSetup ? describeRunFailureReason(latestSetup) : null;
 
@@ -2307,6 +2513,11 @@ function renderManagedSuiteStatus(
     `Install dir: ${installDir}`,
     `Installed: ${installed ? 'yes' : 'no'}`,
     `Marker: ${fs.existsSync(markerPath) ? markerPath : 'missing'}`,
+    ...(suite.id === 'locomo'
+      ? [
+          `Dataset: ${fs.existsSync(getLocomoDatasetPath(dataDir)) ? getLocomoDatasetPath(dataDir) : 'missing'}`,
+        ]
+      : []),
     ...(executablePath
       ? [
           `Executable: ${fs.existsSync(executablePath) ? executablePath : 'missing'}`,
@@ -2326,6 +2537,17 @@ function renderManagedSuiteStatus(
           `Command: ${latestRun.displayCommand || latestRun.command}`,
           `Stdout: ${latestRun.stdoutPath}`,
           `Stderr: ${latestRun.stderrPath}`,
+          ...(latestLocomoSummary
+            ? [
+                `Samples: ${latestLocomoSummary.sampleCount ?? 'unknown'}`,
+                `Budget: ${latestLocomoSummary.budgetTokens ?? 'unknown'}`,
+                `Top K: ${latestLocomoSummary.topK ?? 'unknown'}`,
+                ...Object.entries(latestLocomoSummary.modes).map(
+                  ([mode, value]) =>
+                    `${mode}: ${formatLocomoModeValue(value) || 'n/a'}`,
+                ),
+              ]
+            : []),
           ...(latestTerminalBenchSummary
             ? [
                 `Score: ${latestTerminalBenchSummary.mean.toFixed(3)}`,
@@ -2368,6 +2590,10 @@ function renderManagedSuiteResults(
   const terminalBenchProgress =
     suite.id === 'terminal-bench-2.0' && latestJob.operation === 'run'
       ? readTerminalBenchNativeProgress(latestJob)
+      : null;
+  const locomoSummary =
+    suite.id === 'locomo' && latestJob.operation === 'run'
+      ? readLocomoNativeSummary(latestJob)
       : null;
   if (suite.id === 'terminal-bench-2.0') {
     const overviewSection = renderKeyValueSection('Overview', [
@@ -2428,6 +2654,37 @@ function renderManagedSuiteResults(
     return infoResult(
       `${suite.title} Results`,
       joinSections([overviewSection, outcomeSection, runSection, pathsSection]),
+    );
+  }
+  if (suite.id === 'locomo') {
+    const overviewSection = renderKeyValueSection('Overview', [
+      ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+      ['Status', describeManagedSuiteRunLifecycle(latestJob)],
+      ['Dataset', locomoSummary?.dataset || null],
+      ['Samples', locomoSummary?.sampleCount ?? null],
+      ['Budget', locomoSummary?.budgetTokens ?? null],
+      ['Top K', locomoSummary?.topK ?? null],
+      ['Mode', locomoSummary?.requestedMode || null],
+    ]);
+    const modeSection = renderKeyValueSection(
+      'Modes',
+      Object.entries(locomoSummary?.modes || {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([mode, value]) => [mode, formatLocomoModeValue(value)] as const),
+    );
+    const runSection = renderKeyValueSection('Run', [
+      ['Run ID', latestJob.runId],
+      ['Command', latestJob.displayCommand || latestJob.command],
+    ]);
+    const pathsSection = renderKeyValueSection('Paths', [
+      ['Job dir', locomoSummary?.jobDir || null],
+      ['Result JSON', locomoSummary?.resultPath || null],
+      ['Stdout', latestJob.stdoutPath],
+      ['Stderr', latestJob.stderrPath],
+    ]);
+    return infoResult(
+      `${suite.title} Results`,
+      joinSections([overviewSection, modeSection, runSection, pathsSection]),
     );
   }
   return infoResult(
@@ -2701,6 +2958,7 @@ async function handleManagedSuiteCommand(params: {
         `${params.suite.title} is not implemented yet.`,
         '',
         'Implemented suites today:',
+        '- `/eval locomo ...`',
         '- `/eval terminal-bench-2.0 ...`',
         '- `/eval tau2 ...`',
       ].join('\n'),

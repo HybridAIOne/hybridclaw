@@ -80,6 +80,66 @@ function installTau2Layout(dataDir: string): void {
   fs.writeFileSync(path.join(installDir, '.venv', 'bin', 'python'), '');
 }
 
+function installLocomoLayout(dataDir: string): void {
+  const installDir = path.join(dataDir, 'evals', 'locomo');
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    JSON.stringify([]),
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), '');
+}
+
+function writeLocomoResult(
+  jobDir: string,
+  result: {
+    sampleCount?: number;
+    budgetTokens?: number;
+    topK?: number;
+    requestedMode?: string;
+    modes?: Record<
+      string,
+      {
+        overallF1: number;
+        overallHitRate: number;
+        totalQuestions: number;
+      }
+    >;
+  },
+): void {
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    JSON.stringify(
+      {
+        suite: 'locomo',
+        dataset: 'locomo10.json',
+        generatedAt: '2026-04-10T08:00:00.000Z',
+        sampleCount: result.sampleCount ?? 2,
+        budgetTokens: result.budgetTokens ?? 4000,
+        topK: result.topK ?? 20,
+        requestedMode: result.requestedMode ?? 'all',
+        resultPath: path.join(jobDir, 'result.json'),
+        modes: result.modes ?? {
+          recent: {
+            overallF1: 0.125,
+            overallHitRate: 0.25,
+            totalQuestions: 40,
+          },
+          semantic: {
+            overallF1: 0.35,
+            overallHitRate: 0.6,
+            totalQuestions: 40,
+          },
+        },
+        samples: [],
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 function writeTerminalBenchAgentResult(
   jobDir: string,
   taskName: string,
@@ -234,6 +294,29 @@ test('shows managed tau2 usage', async () => {
   );
 });
 
+test('shows managed locomo usage', async () => {
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+
+  const result = await handleEvalCommand({
+    args: ['locomo'],
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('LOCOMO');
+  expect(result.text).toContain('/eval locomo setup');
+  expect(result.text).toContain(
+    '/eval locomo run --budget 4000 --num-samples 2',
+  );
+});
+
 test('starts detached tau2 setup', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
@@ -295,6 +378,87 @@ test('reports non-terminal suites as not implemented yet', async () => {
   expect(result.text).toContain('/eval terminal-bench-2.0');
   expect(result.text).toContain('/eval tau2');
   expect(spawnMock).not.toHaveBeenCalled();
+});
+
+test('starts detached locomo setup', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  spawnMock.mockReturnValue({
+    pid: 6791,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'setup'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('LOCOMO Setup Started');
+  expect(result.text).toContain('Command: locomo setup');
+  expect(result.text).toContain(
+    'Setup strategy: native HybridClaw LOCOMO harness with official locomo10 dataset download.',
+  );
+  expect(result.text).toContain('Use `/eval locomo status`');
+  expect(result.text).toContain('Use `/eval locomo results`');
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('__eval-locomo-native');
+  expect(shellArgs[1]).toContain('setup');
+  expect(shellArgs[1]).toContain('--install-dir');
+});
+
+test('runs managed locomo with native runner defaults', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'run', '--budget', '4000', '--num-samples', '2'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('LOCOMO Run Started');
+  expect(result.text).toContain(
+    'Command: locomo run --budget 4000 --num-samples 2',
+  );
+  expect(result.text).toContain(
+    'Use `/eval locomo status` and `/eval locomo results` to follow this run.',
+  );
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('__eval-locomo-native');
+  expect(shellArgs[1]).toContain('run');
+  expect(shellArgs[1]).toContain('--install-dir');
+  expect(shellArgs[1]).toContain('--budget');
+  expect(shellArgs[1]).toContain('--num-samples');
 });
 
 test('starts detached terminal-bench setup', async () => {
@@ -672,6 +836,68 @@ test('reports managed suite latest run in status output', async () => {
   expect(result.text).toContain('Errors: 0');
 });
 
+test('reports locomo latest run in status output', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {});
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4451,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        finishedAt: '2026-04-10T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-locomo-native run --install-dir ${path.join(dataDir, 'evals', 'locomo')} --budget 4000 --num-samples 2`,
+        displayCommand: 'locomo run --budget 4000 --num-samples 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'status'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Latest run: eval-locomo-run (completed)');
+  expect(result.text).toContain('Dataset:');
+  expect(result.text).toContain('Budget: 4000');
+  expect(result.text).toContain('Top K: 20');
+  expect(result.text).toContain('recent: Hit 0.250 | F1 0.125 | Q 40');
+  expect(result.text).toContain('semantic: Hit 0.600 | F1 0.350 | Q 40');
+});
+
 test('shows generic managed suite setup logs in results', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
@@ -730,6 +956,70 @@ test('shows generic managed suite setup logs in results', async () => {
   expect(result.text).not.toContain('Stdout tail:');
   expect(result.text).not.toContain('installed datasets');
   expect(result.text).not.toContain('docker check pending');
+});
+
+test('shows locomo run summary in results when a run exists', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {});
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        finishedAt: '2026-04-10T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --budget 4000 --num-samples 2',
+        displayCommand: 'locomo run --budget 4000 --num-samples 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Dataset\s+locomo10\.json/);
+  expect(result.text).toMatch(/Samples\s+2/);
+  expect(result.text).toMatch(/Budget\s+4000/);
+  expect(result.text).toMatch(/Mode\s+all/);
+  expect(result.text).toMatch(/recent\s+Hit 0\.250 \| F1 0\.125 \| Q 40/);
+  expect(result.text).toMatch(/semantic\s+Hit 0\.600 \| F1 0\.350 \| Q 40/);
+  expect(result.text).toContain('Result JSON');
 });
 
 test('shows managed suite run summary in results when a run exists', async () => {

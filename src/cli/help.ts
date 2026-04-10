@@ -47,6 +47,7 @@ Commands:
 
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+       hybridclaw eval locomo [setup|run|status|stop|results|logs]
        hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
        hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -57,6 +58,9 @@ Examples:
   hybridclaw eval list
   hybridclaw eval env
   hybridclaw eval env --fresh-agent
+  hybridclaw eval locomo
+  hybridclaw eval locomo setup
+  hybridclaw eval locomo run --budget 4000 --num-samples 2
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -72,8 +76,9 @@ Examples:
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Only \`terminal-bench-2.0\` and \`tau2\` have active HybridClaw implementations today.
+  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`locomo\` is a native memory benchmark that downloads the official \`locomo10.json\` dataset during \`setup\` and compares recent-tail context against HybridClaw semantic recall.
   - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
   - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
   - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
