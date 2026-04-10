@@ -12,6 +12,7 @@ export { Gateway } from './Gateway';
 export { Github } from './Github';
 export { HybridClaw } from './HybridClaw';
 export { Jobs } from './Jobs';
+export { Menu } from './Menu';
 export { Models } from './Models';
 export { Plugins } from './Plugins';
 export { Scheduler } from './Scheduler';

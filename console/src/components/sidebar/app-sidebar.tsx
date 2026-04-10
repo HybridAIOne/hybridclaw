@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { Cog, HybridClaw } from '../icons';
+import { cx } from '../../lib/cx';
 import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
@@ -82,7 +83,7 @@ export function SidebarNavLink(props: { item: SidebarNavItem }) {
     <Link
       to={props.item.to}
       activeProps={{
-        className: `${styles.menuButton} ${styles.menuButtonActive}`,
+        className: cx(styles.menuButton, styles.menuButtonActive),
       }}
       inactiveProps={{ className: styles.menuButton }}
       activeOptions={{ exact: props.item.to === '/' }}

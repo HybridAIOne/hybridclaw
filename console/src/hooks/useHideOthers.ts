@@ -20,7 +20,7 @@ export function useHideOthers(
 
     const previous = new Map<Element, string | null>();
 
-    for (const child of Array.from(document.body.children)) {
+    for (const child of document.body.children) {
       if (child === container || child.contains(container)) continue;
       previous.set(child, child.getAttribute('aria-hidden'));
       child.setAttribute('aria-hidden', 'true');

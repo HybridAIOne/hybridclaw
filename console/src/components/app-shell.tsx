@@ -12,6 +12,7 @@ import {
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
 const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((g) => g.items);
+const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
@@ -44,7 +45,7 @@ export function AppShell(props: { children: ReactNode }) {
     ALL_NAV_ITEMS.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
-    <SidebarProvider style={getSidebarStyleVars('15.5rem', '18rem')}>
+    <SidebarProvider style={SIDEBAR_STYLE}>
       <AppSidebar
         groups={SIDEBAR_NAV_GROUPS}
         version={auth.gatewayStatus?.version}

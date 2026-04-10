@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import { cx } from '../../lib/cx';
+import { Menu } from '../icons';
 import {
   Sheet,
   SheetContent,
@@ -65,8 +66,12 @@ export function SidebarProvider(props: {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    let wasMobile = getIsMobile();
+
     function handleResize() {
       const nextIsMobile = getIsMobile();
+      if (nextIsMobile === wasMobile) return;
+      wasMobile = nextIsMobile;
       setIsMobile(nextIsMobile);
       if (!nextIsMobile) {
         setOpenMobile(false);
@@ -223,20 +228,7 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
         }
       }}
     >
-      {children ?? (
-        <svg
-          aria-hidden="true"
-          focusable="false"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-        >
-          <path d="M4 7h16" />
-          <path d="M4 12h16" />
-          <path d="M4 17h16" />
-        </svg>
-      )}
+      {children ?? <Menu />}
     </button>
   );
 }

@@ -100,8 +100,7 @@
 /* Backdrop is now owned by Sheet */
 
 .group,
-.groupContent,
-.footerMeta {
+.groupContent {
   display: grid;
 }
 
