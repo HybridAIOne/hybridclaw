@@ -17,6 +17,8 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Quick Start', path: 'getting-started/quickstart.md' },
       { title: 'Authentication', path: 'getting-started/authentication.md' },
       { title: 'Channel Setup', path: 'getting-started/channels.md' },
+      { title: 'iMessage', path: 'imessage.md' },
+      { title: 'MS Teams', path: 'msteams.md' },
     ],
   },
   {
@@ -82,6 +84,7 @@ const DOCS_BY_PATH = new Map(
   ),
 );
 const KNOWN_DOC_PATHS = new Set(DOCS_BY_PATH.keys());
+const ROOT_LEVEL_DOC_PATHS = new Set(['imessage.md', 'msteams.md']);
 const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
   section.pages.map((page) => ({
     label: page.title,
@@ -203,7 +206,11 @@ export function buildDocMarkdownHref(
   basePath = DOCS_BASE_PATH,
   contentBasePath = basePath,
 ) {
-  return `${normalizeBasePath(contentBasePath)}/${normalizeDocPath(docPath)}`;
+  const normalizedDocPath = normalizeDocPath(docPath);
+  if (ROOT_LEVEL_DOC_PATHS.has(normalizedDocPath)) {
+    return `/${normalizedDocPath}`;
+  }
+  return `${normalizeBasePath(contentBasePath)}/${normalizedDocPath}`;
 }
 
 function renderExternalLinkIcon() {

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { TurnContext } from 'botbuilder-core';
 import type { ConnectorClient } from 'botframework-connector';
@@ -14,6 +13,7 @@ import {
   MSTEAMS_TENANT_ID,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
+import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
 import { isRecord, normalizeValue } from './utils.js';
@@ -41,7 +41,6 @@ const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
 
 const PERSONAL_INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 const FILE_CONSENT_THRESHOLD_BYTES = 4 * 1024 * 1024;
-const MSTEAMS_MEDIA_TMP_PREFIX = 'hybridclaw-msteams-';
 const REMOTE_MEDIA_FETCH_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_SCOPE_SUFFIX = '/.default';
 const ACCESS_TOKEN_CACHE_SKEW_MS = 60_000;
@@ -650,20 +649,23 @@ async function stageInboundTeamsBuffer(params: {
   buffer: Buffer;
   filename: string;
   mimeType: string | null;
-}): Promise<string> {
+  sizeBytes?: number;
+  originalUrl?: string | null;
+}): Promise<MediaContextItem> {
   if (params.buffer.length > getMaxInboundTeamsMediaBytes()) {
     throw new Error('Teams attachment exceeds configured media limit.');
   }
-  const directory = await fs.mkdtemp(
-    path.join(os.tmpdir(), MSTEAMS_MEDIA_TMP_PREFIX),
-  );
   const fileName = ensureFilenameWithExtension(
     params.filename,
     params.mimeType,
   );
-  const filePath = path.join(directory, fileName);
-  await fs.writeFile(filePath, params.buffer);
-  return filePath;
+  return await createUploadedMediaContextItem({
+    attachmentName: fileName,
+    buffer: params.buffer,
+    mimeType: params.mimeType,
+    sizeBytes: params.sizeBytes,
+    originalUrl: params.originalUrl,
+  });
 }
 
 async function buildMediaItem(params: {
@@ -694,16 +696,20 @@ async function buildMediaItem(params: {
       );
       return null;
     }
-    const filePath = await stageInboundTeamsBuffer({
+    const staged = await stageInboundTeamsBuffer({
       buffer: decoded.buffer,
       filename: fallback.filename,
       mimeType: fallback.mimeType || decoded.mimeType,
+      sizeBytes: decoded.buffer.length,
+      originalUrl: fallback.url,
     });
     return {
-      ...fallback,
-      path: filePath,
+      ...staged,
+      url: fallback.url,
+      originalUrl: fallback.url,
       mimeType: fallback.mimeType || decoded.mimeType,
       sizeBytes: decoded.buffer.length,
+      filename: fallback.filename,
     };
   }
 
@@ -740,16 +746,20 @@ async function buildMediaItem(params: {
       inferMimeTypeFromFilename(fallback.filename, fallback.mimeType) ||
       sniffMimeTypeFromBuffer(buffer) ||
       null;
-    const filePath = await stageInboundTeamsBuffer({
+    const staged = await stageInboundTeamsBuffer({
       buffer,
       filename: fallback.filename,
       mimeType: resolvedMimeType,
+      sizeBytes: buffer.length,
+      originalUrl: fallback.url,
     });
     return {
-      ...fallback,
-      path: filePath,
+      ...staged,
+      url: fallback.url,
+      originalUrl: fallback.url,
       mimeType: resolvedMimeType || null,
       sizeBytes: buffer.length,
+      filename: fallback.filename,
     };
   } catch (error) {
     logger.debug(

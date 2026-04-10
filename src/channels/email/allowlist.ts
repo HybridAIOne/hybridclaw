@@ -1,4 +1,4 @@
-const EMAIL_ADDRESS_RE = /^[^\s@<>]+@[^\s@<>]+$/;
+const EMAIL_ADDRESS_RE = /^[^\s@<>:]+@[^\s@<>:]+$/;
 
 function normalizeEmailDomain(raw: string): string | null {
   const trimmed = String(raw || '')

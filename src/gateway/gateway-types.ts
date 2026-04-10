@@ -385,6 +385,10 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  telegram?: {
+    tokenConfigured: boolean;
+    tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;

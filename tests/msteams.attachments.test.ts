@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const tempDirs: string[] = [];
+const dataDirs: string[] = [];
 
 function trackTempDirFromMediaPath(filePath: string | null | undefined): void {
   if (!filePath) return;
@@ -16,7 +17,13 @@ async function importAttachmentsModule(
   configOverrides: Record<string, unknown> = {},
 ) {
   vi.resetModules();
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-msteams-cache-'),
+  );
+  dataDirs.push(dataDir);
   const baseConfig = {
+    CONTAINER_SANDBOX_MODE: 'host',
+    DATA_DIR: dataDir,
     MSTEAMS_APP_ID: 'teams-app-id',
     MSTEAMS_APP_PASSWORD: 'teams-secret',
     MSTEAMS_MEDIA_ALLOW_HOSTS: [
@@ -45,6 +52,11 @@ afterEach(() => {
   vi.resetModules();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
+    if (!dir) continue;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  while (dataDirs.length > 0) {
+    const dir = dataDirs.pop();
     if (!dir) continue;
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -445,6 +457,7 @@ test('buildTeamsAttachmentContext accepts direct Microsoft CDN image attachments
     sizeBytes: 3,
     filename: 'image.png',
   });
+  expect(media[0]?.path || '').toContain('uploaded-media-cache');
   expect(fs.readFileSync(media[0]?.path || '')).toEqual(Buffer.from([1, 2, 3]));
 });
 
@@ -1042,7 +1055,8 @@ test('buildTeamsAttachmentContext sniffs image uploads when Teams returns applic
     sizeBytes: pngBuffer.length,
     filename: 'original',
   });
-  expect(path.basename(media[0]?.path || '')).toBe('original.png');
+  expect(media[0]?.path || '').toContain('uploaded-media-cache');
+  expect(path.basename(media[0]?.path || '')).toMatch(/-original\.png$/);
   expect(fs.readFileSync(media[0]?.path || '')).toEqual(pngBuffer);
 });
 
@@ -1151,5 +1165,8 @@ test('buildTeamsAttachmentContext preserves Unicode filenames when staging media
 
   expect(media).toHaveLength(1);
   expect(media[0]?.filename).toBe('Überblick_日本語.png');
-  expect(path.basename(media[0]?.path || '')).toBe('Überblick_日本語.png');
+  expect(media[0]?.path || '').toContain('uploaded-media-cache');
+  expect(path.basename(media[0]?.path || '')).toMatch(
+    /-Überblick_日本語\.png$/,
+  );
 });

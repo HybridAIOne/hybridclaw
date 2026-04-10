@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import * as config from '../config/config.js';
 import { logger } from '../logger.js';
+import type { MediaContextItem } from '../types/container.js';
 import { normalizeMimeType } from './mime-utils.js';
 
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
@@ -304,6 +305,34 @@ export async function writeUploadedMediaCacheFile(params: {
   return {
     hostPath,
     runtimePath,
+    filename,
+  };
+}
+
+export async function createUploadedMediaContextItem(params: {
+  attachmentName: string;
+  buffer: Buffer;
+  mimeType?: string | null;
+  sizeBytes?: number;
+  originalUrl?: string | null;
+}): Promise<MediaContextItem> {
+  const normalizedMimeType = normalizeMimeType(params.mimeType);
+  const { runtimePath, filename } = await writeUploadedMediaCacheFile({
+    attachmentName: params.attachmentName,
+    buffer: params.buffer,
+    mimeType: normalizedMimeType,
+  });
+  const originalUrl = String(params.originalUrl || '').trim() || runtimePath;
+
+  return {
+    path: runtimePath,
+    url: originalUrl,
+    originalUrl,
+    mimeType: normalizedMimeType,
+    sizeBytes:
+      typeof params.sizeBytes === 'number' && Number.isFinite(params.sizeBytes)
+        ? Math.max(0, Math.floor(params.sizeBytes))
+        : params.buffer.length,
     filename,
   };
 }

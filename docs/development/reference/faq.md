@@ -55,6 +55,22 @@ Yes. The built-in web chat accepts uploads and pasted clipboard files or
 images before send. TUI can queue a copied local file or clipboard image with
 `/paste` or `Ctrl-V`.
 
+## Where do built-in channel attachments get stored locally?
+
+Email, Telegram, WhatsApp, and Microsoft Teams stage locally downloaded
+inbound attachments under the shared
+`~/.hybridclaw/data/uploaded-media-cache/` directory. In container sandbox
+mode those same files are exposed to the runtime as
+`/uploaded-media-cache/...`, and HybridClaw prunes expired entries
+automatically.
+
+## Why can't Telegram send a private message to a user who never messaged the bot?
+
+Because the standard Telegram Bot API does not let HybridClaw look up an
+arbitrary private user by `@username` and message them directly. For private
+DMs, the bot needs the numeric chat/user id from an earlier inbound message,
+so the user has to send the bot at least one message first.
+
 ## Can I point a prompt at files, diffs, or URLs without pasting them?
 
 Yes. Use inline references such as `@file:path[:start-end]`, `@folder:path`,
@@ -65,7 +81,7 @@ prompt text intact and adds a warning instead of silently broadening access.
 ## Can I use HybridClaw without Discord?
 
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect
-Microsoft Teams, iMessage, WhatsApp, and email.
+Microsoft Teams, Telegram, iMessage, WhatsApp, and email.
 
 ## Can I reach HybridClaw from another machine?
 
@@ -104,8 +120,8 @@ chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
 Gateway, Sessions, Jobs, Channels, Bindings, Models, Scheduler, MCP, Audit,
 Skills, Plugins, Tools, and Config pages. The Channels page centralizes
-transport status, managed secrets, and setup controls for Discord, WhatsApp,
-email, Microsoft Teams, and iMessage.
+transport status, managed secrets, and setup controls for Discord, Telegram,
+WhatsApp, email, Microsoft Teams, and iMessage.
 
 ## Can I extend HybridClaw with plugins?
 

@@ -39,10 +39,11 @@ describe('proactive delivery helpers', () => {
     ).toBeNull();
   });
 
-  test('recognizes supported WhatsApp and local delivery ids', () => {
+  test('recognizes supported WhatsApp, Telegram, and local delivery ids', () => {
     expect(isSupportedProactiveChannelId('491234567890@s.whatsapp.net')).toBe(
       true,
     );
+    expect(isSupportedProactiveChannelId('telegram:123456789')).toBe(true);
     expect(isSupportedProactiveChannelId('ops@example.com')).toBe(true);
     expect(isSupportedProactiveChannelId('imessage:ops@example.com')).toBe(
       true,
@@ -73,6 +74,12 @@ describe('proactive delivery helpers', () => {
     expect(
       hasQueuedProactiveDeliveryPath({
         channel_id: '491234567890@s.whatsapp.net',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: 'telegram:-1001234567890:topic:42',
       }),
     ).toBe(true);
 

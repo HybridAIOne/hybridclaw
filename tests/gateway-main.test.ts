@@ -41,6 +41,9 @@ function createGatewayMainTestState(options?: {
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    telegramMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     imessageMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -64,6 +67,18 @@ function createGatewayMainTestState(options?: {
         imapSecure: true,
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+      },
+      telegram: {
+        enabled: false,
+        botToken: '',
+        dmPolicy: 'disabled',
+        groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        pollIntervalMs: 1_500,
+        textChunkLimit: 4_000,
+        mediaMaxMb: 20,
       },
       msteams: {
         enabled: options?.msteamsEnabled ?? true,
@@ -133,6 +148,7 @@ function createGatewayMainTestState(options?: {
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initTelegram: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(
@@ -147,6 +163,7 @@ function createGatewayMainTestState(options?: {
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownTelegram: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       dailyFilesCompiled: 0,
@@ -247,6 +264,9 @@ async function importFreshGatewayMain(options?: {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
   });
+  state.initTelegram.mockImplementation((messageHandler) => {
+    state.telegramMessageHandler = messageHandler;
+  });
   state.initIMessage.mockImplementation((messageHandler) => {
     if (options?.imessageInitError) {
       throw options.imessageInitError;
@@ -336,6 +356,17 @@ async function importFreshGatewayMain(options?: {
     sendToIMessageChat: vi.fn(async () => {}),
     shutdownIMessage: vi.fn(async () => {}),
   }));
+  vi.doMock('../src/channels/telegram/runtime.js', () => ({
+    hasTelegramBotToken: vi.fn(() =>
+      Boolean(
+        String(state.getConfigSnapshot().telegram?.botToken || '').trim(),
+      ),
+    ),
+    initTelegram: state.initTelegram,
+    sendTelegramMediaToChat: vi.fn(async () => {}),
+    sendToTelegramChat: vi.fn(async () => {}),
+    shutdownTelegram: state.shutdownTelegram,
+  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
@@ -366,6 +397,7 @@ async function importFreshGatewayMain(options?: {
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-password',
+    TELEGRAM_BOT_TOKEN: '',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -502,6 +534,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
+  vi.doUnmock('../src/channels/telegram/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
@@ -1839,6 +1872,80 @@ describe('gateway bootstrap', () => {
         address: 'bot@example.com',
         smtpHost: 'smtp.example.com',
         smtpSecure: true,
+      }),
+    );
+  });
+
+  test('does not restart Telegram integration when Telegram config values are unchanged', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        allowFrom: [...state.currentConfig.telegram.allowFrom],
+        groupAllowFrom: [...state.currentConfig.telegram.groupAllowFrom],
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).not.toHaveBeenCalled();
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Telegram integration when Telegram config changes', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        requireMention: false,
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.initTelegram).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Telegram integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'disabled',
+        pollIntervalMs: 1_500,
+        requireMention: false,
       }),
     );
   });

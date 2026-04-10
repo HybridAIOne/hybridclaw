@@ -39,6 +39,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   imessage: 'iMessage',
   msteams: 'Microsoft Teams',
   scheduler: 'Scheduler',
+  telegram: 'Telegram',
   tui: 'TUI',
   whatsapp: 'WhatsApp',
 };

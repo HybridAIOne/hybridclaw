@@ -398,7 +398,7 @@ async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | n
   try {
     const status = await gatewayStatus();
     const runtimeSandboxMode = status.sandbox?.mode;
-    if (runtimeSandboxMode === 'host' || runtimeSandboxMode === 'container') {
+    if (runtimeSandboxMode === 'host') {
       return runtimeSandboxMode;
     }
   } catch {
