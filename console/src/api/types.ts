@@ -431,9 +431,10 @@ export interface AdminSchedulerJob {
   description: string | null;
   agentId: string | null;
   boardStatus: AdminSchedulerBoardStatus | null;
+  maxRetries: number | null;
   enabled: boolean;
   schedule: {
-    kind: 'at' | 'every' | 'cron';
+    kind: 'at' | 'every' | 'cron' | 'one_shot';
     at: string | null;
     everyMs: number | null;
     expr: string | null;

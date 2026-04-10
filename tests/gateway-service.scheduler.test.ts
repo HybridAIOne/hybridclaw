@@ -255,6 +255,62 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
   });
 });
 
+test('admin scheduler saves one-shot config jobs with retry settings', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const {
+    getGatewayAdminScheduler,
+    upsertGatewayAdminSchedulerJob,
+  } = await import('../src/gateway/gateway-scheduled-task-service.ts');
+
+  initDatabase({ quiet: true });
+
+  upsertGatewayAdminSchedulerJob({
+    job: {
+      id: 'release-brief',
+      name: 'Release brief',
+      maxRetries: 2,
+      schedule: {
+        kind: 'one_shot',
+        at: null,
+        everyMs: null,
+        expr: null,
+        tz: 'UTC',
+      },
+      action: {
+        kind: 'agent_turn',
+        message: 'Draft the release brief.',
+      },
+      delivery: {
+        kind: 'channel',
+        channel: 'tui',
+        to: 'tui',
+        webhookUrl: '',
+      },
+      enabled: true,
+    },
+  });
+
+  expect(
+    getGatewayAdminScheduler().jobs.find((job) => job.id === 'release-brief'),
+  ).toMatchObject({
+    id: 'release-brief',
+    source: 'config',
+    boardStatus: 'backlog',
+    maxRetries: 2,
+    schedule: {
+      kind: 'one_shot',
+      at: null,
+      everyMs: null,
+      expr: null,
+      tz: 'UTC',
+    },
+  });
+});
+
 test('admin jobs context exposes full recent assistant outputs for scheduler sessions', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

@@ -71,7 +71,7 @@ afterEach(async () => {
   }
 });
 
-test('backlog-assigned config jobs use the same auto-disable failure cap as other config jobs', async () => {
+test('legacy backlog-assigned one-shot config jobs move to review after the default retry budget', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
 
@@ -131,16 +131,88 @@ test('backlog-assigned config jobs use the same auto-disable failure cap as othe
 
   stopScheduler();
 
-  expect(runner).toHaveBeenCalledTimes(5);
+  expect(runner).toHaveBeenCalledTimes(4);
   expect(
     getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'backlog-retry'),
   ).toMatchObject({
-    boardStatus: 'in_progress',
+    boardStatus: 'review',
   });
   expect(getConfigJobState('backlog-retry')).toMatchObject({
     lastStatus: 'error',
-    consecutiveErrors: 5,
-    disabled: true,
+    consecutiveErrors: 4,
+    disabled: false,
+    nextRunAt: null,
+  });
+});
+
+test('one-shot config jobs respect maxRetries before moving failed work into review', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
+
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+
+  writeRuntimeConfig(homeDir, (config) => {
+    config.scheduler.jobs = [
+      {
+        id: 'release-brief',
+        name: 'Release brief',
+        agentId: 'main',
+        boardStatus: 'backlog',
+        enabled: true,
+        maxRetries: 1,
+        schedule: {
+          kind: 'one_shot',
+          at: null,
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Fail on purpose.',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '',
+          to: 'web',
+          webhookUrl: '',
+        },
+      },
+    ];
+  });
+
+  vi.resetModules();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+    '../src/scheduler/scheduler.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const runner = vi.fn(async () => {
+    throw new Error('expected failure');
+  });
+
+  startScheduler(runner);
+
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(60_000);
+  await vi.advanceTimersByTimeAsync(60_000);
+
+  stopScheduler();
+
+  expect(runner).toHaveBeenCalledTimes(2);
+  expect(
+    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-brief'),
+  ).toMatchObject({
+    boardStatus: 'review',
+  });
+  expect(getConfigJobState('release-brief')).toMatchObject({
+    lastStatus: 'error',
+    consecutiveErrors: 2,
+    disabled: false,
     nextRunAt: null,
   });
 });

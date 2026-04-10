@@ -34,6 +34,7 @@ function makeConfigJob(
     description: 'Draft release notes once.',
     agentId: 'main',
     boardStatus: 'backlog',
+    maxRetries: null,
     enabled: true,
     schedule: {
       kind: 'cron',
@@ -149,6 +150,49 @@ describe('SchedulerPage', () => {
         schedule: expect.objectContaining({
           kind: 'at',
           at: normalizeSchedulerAtInput('2026-04-07T22:00'),
+        }),
+      }),
+    );
+  });
+
+  it('saves one-shot jobs with the configured retry count', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [makeConfigJob()],
+    });
+    saveSchedulerJobMock.mockImplementation(
+      () => new Promise<AdminSchedulerResponse>(() => {}),
+    );
+    window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
+
+    renderSchedulerPage();
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('ID') as HTMLInputElement).value).toBe(
+        'release-notes',
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Schedule'), {
+      target: { value: 'one_shot' },
+    });
+    fireEvent.change(screen.getByLabelText('Retries after failure'), {
+      target: { value: '5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
+
+    await waitFor(() => {
+      expect(saveSchedulerJobMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(saveSchedulerJobMock).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({
+        id: 'release-notes',
+        boardStatus: 'backlog',
+        maxRetries: 5,
+        schedule: expect.objectContaining({
+          kind: 'one_shot',
+          at: null,
         }),
       }),
     );

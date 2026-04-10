@@ -19,11 +19,12 @@ interface SchedulerDraft {
   agentId: string;
   boardStatus: 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
   enabled: boolean;
-  scheduleKind: 'cron' | 'every' | 'at';
+  scheduleKind: 'cron' | 'every' | 'at' | 'one_shot';
   scheduleExpr: string;
   scheduleEveryMs: string;
   scheduleAt: string;
   scheduleTz: string;
+  maxRetries: string;
   actionKind: 'agent_turn' | 'system_event';
   actionMessage: string;
   deliveryKind: 'channel' | 'last-channel' | 'webhook';
@@ -53,6 +54,9 @@ function toDateTimeLocal(raw: string | null): string {
 }
 
 function formatSchedule(job: AdminSchedulerJob): string {
+  if (job.schedule.kind === 'one_shot') {
+    return 'one shot';
+  }
   if (job.schedule.kind === 'cron') {
     return job.schedule.expr || 'invalid cron';
   }
@@ -71,6 +75,9 @@ function formatRowMeta(job: AdminSchedulerJob): string {
 
 function formatRuntimeState(job: AdminSchedulerJob): string {
   if (job.disabled) return 'paused';
+  if (job.boardStatus === 'review' && job.lastStatus === 'error') {
+    return 'failed';
+  }
   if (job.lastStatus) return job.lastStatus;
   return job.enabled ? 'ready' : 'inactive';
 }
@@ -103,6 +110,8 @@ function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
         : String(source.schedule.everyMs),
     scheduleAt: toDateTimeLocal(source?.schedule.at || null),
     scheduleTz: source?.schedule.tz || '',
+    maxRetries:
+      typeof source?.maxRetries === 'number' ? String(source.maxRetries) : '3',
     actionKind: source?.action.kind || 'agent_turn',
     actionMessage: source?.action.message || '',
     deliveryKind: source?.delivery.kind || 'channel',
@@ -186,6 +195,20 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   if (draft.scheduleKind === 'at' && !at) {
     throw new Error('Pick a valid "Run at" timestamp.');
   }
+  const parsedMaxRetries =
+    draft.scheduleKind === 'one_shot'
+      ? Number.parseInt(draft.maxRetries, 10)
+      : null;
+  const maxRetries =
+    parsedMaxRetries == null ? null : Math.floor(parsedMaxRetries);
+  if (
+    draft.scheduleKind === 'one_shot' &&
+    (!Number.isFinite(parsedMaxRetries) ||
+      maxRetries == null ||
+      maxRetries < 0)
+  ) {
+    throw new Error('Pick a valid retry count of 0 or more.');
+  }
 
   return {
     id: draft.id.trim(),
@@ -194,6 +217,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     description: draft.description.trim() || null,
     agentId: draft.agentId.trim() || null,
     boardStatus: draft.boardStatus,
+    maxRetries: draft.scheduleKind === 'one_shot' ? maxRetries : null,
     enabled: draft.enabled,
     schedule: {
       kind: draft.scheduleKind,
@@ -437,12 +461,21 @@ function SchedulerJobEditor(props: {
                   ...current,
                   scheduleKind: event.target
                     .value as SchedulerDraft['scheduleKind'],
+                  boardStatus:
+                    event.target.value === 'one_shot'
+                      ? 'backlog'
+                      : current.boardStatus,
+                  maxRetries:
+                    event.target.value === 'one_shot'
+                      ? current.maxRetries.trim() || '3'
+                      : current.maxRetries,
                 }))
               }
             >
               <option value="cron">cron</option>
               <option value="every">every</option>
               <option value="at">at</option>
+              <option value="one_shot">one shot</option>
             </select>
           </label>
           <label className="field">
@@ -504,6 +537,22 @@ function SchedulerJobEditor(props: {
                   scheduleAt: event.target.value,
                 }))
               }
+            />
+          </label>
+        ) : null}
+
+        {draft.scheduleKind === 'one_shot' ? (
+          <label className="field">
+            <span>Retries after failure</span>
+            <input
+              value={draft.maxRetries}
+              onChange={(event) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  maxRetries: event.target.value,
+                }))
+              }
+              placeholder="3"
             />
           </label>
         ) : null}

@@ -670,6 +670,7 @@ export interface GatewayAdminSchedulerJob {
   description: string | null;
   agentId: string | null;
   boardStatus: NonNullable<RuntimeSchedulerJob['boardStatus']> | null;
+  maxRetries: number | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];
