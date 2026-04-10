@@ -67,10 +67,14 @@ def check_host_python_manim() -> CheckResult | None:
     if importlib.util.find_spec('manim') is None:
         return None
 
-    ok, output = run_command([sys.executable, '-m', 'manim', '--version'])
+    manim_version_command = [sys.executable, '-m', 'manim', '--version']
+    ok, output = run_command(manim_version_command)
     detail = first_line(output, 'Host Manim package importable')
     if not ok:
-        detail = f'Manim import exists, but `python3 -m manim --version` failed: {detail}'
+        detail = (
+            f"Manim import exists, but `{' '.join(manim_version_command)}` "
+            f'failed: {detail}'
+        )
     return CheckResult('manim', ok, True, f'{detail} (host Python)')
 
 
