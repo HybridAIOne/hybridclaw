@@ -110,10 +110,7 @@ function SidebarMeta(props: { version?: string }) {
   );
 }
 
-function SidebarActions(props: {
-  showLogout: boolean;
-  onLogout: () => void;
-}) {
+function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
   return (
     <SidebarFooterActions>
       <SidebarFooterMenu>

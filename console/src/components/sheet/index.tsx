@@ -192,4 +192,3 @@ export function SheetDescription({ children }: { children: ReactNode }) {
   const { descriptionId } = useSheetContext();
   return <p id={descriptionId}>{children}</p>;
 }
-
