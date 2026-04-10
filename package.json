@@ -100,6 +100,7 @@
     "pptxgenjs": "4.0.1",
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.1",
+    "stemmer": "2.0.1",
     "ws": "8.20.0",
     "xlsx-populate": "1.21.0",
     "yaml": "2.8.3",

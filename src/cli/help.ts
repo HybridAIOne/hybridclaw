@@ -60,7 +60,8 @@ Examples:
   hybridclaw eval env --fresh-agent
   hybridclaw eval locomo
   hybridclaw eval locomo setup
-  hybridclaw eval locomo run --budget 4000 --num-samples 2
+  hybridclaw eval locomo run --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -78,13 +79,17 @@ Notes:
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
   - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
-  - \`locomo\` is a native memory benchmark that downloads the official \`locomo10.json\` dataset during \`setup\` and compares recent-tail context against HybridClaw semantic recall.
+  - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
+  - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
+  - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
+  - \`locomo --num-samples\` limits conversation records; use \`--max-questions\` for fast smoke runs over a small QA slice.
+  - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace, or \`--fresh-agent\` to force a new agent for every individual QA request.
   - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
   - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
   - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
   - For \`tau2 run\`, omitted \`--agent-llm\` and \`--user-llm\` flags default to \`$HYBRIDCLAW_EVAL_MODEL\`.
   - TUI and web sessions receive proactive ASCII progress bars for supported evals like \`tau2 run --num-tasks ...\`.
-  - The default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
+  - Outside suite-specific overrides, the default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
   - \`--fresh-agent\` uses a temporary template-seeded agent workspace for each eval request.
   - \`--ablate-system\` removes HybridClaw's injected system prompt for the eval request.
   - Prompt parts include hook names like \`memory\`, \`runtime\`, \`safety\`, \`bootstrap\` and bootstrap subparts like \`soul\`, \`identity\`, \`user\`, \`tools\`, \`memory-file\`, and \`skills\`.

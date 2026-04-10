@@ -57,7 +57,8 @@ HybridClaw's loopback OpenAI-compatible API.
 hybridclaw eval list
 hybridclaw eval env
 hybridclaw eval locomo setup
-hybridclaw eval locomo run --budget 4000 --num-samples 2
+hybridclaw eval locomo run --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
 hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
@@ -68,12 +69,22 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
 - managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
-- `locomo` runs a native HybridClaw memory harness against the official
-  LoCoMo conversations and compares recent-tail context with semantic recall
+- `locomo --mode qa` runs a native HybridClaw QA harness against the official
+  LoCoMo conversations, generates answers through the local OpenAI-compatible
+  gateway, and scores those answers with LoCoMo-style question metrics
+- `locomo --mode retrieval` skips model generation, ingests each conversation
+  into an isolated native memory session, and scores evidence hit-rate from
+  recalled semantic memories
+- `locomo --num-samples` limits conversation records; use `--max-questions`
+  for quick smoke tests over a small question slice
+- by default, `locomo --mode qa` creates one fresh template-seeded agent
+  workspace per conversation sample; use `--current-agent` to reuse the current
+  agent workspace, or `--fresh-agent` to force a new agent for every
+  individual QA request
 - `swebench-verified`, `agentbench`, and `gaia` currently print starter
   recipes and setup guidance rather than a native managed runner
-- the default eval mode keeps the current agent workspace but opens a fresh
-  OpenAI-compatible session per request
+- outside suite-specific overrides, the default eval mode keeps the current
+  agent workspace but opens a fresh OpenAI-compatible session per request
 - `--fresh-agent` uses a temporary template-seeded agent workspace for each
   eval request
 - detached run logs and summaries are stored under

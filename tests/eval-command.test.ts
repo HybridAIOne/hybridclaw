@@ -61,6 +61,13 @@ afterEach(() => {
   }
 });
 
+function quoteForShell(value: string): string {
+  if (process.platform === 'win32') {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function installTau2Layout(dataDir: string): void {
   const installDir = path.join(dataDir, 'evals', 'tau2-bench');
   fs.mkdirSync(path.join(installDir, '.git'), { recursive: true });
@@ -93,46 +100,159 @@ function installLocomoLayout(dataDir: string): void {
 function writeLocomoResult(
   jobDir: string,
   result: {
+    mode?: 'qa' | 'retrieval';
     sampleCount?: number;
+    questionCount?: number;
     budgetTokens?: number;
-    topK?: number;
-    requestedMode?: string;
-    modes?: Record<
+    overallScore?: number;
+    contextF1?: number | null;
+    model?: string;
+    tokenUsage?: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+      responsesWithUsage: number;
+    };
+    categories?: Record<
       string,
       {
-        overallF1: number;
-        overallHitRate: number;
-        totalQuestions: number;
+        meanScore: number;
+        questionCount: number;
+        contextF1?: number | null;
+      }
+    >;
+  },
+): void {
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(path.join(jobDir, 'predictions.json'), JSON.stringify([]));
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    JSON.stringify(
+      {
+        suite: 'locomo',
+        mode: result.mode ?? 'qa',
+        dataset: 'locomo10.json',
+        generatedAt: '2026-04-10T08:00:00.000Z',
+        model:
+          result.mode === 'retrieval'
+            ? null
+            : (result.model ?? 'hybridai/gpt-4.1-mini'),
+        sampleCount: result.sampleCount ?? 2,
+        questionCount: result.questionCount ?? 40,
+        budgetTokens: result.budgetTokens ?? 4000,
+        overallScore: result.overallScore ?? 0.537,
+        contextF1:
+          result.mode === 'retrieval' ? (result.contextF1 ?? 0.113) : null,
+        resultPath: path.join(jobDir, 'result.json'),
+        predictionsPath: path.join(jobDir, 'predictions.json'),
+        categories: result.categories ?? {
+          '1': {
+            meanScore: 0.625,
+            questionCount: 16,
+            contextF1: result.mode === 'retrieval' ? 0.125 : null,
+          },
+          '2': {
+            meanScore: 0.5,
+            questionCount: 8,
+            contextF1: result.mode === 'retrieval' ? 0.1 : null,
+          },
+          '5': {
+            meanScore: 0.75,
+            questionCount: 16,
+            contextF1: result.mode === 'retrieval' ? 0.05 : null,
+          },
+        },
+        tokenUsage:
+          result.mode === 'retrieval'
+            ? null
+            : (result.tokenUsage ?? {
+                promptTokens: 1200,
+                completionTokens: 180,
+                totalTokens: 1380,
+                responsesWithUsage: 40,
+              }),
+        samples: [],
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function writeLocomoProgress(
+  jobDir: string,
+  progress: {
+    mode?: 'qa' | 'retrieval';
+    sampleCount?: number;
+    completedSampleCount?: number;
+    questionCount?: number;
+    completedQuestionCount?: number;
+    budgetTokens?: number;
+    overallScore?: number;
+    contextF1?: number | null;
+    model?: string;
+    currentSampleId?: string | null;
+    currentSampleQuestionCount?: number | null;
+    currentSampleQuestionTotal?: number | null;
+    tokenUsage?: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+      responsesWithUsage: number;
+    };
+    categories?: Record<
+      string,
+      {
+        meanScore: number;
+        questionCount: number;
+        contextF1?: number | null;
       }
     >;
   },
 ): void {
   fs.mkdirSync(jobDir, { recursive: true });
   fs.writeFileSync(
-    path.join(jobDir, 'result.json'),
+    path.join(jobDir, 'progress.json'),
     JSON.stringify(
       {
         suite: 'locomo',
+        mode: progress.mode ?? 'qa',
         dataset: 'locomo10.json',
-        generatedAt: '2026-04-10T08:00:00.000Z',
-        sampleCount: result.sampleCount ?? 2,
-        budgetTokens: result.budgetTokens ?? 4000,
-        topK: result.topK ?? 20,
-        requestedMode: result.requestedMode ?? 'all',
+        updatedAt: '2026-04-10T08:00:00.000Z',
+        model:
+          progress.mode === 'retrieval'
+            ? null
+            : (progress.model ?? 'hybridai/gpt-4.1-mini'),
+        budgetTokens: progress.budgetTokens ?? 4000,
+        sampleCount: progress.sampleCount ?? 2,
+        completedSampleCount: progress.completedSampleCount ?? 0,
+        questionCount: progress.questionCount ?? 20,
+        completedQuestionCount: progress.completedQuestionCount ?? 7,
+        overallScore: progress.overallScore ?? 0.429,
+        contextF1:
+          progress.mode === 'retrieval' ? (progress.contextF1 ?? 0.091) : null,
+        currentSampleId: progress.currentSampleId ?? 'conv-26',
+        currentSampleQuestionCount: progress.currentSampleQuestionCount ?? 7,
+        currentSampleQuestionTotal: progress.currentSampleQuestionTotal ?? 20,
+        progressPath: path.join(jobDir, 'progress.json'),
         resultPath: path.join(jobDir, 'result.json'),
-        modes: result.modes ?? {
-          recent: {
-            overallF1: 0.125,
-            overallHitRate: 0.25,
-            totalQuestions: 40,
-          },
-          semantic: {
-            overallF1: 0.35,
-            overallHitRate: 0.6,
-            totalQuestions: 40,
+        predictionsPath: path.join(jobDir, 'predictions.json'),
+        categories: progress.categories ?? {
+          '1': {
+            meanScore: 0.571,
+            questionCount: 7,
+            contextF1: progress.mode === 'retrieval' ? 0.111 : null,
           },
         },
-        samples: [],
+        tokenUsage:
+          progress.mode === 'retrieval'
+            ? null
+            : (progress.tokenUsage ?? {
+                promptTokens: 210,
+                completionTokens: 35,
+                totalTokens: 245,
+                responsesWithUsage: 7,
+              }),
       },
       null,
       2,
@@ -313,7 +433,11 @@ test('shows managed locomo usage', async () => {
   expect(result.title).toBe('LOCOMO');
   expect(result.text).toContain('/eval locomo setup');
   expect(result.text).toContain(
-    '/eval locomo run --budget 4000 --num-samples 2',
+    '/eval locomo run --budget 4000 --max-questions 20',
+  );
+  expect(result.text).toContain('`--max-questions` for quick smoke runs');
+  expect(result.text).toContain(
+    'By default, LOCOMO creates one fresh template-seeded agent per conversation sample.',
   );
 });
 
@@ -414,12 +538,20 @@ test('starts detached locomo setup', async () => {
   expect(result.text).toContain('Use `/eval locomo results`');
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain(
+    quoteForShell(
+      path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    ),
+  );
+  expect(shellArgs[1]).toContain(
+    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+  );
   expect(shellArgs[1]).toContain('__eval-locomo-native');
   expect(shellArgs[1]).toContain('setup');
   expect(shellArgs[1]).toContain('--install-dir');
 });
 
-test('runs managed locomo with native runner defaults', async () => {
+test('runs managed locomo with question cap flag', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
   );
@@ -433,7 +565,7 @@ test('runs managed locomo with native runner defaults', async () => {
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   const result = await handleEvalCommand({
-    args: ['locomo', 'run', '--budget', '4000', '--num-samples', '2'],
+    args: ['locomo', 'run', '--budget', '4000', '--max-questions', '20'],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -447,18 +579,109 @@ test('runs managed locomo with native runner defaults', async () => {
   }
   expect(result.title).toBe('LOCOMO Run Started');
   expect(result.text).toContain(
-    'Command: locomo run --budget 4000 --num-samples 2',
+    'Command: locomo run --budget 4000 --max-questions 20',
   );
   expect(result.text).toContain(
     'Use `/eval locomo status` and `/eval locomo results` to follow this run.',
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain(
+    quoteForShell(
+      path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    ),
+  );
+  expect(shellArgs[1]).toContain(
+    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+  );
   expect(shellArgs[1]).toContain('__eval-locomo-native');
   expect(shellArgs[1]).toContain('run');
   expect(shellArgs[1]).toContain('--install-dir');
+  expect(shellArgs[1]).toContain('--agent-mode');
+  expect(shellArgs[1]).toContain('conversation-fresh');
   expect(shellArgs[1]).toContain('--budget');
-  expect(shellArgs[1]).toContain('--num-samples');
+  expect(shellArgs[1]).toContain('--max-questions');
+});
+
+test('runs managed locomo with current agent override', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: ['--current-agent', 'locomo', 'run', '--max-questions', '20'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'charly',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--agent-mode');
+  expect(shellArgs[1]).toContain('current-agent');
+});
+
+test('runs managed locomo with fresh-agent override', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: ['--fresh-agent', 'locomo', 'run', '--max-questions', '20'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'charly',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--agent-mode');
+  expect(shellArgs[1]).toContain('fresh-request');
+});
+
+test('runs managed locomo with retrieval mode', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--mode');
+  expect(shellArgs[1]).toContain('retrieval');
 });
 
 test('starts detached terminal-bench setup', async () => {
@@ -545,6 +768,14 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain(
+    quoteForShell(
+      path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    ),
+  );
+  expect(shellArgs[1]).toContain(
+    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+  );
   expect(shellArgs[1]).toContain('__eval-terminal-bench-native');
   expect(shellArgs[1]).toContain('--install-dir');
   expect(shellArgs[1]).toContain('--data-dir');
@@ -892,10 +1123,151 @@ test('reports locomo latest run in status output', async () => {
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest run: eval-locomo-run (completed)');
   expect(result.text).toContain('Dataset:');
+  expect(result.text).toContain('Questions: 40');
   expect(result.text).toContain('Budget: 4000');
-  expect(result.text).toContain('Top K: 20');
-  expect(result.text).toContain('recent: Hit 0.250 | F1 0.125 | Q 40');
-  expect(result.text).toContain('semantic: Hit 0.600 | F1 0.350 | Q 40');
+  expect(result.text).toContain('Overall score: 0.537');
+  expect(result.text).toContain('cat1: Category 1 | Score 0.625 | Q 16');
+  expect(result.text).toContain(
+    'Tokens: 1380 total (1200 prompt + 180 completion)',
+  );
+  expect(result.text).toContain('Predictions:');
+});
+
+test('reports locomo retrieval latest run in status output', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {
+    mode: 'retrieval',
+    overallScore: 0.812,
+    contextF1: 0.143,
+    categories: {
+      '1': {
+        meanScore: 0.875,
+        questionCount: 16,
+        contextF1: 0.188,
+      },
+    },
+  });
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4451,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        finishedAt: '2026-04-10T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-locomo-native run --install-dir ${path.join(dataDir, 'evals', 'locomo')} --mode retrieval --budget 4000 --num-samples 2`,
+        displayCommand:
+          'locomo run --mode retrieval --budget 4000 --num-samples 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'status'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Mode: retrieval');
+  expect(result.text).toContain('Hit rate: 0.812');
+  expect(result.text).toContain('Context F1: 0.143');
+  expect(result.text).toContain(
+    'cat1: Category 1 | Hit 0.875 | F1 0.188 | Q 16',
+  );
+  expect(result.text).not.toContain('Tokens:');
+});
+
+test('reports locomo in-flight progress in status output', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoProgress(jobDir, {});
+  process.kill = vi.fn();
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4451,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: `${process.execPath} ${path.join(process.cwd(), 'dist', 'cli.js')} __eval-locomo-native run --install-dir ${path.join(dataDir, 'evals', 'locomo')} --budget 4000 --max-questions 20`,
+        displayCommand: 'locomo run --budget 4000 --max-questions 20',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'status'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Latest run: eval-locomo-run (running)');
+  expect(result.text).toContain('Completed samples: 0/2');
+  expect(result.text).toContain('Questions: 7/20');
+  expect(result.text).toContain('Score so far: 0.429');
+  expect(result.text).toContain('Current sample: conv-26');
+  expect(result.text).toContain('Current sample questions: 7/20');
+  expect(result.text).toContain('Progress JSON:');
 });
 
 test('shows generic managed suite setup logs in results', async () => {
@@ -1013,13 +1385,159 @@ test('shows locomo run summary in results when a run exists', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Evaluated model\s+hybridai\/gpt-4\.1-mini/);
   expect(result.text).toMatch(/Dataset\s+locomo10\.json/);
   expect(result.text).toMatch(/Samples\s+2/);
+  expect(result.text).toMatch(/Questions\s+40/);
   expect(result.text).toMatch(/Budget\s+4000/);
-  expect(result.text).toMatch(/Mode\s+all/);
-  expect(result.text).toMatch(/recent\s+Hit 0\.250 \| F1 0\.125 \| Q 40/);
-  expect(result.text).toMatch(/semantic\s+Hit 0\.600 \| F1 0\.350 \| Q 40/);
+  expect(result.text).toMatch(/Overall score\s+0\.537/);
+  expect(result.text).toMatch(/cat1\s+Category 1 \| Score 0\.625 \| Q 16/);
+  expect(result.text).toMatch(
+    /Tokens\s+1380 total \(1200 prompt \+ 180 completion\)/,
+  );
+  expect(result.text).toContain('Predictions JSON');
   expect(result.text).toContain('Result JSON');
+});
+
+test('shows locomo retrieval summary in results when a run exists', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {
+    mode: 'retrieval',
+    overallScore: 0.812,
+    contextF1: 0.143,
+    categories: {
+      '1': {
+        meanScore: 0.875,
+        questionCount: 16,
+        contextF1: 0.188,
+      },
+    },
+  });
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        finishedAt: '2026-04-10T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --mode retrieval --budget 4000 --num-samples 2',
+        displayCommand:
+          'locomo run --mode retrieval --budget 4000 --num-samples 2',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Mode\s+retrieval/);
+  expect(result.text).not.toMatch(/Evaluated model\s+/);
+  expect(result.text).toMatch(/Hit rate\s+0\.812/);
+  expect(result.text).toMatch(/Context F1\s+0\.143/);
+  expect(result.text).toMatch(
+    /cat1\s+Category 1 \| Hit 0\.875 \| F1 0\.188 \| Q 16/,
+  );
+  expect(result.text).not.toContain('Tokens');
+  expect(result.text).toContain('Predictions JSON');
+});
+
+test('shows locomo run progress in results while a run is active', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoProgress(jobDir, {});
+  process.kill = vi.fn();
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --budget 4000 --max-questions 20',
+        displayCommand: 'locomo run --budget 4000 --max-questions 20',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Status\s+running/);
+  expect(result.text).toMatch(/Questions\s+7\/20/);
+  expect(result.text).toMatch(/Completed samples\s+0\/2/);
+  expect(result.text).toMatch(/Score so far\s+0\.429/);
+  expect(result.text).toMatch(/Current sample\s+conv-26/);
+  expect(result.text).toMatch(/Current sample questions\s+7\/20/);
+  expect(result.text).toContain('Progress JSON');
 });
 
 test('shows managed suite run summary in results when a run exists', async () => {
