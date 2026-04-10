@@ -243,9 +243,9 @@ describe('Sidebar — mobile overlay', () => {
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('aria-modal')).toBe('true');
     // Sheet links the dialog to its title via aria-labelledby (not aria-label).
-    const titleId = dialog?.getAttribute('aria-labelledby');
-    expect(titleId).not.toBeNull();
-    expect(document.getElementById(titleId!)?.textContent).toBe('Navigation');
+    const titleId = dialog?.getAttribute('aria-labelledby') ?? '';
+    expect(titleId).not.toBe('');
+    expect(document.getElementById(titleId)?.textContent).toBe('Navigation');
   });
 
   it('trigger shows "Open sidebar" initially', () => {
