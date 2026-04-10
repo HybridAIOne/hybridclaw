@@ -5,6 +5,7 @@ export type ChannelKind =
   | 'imessage'
   | 'msteams'
   | 'scheduler'
+  | 'telegram'
   | 'tui'
   | 'whatsapp';
 
@@ -12,6 +13,7 @@ export const SKILL_CONFIG_CHANNEL_KINDS = [
   'discord',
   'email',
   'msteams',
+  'telegram',
   'whatsapp',
 ] as const satisfies readonly ChannelKind[];
 
@@ -79,6 +81,16 @@ export const IMESSAGE_CAPABILITIES: ChannelCapabilities = Object.freeze({
 export const EMAIL_CAPABILITIES: ChannelCapabilities = Object.freeze({
   ...SYSTEM_CAPABILITIES,
   attachments: true,
+});
+
+export const TELEGRAM_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: true,
+  reactions: false,
+  threads: true,
+  embeds: false,
+  attachments: true,
+  messageEditing: false,
+  maxMessageLength: 4_096,
 });
 
 export const MSTEAMS_CAPABILITIES: ChannelCapabilities = Object.freeze({

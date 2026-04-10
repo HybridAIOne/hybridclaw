@@ -32,6 +32,9 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/data/memory-consolidation-state.json` for the last successful
   dream-consolidation timestamp
 - `~/.hybridclaw/data/browser-profiles/` for shared browser login state
+- `~/.hybridclaw/data/uploaded-media-cache/` for shared locally staged inbound
+  media from built-in channel transports such as email, Telegram, WhatsApp,
+  and Microsoft Teams
 - `~/.hybridclaw/data/agents/` for agent workspaces, session files, and related
   runtime state
 
@@ -101,6 +104,10 @@ leak into the saved revision metadata.
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
+- `telegram.*` for the Telegram Bot API transport; prefer storing the bot token
+  as `TELEGRAM_BOT_TOKEN` or `telegram.botToken` via SecretRef instead of
+  plaintext config; a running gateway usually hot-reloads Telegram config
+  changes by restarting the integration in place
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
@@ -124,6 +131,18 @@ and `adaptiveSkills.*` are covered in
 For the dual-backend iMessage workflow, see [Setting Up iMessage](../../imessage.md).
 For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
 pattern, see [Remote Access](../guides/remote-access.md).
+
+## Shared Inbound Media Staging
+
+When built-in channel transports need to materialize inbound attachments
+locally, they stage them under `~/.hybridclaw/data/uploaded-media-cache/`
+instead of per-channel temp directories.
+
+- In host sandbox mode, media items point at the host path directly.
+- In container sandbox mode, the same files are exposed to the runtime as
+  `/uploaded-media-cache/...`.
+- The shared cache is pruned automatically, so these paths are meant for
+  short-lived inbound media handling rather than permanent storage.
 
 ## Audio Transcription Notes
 

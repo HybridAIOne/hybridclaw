@@ -12,6 +12,7 @@
     "channelDisabled": {
       "discord": [],
       "msteams": [],
+      "telegram": [],
       "whatsapp": [],
       "email": []
     }
@@ -120,6 +121,18 @@
       "botframework.com",
       "teams.microsoft.com"
     ]
+  },
+  "telegram": {
+    "enabled": false,
+    "botToken": "",
+    "pollIntervalMs": 1500,
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "requireMention": true,
+    "textChunkLimit": 4000,
+    "mediaMaxMb": 20
   },
   "whatsapp": {
     "dmPolicy": "pairing",

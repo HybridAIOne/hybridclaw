@@ -9,10 +9,6 @@ import {
 } from '../src/channels/email/allowlist.js';
 import { createEmailDedupSet } from '../src/channels/email/dedup.js';
 import {
-  cleanupEmailInboundMedia,
-  processInboundEmail,
-} from '../src/channels/email/inbound.js';
-import {
   createOutboundThreadContext,
   createThreadTracker,
   ensureReplySubject,
@@ -33,6 +29,25 @@ const BASE_EMAIL_CONFIG = {
   textChunkLimit: 50000,
   mediaMaxMb: 20,
 };
+
+const inboundDataDirs: string[] = [];
+
+async function importEmailInboundModule() {
+  vi.resetModules();
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-email-inbound-'),
+  );
+  inboundDataDirs.push(dataDir);
+  vi.doMock('../src/config/config.js', () => ({
+    get CONTAINER_SANDBOX_MODE() {
+      return 'host';
+    },
+    get DATA_DIR() {
+      return dataDir;
+    },
+  }));
+  return await import('../src/channels/email/inbound.js');
+}
 
 function buildMultipartEmail(params: {
   from: string;
@@ -67,7 +82,13 @@ function buildMultipartEmail(params: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.doUnmock('../src/config/config.js');
   vi.resetModules();
+  while (inboundDataDirs.length > 0) {
+    const dataDir = inboundDataDirs.pop();
+    if (!dataDir) continue;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 describe('email allowlist helpers', () => {
@@ -129,6 +150,7 @@ describe('email threading helpers', () => {
 
 describe('email inbound parsing', () => {
   test('ignores self-messages and blocked senders', async () => {
+    const { processInboundEmail } = await importEmailInboundModule();
     const raw = [
       'From: Agent <agent@example.com>',
       'To: Agent <agent@example.com>',
@@ -152,6 +174,8 @@ describe('email inbound parsing', () => {
   });
 
   test('parses subject context, threading headers, and attachments', async () => {
+    const { cleanupEmailInboundMedia, processInboundEmail } =
+      await importEmailInboundModule();
     const result = await processInboundEmail(
       buildMultipartEmail({
         from: 'Boss <boss@example.com>',
@@ -177,14 +201,17 @@ describe('email inbound parsing', () => {
     });
     expect(result?.media[0]?.filename).toBe('plan.txt');
     expect(fs.existsSync(result?.media[0]?.path || '')).toBe(true);
+    expect(result?.media[0]?.path || '').toContain('uploaded-media-cache');
 
     if (result) {
       await cleanupEmailInboundMedia(result.media);
-      expect(fs.existsSync(result.media[0]?.path || '')).toBe(false);
+      expect(fs.existsSync(result.media[0]?.path || '')).toBe(true);
     }
   });
 
   test('omits the subject prefix for reply threads', async () => {
+    const { cleanupEmailInboundMedia, processInboundEmail } =
+      await importEmailInboundModule();
     const result = await processInboundEmail(
       buildMultipartEmail({
         from: 'Boss <boss@example.com>',
