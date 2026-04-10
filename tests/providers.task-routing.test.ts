@@ -535,18 +535,19 @@ test('returns a deferred policy error when fallback credential resolution fails'
   });
 
   expect(policy).toMatchObject({
-    provider: undefined,
-    model: 'gpt-5-nano',
-    error:
-      'Session model "gpt-5-nano" does not support vision/image inputs, and no vision-capable fallback model is available.',
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5.1-codex-max',
+    error: expect.stringContaining(
+      'fallback model "openai-codex/gpt-5.1-codex-max" could not be resolved',
+    ),
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      sessionModel: 'gpt-5-nano',
-      openrouterDiscoveredModels: 0,
+      visionFallback: 'openai-codex/gpt-5.1-codex-max',
+      err: expect.any(Error),
     }),
-    'Session model lacks vision support and no capable fallback model is available',
+    'Failed to resolve vision fallback model credentials',
   );
 });
 

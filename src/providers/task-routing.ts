@@ -223,6 +223,10 @@ export function normalizeAuxiliaryProviderModel(params: {
     return trimmed;
   }
 
+  if (params.provider === 'openrouter' && explicitPrefix !== 'openrouter') {
+    return `${RUNTIME_PROVIDER_PREFIXES.openrouter}${trimmed}`;
+  }
+
   if (explicitPrefix && explicitPrefix !== params.provider) {
     throw new Error(
       `${params.provider} provider override cannot be used with model "${trimmed}".`,
