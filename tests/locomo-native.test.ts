@@ -14,6 +14,8 @@ const originalFetch = globalThis.fetch;
 const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL;
 const originalOpenAIApiKey = process.env.OPENAI_API_KEY;
 const originalEvalModel = process.env.HYBRIDCLAW_EVAL_MODEL;
+const LOCOMO_DATASET_URL =
+  'https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -147,18 +149,51 @@ test('locomo native setup downloads the dataset and writes the setup marker', as
   );
   const dataset = buildSampleDataset();
   vi.spyOn(console, 'log').mockImplementation(() => {});
-  globalThis.fetch = vi
-    .fn<typeof fetch>()
-    .mockResolvedValue(new Response(dataset, { status: 200 }));
+  globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue({
+    ok: true,
+    status: 200,
+    url: '',
+    arrayBuffer: async () => Buffer.from(dataset, 'utf-8'),
+  } as Response);
 
   await runLocomoNativeCli(['setup', '--install-dir', installDir]);
 
+  expect(globalThis.fetch).toHaveBeenCalledWith(LOCOMO_DATASET_URL);
   expect(fs.existsSync(path.join(installDir, '.hybridclaw-setup-ok'))).toBe(
     true,
   );
   expect(
     fs.readFileSync(path.join(installDir, 'data', 'locomo10.json'), 'utf-8'),
   ).toBe(dataset);
+});
+
+test('locomo native setup rejects downloads that fail the pinned digest check', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue({
+    ok: true,
+    status: 200,
+    url: LOCOMO_DATASET_URL,
+    arrayBuffer: async () => Buffer.from(buildSampleDataset(), 'utf-8'),
+  } as Response);
+
+  await expect(
+    runLocomoNativeCli(['setup', '--install-dir', installDir]),
+  ).rejects.toThrow(/SHA-256 verification/);
+});
+
+test('locomo native run reports setup guidance that works for cli and slash wrappers', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+
+  await expect(
+    runLocomoNativeCli(['run', '--install-dir', installDir]),
+  ).rejects.toThrow('LOCOMO is not set up. Run `setup` first');
 });
 
 test('locomo native run generates answers through the local gateway and scores them', async () => {

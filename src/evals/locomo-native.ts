@@ -14,8 +14,10 @@ import {
 } from './eval-profile.js';
 import { scoreOfficialLocomoAnswer } from './locomo-official-scoring.js';
 
-const LOCOMO_DATASET_URL =
-  'https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json';
+const LOCOMO_DATASET_COMMIT = '3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376';
+const LOCOMO_DATASET_URL = `https://raw.githubusercontent.com/snap-research/locomo/${LOCOMO_DATASET_COMMIT}/data/locomo10.json`;
+const LOCOMO_DATASET_SHA256 =
+  '79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4';
 const LOCOMO_DATASET_FILENAME = 'locomo10.json';
 const LOCOMO_SETUP_MARKER = '.hybridclaw-setup-ok';
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -321,11 +323,13 @@ async function runSetup(options: LocomoRunnerOptions): Promise<void> {
         `Failed to download LOCOMO dataset: HTTP ${response.status}`,
       );
     }
-    const raw = await response.text();
+    const rawBuffer = Buffer.from(await response.arrayBuffer());
+    verifyDownloadedDataset(rawBuffer, response.url);
+    const raw = rawBuffer.toString('utf-8');
     if (!raw.trim().startsWith('[')) {
       throw new Error('Downloaded LOCOMO dataset is not valid JSON.');
     }
-    fs.writeFileSync(datasetPath, raw, 'utf-8');
+    fs.writeFileSync(datasetPath, rawBuffer);
   } else {
     console.log(`Dataset already present at ${datasetPath}`);
   }
@@ -345,7 +349,9 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
     !fs.existsSync(getMarkerPath(options.installDir)) ||
     !fs.existsSync(datasetPath)
   ) {
-    throw new Error('LOCOMO is not set up. Run `/eval locomo setup` first.');
+    throw new Error(
+      'LOCOMO is not set up. Run `setup` first, or use `/eval locomo setup`.',
+    );
   }
 
   const runtime = readGatewayRuntime();
@@ -771,6 +777,21 @@ function loadSamples(datasetPath: string): LocomoSample[] {
     throw new Error(`Expected LOCOMO dataset array in ${datasetPath}.`);
   }
   return parsed as LocomoSample[];
+}
+
+function verifyDownloadedDataset(
+  rawBuffer: Uint8Array,
+  responseUrl: string | null | undefined,
+): void {
+  if (!responseUrl || responseUrl.trim() !== LOCOMO_DATASET_URL) {
+    return;
+  }
+  const actualSha256 = createHash('sha256').update(rawBuffer).digest('hex');
+  if (actualSha256 !== LOCOMO_DATASET_SHA256) {
+    throw new Error(
+      `Downloaded LOCOMO dataset failed SHA-256 verification (expected ${LOCOMO_DATASET_SHA256}, got ${actualSha256}).`,
+    );
+  }
 }
 
 async function evaluateSample(params: {
