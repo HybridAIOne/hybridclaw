@@ -2,10 +2,43 @@ import {
   getCodexAuthStatus,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
+import { APP_VERSION } from '../config/config.js';
 import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const CODEX_DISCOVERY_TTL_MS = 3_600_000;
 const CODEX_MODEL_PREFIX = 'openai-codex/';
+// Keep entries ordered so any model used as a template appears earlier in the
+// list than models derived from it. appendForwardCompatCodexModels augments the
+// seen set as it walks this table once from top to bottom.
+const CODEX_FORWARD_COMPAT_MODELS = [
+  {
+    model: 'openai-codex/gpt-5.3-codex',
+    templateModels: ['openai-codex/gpt-5.2-codex'],
+  },
+  {
+    model: 'openai-codex/gpt-5.4',
+    templateModels: [
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.2-codex',
+    ],
+  },
+  {
+    model: 'openai-codex/gpt-5.4-mini',
+    templateModels: [
+      'openai-codex/gpt-5.4',
+      'openai-codex/gpt-5.1-codex-mini',
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.2-codex',
+    ],
+  },
+  {
+    model: 'openai-codex/gpt-5.3-codex-spark',
+    templateModels: [
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.2-codex',
+    ],
+  },
+] as const;
 
 function normalizeCodexModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
@@ -19,7 +52,18 @@ function normalizeCodexModelName(modelId: string): string {
 function readCodexModelEntries(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
   if (isRecord(payload) && Array.isArray(payload.data)) return payload.data;
+  if (isRecord(payload) && Array.isArray(payload.models)) return payload.models;
   return [];
+}
+
+function readCodexModelId(entry: Record<string, unknown>): string {
+  if (typeof entry.id === 'string' && entry.id.trim()) return entry.id;
+  if (typeof entry.slug === 'string' && entry.slug.trim()) return entry.slug;
+  return '';
+}
+
+function isCodexModelSupportedInApi(entry: Record<string, unknown>): boolean {
+  return entry.supported_in_api !== false;
 }
 
 function readCodexContextWindow(entry: Record<string, unknown>): number | null {
@@ -40,6 +84,20 @@ function readCodexMaxTokens(entry: Record<string, unknown>): number | null {
     readPositiveInteger(entry.max_completion_tokens) ??
     readPositiveInteger(entry.maxCompletionTokens)
   );
+}
+
+function appendForwardCompatCodexModels(modelNames: string[]): string[] {
+  const ordered = [...modelNames];
+  const seen = new Set(modelNames);
+
+  for (const entry of CODEX_FORWARD_COMPAT_MODELS) {
+    if (seen.has(entry.model)) continue;
+    if (!entry.templateModels.some((template) => seen.has(template))) continue;
+    ordered.push(entry.model);
+    seen.add(entry.model);
+  }
+
+  return ordered;
 }
 
 export interface CodexDiscoveryStore {
@@ -70,13 +128,14 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
 
   async function fetchCodexModels(): Promise<string[]> {
     const credentials = await resolveCodexCredentials();
-    const response = await fetch(
+    const url = new URL(
       `${normalizeBaseUrl(process.env.HYBRIDCLAW_CODEX_BASE_URL || credentials.baseUrl)}/models`,
-      {
-        headers: credentials.headers,
-        signal: AbortSignal.timeout(5_000),
-      },
     );
+    url.searchParams.set('client_version', APP_VERSION);
+    const response = await fetch(url, {
+      headers: credentials.headers,
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -87,8 +146,8 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
     for (const entry of data) {
-      if (!isRecord(entry) || typeof entry.id !== 'string') continue;
-      const normalized = normalizeCodexModelName(entry.id);
+      if (!isRecord(entry) || !isCodexModelSupportedInApi(entry)) continue;
+      const normalized = normalizeCodexModelName(readCodexModelId(entry));
       if (!normalized) continue;
       discovered.add(normalized);
       const contextWindow = readCodexContextWindow(entry);
@@ -100,8 +159,14 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
         maxTokens.set(normalized, maxTokensForModel);
       }
     }
-    replaceDiscoveryCache([...discovered], contextWindows, maxTokens);
-    return [...discovered];
+    const discoveredModelNames = appendForwardCompatCodexModels([
+      ...discovered,
+    ]);
+    // Forward-compat models are catalog-only additions. Metadata maps stay
+    // limited to models returned directly by the API; downstream static
+    // fallbacks fill known context-window defaults for derived entries.
+    replaceDiscoveryCache(discoveredModelNames, contextWindows, maxTokens);
+    return discoveredModelNames;
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {

@@ -469,7 +469,6 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
-    models: string[];
   };
   openrouter: {
     enabled: boolean;
@@ -670,17 +669,6 @@ export type RuntimeConfigChangeListener = (
   prev: RuntimeConfig,
 ) => void;
 
-const LEGACY_SINGLE_CODEX_MODEL_LIST = ['openai-codex/gpt-5-codex'];
-const DEFAULT_CODEX_MODEL_LIST = [
-  'openai-codex/gpt-5-codex',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex-spark',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.1-codex-max',
-  'openai-codex/gpt-5.2',
-  'openai-codex/gpt-5.1-codex-mini',
-] as const;
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -891,7 +879,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
-    models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   openrouter: {
     enabled: false,
@@ -1643,22 +1630,6 @@ function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
     const serverConfig = normalizeMcpServerConfig(rawConfig);
     if (!serverConfig) continue;
     normalized[name] = serverConfig;
-  }
-  return normalized;
-}
-
-function normalizeCodexModelArray(
-  value: unknown,
-  fallback: string[],
-): string[] {
-  const normalized = normalizeStringArray(value, fallback);
-  if (
-    normalized.length === LEGACY_SINGLE_CODEX_MODEL_LIST.length &&
-    normalized.every(
-      (model, index) => model === LEGACY_SINGLE_CODEX_MODEL_LIST[index],
-    )
-  ) {
-    return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
 }
@@ -3516,10 +3487,6 @@ function normalizeRuntimeConfig(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
   );
-  const codexModelList = normalizeCodexModelArray(
-    rawCodex.models,
-    DEFAULT_RUNTIME_CONFIG.codex.models,
-  );
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
     DEFAULT_RUNTIME_CONFIG.openrouter.models,
@@ -3806,7 +3773,6 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
-      models: codexModelList,
     },
     openrouter: {
       enabled: normalizeBoolean(

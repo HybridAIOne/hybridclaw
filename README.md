@@ -9,21 +9,29 @@
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
-<img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
+<img width="420" height="397" alt="HybridClaw - Enterprise-ready self-hosted AI assistant runtime" src="docs/hero.png" />
 
 ## All of the Claw, None of the Chaos
-### Your enterprise operating layer for open agents
+### Enterprise-ready self-hosted AI assistant runtime
 
-Self-hosted, controllable, and built for real business workflows.
+HybridClaw is a self-hosted AI assistant runtime for teams that need control,
+security, and operational visibility. It combines sandboxed execution, secure
+credentials, approvals, persistent memory, and admin surfaces behind a single
+gateway.
 
-Most open agent stacks are optimized for experimentation and breadth.
+Connect it to Discord, WhatsApp, Telegram, Microsoft Teams, email, or the web. Run it
+locally, deploy it for business workflows, and keep your agents, secrets, and
+data under your control.
 
-HybridClaw is optimized for enterprise deployment:
-- controlled execution
-- shared knowledge
-- observability
-- repeatable enterprise workflows
-- local-first deployment
+## Coming from OpenClaw or Hermes?
+
+```bash
+hybridclaw migrate openclaw --dry-run
+hybridclaw migrate hermes --dry-run
+```
+
+Preview and import compatible state from OpenClaw or Hermes in minutes.
+Imports compatible skills, memory, config, and optional secrets.
 
 ## HybridAI Platform Advantage
 
@@ -60,16 +68,6 @@ Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives at
 [hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
-## Coming from OpenClaw or Hermes?
-
-```bash
-hybridclaw migrate openclaw --dry-run
-hybridclaw migrate hermes --dry-run
-```
-
-Preview and import compatible state from OpenClaw or Hermes in minutes.
-Imports compatible skills, memory, config, and optional secrets.
-
 ## See it in Action
 
 Once the gateway is running, open HybridClaw locally:
@@ -77,7 +75,7 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Whatsapp, Discord, MS Teams, Email
+- or connect WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## How HybridClaw compares
 
@@ -101,9 +99,10 @@ Once the gateway is running, open HybridClaw locally:
 | Workflow builder vs agent runtime | Agent runtime | Framework for building agent systems | Visual workflow builder |
 | Enterprise controls | ✅ Approvals, audit, sandbox, encrypted secrets | ⚠️ You build them | ⚠️ Workflow-level controls |
 
-## Built for enterprise operations
+## Security and governance built in
 
-- encrypted secrets
+- secure credential storage
+- sandboxed execution
 - approvals
 - audit trails with hash chain
 - config versioning and backup/rollback
