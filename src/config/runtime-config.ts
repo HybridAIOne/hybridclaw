@@ -1265,6 +1265,27 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
+function normalizeOptionalAgentSkills(value: unknown): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : null;
+  if (!source) return undefined;
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of source) {
+    const skill = typeof entry === 'string' ? entry.trim() : '';
+    if (!skill || seen.has(skill)) continue;
+    seen.add(skill);
+    normalized.push(skill);
+  }
+  return normalized;
+}
+
 function normalizeSkillChannelDisabled(
   value: unknown,
 ): Partial<Record<SkillConfigChannelKind, string[]>> {
@@ -1452,11 +1473,17 @@ function normalizeAgentConfig(
     typeof value.enableRag === 'boolean'
       ? value.enableRag
       : fallback?.enableRag;
+  const skills = Object.hasOwn(value, 'skills')
+    ? normalizeOptionalAgentSkills(value.skills)
+    : fallback?.skills
+      ? [...fallback.skills]
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills: [...skills] } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),

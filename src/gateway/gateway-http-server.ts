@@ -2203,15 +2203,27 @@ async function handleApiAdminAgents(
     id?: unknown;
     name?: unknown;
     model?: unknown;
+    skills?: unknown;
     chatbotId?: unknown;
     enableRag?: unknown;
     workspace?: unknown;
   };
 
+  const skills =
+    body.skills === null
+      ? null
+      : Array.isArray(body.skills)
+        ? body.skills
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : undefined;
+
   const payload = {
     id: String(body.id || '').trim(),
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
+    skills,
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
@@ -2245,6 +2257,7 @@ async function handleApiAdminAgents(
         updateGatewayAdminAgent(agentId, {
           name: payload.name,
           model: payload.model,
+          skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
           workspace: payload.workspace,

@@ -704,6 +704,7 @@ async function importFreshHealth(options?: {
         id: 'main',
         name: 'Main Agent',
         model: 'gpt-5',
+        skills: null,
         chatbotId: null,
         enableRag: true,
         workspace: null,
@@ -801,6 +802,7 @@ async function importFreshHealth(options?: {
       id?: string;
       name?: string | null;
       model?: string | null;
+      skills?: string[] | null;
       chatbotId?: string | null;
       enableRag?: boolean | null;
       workspace?: string | null;
@@ -809,6 +811,7 @@ async function importFreshHealth(options?: {
         id: payload.id || 'main',
         name: payload.name || null,
         model: payload.model || null,
+        skills: payload.skills ?? null,
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
@@ -823,6 +826,7 @@ async function importFreshHealth(options?: {
       payload: {
         name?: string | null;
         model?: string | null;
+        skills?: string[] | null;
         chatbotId?: string | null;
         enableRag?: boolean | null;
         workspace?: string | null;
@@ -832,6 +836,7 @@ async function importFreshHealth(options?: {
         id: agentId,
         name: payload.name || null,
         model: payload.model || null,
+        skills: payload.skills ?? null,
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
@@ -3269,12 +3274,95 @@ describe('gateway HTTP server', () => {
           id: 'main',
           name: 'Main Agent',
           model: 'gpt-5',
+          skills: null,
           chatbotId: null,
           enableRag: true,
           workspace: null,
           workspacePath: '/tmp/main/workspace',
         },
       ],
+    });
+  });
+
+  test('passes skill allowlists through admin agent creation requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/agents',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        id: 'writer',
+        skills: ['draft-outline', ' copy-edit '],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminAgent).toHaveBeenCalledWith({
+      id: 'writer',
+      name: undefined,
+      model: undefined,
+      skills: ['draft-outline', 'copy-edit'],
+      chatbotId: undefined,
+      enableRag: undefined,
+      workspace: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'writer',
+        name: null,
+        model: null,
+        skills: ['draft-outline', 'copy-edit'],
+        chatbotId: null,
+        enableRag: null,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+      },
+    });
+  });
+
+  test('passes null skill allowlists through admin agent update requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        skills: null,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
+      name: undefined,
+      model: undefined,
+      skills: null,
+      chatbotId: undefined,
+      enableRag: undefined,
+      workspace: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'writer',
+        name: null,
+        model: null,
+        skills: null,
+        chatbotId: null,
+        enableRag: null,
+        workspace: null,
+        workspacePath: '/tmp/writer/workspace',
+      },
     });
   });
 

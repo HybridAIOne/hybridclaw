@@ -37,6 +37,7 @@ export interface ClawManifest {
   presentation?: ClawPresentation;
   agent?: {
     model?: AgentModelConfig;
+    skills?: string[];
     enableRag?: boolean;
   };
   skills?: {
@@ -81,6 +82,27 @@ function normalizeStringArray(value: unknown): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of value) {
+    const normalized = normalizeString(entry);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeOptionalSkillList(value: unknown): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : null;
+  if (!source) return undefined;
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of source) {
     const normalized = normalizeString(entry);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
@@ -356,8 +378,10 @@ export function validateClawManifest(
   let agent: ClawManifest['agent'] | undefined;
   if (isRecord(input.agent)) {
     const model = normalizeModelConfig(input.agent.model);
+    const skills = normalizeOptionalSkillList(input.agent.skills);
     agent = {
       ...(model ? { model } : {}),
+      ...(skills !== undefined ? { skills: [...skills] } : {}),
       ...(typeof input.agent.enableRag === 'boolean'
         ? { enableRag: input.agent.enableRag }
         : {}),

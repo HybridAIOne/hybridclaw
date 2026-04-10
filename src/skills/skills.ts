@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
@@ -1631,6 +1632,19 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
+function resolveAgentSkillAllowlist(agentId: string): Set<string> | null {
+  const configured = resolveAgentConfig(agentId).skills;
+  if (!Array.isArray(configured)) return null;
+
+  const allowed = new Set<string>();
+  for (const entry of configured) {
+    const skill = String(entry || '').trim();
+    if (!skill) continue;
+    allowed.add(skill);
+  }
+  return allowed;
+}
+
 function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
@@ -1757,10 +1771,14 @@ export function loadSkills(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
+  const allowedSkills = resolveAgentSkillAllowlist(agentId);
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter(
-    (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
+    (skill) =>
+      checkEligibility(skill).available &&
+      !disabled.has(skill.name) &&
+      (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
   pruneStaleSyncedSkills(guarded, workspaceDir);

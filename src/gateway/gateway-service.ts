@@ -769,6 +769,7 @@ function mapGatewayAdminAgent(agent: AgentConfig): {
   id: string;
   name: string | null;
   model: string | null;
+  skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
   workspace: string | null;
@@ -779,6 +780,7 @@ function mapGatewayAdminAgent(agent: AgentConfig): {
     id: resolved.id,
     name: resolved.name || null,
     model: resolveAgentModel(resolved) || null,
+    skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
@@ -2768,6 +2770,7 @@ export function createGatewayAdminAgent(params: {
   id: string;
   name?: string | null;
   model?: string | null;
+  skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
   workspace?: string | null;
@@ -2776,6 +2779,9 @@ export function createGatewayAdminAgent(params: {
     id: params.id,
     ...(params.name?.trim() ? { name: params.name.trim() } : {}),
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
+    ...(params.skills !== undefined
+      ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
     ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
@@ -2792,6 +2798,7 @@ export function updateGatewayAdminAgent(
   params: {
     name?: string | null;
     model?: string | null;
+    skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
     workspace?: string | null;
@@ -2808,6 +2815,9 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(params.model !== undefined
       ? { model: params.model?.trim() || undefined }
+      : {}),
+    ...(params.skills !== undefined
+      ? { skills: params.skills == null ? undefined : [...params.skills] }
       : {}),
     ...(params.chatbotId !== undefined
       ? { chatbotId: params.chatbotId?.trim() || undefined }
