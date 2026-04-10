@@ -133,6 +133,38 @@
   display: grid;
 }
 
+.menuButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sidebar-fg);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.menuButton:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.menuButtonActive {
+  background: var(--accent-soft);
+  border-color: var(--line);
+  color: var(--accent-foreground);
+}
+
 .brand {
   display: grid;
   padding: 2px 6px;
@@ -172,10 +204,9 @@
 }
 
 .brandMark {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-sm);
-  background: var(--accent-soft);
   color: var(--accent-foreground);
 }
 
@@ -183,7 +214,15 @@
   color: var(--muted-foreground);
 }
 
-.brandMark svg,
+.menuButtonActive .menuIcon {
+  color: var(--accent-foreground);
+}
+
+.brandMark svg {
+  width: 32px;
+  height: 32px;
+}
+
 .menuIcon svg,
 .icon svg {
   width: 16px;

@@ -10,6 +10,7 @@ export { Dashboard } from './Dashboard';
 export { Docs } from './Docs';
 export { Gateway } from './Gateway';
 export { Github } from './Github';
+export { HybridClaw } from './HybridClaw';
 export { Jobs } from './Jobs';
 export { Models } from './Models';
 export { Plugins } from './Plugins';

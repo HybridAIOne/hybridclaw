@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Admin, Cog } from '../icons';
+import { Cog, HybridClaw } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
@@ -64,7 +64,7 @@ export function SidebarBrand() {
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
         <span className={styles.brandMark} aria-hidden="true">
-          <Admin />
+          <HybridClaw />
         </span>
         <div className={styles.brandText}>
           <h1>HybridClaw</h1>
