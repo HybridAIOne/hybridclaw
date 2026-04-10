@@ -18,6 +18,7 @@ afterEach(() => {
   context?.cleanup();
   context = null;
   vi.doUnmock('../src/skills/skills-import.js');
+  vi.doUnmock('../src/skills/skills-install.js');
   vi.doUnmock('../src/skills/skills.js');
   vi.resetModules();
 });
@@ -197,6 +198,86 @@ test('skill runs command reports recent execution observations', async () => {
   expect(result.text).toContain('Tools: 1/3 failed');
   expect(result.text).toContain('Feedback: negative');
   expect(result.text).toContain('Error detail: approval denied');
+});
+
+test('skill install installs one declared dependency from a local TUI/web session', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const installSkillDependencyMock = vi.fn().mockResolvedValue({
+    ok: true,
+    message: 'Installed pdf via brew-poppler',
+    stdout: 'brew installed poppler',
+    stderr: '',
+    code: 0,
+  });
+  vi.doMock('../src/skills/skills-install.js', () => ({
+    installSkillDependency: installSkillDependencyMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'install', 'pdf', 'brew-poppler'],
+  });
+
+  expect(installSkillDependencyMock).toHaveBeenCalledWith({
+    skillName: 'pdf',
+    installId: 'brew-poppler',
+  });
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Installed');
+  expect(result.text).toContain('Installed pdf via brew-poppler');
+  expect(result.text).toContain('stdout:');
+  expect(result.text).toContain('brew installed poppler');
+});
+
+test('skill install requires both a skill and dependency id', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install-usage',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'install', 'pdf'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Usage');
+  expect(result.text).toContain('skill install <skill> <dependency>');
+});
+
+test('skill install is rejected outside local TUI/web sessions', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['skill', 'install', 'pdf'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Install Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
 test('skill learn and history commands stage and show amendments', async () => {

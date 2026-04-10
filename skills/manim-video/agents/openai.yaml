@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manim Video"
+  short_description: "Plan, script, and render Manim videos in Python"
+  default_prompt: "Use $manim-video to plan, script, render, and stitch a Manim explainer video."

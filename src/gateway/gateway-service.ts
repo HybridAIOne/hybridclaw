@@ -7360,6 +7360,8 @@ export async function handleGatewayCommand(
         return await handleSkillCommand({
           args: req.args,
           sessionAgentId: resolveSessionAgentId(session),
+          guildId: req.guildId,
+          channelId: req.channelId,
           badCommand,
           infoCommand: (title, text) => infoCommand(title, text),
           plainCommand,
