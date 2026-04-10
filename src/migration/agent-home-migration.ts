@@ -12,6 +12,7 @@ import {
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { logger } from '../logger.js';
 import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
@@ -603,7 +604,12 @@ function applyOpenClawProviderConfig(
     if (name.includes('codex') || name.includes('openai-codex')) {
       if (baseUrl && (overwrite || !draft.codex.baseUrl))
         draft.codex.baseUrl = baseUrl;
-      draft.codex.models = applyModels(draft.codex.models);
+      if (providerModels.length > 0) {
+        logger.warn(
+          { provider: providerName, models: providerModels },
+          'Ignoring imported Codex model list; Codex models are discovery-driven and not written to config',
+        );
+      }
       imported.push(providerName);
       continue;
     }
@@ -818,7 +824,11 @@ function applyImportedModel(draft: RuntimeConfig, model: string): void {
     return;
   }
   if (trimmed.startsWith('openai-codex/')) {
-    draft.codex.models = mergeUniqueStrings(draft.codex.models, [trimmed]);
+    logger.warn(
+      { model: trimmed },
+      'Preserved imported Codex default model, but Codex models are discovery-driven and not written to config',
+    );
+    return;
   }
 }
 
