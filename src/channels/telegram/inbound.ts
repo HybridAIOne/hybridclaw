@@ -1,15 +1,9 @@
-import fs from 'node:fs/promises';
-
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type {
   RuntimeTelegramConfig,
   TelegramDmPolicy,
   TelegramGroupPolicy,
 } from '../../config/runtime-config.js';
-import {
-  resolveManagedTempMediaDir,
-  TELEGRAM_MEDIA_TMP_PREFIX,
-} from '../../media/managed-temp-media.js';
 import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
@@ -282,10 +276,10 @@ function resolveMediaDescriptor(message: TelegramMessage): {
 
 async function downloadTelegramMedia(params: {
   botToken: string;
-  message: TelegramMessage;
+  descriptor: ReturnType<typeof resolveMediaDescriptor>;
   mediaMaxMb: number;
 }): Promise<MediaContextItem[]> {
-  const descriptor = resolveMediaDescriptor(params.message);
+  const { descriptor } = params;
   if (!descriptor) return [];
 
   const maxBytes = Math.max(1, params.mediaMaxMb) * 1024 * 1024;
@@ -301,8 +295,14 @@ async function downloadTelegramMedia(params: {
     },
   );
   if (!fileMeta.file_path) return [];
+  if (Number(fileMeta.file_size || 0) > maxBytes) {
+    return [];
+  }
 
   const buffer = await fetchTelegramFile(params.botToken, fileMeta.file_path);
+  if (buffer.length > maxBytes) {
+    return [];
+  }
 
   const filename = sanitizeFilename(descriptor.defaultFilename);
   return [
@@ -313,27 +313,6 @@ async function downloadTelegramMedia(params: {
       sizeBytes: buffer.length,
     }),
   ];
-}
-
-export async function cleanupTelegramInboundMedia(
-  media: MediaContextItem[],
-): Promise<void> {
-  const directories = new Set<string>();
-  for (const item of media) {
-    const filePath = String(item.path || '').trim();
-    if (!filePath) continue;
-    const directory = resolveManagedTempMediaDir({
-      filePath,
-      prefixes: [TELEGRAM_MEDIA_TMP_PREFIX],
-    });
-    if (directory) {
-      directories.add(directory);
-    }
-  }
-
-  for (const directory of directories) {
-    await fs.rm(directory, { recursive: true, force: true });
-  }
 }
 
 export async function processInboundTelegramMessage(params: {
@@ -363,9 +342,19 @@ export async function processInboundTelegramMessage(params: {
   });
   if (!access.allowed) return null;
 
+  const hasTextContent = Boolean(
+    String(params.message.text || params.message.caption || '')
+      .replace(/\r\n?/g, '\n')
+      .trim(),
+  );
+  const mediaDescriptor = resolveMediaDescriptor(params.message);
+  if (!hasTextContent && !mediaDescriptor) {
+    return null;
+  }
+
   const media = await downloadTelegramMedia({
     botToken: params.botToken,
-    message: params.message,
+    descriptor: mediaDescriptor,
     mediaMaxMb: params.config.mediaMaxMb,
   });
   const content = buildInboundText(params.message, media);

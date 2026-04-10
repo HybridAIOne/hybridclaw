@@ -5,7 +5,6 @@ const TELEGRAM_NUMERIC_ID_RE = /^-?\d+$/;
 export interface ParsedTelegramTarget {
   chatId: string;
   topicId?: number;
-  chatHint?: 'direct' | 'group';
 }
 
 function normalizeTopicId(value: string): number | undefined {
@@ -42,24 +41,12 @@ export function parseTelegramTarget(
     normalized = normalized.slice(0, topicMatch.index).trim();
   }
 
-  let chatHint: ParsedTelegramTarget['chatHint'];
-  const hintMatch = normalized.match(/^(dm|direct|group|chat|channel):(.+)$/i);
-  if (hintMatch) {
-    chatHint =
-      hintMatch[1].toLowerCase() === 'dm' ||
-      hintMatch[1].toLowerCase() === 'direct'
-        ? 'direct'
-        : 'group';
-    normalized = hintMatch[2].trim();
-  }
-
   const chatId = normalizeTelegramChatId(normalized);
   if (!chatId) return null;
 
   return {
     chatId,
     ...(topicId ? { topicId } : {}),
-    ...(chatHint ? { chatHint } : {}),
   };
 }
 
@@ -111,7 +98,6 @@ export function resolveTelegramTargetChatType(
 ): 'direct' | 'group' | 'unknown' {
   const parsed = parseTelegramTarget(value);
   if (!parsed) return 'unknown';
-  if (parsed.chatHint) return parsed.chatHint;
   if (parsed.chatId.startsWith('-')) return 'group';
   if (parsed.chatId.startsWith('@')) return 'unknown';
   return 'direct';

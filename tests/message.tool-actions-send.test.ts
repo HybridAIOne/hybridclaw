@@ -252,7 +252,7 @@ test('send action rejects telegram-prefixed usernames for Telegram sends', async
       content: 'hello telegram username',
     }),
   ).rejects.toThrow(
-    'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`.',
+    'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
   );
   expect(state.sendToTelegramChat).not.toHaveBeenCalled();
   expect(state.sendToEmail).not.toHaveBeenCalled();

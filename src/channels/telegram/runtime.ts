@@ -23,10 +23,7 @@ import {
   sendTelegramMedia,
   sendTelegramTyping,
 } from './delivery.js';
-import {
-  cleanupTelegramInboundMedia,
-  processInboundTelegramMessage,
-} from './inbound.js';
+import { processInboundTelegramMessage } from './inbound.js';
 import { createTelegramTypingController } from './typing.js';
 
 export type TelegramReplyFn = (content: string) => Promise<void>;
@@ -61,17 +58,30 @@ export interface TelegramMediaSendParams {
   replyToMessageId?: number;
 }
 
-export interface TelegramRuntime {
-  initTelegram: (messageHandler: TelegramMessageHandler) => Promise<void>;
-  sendToTelegramChat: (target: string, text: string) => Promise<void>;
-  sendTelegramMediaToChat: (params: TelegramMediaSendParams) => Promise<void>;
-  shutdownTelegram: () => Promise<void>;
-}
-
 const TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = 25;
 const TELEGRAM_MAX_UPDATES_PER_POLL = 50;
 const TELEGRAM_RETRY_BASE_MS = 1_500;
 const TELEGRAM_RETRY_MAX_MS = 15_000;
+let runtimeInitialized = false;
+let shutdownController: AbortController | null = null;
+let pollTask: Promise<void> | null = null;
+let botUser: TelegramUser | null = null;
+let activeBotToken: string | null = null;
+let activeTelegramConfig:
+  | ReturnType<typeof getConfigSnapshot>['telegram']
+  | null = null;
+const inFlightControllers = new Set<AbortController>();
+
+function createTelegramShutdownAbortError(): Error {
+  return new Error('Telegram runtime shutting down.');
+}
+
+function abortInFlightHandlers(): void {
+  for (const controller of inFlightControllers) {
+    if (controller.signal.aborted) continue;
+    controller.abort(createTelegramShutdownAbortError());
+  }
+}
 
 function resolveTelegramConfig() {
   return (
@@ -90,14 +100,36 @@ function resolveTelegramConfig() {
   );
 }
 
-function resolveBotToken(): string {
-  const token = String(
-    TELEGRAM_BOT_TOKEN || resolveTelegramConfig().botToken || '',
-  ).trim();
+export function hasTelegramBotToken(): boolean {
+  return Boolean(
+    String(TELEGRAM_BOT_TOKEN || resolveTelegramConfig().botToken || '').trim(),
+  );
+}
+
+function resolveBotToken(
+  config: ReturnType<
+    typeof getConfigSnapshot
+  >['telegram'] = resolveTelegramConfig(),
+): string {
+  const token = String(TELEGRAM_BOT_TOKEN || config.botToken || '').trim();
   if (!token) {
     throw new Error('Telegram bot token is not configured.');
   }
   return token;
+}
+
+function resolveActiveTelegramConfig(): ReturnType<
+  typeof getConfigSnapshot
+>['telegram'] {
+  return runtimeInitialized && activeTelegramConfig
+    ? activeTelegramConfig
+    : resolveTelegramConfig();
+}
+
+function resolveActiveBotToken(): string {
+  return runtimeInitialized && activeBotToken
+    ? activeBotToken
+    : resolveBotToken();
 }
 
 function buildOffsetFilePath(botToken: string): string {
@@ -142,178 +174,185 @@ async function getTelegramUpdates(params: {
   );
 }
 
-export function createTelegramRuntime(): TelegramRuntime {
-  let runtimeInitialized = false;
-  let shutdownController: AbortController | null = null;
-  let pollTask: Promise<void> | null = null;
-  let botUser: TelegramUser | null = null;
+async function dispatchUpdate(
+  update: TelegramUpdate,
+  messageHandler: TelegramMessageHandler,
+): Promise<void> {
+  const message = update.message;
+  if (!message || !botUser) return;
+  const botToken = resolveActiveBotToken();
+  const telegramConfig = resolveActiveTelegramConfig();
 
-  const sendToTelegramChat = async (
-    target: string,
-    text: string,
-  ): Promise<void> => {
+  const inbound = await processInboundTelegramMessage({
+    botToken,
+    config: telegramConfig,
+    message,
+    botUser,
+    agentId: DEFAULT_AGENT_ID,
+  });
+  if (!inbound) return;
+
+  const controller = new AbortController();
+  inFlightControllers.add(controller);
+  if (shutdownController?.signal.aborted && !controller.signal.aborted) {
+    controller.abort(createTelegramShutdownAbortError());
+  }
+  const reply: TelegramReplyFn = async (content) => {
+    if (controller.signal.aborted) {
+      const reason = controller.signal.reason;
+      throw reason instanceof Error
+        ? reason
+        : createTelegramShutdownAbortError();
+    }
     await sendChunkedTelegramText({
-      botToken: resolveBotToken(),
-      target,
-      text,
+      botToken,
+      target: inbound.channelId,
+      text: content,
+      replyToMessageId: message.message_id,
     });
   };
 
-  const sendTelegramMediaToChat = async (
-    params: TelegramMediaSendParams,
-  ): Promise<void> => {
-    await sendTelegramMedia({
-      botToken: resolveBotToken(),
-      target: params.target,
-      filePath: params.filePath,
-      mimeType: params.mimeType,
-      filename: params.filename,
-      caption: params.caption,
-      replyToMessageId: params.replyToMessageId,
-    });
-  };
+  const typingController = createTelegramTypingController(() =>
+    sendTelegramTyping({
+      botToken,
+      target: inbound.channelId,
+    }),
+  );
+  typingController.start();
 
-  const dispatchUpdate = async (
-    update: TelegramUpdate,
-    messageHandler: TelegramMessageHandler,
-  ): Promise<void> => {
-    const message = update.message;
-    if (!message || !botUser) return;
-
-    const inbound = await processInboundTelegramMessage({
-      botToken: resolveBotToken(),
-      config: resolveTelegramConfig(),
-      message,
-      botUser,
-      agentId: DEFAULT_AGENT_ID,
-    });
-    if (!inbound) return;
-
-    const controller = new AbortController();
-    const reply: TelegramReplyFn = async (content) => {
-      await sendChunkedTelegramText({
-        botToken: resolveBotToken(),
-        target: inbound.channelId,
-        text: content,
-        replyToMessageId: message.message_id,
-      });
-    };
-
-    const typingController = createTelegramTypingController(() =>
-      sendTelegramTyping({
-        botToken: resolveBotToken(),
-        target: inbound.channelId,
-      }),
+  try {
+    await messageHandler(
+      inbound.sessionId,
+      inbound.guildId,
+      inbound.channelId,
+      inbound.userId,
+      inbound.username,
+      inbound.content,
+      inbound.media,
+      reply,
+      {
+        abortSignal: controller.signal,
+        message,
+        update,
+        botUser,
+        chatId: String(message.chat.id),
+        ...(inbound.topicId ? { topicId: inbound.topicId } : {}),
+      },
     );
-    typingController.start();
-
-    try {
-      await messageHandler(
-        inbound.sessionId,
-        inbound.guildId,
-        inbound.channelId,
-        inbound.userId,
-        inbound.username,
-        inbound.content,
-        inbound.media,
-        reply,
-        {
-          abortSignal: controller.signal,
-          message,
-          update,
-          botUser,
-          chatId: String(message.chat.id),
-          ...(inbound.topicId ? { topicId: inbound.topicId } : {}),
-        },
-      );
-    } finally {
-      typingController.stop();
-      await cleanupTelegramInboundMedia(inbound.media).catch((error) => {
-        logger.debug(
-          { error, sessionId: inbound.sessionId, channelId: inbound.channelId },
-          'Failed to clean up Telegram inbound media',
-        );
-      });
-    }
-  };
-
-  const runPollingLoop = async (
-    messageHandler: TelegramMessageHandler,
-  ): Promise<void> => {
-    const botToken = resolveBotToken();
-    let offset = await readStoredUpdateOffset(botToken);
-    let retryDelayMs = TELEGRAM_RETRY_BASE_MS;
-
-    while (!shutdownController?.signal.aborted) {
-      try {
-        const updates = await getTelegramUpdates({
-          botToken,
-          offset,
-          abortSignal: shutdownController?.signal as AbortSignal,
-        });
-
-        for (const update of updates) {
-          offset = Math.max(offset, update.update_id + 1);
-          await dispatchUpdate(update, messageHandler);
-        }
-
-        if (updates.length > 0) {
-          await writeStoredUpdateOffset(botToken, offset);
-        }
-
-        const pollIntervalMs = Math.max(
-          0,
-          Math.min(resolveTelegramConfig().pollIntervalMs, 60_000),
-        );
-        retryDelayMs = TELEGRAM_RETRY_BASE_MS;
-        if (pollIntervalMs > 0 && updates.length === 0) {
-          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-        }
-      } catch (error) {
-        if (shutdownController?.signal.aborted) return;
-        logger.warn({ error }, 'Telegram polling request failed');
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        retryDelayMs = Math.min(retryDelayMs * 2, TELEGRAM_RETRY_MAX_MS);
-      }
-    }
-  };
-
-  return {
-    async initTelegram(messageHandler: TelegramMessageHandler): Promise<void> {
-      if (runtimeInitialized) return;
-
-      const botToken = resolveBotToken();
-      botUser = await callTelegramApi<TelegramUser>(botToken, 'getMe');
-      registerChannel({
-        kind: 'telegram',
-        id: 'telegram',
-        capabilities: TELEGRAM_CAPABILITIES,
-      });
-
-      shutdownController = new AbortController();
-      runtimeInitialized = true;
-      pollTask = runPollingLoop(messageHandler).catch((error) => {
-        if (!shutdownController?.signal.aborted) {
-          logger.warn({ error }, 'Telegram runtime stopped unexpectedly');
-        }
-      });
-    },
-    sendToTelegramChat,
-    sendTelegramMediaToChat,
-    async shutdownTelegram(): Promise<void> {
-      shutdownController?.abort();
-      await pollTask;
-      pollTask = null;
-      botUser = null;
-      shutdownController = null;
-      runtimeInitialized = false;
-    },
-  };
+  } finally {
+    inFlightControllers.delete(controller);
+    typingController.stop();
+  }
 }
 
-const runtime = createTelegramRuntime();
+async function runPollingLoop(
+  messageHandler: TelegramMessageHandler,
+): Promise<void> {
+  const botToken = resolveActiveBotToken();
+  const telegramConfig = resolveActiveTelegramConfig();
+  let offset = await readStoredUpdateOffset(botToken);
+  let retryDelayMs = TELEGRAM_RETRY_BASE_MS;
 
-export const initTelegram = runtime.initTelegram;
-export const sendToTelegramChat = runtime.sendToTelegramChat;
-export const sendTelegramMediaToChat = runtime.sendTelegramMediaToChat;
-export const shutdownTelegram = runtime.shutdownTelegram;
+  while (!shutdownController?.signal.aborted) {
+    try {
+      const updates = await getTelegramUpdates({
+        botToken,
+        offset,
+        abortSignal: shutdownController?.signal as AbortSignal,
+      });
+
+      // Process each poll batch sequentially to preserve inbound ordering and
+      // avoid concurrent writes against the same Telegram-backed session.
+      // Throughput across unrelated chats is intentionally traded off here
+      // until the runtime grows per-session dispatch isolation.
+      for (const update of updates) {
+        offset = Math.max(offset, update.update_id + 1);
+        await dispatchUpdate(update, messageHandler);
+      }
+
+      if (updates.length > 0) {
+        await writeStoredUpdateOffset(botToken, offset);
+      }
+
+      const pollIntervalMs = Math.max(
+        0,
+        Math.min(telegramConfig.pollIntervalMs, 60_000),
+      );
+      retryDelayMs = TELEGRAM_RETRY_BASE_MS;
+      if (pollIntervalMs > 0 && updates.length === 0) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
+    } catch (error) {
+      if (shutdownController?.signal.aborted) return;
+      logger.warn({ error }, 'Telegram polling request failed');
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      retryDelayMs = Math.min(retryDelayMs * 2, TELEGRAM_RETRY_MAX_MS);
+    }
+  }
+}
+
+export async function initTelegram(
+  messageHandler: TelegramMessageHandler,
+): Promise<void> {
+  if (runtimeInitialized) return;
+
+  const telegramConfig = resolveTelegramConfig();
+  const botToken = resolveBotToken(telegramConfig);
+  const resolvedBotUser = await callTelegramApi<TelegramUser>(
+    botToken,
+    'getMe',
+  );
+  registerChannel({
+    kind: 'telegram',
+    id: 'telegram',
+    capabilities: TELEGRAM_CAPABILITIES,
+  });
+
+  activeTelegramConfig = telegramConfig;
+  activeBotToken = botToken;
+  botUser = resolvedBotUser;
+  shutdownController = new AbortController();
+  runtimeInitialized = true;
+  pollTask = runPollingLoop(messageHandler).catch((error) => {
+    if (!shutdownController?.signal.aborted) {
+      logger.warn({ error }, 'Telegram runtime stopped unexpectedly');
+    }
+  });
+}
+
+export async function sendToTelegramChat(
+  target: string,
+  text: string,
+): Promise<void> {
+  await sendChunkedTelegramText({
+    botToken: resolveActiveBotToken(),
+    target,
+    text,
+  });
+}
+
+export async function sendTelegramMediaToChat(
+  params: TelegramMediaSendParams,
+): Promise<void> {
+  await sendTelegramMedia({
+    botToken: resolveActiveBotToken(),
+    target: params.target,
+    filePath: params.filePath,
+    mimeType: params.mimeType,
+    filename: params.filename,
+    caption: params.caption,
+    replyToMessageId: params.replyToMessageId,
+  });
+}
+
+export async function shutdownTelegram(): Promise<void> {
+  shutdownController?.abort();
+  abortInFlightHandlers();
+  await pollTask;
+  pollTask = null;
+  botUser = null;
+  activeBotToken = null;
+  activeTelegramConfig = null;
+  shutdownController = null;
+  runtimeInitialized = false;
+}

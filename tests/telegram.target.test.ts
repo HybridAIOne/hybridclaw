@@ -16,7 +16,7 @@ test('normalizes Telegram chat ids, usernames, and topic targets', () => {
   expect(normalizeTelegramChannelId('@HybridClawBot')).toBe(
     'telegram:@hybridclawbot',
   );
-  expect(normalizeTelegramChannelId('group:-1001234567890:topic:42')).toBe(
+  expect(normalizeTelegramChannelId('telegram:-1001234567890:topic:42')).toBe(
     'telegram:-1001234567890:topic:42',
   );
 });

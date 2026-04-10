@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
 
 export interface TelegramUser {
   id: number;
@@ -112,6 +112,33 @@ export class TelegramApiError extends Error {
   }
 }
 
+function redactTelegramToken(value: string, token: string): string {
+  const trimmedToken = String(token || '').trim();
+  if (!trimmedToken) return value;
+  return String(value || '')
+    .split(trimmedToken)
+    .join('<redacted>');
+}
+
+function sanitizeTelegramTransportError(error: unknown, token: string): Error {
+  if (error instanceof TelegramApiError) {
+    return error;
+  }
+
+  const sanitizedMessage = redactTelegramToken(
+    error instanceof Error
+      ? error.message
+      : String(error || 'Unknown Telegram transport error'),
+    token,
+  );
+  const sanitized = new Error(sanitizedMessage);
+  sanitized.name = error instanceof Error ? error.name : 'Error';
+  if (error instanceof Error && error.stack) {
+    sanitized.stack = redactTelegramToken(error.stack, token);
+  }
+  return sanitized;
+}
+
 function buildTelegramApiUrl(token: string, method: string): string {
   return `https://api.telegram.org/bot${token}/${method}`;
 }
@@ -153,15 +180,19 @@ export async function callTelegramApi<T>(
   body?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(buildTelegramApiUrl(token, method), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-  return await parseTelegramEnvelope<T>(response, method);
+  try {
+    const response = await fetch(buildTelegramApiUrl(token, method), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal,
+    });
+    return await parseTelegramEnvelope<T>(response, method);
+  } catch (error) {
+    throw sanitizeTelegramTransportError(error, token);
+  }
 }
 
 export async function callTelegramMultipartApi<T>(
@@ -170,12 +201,16 @@ export async function callTelegramMultipartApi<T>(
   formData: FormData,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(buildTelegramApiUrl(token, method), {
-    method: 'POST',
-    body: formData,
-    signal,
-  });
-  return await parseTelegramEnvelope<T>(response, method);
+  try {
+    const response = await fetch(buildTelegramApiUrl(token, method), {
+      method: 'POST',
+      body: formData,
+      signal,
+    });
+    return await parseTelegramEnvelope<T>(response, method);
+  } catch (error) {
+    throw sanitizeTelegramTransportError(error, token);
+  }
 }
 
 export async function fetchTelegramFile(
@@ -183,20 +218,24 @@ export async function fetchTelegramFile(
   filePath: string,
   signal?: AbortSignal,
 ): Promise<Buffer> {
-  const response = await fetch(buildTelegramFileUrl(token, filePath), {
-    method: 'GET',
-    signal,
-  });
-  if (!response.ok) {
-    const description = (await response.text().catch(() => '')).trim();
-    throw new TelegramApiError(
-      'downloadFile',
-      response.status,
-      null,
-      description || 'Telegram file download failed',
-    );
+  try {
+    const response = await fetch(buildTelegramFileUrl(token, filePath), {
+      method: 'GET',
+      signal,
+    });
+    if (!response.ok) {
+      const description = (await response.text().catch(() => '')).trim();
+      throw new TelegramApiError(
+        'downloadFile',
+        response.status,
+        null,
+        description || 'Telegram file download failed',
+      );
+    }
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    throw sanitizeTelegramTransportError(error, token);
   }
-  return Buffer.from(await response.arrayBuffer());
 }
 
 export async function createTelegramUploadForm(params: {
@@ -225,8 +264,7 @@ export async function createTelegramUploadForm(params: {
     formData.set('disable_notification', 'true');
   }
 
-  const buffer = await fs.readFile(params.filePath);
-  const blob = new Blob([buffer], {
+  const blob = await openAsBlob(params.filePath, {
     type: params.mimeType || 'application/octet-stream',
   });
   formData.set(params.fileField, blob, params.filename);

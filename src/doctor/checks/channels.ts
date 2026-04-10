@@ -12,6 +12,7 @@ import { makeResult, severityFrom } from '../utils.js';
 
 export async function checkChannels(): Promise<DiagResult[]> {
   const config = getConfigSnapshot();
+  const telegram = config.telegram;
   const segments: string[] = [];
   const severities: DiagResult['severity'][] = [];
 
@@ -48,8 +49,8 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
-  if (config.telegram.enabled) {
-    if (String(TELEGRAM_BOT_TOKEN || config.telegram.botToken || '').trim()) {
+  if (telegram?.enabled) {
+    if (String(TELEGRAM_BOT_TOKEN || telegram.botToken || '').trim()) {
       segments.push('Telegram configured');
     } else {
       segments.push('Telegram token missing');

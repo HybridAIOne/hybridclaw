@@ -46,6 +46,7 @@ import {
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
+  hasTelegramBotToken,
   initTelegram,
   sendTelegramMediaToChat,
   sendToTelegramChat,
@@ -74,7 +75,6 @@ import {
   MSTEAMS_APP_PASSWORD,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
-  TELEGRAM_BOT_TOKEN,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
@@ -102,7 +102,10 @@ import {
 import type { ArtifactMetadata } from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
-import { formatChannelGatewayFailure } from './channel-gateway-failure.js';
+import {
+  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
+  formatChannelGatewayFailure,
+} from './channel-gateway-failure.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -156,22 +159,32 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
-const WHATSAPP_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const WHATSAPP_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const EMAIL_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const EMAIL_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const IMESSAGE_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const IMESSAGE_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const TELEGRAM_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const TELEGRAM_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
+
+function equalStringLists(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function hasTelegramConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['telegram'],
+  prev: ReturnType<typeof getConfigSnapshot>['telegram'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.botToken !== prev.botToken ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringLists(next.allowFrom, prev.allowFrom) ||
+    !equalStringLists(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.requireMention !== prev.requireMention ||
+    next.pollIntervalMs !== prev.pollIntervalMs ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.mediaMaxMb !== prev.mediaMaxMb
+  );
+}
 
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
@@ -621,9 +634,7 @@ async function sendProactiveMessageNow(
 
   if (isTelegramChannelId(channelId)) {
     const telegramConfig = getConfigSnapshot().telegram;
-    const hasBotToken = Boolean(
-      String(TELEGRAM_BOT_TOKEN || telegramConfig.botToken || '').trim(),
-    );
+    const hasBotToken = hasTelegramBotToken();
     if (!telegramConfig.enabled || !hasBotToken) {
       logger.info(
         { source, channelId, text, artifactCount: attachments.length },
@@ -1268,13 +1279,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(
-              formatChannelGatewayFailure(
-                result.error,
-                WHATSAPP_INTERRUPTED_REPLY,
-                WHATSAPP_TRANSIENT_FAILURE_REPLY,
-              ),
-            );
+            await reply(formatChannelGatewayFailure(result.error));
             return;
           }
 
@@ -1323,13 +1328,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             { error, sessionId, channelId },
             'WhatsApp message handling failed',
           );
-          await reply(
-            formatChannelGatewayFailure(
-              text,
-              WHATSAPP_INTERRUPTED_REPLY,
-              WHATSAPP_TRANSIENT_FAILURE_REPLY,
-            ),
-          );
+          await reply(formatChannelGatewayFailure(text));
         }
       },
     );
@@ -1412,13 +1411,7 @@ async function startEmailIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(
-              formatChannelGatewayFailure(
-                result.error,
-                EMAIL_INTERRUPTED_REPLY,
-                EMAIL_TRANSIENT_FAILURE_REPLY,
-              ),
-            );
+            await reply(formatChannelGatewayFailure(result.error));
             return;
           }
 
@@ -1467,13 +1460,7 @@ async function startEmailIntegration(): Promise<boolean> {
             { error, sessionId, channelId },
             'Email message handling failed',
           );
-          await reply(
-            formatChannelGatewayFailure(
-              text,
-              EMAIL_INTERRUPTED_REPLY,
-              EMAIL_TRANSIENT_FAILURE_REPLY,
-            ),
-          );
+          await reply(formatChannelGatewayFailure(text));
         }
       },
     );
@@ -1491,9 +1478,7 @@ async function startTelegramIntegration(): Promise<boolean> {
   const hasInboundPolicy =
     telegramConfig.dmPolicy !== 'disabled' ||
     telegramConfig.groupPolicy !== 'disabled';
-  const hasBotToken = Boolean(
-    String(TELEGRAM_BOT_TOKEN || telegramConfig.botToken || '').trim(),
-  );
+  const hasBotToken = hasTelegramBotToken();
 
   if (!telegramConfig.enabled) {
     logger.info('Telegram integration disabled: telegram.enabled=false');
@@ -1586,13 +1571,7 @@ async function startTelegramIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(
-              formatChannelGatewayFailure(
-                result.error,
-                TELEGRAM_INTERRUPTED_REPLY,
-                TELEGRAM_TRANSIENT_FAILURE_REPLY,
-              ),
-            );
+            await reply(formatChannelGatewayFailure(result.error));
             return;
           }
 
@@ -1641,13 +1620,7 @@ async function startTelegramIntegration(): Promise<boolean> {
             { error, sessionId, channelId },
             'Telegram message handling failed',
           );
-          await reply(
-            formatChannelGatewayFailure(
-              text,
-              TELEGRAM_INTERRUPTED_REPLY,
-              TELEGRAM_TRANSIENT_FAILURE_REPLY,
-            ),
-          );
+          await reply(formatChannelGatewayFailure(text));
         }
       },
     );
@@ -1689,7 +1662,7 @@ async function refreshTelegramIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
-  if (JSON.stringify(next.telegram) === JSON.stringify(prev.telegram)) return;
+  if (!hasTelegramConfigChanged(next.telegram, prev.telegram)) return;
 
   logger.info(
     {
@@ -1772,13 +1745,9 @@ async function startIMessageIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            const failureText = formatChannelGatewayFailure(
-              result.error,
-              IMESSAGE_INTERRUPTED_REPLY,
-              IMESSAGE_TRANSIENT_FAILURE_REPLY,
-            );
+            const failureText = formatChannelGatewayFailure(result.error);
             if (
-              failureText === IMESSAGE_INTERRUPTED_REPLY &&
+              failureText === DEFAULT_CHANNEL_INTERRUPTED_REPLY &&
               isLocalIMessageSelfChatContext(context)
             ) {
               return;

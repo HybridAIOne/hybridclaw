@@ -44,6 +44,9 @@ export function createTelegramTypingController(
       await sendTyping();
     } catch (error) {
       logger.debug({ error }, 'Telegram typing indicator failed');
+      if (!stopped) {
+        stopNow();
+      }
     }
   };
 

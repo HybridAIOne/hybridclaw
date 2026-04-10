@@ -357,6 +357,9 @@ async function importFreshGatewayMain(options?: {
     shutdownIMessage: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
+    hasTelegramBotToken: vi.fn(() =>
+      Boolean(String(state.getConfigSnapshot().telegram?.botToken || '').trim()),
+    ),
     initTelegram: state.initTelegram,
     sendTelegramMediaToChat: vi.fn(async () => {}),
     sendToTelegramChat: vi.fn(async () => {}),
@@ -1867,6 +1870,80 @@ describe('gateway bootstrap', () => {
         address: 'bot@example.com',
         smtpHost: 'smtp.example.com',
         smtpSecure: true,
+      }),
+    );
+  });
+
+  test('does not restart Telegram integration when Telegram config values are unchanged', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        allowFrom: [...state.currentConfig.telegram.allowFrom],
+        groupAllowFrom: [...state.currentConfig.telegram.groupAllowFrom],
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).not.toHaveBeenCalled();
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Telegram integration when Telegram config changes', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        requireMention: false,
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.initTelegram).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Telegram integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'disabled',
+        pollIntervalMs: 1_500,
+        requireMention: false,
       }),
     );
   });

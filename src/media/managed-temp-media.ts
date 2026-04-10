@@ -6,11 +6,7 @@ import path from 'node:path';
 import { logger } from '../logger.js';
 
 export const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
-export const TELEGRAM_MEDIA_TMP_PREFIX = 'hybridclaw-telegram-';
-export const MANAGED_TEMP_MEDIA_DIR_PREFIXES = [
-  WHATSAPP_MEDIA_TMP_PREFIX,
-  TELEGRAM_MEDIA_TMP_PREFIX,
-];
+export const MANAGED_TEMP_MEDIA_DIR_PREFIXES = [WHATSAPP_MEDIA_TMP_PREFIX];
 
 function resolveManagedTempRoot(rootDir?: string): string {
   return path.resolve(rootDir ?? os.tmpdir());

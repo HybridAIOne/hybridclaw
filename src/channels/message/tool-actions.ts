@@ -524,7 +524,7 @@ export async function runMessageToolAction(
     !normalizeTelegramMessageTarget(rawChannelId)
   ) {
     throw new Error(
-      'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`.',
+      'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
     );
   }
 

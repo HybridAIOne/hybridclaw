@@ -1,6 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { formatChannelGatewayFailure } from '../src/gateway/channel-gateway-failure.js';
+import {
+  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
+  DEFAULT_CHANNEL_TRANSIENT_FAILURE_REPLY,
+  formatChannelGatewayFailure,
+} from '../src/gateway/channel-gateway-failure.js';
 
 test('formats interrupted channel gateway failures with the interrupted reply', () => {
   expect(
@@ -10,6 +14,9 @@ test('formats interrupted channel gateway failures with the interrupted reply', 
       'Transient reply',
     ),
   ).toBe('Interrupted reply');
+  expect(formatChannelGatewayFailure('timeout waiting for agent output')).toBe(
+    DEFAULT_CHANNEL_INTERRUPTED_REPLY,
+  );
 });
 
 test('formats transient channel gateway failures with the transient reply', () => {
@@ -20,6 +27,9 @@ test('formats transient channel gateway failures with the transient reply', () =
       'Transient reply',
     ),
   ).toBe('Transient reply');
+  expect(formatChannelGatewayFailure('fetch failed with ECONNRESET')).toBe(
+    DEFAULT_CHANNEL_TRANSIENT_FAILURE_REPLY,
+  );
 });
 
 test('formats other channel gateway failures as a generic agent error', () => {

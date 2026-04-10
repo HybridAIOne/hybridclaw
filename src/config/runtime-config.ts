@@ -1804,26 +1804,18 @@ function normalizeWhatsAppGroupPolicy(
   return fallback;
 }
 
-function normalizeTelegramDmPolicy(
+function normalizeTelegramPolicy(
   value: unknown,
   fallback: TelegramDmPolicy,
-): TelegramDmPolicy {
-  if (typeof value !== 'string') return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'open' ||
-    normalized === 'allowlist' ||
-    normalized === 'disabled'
-  ) {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeTelegramGroupPolicy(
+): TelegramDmPolicy;
+function normalizeTelegramPolicy(
   value: unknown,
   fallback: TelegramGroupPolicy,
-): TelegramGroupPolicy {
+): TelegramGroupPolicy;
+function normalizeTelegramPolicy(
+  value: unknown,
+  fallback: TelegramDmPolicy | TelegramGroupPolicy,
+): TelegramDmPolicy | TelegramGroupPolicy {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
   if (
@@ -1947,11 +1939,8 @@ function normalizeTelegramConfig(
         max: 60_000,
       },
     ),
-    dmPolicy: normalizeTelegramDmPolicy(raw.dmPolicy, fallback.dmPolicy),
-    groupPolicy: normalizeTelegramGroupPolicy(
-      raw.groupPolicy,
-      fallback.groupPolicy,
-    ),
+    dmPolicy: normalizeTelegramPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeTelegramPolicy(raw.groupPolicy, fallback.groupPolicy),
     allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
     groupAllowFrom: normalizeStringArray(
       raw.groupAllowFrom,
