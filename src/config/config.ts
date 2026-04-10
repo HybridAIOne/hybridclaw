@@ -134,6 +134,11 @@ function syncRuntimeSecretExports(): void {
     'EMAIL_PASSWORD',
     storedSecrets,
   );
+  TELEGRAM_BOT_TOKEN = readRuntimeSecretValue(
+    ['TELEGRAM_BOT_TOKEN'],
+    'TELEGRAM_BOT_TOKEN',
+    storedSecrets,
+  );
   IMESSAGE_PASSWORD = readRuntimeSecretValue(
     ['IMESSAGE_PASSWORD'],
     'IMESSAGE_PASSWORD',
@@ -169,6 +174,7 @@ function syncRuntimeSecretExports(): void {
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
+export let TELEGRAM_BOT_TOKEN = '';
 export let IMESSAGE_PASSWORD = '';
 export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.

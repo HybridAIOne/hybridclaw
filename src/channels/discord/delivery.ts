@@ -17,6 +17,8 @@ import {
 } from './human-delay.js';
 import { type MentionLookup, rewriteUserMentions } from './mentions.js';
 
+export { formatError, formatInfo } from '../../utils/text-format.js';
+
 export type DiscordRetryFn = <T>(
   label: string,
   fn: () => Promise<T>,
@@ -50,14 +52,6 @@ export function buildResponseText(
     body += toolsLine;
   }
   return body;
-}
-
-export function formatInfo(title: string, body: string): string {
-  return `**${title}**\n${body}`;
-}
-
-export function formatError(title: string, detail: string): string {
-  return `**${title}:** ${detail}`;
 }
 
 export function prepareChunkedPayloads(

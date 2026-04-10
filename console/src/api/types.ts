@@ -54,6 +54,10 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  telegram?: {
+    tokenConfigured: boolean;
+    tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -312,6 +316,18 @@ export interface AdminConfig {
     dangerouslyAllowNameMatching: boolean;
     mediaAllowHosts: string[];
     mediaAuthAllowHosts: string[];
+  };
+  telegram: {
+    enabled: boolean;
+    botToken: string;
+    pollIntervalMs: number;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    requireMention: boolean;
+    textChunkLimit: number;
+    mediaMaxMb: number;
   };
   whatsapp: {
     dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';

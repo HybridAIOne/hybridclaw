@@ -1,6 +1,4 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import {
   downloadMediaMessage,
   extractMessageContent,
@@ -15,10 +13,8 @@ import type {
   WhatsAppGroupPolicy,
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
-import {
-  resolveManagedTempMediaDir,
-  WHATSAPP_MEDIA_TMP_PREFIX,
-} from '../../media/managed-temp-media.js';
+import { resolveManagedTempMediaDir } from '../../media/managed-temp-media.js';
+import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
@@ -257,22 +253,13 @@ async function downloadInboundMedia(params: {
       mimeType,
     )}`;
   const filename = sanitizeFilename(defaultName);
-  const dir = await fs.mkdtemp(
-    path.join(os.tmpdir(), WHATSAPP_MEDIA_TMP_PREFIX),
-  );
-  const filePath = path.join(dir, filename);
-  await fs.writeFile(filePath, buffer);
-  const fileUrl = `file://${filePath}`;
-
   return [
-    {
-      path: filePath,
-      url: fileUrl,
-      originalUrl: fileUrl,
+    await createUploadedMediaContextItem({
+      attachmentName: filename,
+      buffer,
       mimeType,
       sizeBytes: buffer.length,
-      filename,
-    },
+    }),
   ];
 }
 

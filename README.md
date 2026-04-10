@@ -125,7 +125,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Microsoft Teams, iMessage, WhatsApp, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt

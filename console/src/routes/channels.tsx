@@ -43,6 +43,13 @@ function isWhatsAppEnabled(config: AdminConfig): boolean {
   );
 }
 
+function isTelegramInboundEnabled(config: AdminConfig): boolean {
+  return (
+    config.telegram.dmPolicy !== 'disabled' ||
+    config.telegram.groupPolicy !== 'disabled'
+  );
+}
+
 function ListField(props: {
   label: string;
   value: string[];
@@ -71,7 +78,11 @@ function capitalizeLabel(value: string): string {
 
 function ManagedSecretField(props: {
   label: string;
-  secretName: 'DISCORD_TOKEN' | 'EMAIL_PASSWORD' | 'IMESSAGE_PASSWORD';
+  secretName:
+    | 'DISCORD_TOKEN'
+    | 'TELEGRAM_BOT_TOKEN'
+    | 'EMAIL_PASSWORD'
+    | 'IMESSAGE_PASSWORD';
   secretLabel: 'token' | 'password';
   configValue?: string;
   configured: boolean;
@@ -746,6 +757,201 @@ function WhatsAppChannelEditor(props: {
           }))
         }
       />
+    </>
+  );
+}
+
+function TelegramChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  tokenConfigured: boolean;
+  tokenSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.telegram.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            telegram: {
+              ...current.telegram,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <ManagedSecretField
+          label="Bot token"
+          secretName="TELEGRAM_BOT_TOKEN"
+          secretLabel="token"
+          configValue={props.draft.telegram.botToken}
+          configured={props.tokenConfigured}
+          source={props.tokenSource}
+          token={props.token}
+          onSecretSaved={props.onSecretSaved}
+        />
+        <label className="field">
+          <span>Poll interval ms</span>
+          <input
+            type="number"
+            value={String(props.draft.telegram.pollIntervalMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                telegram: {
+                  ...current.telegram,
+                  pollIntervalMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.telegram.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                telegram: {
+                  ...current.telegram,
+                  dmPolicy: event.target
+                    .value as AdminConfig['telegram']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.telegram.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                telegram: {
+                  ...current.telegram,
+                  groupPolicy: event.target
+                    .value as AdminConfig['telegram']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <BooleanField
+        label="Require mention in groups"
+        value={props.draft.telegram.requireMention}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(requireMention) =>
+          props.updateDraft((current) => ({
+            ...current,
+            telegram: {
+              ...current.telegram,
+              requireMention,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed DM senders"
+        value={props.draft.telegram.allowFrom}
+        rows={3}
+        placeholder="numeric user id, @username, or *"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            telegram: {
+              ...current.telegram,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed group senders"
+        value={props.draft.telegram.groupAllowFrom}
+        rows={3}
+        placeholder="numeric user id, @username, or *"
+        onChange={(groupAllowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            telegram: {
+              ...current.telegram,
+              groupAllowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.telegram.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                telegram: {
+                  ...current.telegram,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Media max MB</span>
+          <input
+            type="number"
+            value={String(props.draft.telegram.mediaMaxMb)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                telegram: {
+                  ...current.telegram,
+                  mediaMaxMb: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <p className="muted-copy">
+        Telegram inbound handling stays off until DM or group policy is opened
+        or allowlisted.
+      </p>
+      {!isTelegramInboundEnabled(props.draft) ? (
+        <p className="muted-copy">
+          This page edits transport-level Telegram settings. Discord and Teams
+          remain the only transports with per-channel override bindings.
+        </p>
+      ) : null}
     </>
   );
 }
@@ -1543,6 +1749,10 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    telegram: {
+      configured: boolean;
+      source: SecretSource;
+    };
     email: {
       configured: boolean;
       source: SecretSource;
@@ -1577,6 +1787,17 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
+        />
+      );
+    case 'telegram':
+      return (
+        <TelegramChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          tokenConfigured={secretStatus.telegram.configured}
+          tokenSource={secretStatus.telegram.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
         />
       );
     case 'email':
@@ -1641,6 +1862,7 @@ export function ChannelsPage() {
   const catalog = draft
     ? buildChannelCatalog(draft, {
         discordTokenConfigured: statusQuery.data?.discord?.tokenConfigured,
+        telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
@@ -1679,6 +1901,10 @@ export function ChannelsPage() {
     discord: {
       configured: statusQuery.data?.discord?.tokenConfigured ?? false,
       source: statusQuery.data?.discord?.tokenSource ?? null,
+    },
+    telegram: {
+      configured: statusQuery.data?.telegram?.tokenConfigured ?? false,
+      source: statusQuery.data?.telegram?.tokenSource ?? null,
     },
     email: {
       configured: statusQuery.data?.email?.passwordConfigured ?? false,

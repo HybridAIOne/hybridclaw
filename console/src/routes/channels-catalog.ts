@@ -2,6 +2,7 @@ import type { AdminConfig } from '../api/types';
 
 export type ChannelKind =
   | 'discord'
+  | 'telegram'
   | 'whatsapp'
   | 'email'
   | 'msteams'
@@ -17,6 +18,7 @@ export interface ChannelCatalogItem {
 
 interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
+  telegramTokenConfigured?: boolean;
   whatsappLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
@@ -103,6 +105,41 @@ function describeWhatsApp(
     kind: 'whatsapp',
     label: 'WhatsApp',
     summary,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeTelegram(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const tokenConfigured = options.telegramTokenConfigured === true;
+  const inboundEnabled =
+    config.telegram.dmPolicy !== 'disabled' ||
+    config.telegram.groupPolicy !== 'disabled';
+  const active = config.telegram.enabled && tokenConfigured && inboundEnabled;
+  const configured =
+    active ||
+    config.telegram.enabled ||
+    tokenConfigured ||
+    config.telegram.allowFrom.length > 0 ||
+    config.telegram.groupAllowFrom.length > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'telegram',
+    label: 'Telegram',
+    summary: `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`,
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -226,6 +263,7 @@ export function buildChannelCatalog(
 ): ChannelCatalogItem[] {
   return [
     describeDiscord(config, options),
+    describeTelegram(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),
     describeMSTeams(config),
