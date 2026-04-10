@@ -155,9 +155,7 @@ test('drops Telegram media whose downloaded size exceeds the configured limit', 
     file_id: 'doc-1',
     file_path: 'documents/doc-1.bin',
   }));
-  const fetchTelegramFile = vi.fn(async () =>
-    Buffer.alloc(2 * 1024 * 1024, 1),
-  );
+  const fetchTelegramFile = vi.fn(async () => Buffer.alloc(2 * 1024 * 1024, 1));
   const createUploadedMediaContextItem = vi.fn();
   vi.doMock('../src/channels/telegram/api.js', async () => {
     const actual = await vi.importActual('../src/channels/telegram/api.js');

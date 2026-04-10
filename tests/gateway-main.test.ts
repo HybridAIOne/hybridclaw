@@ -358,7 +358,9 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
     hasTelegramBotToken: vi.fn(() =>
-      Boolean(String(state.getConfigSnapshot().telegram?.botToken || '').trim()),
+      Boolean(
+        String(state.getConfigSnapshot().telegram?.botToken || '').trim(),
+      ),
     ),
     initTelegram: state.initTelegram,
     sendTelegramMediaToChat: vi.fn(async () => {}),

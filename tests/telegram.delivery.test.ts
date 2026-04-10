@@ -19,7 +19,11 @@ test('sendChunkedTelegramText retries transient Telegram transport failures', as
     statusCode: number;
     errorCode: number | null;
 
-    constructor(statusCode: number, errorCode: number | null, description: string) {
+    constructor(
+      statusCode: number,
+      errorCode: number | null,
+      description: string,
+    ) {
       super(description);
       this.statusCode = statusCode;
       this.errorCode = errorCode;
@@ -99,7 +103,11 @@ test('sendChunkedTelegramText queues outbound sends per Telegram target', async 
     statusCode: number;
     errorCode: number | null;
 
-    constructor(statusCode: number, errorCode: number | null, description: string) {
+    constructor(
+      statusCode: number,
+      errorCode: number | null,
+      description: string,
+    ) {
       super(description);
       this.statusCode = statusCode;
       this.errorCode = errorCode;
@@ -188,7 +196,11 @@ test('sendChunkedTelegramText reports the effective topic after topic fallback',
     statusCode: number;
     errorCode: number | null;
 
-    constructor(statusCode: number, errorCode: number | null, description: string) {
+    constructor(
+      statusCode: number,
+      errorCode: number | null,
+      description: string,
+    ) {
       super(description);
       this.statusCode = statusCode;
       this.errorCode = errorCode;
@@ -266,7 +278,11 @@ test('sendTelegramMedia reports the effective topic after topic fallback', async
     statusCode: number;
     errorCode: number | null;
 
-    constructor(statusCode: number, errorCode: number | null, description: string) {
+    constructor(
+      statusCode: number,
+      errorCode: number | null,
+      description: string,
+    ) {
       super(description);
       this.statusCode = statusCode;
       this.errorCode = errorCode;
