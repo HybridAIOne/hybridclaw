@@ -83,7 +83,7 @@ Notes:
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
   - \`locomo --num-samples\` limits conversation records; use \`--max-questions\` for fast smoke runs over a small QA slice.
-  - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace, or \`--fresh-agent\` to force a new agent for every individual QA request.
+  - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace.
   - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
   - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
   - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.

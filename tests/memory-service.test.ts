@@ -1564,6 +1564,78 @@ describe('MemoryService', () => {
     expect(semanticWrites).toBe(0);
   });
 
+  test('storeSemanticMemory derives plain array embeddings with the default provider', () => {
+    let capturedEmbedding: number[] | null | undefined;
+    const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
+      getOrCreateSession: (sessionId, guildId, channelId) =>
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
+      getSessionById: () => makeSession(),
+      getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
+      getRecentMessages: () => [] as StoredMessage[],
+      get: () => null,
+      set: () => {},
+      delete: () => false,
+      list: () => [],
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+      getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
+      addKnowledgeEntity: () => 'entity-id',
+      addKnowledgeRelation: () => 'relation-id',
+      queryKnowledgeGraph: () => [],
+      getCompactionCandidateMessages: () => null,
+      storeMessage: () => 42,
+      storeSemanticMemory: ({ embedding }) => {
+        capturedEmbedding = embedding;
+        return 10;
+      },
+      recallSemanticMemories: () => [] as SemanticMemoryEntry[],
+      forgetSemanticMemory: () => false,
+      decaySemanticMemories: () => 0,
+      clearSessionHistory: () => 0,
+      deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
+      updateSessionSummary: () => {},
+      markSessionMemoryFlush: () => {},
+    };
+
+    const service = new MemoryService(backend, { embeddingDimensions: 32 });
+    service.storeSemanticMemory({
+      sessionId: 'session:test',
+      role: 'assistant',
+      content: 'Rust systems programming notes',
+      confidence: 0.9,
+    });
+
+    expect(Array.isArray(capturedEmbedding)).toBe(true);
+    expect(capturedEmbedding).not.toBeInstanceOf(Float32Array);
+    expect(capturedEmbedding).toHaveLength(32);
+    expect(
+      capturedEmbedding?.every(
+        (value) => typeof value === 'number' && Number.isFinite(value),
+      ),
+    ).toBe(true);
+  });
+
   test('semantic recall increments access_count on repeated identical queries', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

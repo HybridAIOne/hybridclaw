@@ -79,8 +79,7 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
   for quick smoke tests over a small question slice
 - by default, `locomo --mode qa` creates one fresh template-seeded agent
   workspace per conversation sample; use `--current-agent` to reuse the current
-  agent workspace, or `--fresh-agent` to force a new agent for every
-  individual QA request
+  agent workspace
 - `swebench-verified`, `agentbench`, and `gaia` currently print starter
   recipes and setup guidance rather than a native managed runner
 - outside suite-specific overrides, the default eval mode keeps the current

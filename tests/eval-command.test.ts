@@ -630,20 +630,14 @@ test('runs managed locomo with current agent override', async () => {
   expect(shellArgs[1]).toContain('current-agent');
 });
 
-test('runs managed locomo with fresh-agent override', async () => {
+test('rejects fresh-agent override for managed locomo', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
   );
   installLocomoLayout(dataDir);
-  spawnMock.mockReturnValue({
-    pid: 6798,
-    unref: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-  });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
+  const result = await handleEvalCommand({
     args: ['--fresh-agent', 'locomo', 'run', '--max-questions', '20'],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
@@ -652,9 +646,15 @@ test('runs managed locomo with fresh-agent override', async () => {
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
 
-  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
-  expect(shellArgs[1]).toContain('--agent-mode');
-  expect(shellArgs[1]).toContain('fresh-request');
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('LOCOMO Run');
+  expect(result.text).toContain(
+    'Native LOCOMO does not support `--fresh-agent`.',
+  );
+  expect(spawnMock).not.toHaveBeenCalled();
 });
 
 test('runs managed locomo with retrieval mode', async () => {
@@ -1475,6 +1475,77 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   );
   expect(result.text).not.toContain('Tokens');
   expect(result.text).toContain('Predictions JSON');
+});
+
+test('logs debug when locomo result json is malformed', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-badjson-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-10');
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobDir, 'result.json'),
+    '{not valid json',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run-badjson',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-10T08:00:00.000Z',
+        finishedAt: '2026-04-10T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --budget 4000 --max-questions 20',
+        displayCommand: 'locomo run --budget 4000 --max-questions 20',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { logger } = await import('../src/logger.ts');
+  const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => logger);
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(debugSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      runId: 'eval-locomo-run-badjson',
+      resultPath: path.join(jobDir, 'result.json'),
+    }),
+    'Failed to parse LOCOMO result summary',
+  );
 });
 
 test('shows locomo run progress in results while a run is active', async () => {

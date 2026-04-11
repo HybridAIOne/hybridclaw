@@ -349,21 +349,25 @@ class HashedTokenEmbeddingProvider implements EmbeddingProvider {
       .slice(0, 256);
     if (tokens.length === 0) return null;
 
-    const vector = new Float32Array(this.dimensions);
+    const vector = Array<number>(this.dimensions).fill(0);
     for (const token of tokens) {
       const hash = this.hashToken(token);
       const index = hash % this.dimensions;
       const sign = (hash & 1) === 0 ? 1 : -1;
-      vector[index] += sign * Math.min(4, token.length);
+      vector[index] = (vector[index] || 0) + sign * Math.min(4, token.length);
     }
 
     let norm = 0;
     for (let i = 0; i < vector.length; i += 1) {
-      norm += vector[i] * vector[i];
+      const value = vector[i] || 0;
+      norm += value * value;
     }
     if (norm <= Number.EPSILON) return null;
     const scale = 1 / Math.sqrt(norm);
-    return Array.from(vector, (value) => value * scale);
+    for (let i = 0; i < vector.length; i += 1) {
+      vector[i] = (vector[i] || 0) * scale;
+    }
+    return vector;
   }
 
   private hashToken(token: string): number {
@@ -660,6 +664,32 @@ export class MemoryService {
     );
   }
 
+  storeSemanticMemory(params: {
+    sessionId: string;
+    role: string;
+    source?: string | null;
+    scope?: string | null;
+    metadata?: Record<string, unknown> | string | null;
+    content: string;
+    confidence?: number;
+    embedding?: number[] | null;
+    sourceMessageId?: number | null;
+  }): number {
+    const content = params.content.trim();
+    if (!content) {
+      throw new Error('Cannot store empty semantic memory content.');
+    }
+
+    return this.backend.storeSemanticMemory({
+      ...params,
+      content,
+      embedding:
+        params.embedding === undefined
+          ? this.embeddingProvider.embed(content)
+          : params.embedding,
+    });
+  }
+
   storeTurn(params: StoreTurnParams): {
     userMessageId: number;
     assistantMessageId: number;
@@ -689,7 +719,7 @@ export class MemoryService {
       };
     }
 
-    this.backend.storeSemanticMemory({
+    this.storeSemanticMemory({
       sessionId: params.sessionId,
       role: 'assistant',
       source: 'conversation',
@@ -697,7 +727,6 @@ export class MemoryService {
       metadata: {},
       content: interactionText,
       confidence: 1,
-      embedding: this.embeddingProvider.embed(interactionText),
       sourceMessageId: assistantMessageId,
     });
 

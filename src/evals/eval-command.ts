@@ -6,6 +6,7 @@ import { MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import { isContainerMaxConcurrentExplicit } from '../config/runtime-config.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
+import { logger } from '../logger.js';
 import {
   enqueueProactiveMessage,
   isDatabaseInitialized,
@@ -17,6 +18,15 @@ import {
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from './eval-profile.js';
+import type {
+  LocomoAgentMode,
+  LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
+  LocomoTokenUsage as LocomoNativeTokenUsage,
+} from './locomo-types.js';
+import {
+  LOCOMO_DATASET_FILENAME,
+  LOCOMO_SETUP_MARKER,
+} from './locomo-types.js';
 
 type EvalSuiteId =
   | 'swebench-verified'
@@ -46,8 +56,6 @@ interface ManagedSuiteRunPreparation {
   displayCommand: string;
   cwd: string;
 }
-
-type LocomoAgentMode = 'conversation-fresh' | 'current-agent' | 'fresh-request';
 
 interface EvalEnvironment {
   baseUrl: string;
@@ -183,19 +191,6 @@ interface TerminalBenchNativeTokenUsage {
   apiUsageAvailable: boolean;
 }
 
-interface LocomoNativeCategoryAggregate {
-  meanScore: number;
-  questionCount: number;
-  contextF1: number | null;
-}
-
-interface LocomoNativeTokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  responsesWithUsage: number;
-}
-
 interface LocomoNativeSummary {
   jobDir: string;
   resultPath: string;
@@ -290,7 +285,7 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
       '`--mode retrieval` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.',
       'The `qa` prompt shape follows the upstream `evaluate_gpts` flow: truncated conversation context plus a short-answer QA prompt for each LoCoMo question.',
       '`--num-samples` limits conversation records. Use `--max-questions` for quick smoke runs over a small number of LoCoMo questions.',
-      'By default, LOCOMO creates one fresh template-seeded agent per conversation sample. Use `--current-agent` to reuse the current agent workspace, or `--fresh-agent` to force a new agent for every individual QA request.',
+      'By default, LOCOMO creates one fresh template-seeded agent per conversation sample. Use `--current-agent` to reuse the current agent workspace.',
       'Prompt/profile eval flags flow through `HYBRIDCLAW_EVAL_MODEL`, so agent/workspace mode and prompt ablations affect the benchmarked run.',
     ],
   },
@@ -737,12 +732,17 @@ function getManagedSuiteMarkerPath(
 ): string {
   return path.join(
     getManagedSuiteInstallDir(suite, dataDir),
-    '.hybridclaw-setup-ok',
+    LOCOMO_SETUP_MARKER,
   );
 }
 
 function getLocomoDatasetPath(dataDir: string): string {
-  return path.join(getEvalBaseDir(dataDir), 'locomo', 'data', 'locomo10.json');
+  return path.join(
+    getEvalBaseDir(dataDir),
+    'locomo',
+    'data',
+    LOCOMO_DATASET_FILENAME,
+  );
 }
 
 function getManagedSuitePythonPath(
@@ -816,7 +816,7 @@ function getManagedSuiteSetupCommand(
   }
 
   const installDirQuoted = quoteShellArg(installDir);
-  const markerFile = '.hybridclaw-setup-ok';
+  const markerFile = LOCOMO_SETUP_MARKER;
   const venvPython =
     process.platform === 'win32'
       ? '.venv\\Scripts\\python.exe'
@@ -1006,10 +1006,7 @@ function prepareManagedSuiteRun(
   workspaceModeExplicit: boolean,
 ): ManagedSuiteRunPreparation | null {
   if (suite.id === 'locomo') {
-    const agentMode = resolveLocomoAgentMode(
-      env.profile,
-      workspaceModeExplicit,
-    );
+    const agentMode = resolveLocomoAgentMode(workspaceModeExplicit);
     return {
       commandArgs: ['locomo', 'run', ...args],
       command: buildInternalEvalCommand('__eval-locomo-native', [
@@ -1093,15 +1090,9 @@ function prepareManagedSuiteRun(
 }
 
 function resolveLocomoAgentMode(
-  profile: EvalProfile,
   workspaceModeExplicit: boolean,
 ): LocomoAgentMode {
-  if (!workspaceModeExplicit) {
-    return 'conversation-fresh';
-  }
-  return profile.workspaceMode === 'fresh-agent'
-    ? 'fresh-request'
-    : 'current-agent';
+  return workspaceModeExplicit ? 'current-agent' : 'conversation-fresh';
 }
 
 function quoteShellArg(value: string): string {
@@ -1382,8 +1373,81 @@ function readTerminalBenchJobDir(meta: EvalRunMeta): string | null {
   return jobDir ? jobDir : null;
 }
 
-function readFiniteTokenNumber(value: unknown, fallback = 0): number {
+function readFiniteNumber(
+  value: unknown,
+  fallback: number | null = null,
+): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readFiniteTokenNumber(value: unknown, fallback = 0): number {
+  return readFiniteNumber(value, fallback) ?? fallback;
+}
+
+function readStringValue(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readLocomoCategoryAggregates(
+  value: unknown,
+): Record<string, LocomoNativeCategoryAggregate> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([category, aggregate]) => {
+      const parsedAggregate =
+        aggregate && typeof aggregate === 'object' ? aggregate : {};
+      return [
+        category,
+        {
+          meanScore:
+            readFiniteNumber(
+              (parsedAggregate as { meanScore?: unknown }).meanScore,
+              0,
+            ) ?? 0,
+          questionCount:
+            readFiniteNumber(
+              (parsedAggregate as { questionCount?: unknown }).questionCount,
+              0,
+            ) ?? 0,
+          contextF1: readFiniteNumber(
+            (parsedAggregate as { contextF1?: unknown }).contextF1,
+          ),
+        },
+      ];
+    }),
+  ) as Record<string, LocomoNativeCategoryAggregate>;
+}
+
+function readLocomoTokenUsage(value: unknown): LocomoNativeTokenUsage | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const tokenUsage = value as {
+    promptTokens?: unknown;
+    completionTokens?: unknown;
+    totalTokens?: unknown;
+    responsesWithUsage?: unknown;
+  };
+  const promptTokens = readFiniteNumber(tokenUsage.promptTokens);
+  const completionTokens = readFiniteNumber(tokenUsage.completionTokens);
+  const totalTokens = readFiniteNumber(tokenUsage.totalTokens);
+  const responsesWithUsage = readFiniteNumber(tokenUsage.responsesWithUsage);
+  if (
+    promptTokens == null ||
+    completionTokens == null ||
+    totalTokens == null ||
+    responsesWithUsage == null
+  ) {
+    return null;
+  }
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    responsesWithUsage,
+  };
 }
 
 function readTerminalBenchJobTokenUsage(
@@ -1565,110 +1629,34 @@ function readLocomoNativeSummary(
   const resultPath = path.join(jobDir, 'result.json');
   if (!fs.existsSync(resultPath)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as {
-      mode?: unknown;
-      dataset?: unknown;
-      model?: unknown;
-      budgetTokens?: unknown;
-      sampleCount?: unknown;
-      questionCount?: unknown;
-      overallScore?: unknown;
-      contextF1?: unknown;
-      predictionsPath?: unknown;
-      tokenUsage?: {
-        promptTokens?: unknown;
-        completionTokens?: unknown;
-        totalTokens?: unknown;
-        responsesWithUsage?: unknown;
-      };
-      categories?: Record<
-        string,
-        {
-          meanScore?: unknown;
-          questionCount?: unknown;
-          contextF1?: unknown;
-        }
-      >;
-    };
-    const categories = Object.fromEntries(
-      Object.entries(parsed.categories || {}).map(([category, value]) => [
-        category,
-        {
-          meanScore:
-            typeof value?.meanScore === 'number' &&
-            Number.isFinite(value.meanScore)
-              ? value.meanScore
-              : 0,
-          questionCount:
-            typeof value?.questionCount === 'number' &&
-            Number.isFinite(value.questionCount)
-              ? value.questionCount
-              : 0,
-          contextF1:
-            typeof value?.contextF1 === 'number' &&
-            Number.isFinite(value.contextF1)
-              ? value.contextF1
-              : null,
-        },
-      ]),
-    ) as Record<string, LocomoNativeCategoryAggregate>;
-    const tokenUsage =
-      parsed.tokenUsage &&
-      typeof parsed.tokenUsage === 'object' &&
-      typeof parsed.tokenUsage.promptTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.promptTokens) &&
-      typeof parsed.tokenUsage.completionTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.completionTokens) &&
-      typeof parsed.tokenUsage.totalTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.totalTokens) &&
-      typeof parsed.tokenUsage.responsesWithUsage === 'number' &&
-      Number.isFinite(parsed.tokenUsage.responsesWithUsage)
-        ? {
-            promptTokens: parsed.tokenUsage.promptTokens,
-            completionTokens: parsed.tokenUsage.completionTokens,
-            totalTokens: parsed.tokenUsage.totalTokens,
-            responsesWithUsage: parsed.tokenUsage.responsesWithUsage,
-          }
-        : null;
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     return {
       jobDir,
       resultPath,
-      predictionsPath:
-        typeof parsed.predictionsPath === 'string'
-          ? parsed.predictionsPath
-          : null,
+      predictionsPath: readStringValue(parsed.predictionsPath),
       mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
-      dataset: typeof parsed.dataset === 'string' ? parsed.dataset : null,
-      model: typeof parsed.model === 'string' ? parsed.model : null,
-      budgetTokens:
-        typeof parsed.budgetTokens === 'number' &&
-        Number.isFinite(parsed.budgetTokens)
-          ? parsed.budgetTokens
-          : null,
-      sampleCount:
-        typeof parsed.sampleCount === 'number' &&
-        Number.isFinite(parsed.sampleCount)
-          ? parsed.sampleCount
-          : null,
-      questionCount:
-        typeof parsed.questionCount === 'number' &&
-        Number.isFinite(parsed.questionCount)
-          ? parsed.questionCount
-          : null,
-      overallScore:
-        typeof parsed.overallScore === 'number' &&
-        Number.isFinite(parsed.overallScore)
-          ? parsed.overallScore
-          : null,
-      contextF1:
-        typeof parsed.contextF1 === 'number' &&
-        Number.isFinite(parsed.contextF1)
-          ? parsed.contextF1
-          : null,
-      categories,
-      tokenUsage,
+      dataset: readStringValue(parsed.dataset),
+      model: readStringValue(parsed.model),
+      budgetTokens: readFiniteNumber(parsed.budgetTokens),
+      sampleCount: readFiniteNumber(parsed.sampleCount),
+      questionCount: readFiniteNumber(parsed.questionCount),
+      overallScore: readFiniteNumber(parsed.overallScore),
+      contextF1: readFiniteNumber(parsed.contextF1),
+      categories: readLocomoCategoryAggregates(parsed.categories),
+      tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
     };
-  } catch {
+  } catch (error) {
+    logger.debug(
+      {
+        err: error,
+        runId: meta.runId,
+        resultPath,
+      },
+      'Failed to parse LOCOMO result summary',
+    );
     return null;
   }
 }
@@ -1681,144 +1669,45 @@ function readLocomoNativeProgress(
   const progressPath = path.join(jobDir, 'progress.json');
   if (!fs.existsSync(progressPath)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(progressPath, 'utf-8')) as {
-      mode?: unknown;
-      dataset?: unknown;
-      model?: unknown;
-      budgetTokens?: unknown;
-      sampleCount?: unknown;
-      completedSampleCount?: unknown;
-      questionCount?: unknown;
-      completedQuestionCount?: unknown;
-      overallScore?: unknown;
-      contextF1?: unknown;
-      currentSampleId?: unknown;
-      currentSampleQuestionCount?: unknown;
-      currentSampleQuestionTotal?: unknown;
-      predictionsPath?: unknown;
-      resultPath?: unknown;
-      tokenUsage?: {
-        promptTokens?: unknown;
-        completionTokens?: unknown;
-        totalTokens?: unknown;
-        responsesWithUsage?: unknown;
-      };
-      categories?: Record<
-        string,
-        {
-          meanScore?: unknown;
-          questionCount?: unknown;
-          contextF1?: unknown;
-        }
-      >;
-    };
-    const categories = Object.fromEntries(
-      Object.entries(parsed.categories || {}).map(([category, value]) => [
-        category,
-        {
-          meanScore:
-            typeof value?.meanScore === 'number' &&
-            Number.isFinite(value.meanScore)
-              ? value.meanScore
-              : 0,
-          questionCount:
-            typeof value?.questionCount === 'number' &&
-            Number.isFinite(value.questionCount)
-              ? value.questionCount
-              : 0,
-          contextF1:
-            typeof value?.contextF1 === 'number' &&
-            Number.isFinite(value.contextF1)
-              ? value.contextF1
-              : null,
-        },
-      ]),
-    ) as Record<string, LocomoNativeCategoryAggregate>;
-    const tokenUsage =
-      parsed.tokenUsage &&
-      typeof parsed.tokenUsage === 'object' &&
-      typeof parsed.tokenUsage.promptTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.promptTokens) &&
-      typeof parsed.tokenUsage.completionTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.completionTokens) &&
-      typeof parsed.tokenUsage.totalTokens === 'number' &&
-      Number.isFinite(parsed.tokenUsage.totalTokens) &&
-      typeof parsed.tokenUsage.responsesWithUsage === 'number' &&
-      Number.isFinite(parsed.tokenUsage.responsesWithUsage)
-        ? {
-            promptTokens: parsed.tokenUsage.promptTokens,
-            completionTokens: parsed.tokenUsage.completionTokens,
-            totalTokens: parsed.tokenUsage.totalTokens,
-            responsesWithUsage: parsed.tokenUsage.responsesWithUsage,
-          }
-        : null;
+    const parsed = JSON.parse(fs.readFileSync(progressPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     return {
       jobDir,
       progressPath,
       resultPath:
-        typeof parsed.resultPath === 'string'
-          ? parsed.resultPath
-          : path.join(jobDir, 'result.json'),
-      predictionsPath:
-        typeof parsed.predictionsPath === 'string'
-          ? parsed.predictionsPath
-          : null,
+        readStringValue(parsed.resultPath) || path.join(jobDir, 'result.json'),
+      predictionsPath: readStringValue(parsed.predictionsPath),
       mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
-      dataset: typeof parsed.dataset === 'string' ? parsed.dataset : null,
-      model: typeof parsed.model === 'string' ? parsed.model : null,
-      budgetTokens:
-        typeof parsed.budgetTokens === 'number' &&
-        Number.isFinite(parsed.budgetTokens)
-          ? parsed.budgetTokens
-          : null,
-      sampleCount:
-        typeof parsed.sampleCount === 'number' &&
-        Number.isFinite(parsed.sampleCount)
-          ? parsed.sampleCount
-          : null,
-      completedSampleCount:
-        typeof parsed.completedSampleCount === 'number' &&
-        Number.isFinite(parsed.completedSampleCount)
-          ? parsed.completedSampleCount
-          : null,
-      questionCount:
-        typeof parsed.questionCount === 'number' &&
-        Number.isFinite(parsed.questionCount)
-          ? parsed.questionCount
-          : null,
-      completedQuestionCount:
-        typeof parsed.completedQuestionCount === 'number' &&
-        Number.isFinite(parsed.completedQuestionCount)
-          ? parsed.completedQuestionCount
-          : null,
-      overallScore:
-        typeof parsed.overallScore === 'number' &&
-        Number.isFinite(parsed.overallScore)
-          ? parsed.overallScore
-          : null,
-      contextF1:
-        typeof parsed.contextF1 === 'number' &&
-        Number.isFinite(parsed.contextF1)
-          ? parsed.contextF1
-          : null,
-      currentSampleId:
-        typeof parsed.currentSampleId === 'string'
-          ? parsed.currentSampleId
-          : null,
-      currentSampleQuestionCount:
-        typeof parsed.currentSampleQuestionCount === 'number' &&
-        Number.isFinite(parsed.currentSampleQuestionCount)
-          ? parsed.currentSampleQuestionCount
-          : null,
-      currentSampleQuestionTotal:
-        typeof parsed.currentSampleQuestionTotal === 'number' &&
-        Number.isFinite(parsed.currentSampleQuestionTotal)
-          ? parsed.currentSampleQuestionTotal
-          : null,
-      categories,
-      tokenUsage,
+      dataset: readStringValue(parsed.dataset),
+      model: readStringValue(parsed.model),
+      budgetTokens: readFiniteNumber(parsed.budgetTokens),
+      sampleCount: readFiniteNumber(parsed.sampleCount),
+      completedSampleCount: readFiniteNumber(parsed.completedSampleCount),
+      questionCount: readFiniteNumber(parsed.questionCount),
+      completedQuestionCount: readFiniteNumber(parsed.completedQuestionCount),
+      overallScore: readFiniteNumber(parsed.overallScore),
+      contextF1: readFiniteNumber(parsed.contextF1),
+      currentSampleId: readStringValue(parsed.currentSampleId),
+      currentSampleQuestionCount: readFiniteNumber(
+        parsed.currentSampleQuestionCount,
+      ),
+      currentSampleQuestionTotal: readFiniteNumber(
+        parsed.currentSampleQuestionTotal,
+      ),
+      categories: readLocomoCategoryAggregates(parsed.categories),
+      tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
     };
-  } catch {
+  } catch (error) {
+    logger.debug(
+      {
+        err: error,
+        runId: meta.runId,
+        progressPath,
+      },
+      'Failed to parse LOCOMO progress summary',
+    );
     return null;
   }
 }
@@ -3317,6 +3206,15 @@ async function handleManagedSuiteRun(params: {
     return errorResult(
       `${params.suite.title} Setup Required`,
       `Run \`/eval ${params.suite.id} setup\` first.`,
+    );
+  }
+  if (
+    params.suite.id === 'locomo' &&
+    params.env.profile.workspaceMode === 'fresh-agent'
+  ) {
+    return errorResult(
+      `${params.suite.title} Run`,
+      'Native LOCOMO does not support `--fresh-agent`. It already uses one fresh agent per conversation by default; use `--current-agent` to reuse the current agent workspace.',
     );
   }
   if (

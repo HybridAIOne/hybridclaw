@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { initDatabase, storeSemanticMemory } from '../memory/db.js';
+import { initDatabase } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { SemanticMemoryEntry } from '../types/memory.js';
@@ -13,17 +13,28 @@ import {
   parseEvalProfileModel,
 } from './eval-profile.js';
 import { scoreOfficialLocomoAnswer } from './locomo-official-scoring.js';
+import type {
+  LocomoAgentMode,
+  LocomoCategoryAggregate,
+  LocomoTokenUsage,
+} from './locomo-types.js';
+import {
+  LOCOMO_DATASET_FILENAME,
+  LOCOMO_SETUP_MARKER,
+} from './locomo-types.js';
 
 const LOCOMO_DATASET_COMMIT = '3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376';
 const LOCOMO_DATASET_URL = `https://raw.githubusercontent.com/snap-research/locomo/${LOCOMO_DATASET_COMMIT}/data/locomo10.json`;
 const LOCOMO_DATASET_SHA256 =
   '79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4';
-const LOCOMO_DATASET_FILENAME = 'locomo10.json';
-const LOCOMO_SETUP_MARKER = '.hybridclaw-setup-ok';
 const DEFAULT_TOKEN_BUDGET = 4000;
 const ANSWER_BUFFER_TOKENS = 64;
 const DEFAULT_OPENAI_BASE_URL = 'http://127.0.0.1:9090/v1';
 const DEFAULT_EVAL_MODEL = 'hybridai/gpt-4.1-mini';
+const LOCOMO_DATASET_DOWNLOAD_TIMEOUT_MS = 120_000;
+const LOCOMO_MODEL_CALL_TIMEOUT_MS = 30_000;
+const LOCOMO_QA_CONCURRENCY = 4;
+const LOCOMO_PROGRESS_WRITE_INTERVAL_QUESTIONS = 20;
 
 const CONVERSATION_START_PROMPT =
   'Below is a conversation between two people: {speakerA} and {speakerB}. The conversation takes place over multiple days and the date of each conversation is written at the beginning of the conversation.\n\n';
@@ -42,9 +53,13 @@ Question: {question}
 Short answer:
 `.trim();
 
+const flattenedConversationTurnsCache = new WeakMap<
+  Record<string, unknown>,
+  LocomoFlattenedTurn[]
+>();
+
 type LocomoOperation = 'setup' | 'run';
 type LocomoEvaluationMode = 'qa' | 'retrieval';
-type LocomoAgentMode = 'conversation-fresh' | 'current-agent' | 'fresh-request';
 
 interface LocomoTurn {
   speaker: string;
@@ -52,6 +67,11 @@ interface LocomoTurn {
   text: string;
   blip_caption?: string;
 }
+
+type LocomoFlattenedTurn = LocomoTurn & {
+  sessionNum: number;
+  dateTime: string;
+};
 
 interface LocomoQA {
   question: string;
@@ -83,19 +103,6 @@ interface LocomoGatewayRuntime {
   model: string;
   baseModel: string;
   profile: EvalProfile;
-}
-
-interface LocomoUsageSummary {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  responsesWithUsage: number;
-}
-
-interface LocomoCategoryAggregate {
-  meanScore: number;
-  questionCount: number;
-  contextF1: number | null;
 }
 
 interface LocomoQuestionPrediction {
@@ -131,7 +138,7 @@ interface LocomoRunSummary {
   resultPath: string;
   predictionsPath: string;
   categories: Record<string, LocomoCategoryAggregate>;
-  tokenUsage: LocomoUsageSummary | null;
+  tokenUsage: LocomoTokenUsage | null;
   samples: Array<{
     sampleId: string;
     questionCount: number;
@@ -159,7 +166,7 @@ interface LocomoProgressSummary {
   resultPath: string;
   predictionsPath: string;
   categories: Record<string, LocomoCategoryAggregate>;
-  tokenUsage: LocomoUsageSummary | null;
+  tokenUsage: LocomoTokenUsage | null;
 }
 
 interface LocomoChatCompletionUsage {
@@ -248,11 +255,7 @@ function parseArgs(argv: string[]): LocomoRunnerOptions {
     }
     if (flag === '--agent-mode') {
       const value = nextValue().toLowerCase();
-      if (
-        value === 'conversation-fresh' ||
-        value === 'current-agent' ||
-        value === 'fresh-request'
-      ) {
+      if (value === 'conversation-fresh' || value === 'current-agent') {
         agentMode = value;
       } else {
         throw new Error(
@@ -317,14 +320,19 @@ async function runSetup(options: LocomoRunnerOptions): Promise<void> {
   const datasetPath = getDatasetPath(options.installDir);
   if (!fs.existsSync(datasetPath)) {
     console.log(`Downloading dataset from ${LOCOMO_DATASET_URL}`);
-    const response = await fetch(LOCOMO_DATASET_URL);
+    const response = await fetchWithTimeout(
+      LOCOMO_DATASET_URL,
+      undefined,
+      LOCOMO_DATASET_DOWNLOAD_TIMEOUT_MS,
+      'LOCOMO dataset download',
+    );
     if (!response.ok) {
       throw new Error(
         `Failed to download LOCOMO dataset: HTTP ${response.status}`,
       );
     }
     const rawBuffer = Buffer.from(await response.arrayBuffer());
-    verifyDownloadedDataset(rawBuffer, response.url);
+    verifyDownloadedDataset(rawBuffer);
     const raw = rawBuffer.toString('utf-8');
     if (!raw.trim().startsWith('[')) {
       throw new Error('Downloaded LOCOMO dataset is not valid JSON.');
@@ -345,12 +353,22 @@ async function runSetup(options: LocomoRunnerOptions): Promise<void> {
 
 async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
   const datasetPath = getDatasetPath(options.installDir);
-  if (
-    !fs.existsSync(getMarkerPath(options.installDir)) ||
-    !fs.existsSync(datasetPath)
-  ) {
+  const markerPath = getMarkerPath(options.installDir);
+  const hasMarker = fs.existsSync(markerPath);
+  const hasDataset = fs.existsSync(datasetPath);
+  if (!hasMarker && !hasDataset) {
     throw new Error(
       'LOCOMO is not set up. Run `setup` first, or use `/eval locomo setup`.',
+    );
+  }
+  if (!hasDataset) {
+    throw new Error(
+      `LOCOMO dataset is missing at ${datasetPath}. Re-run \`setup\`, or use \`/eval locomo setup\`.`,
+    );
+  }
+  if (!hasMarker) {
+    throw new Error(
+      `LOCOMO setup marker is missing at ${markerPath}. Re-run \`setup\`, or use \`/eval locomo setup\`.`,
     );
   }
 
@@ -401,7 +419,7 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
 
   const predictions: LocomoSamplePrediction[] = [];
   const categories = new Map<number, LocomoCategoryRunningAggregate>();
-  const usageTotals: LocomoUsageSummary = {
+  const usageTotals: LocomoTokenUsage = {
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
@@ -434,6 +452,43 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
     currentSampleQuestionTotal: null,
   });
 
+  const writeQuestionProgress = (params: {
+    samplePrediction: LocomoSamplePrediction;
+    model: string | null;
+    contextF1TotalForSnapshot: number;
+  }): void => {
+    if (
+      !shouldWriteQuestionProgressSnapshot(params.samplePrediction.qa.length)
+    ) {
+      return;
+    }
+    const completedQuestionCount =
+      questionCount + params.samplePrediction.qa.length;
+    const partialScoreTotal =
+      scoreTotal +
+      params.samplePrediction.qa.reduce((total, qa) => total + qa.score, 0);
+    writeProgressFile({
+      progressPath,
+      resultPath,
+      predictionsPath,
+      mode: options.mode,
+      datasetPath,
+      model: params.model,
+      budgetTokens: options.budgetTokens,
+      sampleCount: plannedSamples.length,
+      completedSampleCount,
+      questionCount: totalQuestionCount,
+      completedQuestionCount,
+      scoreTotal: partialScoreTotal,
+      contextF1Total: params.contextF1TotalForSnapshot,
+      categories,
+      usageTotals,
+      currentSampleId: params.samplePrediction.sampleId,
+      currentSampleQuestionCount: params.samplePrediction.qa.length,
+      currentSampleQuestionTotal: params.samplePrediction.questionCount,
+    });
+  };
+
   for (const sample of plannedSamples) {
     const samplePrediction =
       options.mode === 'retrieval'
@@ -448,36 +503,16 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
               runtime,
             }),
             onQuestionProgress: ({ samplePrediction }) => {
-              const completedQuestionCount =
-                questionCount + samplePrediction.qa.length;
-              const partialScoreTotal =
-                scoreTotal +
-                samplePrediction.qa.reduce((total, qa) => total + qa.score, 0);
               const partialContextF1Total =
                 contextF1Total +
                 samplePrediction.qa.reduce(
                   (total, qa) => total + (qa.contextF1 || 0),
                   0,
                 );
-              writeProgressFile({
-                progressPath,
-                resultPath,
-                predictionsPath,
-                mode: options.mode,
-                datasetPath,
+              writeQuestionProgress({
+                samplePrediction,
                 model: null,
-                budgetTokens: options.budgetTokens,
-                sampleCount: plannedSamples.length,
-                completedSampleCount,
-                questionCount: totalQuestionCount,
-                completedQuestionCount,
-                scoreTotal: partialScoreTotal,
-                contextF1Total: partialContextF1Total,
-                categories,
-                usageTotals,
-                currentSampleId: samplePrediction.sampleId,
-                currentSampleQuestionCount: samplePrediction.qa.length,
-                currentSampleQuestionTotal: samplePrediction.questionCount,
+                contextF1TotalForSnapshot: partialContextF1Total,
               });
             },
           })
@@ -494,30 +529,10 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
             usageTotals,
             categories,
             onQuestionProgress: ({ samplePrediction }) => {
-              const completedQuestionCount =
-                questionCount + samplePrediction.qa.length;
-              const partialScoreTotal =
-                scoreTotal +
-                samplePrediction.qa.reduce((total, qa) => total + qa.score, 0);
-              writeProgressFile({
-                progressPath,
-                resultPath,
-                predictionsPath,
-                mode: options.mode,
-                datasetPath,
+              writeQuestionProgress({
+                samplePrediction,
                 model: runtime.model,
-                budgetTokens: options.budgetTokens,
-                sampleCount: plannedSamples.length,
-                completedSampleCount,
-                questionCount: totalQuestionCount,
-                completedQuestionCount,
-                scoreTotal: partialScoreTotal,
-                contextF1Total,
-                categories,
-                usageTotals,
-                currentSampleId: samplePrediction.sampleId,
-                currentSampleQuestionCount: samplePrediction.qa.length,
-                currentSampleQuestionTotal: samplePrediction.questionCount,
+                contextF1TotalForSnapshot: contextF1Total,
               });
             },
           });
@@ -561,22 +576,6 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
     'utf-8',
   );
 
-  const categorySummaries: Record<string, LocomoCategoryAggregate> = {};
-  for (const [category, aggregate] of categories.entries()) {
-    categorySummaries[String(category)] = {
-      meanScore: roundMetric(
-        aggregate.scoreTotal / Math.max(aggregate.questionCount, 1),
-      ),
-      questionCount: aggregate.questionCount,
-      contextF1:
-        options.mode === 'retrieval'
-          ? roundMetric(
-              aggregate.contextF1Total / Math.max(aggregate.questionCount, 1),
-            )
-          : null,
-    };
-  }
-
   const summary: LocomoRunSummary = {
     suite: 'locomo',
     mode: options.mode,
@@ -593,7 +592,7 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
         : null,
     resultPath,
     predictionsPath,
-    categories: categorySummaries,
+    categories: buildCategorySummaries(categories, options.mode),
     tokenUsage:
       options.mode === 'qa' && usageTotals.responsesWithUsage > 0
         ? usageTotals
@@ -635,6 +634,38 @@ function applyQuestionLimit(
   return selected;
 }
 
+function shouldWriteQuestionProgressSnapshot(
+  completedSampleQuestionCount: number,
+): boolean {
+  return (
+    completedSampleQuestionCount === 1 ||
+    completedSampleQuestionCount % LOCOMO_PROGRESS_WRITE_INTERVAL_QUESTIONS ===
+      0
+  );
+}
+
+function buildCategorySummaries(
+  categories: Map<number, LocomoCategoryRunningAggregate>,
+  mode: LocomoEvaluationMode,
+): Record<string, LocomoCategoryAggregate> {
+  const categorySummaries: Record<string, LocomoCategoryAggregate> = {};
+  for (const [category, aggregate] of categories.entries()) {
+    categorySummaries[String(category)] = {
+      meanScore: roundMetric(
+        aggregate.scoreTotal / Math.max(aggregate.questionCount, 1),
+      ),
+      questionCount: aggregate.questionCount,
+      contextF1:
+        mode === 'retrieval'
+          ? roundMetric(
+              aggregate.contextF1Total / Math.max(aggregate.questionCount, 1),
+            )
+          : null,
+    };
+  }
+  return categorySummaries;
+}
+
 function writeProgressFile(params: {
   progressPath: string;
   resultPath: string;
@@ -650,26 +681,11 @@ function writeProgressFile(params: {
   scoreTotal: number;
   contextF1Total: number;
   categories: Map<number, LocomoCategoryRunningAggregate>;
-  usageTotals: LocomoUsageSummary;
+  usageTotals: LocomoTokenUsage;
   currentSampleId: string | null;
   currentSampleQuestionCount: number | null;
   currentSampleQuestionTotal: number | null;
 }): void {
-  const categorySummaries: Record<string, LocomoCategoryAggregate> = {};
-  for (const [category, aggregate] of params.categories.entries()) {
-    categorySummaries[String(category)] = {
-      meanScore: roundMetric(
-        aggregate.scoreTotal / Math.max(aggregate.questionCount, 1),
-      ),
-      questionCount: aggregate.questionCount,
-      contextF1:
-        params.mode === 'retrieval'
-          ? roundMetric(
-              aggregate.contextF1Total / Math.max(aggregate.questionCount, 1),
-            )
-          : null,
-    };
-  }
   const progress: LocomoProgressSummary = {
     suite: 'locomo',
     mode: params.mode,
@@ -696,7 +712,7 @@ function writeProgressFile(params: {
     progressPath: params.progressPath,
     resultPath: params.resultPath,
     predictionsPath: params.predictionsPath,
-    categories: categorySummaries,
+    categories: buildCategorySummaries(params.categories, params.mode),
     tokenUsage:
       params.mode === 'qa' && params.usageTotals.responsesWithUsage > 0
         ? params.usageTotals
@@ -739,14 +755,6 @@ function resolveSampleRequestModel(params: {
   if (params.agentMode === 'current-agent') {
     return params.runtime.model;
   }
-  if (params.agentMode === 'fresh-request') {
-    return encodeEvalProfileModel(params.runtime.baseModel, {
-      workspaceMode: 'fresh-agent',
-      ablateSystemPrompt: params.runtime.profile.ablateSystemPrompt,
-      includePromptParts: [...params.runtime.profile.includePromptParts],
-      omitPromptParts: [...params.runtime.profile.omitPromptParts],
-    });
-  }
 
   return encodeEvalProfileModel(params.runtime.baseModel, {
     workspaceMode: 'current-agent',
@@ -776,16 +784,34 @@ function loadSamples(datasetPath: string): LocomoSample[] {
   if (!Array.isArray(parsed)) {
     throw new Error(`Expected LOCOMO dataset array in ${datasetPath}.`);
   }
+  const firstSample = parsed[0];
+  if (firstSample !== undefined) {
+    const sample =
+      firstSample && typeof firstSample === 'object' ? firstSample : null;
+    const sampleId = sample
+      ? (sample as { sample_id?: unknown }).sample_id
+      : null;
+    const conversation = sample
+      ? (sample as { conversation?: unknown }).conversation
+      : null;
+    const qa = sample ? (sample as { qa?: unknown }).qa : null;
+    if (
+      typeof sampleId !== 'string' ||
+      !sampleId.trim() ||
+      !conversation ||
+      typeof conversation !== 'object' ||
+      Array.isArray(conversation) ||
+      !Array.isArray(qa)
+    ) {
+      throw new Error(
+        `Invalid LOCOMO sample at index 0 in ${datasetPath}. Expected a non-empty string sample_id, an object conversation, and an array qa.`,
+      );
+    }
+  }
   return parsed as LocomoSample[];
 }
 
-function verifyDownloadedDataset(
-  rawBuffer: Uint8Array,
-  responseUrl: string | null | undefined,
-): void {
-  if (!responseUrl || responseUrl.trim() !== LOCOMO_DATASET_URL) {
-    return;
-  }
+function verifyDownloadedDataset(rawBuffer: Uint8Array): void {
   const actualSha256 = createHash('sha256').update(rawBuffer).digest('hex');
   if (actualSha256 !== LOCOMO_DATASET_SHA256) {
     throw new Error(
@@ -794,78 +820,133 @@ function verifyDownloadedDataset(
   }
 }
 
+function isFetchTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' || error.name === 'AbortError')
+  );
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  label: string,
+): Promise<Response> {
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (isFetchTimeoutError(error)) {
+      throw new Error(`${label} timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  }
+}
+
 async function evaluateSample(params: {
   runtime: LocomoGatewayRuntime;
   requestModel: string;
   sample: LocomoSample;
   budgetTokens: number;
-  usageTotals: LocomoUsageSummary;
+  usageTotals: LocomoTokenUsage;
   categories: Map<number, LocomoCategoryRunningAggregate>;
   onQuestionProgress?: (params: {
     samplePrediction: LocomoSamplePrediction;
   }) => void;
 }): Promise<LocomoSamplePrediction> {
-  const qaPredictions: LocomoQuestionPrediction[] = [];
-  const sampleQuestionCount = (params.sample.qa || []).length;
+  const sampleQa = Array.isArray(params.sample.qa) ? params.sample.qa : [];
+  const sampleQuestionCount = sampleQa.length;
+  const qaPredictions: Array<LocomoQuestionPrediction | null> = Array.from(
+    { length: sampleQuestionCount },
+    () => null,
+  );
+  let nextQuestionIndex = 0;
 
-  for (const qa of params.sample.qa || []) {
-    const prepared = buildQuestionPrompt(
-      params.sample,
-      qa,
-      params.budgetTokens,
-    );
-    const completion = await requestModelAnswer({
-      runtime: params.runtime,
-      model: params.requestModel,
-      prompt: prepared.prompt,
-      user: `locomo-${params.sample.sample_id}`,
-    });
-    mergeUsage(params.usageTotals, completion.usage);
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      const questionIndex = nextQuestionIndex;
+      nextQuestionIndex += 1;
+      if (questionIndex >= sampleQa.length) {
+        return;
+      }
 
-    const answer = answerToString(qa);
-    const prediction =
-      prepared.scoreCategory === 5
-        ? normalizeCategoryFivePrediction(
-            completion.content,
-            prepared.categoryFiveAnswerKey,
-          )
-        : normalizeModelPrediction(completion.content);
-    const score = scoreLocomoAnswer(qa, prediction);
+      const qa = sampleQa[questionIndex];
+      const prepared = buildQuestionPrompt(
+        params.sample,
+        qa,
+        params.budgetTokens,
+      );
+      const completion = await requestModelAnswer({
+        runtime: params.runtime,
+        model: params.requestModel,
+        prompt: prepared.prompt,
+        user: `locomo-${params.sample.sample_id}`,
+      });
+      mergeUsage(params.usageTotals, completion.usage);
 
-    qaPredictions.push({
-      category: prepared.scoreCategory,
-      question: qa.question,
-      answer,
-      prediction,
-      score,
-      evidence: Array.isArray(qa.evidence) ? qa.evidence : [],
-    });
+      const answer = answerToString(qa);
+      const prediction =
+        prepared.scoreCategory === 5
+          ? normalizeCategoryFivePrediction(
+              completion.content,
+              prepared.categoryFiveAnswerKey,
+            )
+          : normalizeModelPrediction(completion.content);
+      const score = scoreLocomoAnswer(qa, prediction);
+      qaPredictions[questionIndex] = {
+        category: prepared.scoreCategory,
+        question: qa.question,
+        answer,
+        prediction,
+        score,
+        evidence: Array.isArray(qa.evidence) ? qa.evidence : [],
+      };
 
-    const existing = params.categories.get(prepared.scoreCategory) || {
-      scoreTotal: 0,
-      contextF1Total: 0,
-      questionCount: 0,
-    };
-    existing.scoreTotal += score;
-    existing.questionCount += 1;
-    params.categories.set(prepared.scoreCategory, existing);
-    params.onQuestionProgress?.({
-      samplePrediction: {
-        sampleId: params.sample.sample_id,
-        questionCount: sampleQuestionCount,
-        meanScore: roundMetric(
-          qaPredictions.reduce((total, entry) => total + entry.score, 0) /
-            Math.max(qaPredictions.length, 1),
-        ),
-        meanContextF1: null,
-        qa: [...qaPredictions],
-      },
-    });
-  }
+      const existing = params.categories.get(prepared.scoreCategory) || {
+        scoreTotal: 0,
+        contextF1Total: 0,
+        questionCount: 0,
+      };
+      existing.scoreTotal += score;
+      existing.questionCount += 1;
+      params.categories.set(prepared.scoreCategory, existing);
 
-  const questionCount = qaPredictions.length;
+      const completedPredictions = qaPredictions.filter(
+        (entry): entry is LocomoQuestionPrediction => entry !== null,
+      );
+      params.onQuestionProgress?.({
+        samplePrediction: {
+          sampleId: params.sample.sample_id,
+          questionCount: sampleQuestionCount,
+          meanScore: roundMetric(
+            completedPredictions.reduce(
+              (total, entry) => total + entry.score,
+              0,
+            ) / Math.max(completedPredictions.length, 1),
+          ),
+          meanContextF1: null,
+          qa: completedPredictions,
+        },
+      });
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(LOCOMO_QA_CONCURRENCY, sampleQa.length) },
+      () => runWorker(),
+    ),
+  );
+
+  const completedQaPredictions = qaPredictions.filter(
+    (entry): entry is LocomoQuestionPrediction => entry !== null,
+  );
+  const questionCount = completedQaPredictions.length;
   const meanScore = roundMetric(
-    qaPredictions.reduce((total, qa) => total + qa.score, 0) /
+    completedQaPredictions.reduce((total, qa) => total + qa.score, 0) /
       Math.max(questionCount, 1),
   );
   return {
@@ -873,7 +954,7 @@ async function evaluateSample(params: {
     questionCount,
     meanScore,
     meanContextF1: null,
-    qa: qaPredictions,
+    qa: completedQaPredictions,
   };
 }
 
@@ -910,9 +991,9 @@ async function evaluateRetrievalSample(params: {
           typeof value === 'number' && Number.isFinite(value) && value > 0,
       );
     const hitRate = computeRetrievalHitRate({
+      sample: params.sample,
       evidence: Array.isArray(qa.evidence) ? qa.evidence : [],
-      messageIdByDiaId: params.session.messageIdByDiaId,
-      retrievedSourceMessageIds,
+      retrievedContent: recalledContext,
     });
     const contextF1 = computeContextTokenF1(
       recalledContext,
@@ -1056,7 +1137,12 @@ function getSpeakerNames(sample: LocomoSample): [string, string] {
 
 function flattenConversationTurns(
   conversation: Record<string, unknown>,
-): Array<LocomoTurn & { sessionNum: number; dateTime: string }> {
+): LocomoFlattenedTurn[] {
+  const cached = flattenedConversationTurnsCache.get(conversation);
+  if (cached) {
+    return cached;
+  }
+
   const sessionNames = Object.keys(conversation || {})
     .filter((key) => /^session_\d+$/.test(key))
     .sort((left, right) => {
@@ -1064,8 +1150,7 @@ function flattenConversationTurns(
       const rightNum = Number.parseInt(right.slice('session_'.length), 10) || 0;
       return leftNum - rightNum;
     });
-  const turns: Array<LocomoTurn & { sessionNum: number; dateTime: string }> =
-    [];
+  const turns: LocomoFlattenedTurn[] = [];
 
   for (const sessionName of sessionNames) {
     const sessionNum =
@@ -1097,6 +1182,7 @@ function flattenConversationTurns(
     }
   }
 
+  flattenedConversationTurnsCache.set(conversation, turns);
   return turns;
 }
 
@@ -1105,8 +1191,7 @@ function selectConversationContext(
   maxTokens: number,
 ): string {
   const chronologicalTurns = flattenConversationTurns(conversation);
-  const selected: Array<LocomoTurn & { sessionNum: number; dateTime: string }> =
-    [];
+  const selected: LocomoFlattenedTurn[] = [];
   let totalTokens = 0;
 
   for (let index = chronologicalTurns.length - 1; index >= 0; index -= 1) {
@@ -1202,7 +1287,7 @@ function ingestSampleIntoNativeMemory(params: {
       content,
     });
     messageIdByDiaId.set(normalizeDiaId(turn.dia_id), messageId);
-    storeSemanticMemory({
+    memoryService.storeSemanticMemory({
       sessionId,
       role,
       source: 'locomo-retrieval',
@@ -1216,7 +1301,6 @@ function ingestSampleIntoNativeMemory(params: {
       },
       content,
       confidence: 1,
-      embedding: buildHashedTokenEmbedding(content),
       sourceMessageId: messageId,
     });
   }
@@ -1268,21 +1352,36 @@ function budgetTruncateSemanticMemories(
 }
 
 function computeRetrievalHitRate(params: {
+  sample: LocomoSample;
   evidence: string[];
-  messageIdByDiaId: Map<string, number>;
-  retrievedSourceMessageIds: number[];
+  retrievedContent: string;
 }): number {
   const expandedEvidenceIds = expandEvidenceIds(params.evidence);
   if (expandedEvidenceIds.length === 0) return 1;
 
-  const retrievedIds = new Set(params.retrievedSourceMessageIds);
+  const turnMap = new Map<string, LocomoTurn>();
+  for (const turn of flattenConversationTurns(params.sample.conversation)) {
+    turnMap.set(turn.dia_id, turn);
+  }
+
+  const lowerRetrieved = String(params.retrievedContent || '').toLowerCase();
   let found = 0;
   let resolvable = 0;
   for (const evidenceId of expandedEvidenceIds) {
-    const messageId = params.messageIdByDiaId.get(evidenceId);
-    if (!messageId) continue;
+    const turn = turnMap.get(evidenceId);
+    if (!turn) {
+      console.log(
+        `WARNING: dia_id "${evidenceId}" not found in sample ${params.sample.sample_id}`,
+      );
+      continue;
+    }
     resolvable += 1;
-    if (retrievedIds.has(messageId)) {
+    if (turn.text.length < 20) {
+      console.log(
+        `WARNING: short turn text (${turn.text.length} chars) for dia_id ${evidenceId}: ${JSON.stringify(turn.text)}`,
+      );
+    }
+    if (lowerRetrieved.includes(turn.text.toLowerCase())) {
       found += 1;
     }
   }
@@ -1338,54 +1437,17 @@ function computeContextTokenF1(prediction: string, answer: string): number {
 function tokenizeContextText(value: string): string[] {
   return String(value || '')
     .toLowerCase()
-    .replace(/[^a-z0-9_\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
     .trim()
-    .split(' ')
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
-function buildHashedTokenEmbedding(text: string): number[] | null {
-  const normalized = String(text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!normalized) return null;
-
-  const tokens = normalized
-    .split(' ')
-    .map((token) => token.trim())
-    .filter((token) => token.length > 1)
-    .slice(0, 256);
-  if (tokens.length === 0) return null;
-
-  const vector = new Float32Array(128);
-  for (const token of tokens) {
-    const hash = hashEmbeddingToken(token);
-    const index = hash % vector.length;
-    const sign = (hash & 1) === 0 ? 1 : -1;
-    vector[index] += sign * Math.min(4, token.length);
-  }
-
-  let norm = 0;
-  for (let index = 0; index < vector.length; index += 1) {
-    norm += vector[index] * vector[index];
-  }
-  if (norm <= Number.EPSILON) return null;
-  const scale = 1 / Math.sqrt(norm);
-  return Array.from(vector, (value) => value * scale);
-}
-
-function hashEmbeddingToken(token: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < token.length; index += 1) {
-    hash ^= token.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
+export const testOnlyLocomoNativeRetrieval = {
+  computeContextTokenF1,
+  computeRetrievalHitRate,
+  expandEvidenceIds,
+  normalizeDiaId,
+};
 
 async function requestModelAnswer(params: {
   runtime: LocomoGatewayRuntime;
@@ -1394,23 +1456,26 @@ async function requestModelAnswer(params: {
   user: string;
 }): Promise<{ content: string; usage: LocomoChatCompletionUsage | null }> {
   const url = `${params.runtime.baseUrl.replace(/\/+$/, '')}/chat/completions`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${params.runtime.apiKey}`,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${params.runtime.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: params.model,
+        user: params.user,
+        messages: [{ role: 'user', content: params.prompt }],
+      }),
     },
-    body: JSON.stringify({
-      model: params.model,
-      user: params.user,
-      messages: [{ role: 'user', content: params.prompt }],
-    }),
-  });
+    LOCOMO_MODEL_CALL_TIMEOUT_MS,
+    'LOCOMO model call',
+  );
 
   if (!response.ok) {
-    throw new Error(
-      `LOCOMO model call failed with HTTP ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`LOCOMO model call failed with HTTP ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -1429,7 +1494,7 @@ async function requestModelAnswer(params: {
 }
 
 function mergeUsage(
-  target: LocomoUsageSummary,
+  target: LocomoTokenUsage,
   usage: LocomoChatCompletionUsage | null,
 ): void {
   if (!usage) return;
@@ -1511,8 +1576,12 @@ function roundMetric(value: number): number {
 }
 
 function hashText(value: string): number {
-  const digest = createHash('sha1').update(value).digest();
-  return digest.readUInt32BE(0);
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function formatLocomoCategoryLine(
@@ -1558,3 +1627,7 @@ function printSummaryTable(summary: LocomoRunSummary): void {
   console.log(`Predictions JSON: ${summary.predictionsPath}`);
   console.log(`Result JSON: ${summary.resultPath}`);
 }
+
+export const testOnlyLocomoNative = {
+  flattenConversationTurns,
+};
