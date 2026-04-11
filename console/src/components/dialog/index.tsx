@@ -1,7 +1,7 @@
 /**
  * Dialog — a modal dialog built on our own accessibility primitives.
  *
- * Follows the Base UI compound-component pattern: compose sub-components
+ * Follows the compound-component pattern (à la Radix / Base UI): compose sub-components
  * to build the dialog layout you need.
  *
  * Usage:
@@ -29,6 +29,7 @@ import {
   type ButtonHTMLAttributes,
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -37,6 +38,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
+import { useExitAnimation } from '../../hooks/useExitAnimation';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useHideOthers } from '../../hooks/useHideOthers';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -120,7 +122,7 @@ export function DialogTrigger(
 export function DialogContent(props: {
   children: ReactNode;
   className?: string;
-  /** Width variant. Defaults to "default" (~440px). */
+  /** Width variant: "sm" (~360px), "default" (~440px), "lg" (~560px). */
   size?: 'sm' | 'default' | 'lg';
 }) {
   const ctx = useDialogContext();
@@ -136,29 +138,8 @@ export function DialogContent(props: {
     prevOpenRef.current = open;
   }, [open]);
 
-  // Remove from DOM after exit animation completes.
-  useEffect(() => {
-    if (!exiting) return;
-    const el = panelRef.current;
-    if (!el) {
-      setExiting(false);
-      return;
-    }
-    const style = getComputedStyle(el);
-    if (
-      style.animationName === 'none' ||
-      style.animationName === '' ||
-      style.animationDuration === '0s'
-    ) {
-      setExiting(false);
-      return;
-    }
-    function handleAnimationEnd() {
-      setExiting(false);
-    }
-    el.addEventListener('animationend', handleAnimationEnd, { once: true });
-    return () => el.removeEventListener('animationend', handleAnimationEnd);
-  }, [exiting]);
+  const clearExiting = useCallback(() => setExiting(false), []);
+  useExitAnimation(panelRef, exiting, clearExiting);
 
   useScrollLock(open);
   useFocusTrap(panelRef, open);

@@ -83,7 +83,7 @@ describe('Dialog', () => {
     const backdrop = dialog.parentElement?.previousElementSibling;
     expect(backdrop).toBeTruthy();
     act(() => {
-      fireEvent.click(backdrop);
+      fireEvent.click(backdrop as Element);
     });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

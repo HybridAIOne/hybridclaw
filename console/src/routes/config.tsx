@@ -4,6 +4,7 @@ import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
+import { getErrorMessage } from '../lib/error-message';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
 
 function cloneConfig<T>(value: T): T {
@@ -32,7 +33,7 @@ export function ConfigPage() {
       toast.success('Runtime config saved.');
     },
     onError: (error) => {
-      toast.error('Save failed', (error as Error).message);
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -97,10 +98,7 @@ export function ConfigPage() {
                     setDraft(parsed);
                     saveMutation.mutate(parsed);
                   } catch (error) {
-                    toast.error(
-                      'Invalid JSON',
-                      error instanceof Error ? error.message : String(error),
-                    );
+                    toast.error('Invalid JSON', getErrorMessage(error));
                   }
                 }}
               >

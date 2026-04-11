@@ -1,7 +1,7 @@
 /**
  * Toast — a non-blocking notification system.
  *
- * Follows the Base UI pattern: a provider wraps the app, and an imperative
+ * Follows the provider + imperative hook pattern (à la Radix / Base UI): a provider wraps the app, and an
  * hook lets any component fire toasts.
  *
  * Setup (once, in app root):
@@ -27,6 +27,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useExitAnimation } from '../../hooks/useExitAnimation';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
@@ -145,21 +146,24 @@ export function ToastProvider(props: {
     [add],
   );
 
-  // Escape key dismisses the most recent toast (unless a dialog is open).
+  // Escape dismisses the most recent toast, unless a dialog is open or focus is in a form input.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      const target = e.target as HTMLElement;
+      const target = e.target as HTMLElement | null;
       if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        target?.isContentEditable
       )
         return;
       setToasts((prev) => {
-        const last = [...prev].reverse().find((t) => !t.exiting);
+        let last: ToastEntry | undefined;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (!prev[i].exiting) { last = prev[i]; break; }
+        }
         if (!last) return prev;
         return prev.map((t) =>
           t.id === last.id ? { ...t, exiting: true } : t,
@@ -232,7 +236,6 @@ function ToastItem(props: {
   const remainingRef = useRef(toast.duration);
   const startRef = useRef(0);
 
-  // Auto-dismiss timer with hover pause support.
   useEffect(() => {
     if (toast.duration <= 0 || toast.exiting || paused) return;
     startRef.current = Date.now();
@@ -244,32 +247,11 @@ function ToastItem(props: {
     };
   }, [toast.id, toast.duration, toast.exiting, paused, onDismiss]);
 
-  // Remove element after exit animation completes.
-  useEffect(() => {
-    if (!toast.exiting) return;
-    const el = elementRef.current;
-    if (!el) {
-      onRemove(toast.id);
-      return;
-    }
-    const style = getComputedStyle(el);
-    if (
-      style.animationName === 'none' ||
-      style.animationName === '' ||
-      style.animationDuration === '0s'
-    ) {
-      onRemove(toast.id);
-      return;
-    }
-    function handleAnimationEnd() {
-      onRemove(toast.id);
-    }
-    el.addEventListener('animationend', handleAnimationEnd, { once: true });
-    return () => el.removeEventListener('animationend', handleAnimationEnd);
-  }, [toast.exiting, toast.id, onRemove]);
+  const handleRemove = useCallback(() => onRemove(toast.id), [onRemove, toast.id]);
+  useExitAnimation(elementRef, toast.exiting, handleRemove);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: role is set dynamically
+    // biome-ignore lint/a11y/noStaticElementInteractions: mouse handlers only control auto-dismiss pause, not user interactivity
     <div
       ref={elementRef}
       className={cx(

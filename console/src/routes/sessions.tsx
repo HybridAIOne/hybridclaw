@@ -13,6 +13,7 @@ import {
 } from '../components/dialog';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 
 export function SessionsPage() {
@@ -43,7 +44,7 @@ export function SessionsPage() {
       }
     },
     onError: (error) => {
-      toast.error('Delete failed', (error as Error).message);
+      toast.error('Delete failed', getErrorMessage(error));
     },
   });
 

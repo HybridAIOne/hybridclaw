@@ -15,6 +15,26 @@ function ToastTriggers() {
       <button type="button" onClick={() => toast.info('FYI')}>
         Info
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          toast.add({
+            title: 'With action',
+            action: {
+              label: 'Undo',
+              onClick: () => document.dispatchEvent(new Event('test-action')),
+            },
+          })
+        }
+      >
+        Action
+      </button>
+      <button
+        type="button"
+        onClick={() => toast.add({ title: 'Persistent', duration: 0 })}
+      >
+        Sticky
+      </button>
     </>
   );
 }
@@ -82,10 +102,10 @@ describe('Toast', () => {
       screen.getByRole('button', { name: 'Info' }).click();
     });
 
-    // 3 were added but limit=2, so the first should be marked exiting
-    // and immediately removed in jsdom (no real animation).
+    // 3 were added but limit=2. In jsdom the exit animation fallback fires
+    // immediately, so the overflow toast is removed synchronously.
     const allToasts = document.querySelectorAll('[data-type]');
-    expect(allToasts.length).toBeLessThanOrEqual(3);
+    expect(allToasts.length).toBe(2);
   });
 
   it('uses role="alert" for error toasts', () => {
@@ -112,7 +132,7 @@ describe('Toast', () => {
       screen.getByRole('button', { name: 'Info' }).click();
     });
 
-    const toast = screen.getByText('FYI').closest('[data-type]');
+    const toast = screen.getByText('FYI').closest('[data-type]') as Element;
     expect(toast).toBeTruthy();
 
     // Hover after 2 seconds.
@@ -152,5 +172,50 @@ describe('Toast', () => {
     // Most recent (FYI) should be dismissed; Saved should remain.
     expect(screen.queryByText('FYI')).toBeNull();
     expect(screen.getByText('Saved')).toBeTruthy();
+  });
+
+  it('dismisses a toast when the close button is clicked', () => {
+    setup();
+    act(() => {
+      screen.getByRole('button', { name: 'Success' }).click();
+    });
+    expect(screen.getByText('Saved')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('fires the action callback and dismisses', () => {
+    const handler = vi.fn();
+    document.addEventListener('test-action', handler);
+
+    setup();
+    act(() => {
+      screen.getByRole('button', { name: 'Action' }).click();
+    });
+    expect(screen.getByText('With action')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(handler).toHaveBeenCalledOnce();
+    expect(screen.queryByText('With action')).toBeNull();
+
+    document.removeEventListener('test-action', handler);
+  });
+
+  it('does not auto-dismiss when duration is 0', () => {
+    vi.useFakeTimers();
+    setup();
+
+    act(() => {
+      screen.getByRole('button', { name: 'Sticky' }).click();
+    });
+    expect(screen.getByText('Persistent')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText('Persistent')).toBeTruthy();
+
+    vi.useRealTimers();
   });
 });
