@@ -55,6 +55,7 @@ Main docs landing pages:
 - [Internals](./internals/README.md)
 - [Architecture](./internals/architecture.md)
 - [Runtime](./internals/runtime.md)
+- [Memory](./internals/memory.md)
 - [Session Routing](./internals/session-routing.md)
 
 ## Reference
