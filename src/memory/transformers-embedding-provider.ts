@@ -72,9 +72,12 @@ interface WorkerStatusSnapshot {
   at: string;
 }
 
-const transformersEmbeddingLogger = logger.child({
-  component: 'transformers-embedding',
-});
+const transformersEmbeddingLogger =
+  'child' in logger && typeof logger.child === 'function'
+    ? logger.child({
+        component: 'transformers-embedding',
+      })
+    : logger;
 
 export class TransformersJsEmbeddingProvider implements EmbeddingProvider {
   private readonly runtime: BlockingEmbeddingRuntime;
