@@ -2,14 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
+import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader, Panel } from '../components/ui';
 import { formatRelativeTime } from '../lib/format';
 
 export function SessionsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const deferredSearch = useDeferredValue(search);
 
   const sessionsQuery = useQuery({
@@ -19,12 +31,19 @@ export function SessionsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (sessionId: string) => deleteSession(auth.token, sessionId),
-    onSuccess: (_, sessionId) => {
+    onSuccess: (data, sessionId) => {
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      toast.success(
+        'Session deleted',
+        `Removed ${data.deletedMessages} messages and ${data.deletedTasks} tasks.`,
+      );
       if (selectedId === sessionId) {
         setSelectedId(null);
       }
+    },
+    onError: (error) => {
+      toast.error('Delete failed', (error as Error).message);
     },
   });
 
@@ -159,31 +178,41 @@ export function SessionsPage() {
                 className="danger-button"
                 type="button"
                 disabled={deleteMutation.isPending}
-                onClick={() => {
-                  const confirmed = window.confirm(
-                    `Delete session ${selectedSession.id} and all related records?`,
-                  );
-                  if (!confirmed) return;
-                  deleteMutation.mutate(selectedSession.id);
-                }}
+                onClick={() => setDeleteConfirmOpen(true)}
               >
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
               </button>
-              {deleteMutation.isSuccess ? (
-                <p className="success-banner">
-                  Removed {deleteMutation.data.deletedMessages} messages and{' '}
-                  {deleteMutation.data.deletedTasks} tasks.
-                </p>
-              ) : null}
-              {deleteMutation.isError ? (
-                <p className="error-banner">
-                  {(deleteMutation.error as Error).message}
-                </p>
-              ) : null}
             </div>
           )}
         </Panel>
       </div>
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Delete session</DialogTitle>
+            <DialogDescription>
+              {selectedSession
+                ? `Delete session ${selectedSession.id} and all related records? This cannot be undone.`
+                : 'This cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <button
+              className="danger-button"
+              type="button"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                if (selectedSession) {
+                  deleteMutation.mutate(selectedSession.id);
+                }
+              }}
+            >
+              Delete
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
