@@ -11,6 +11,8 @@ import {
   enqueueProactiveMessage,
   isDatabaseInitialized,
 } from '../memory/db.js';
+import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
+import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
@@ -21,7 +23,17 @@ import {
 import type {
   LocomoAgentMode,
   LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
+  LocomoRetrievalVariantProgress as LocomoNativeRetrievalVariantProgress,
+  LocomoRetrievalVariantSummary as LocomoNativeRetrievalVariantSummary,
   LocomoTokenUsage as LocomoNativeTokenUsage,
+  LocomoProgressPhase,
+  LocomoRetrievalBackend,
+  LocomoRetrievalEmbeddingProvider,
+  LocomoRetrievalPolicy,
+  LocomoRetrievalQueryMode,
+  LocomoRetrievalRerank,
+  LocomoRetrievalSweep,
+  LocomoRetrievalTokenizer,
 } from './locomo-types.js';
 import {
   LOCOMO_DATASET_FILENAME,
@@ -196,6 +208,15 @@ interface LocomoNativeSummary {
   resultPath: string;
   predictionsPath: string | null;
   mode: 'qa' | 'retrieval';
+  matrix: boolean;
+  matrixSweep: LocomoRetrievalSweep | null;
+  retrievalPolicy: LocomoRetrievalPolicy | null;
+  retrievalQueryMode: LocomoRetrievalQueryMode | null;
+  retrievalBackend: LocomoRetrievalBackend | null;
+  retrievalRerank: LocomoRetrievalRerank | null;
+  retrievalTokenizer: LocomoRetrievalTokenizer | null;
+  retrievalEmbeddingProvider: LocomoRetrievalEmbeddingProvider | null;
+  retrievalEmbeddingModel: string | null;
   dataset: string | null;
   model: string | null;
   budgetTokens: number | null;
@@ -205,6 +226,10 @@ interface LocomoNativeSummary {
   contextF1: number | null;
   categories: Record<string, LocomoNativeCategoryAggregate>;
   tokenUsage: LocomoNativeTokenUsage | null;
+  variantCount: number | null;
+  bestVariantId: string | null;
+  bestVariantLabel: string | null;
+  variants: LocomoNativeRetrievalVariantSummary[];
 }
 
 interface LocomoNativeProgress {
@@ -213,6 +238,15 @@ interface LocomoNativeProgress {
   resultPath: string;
   predictionsPath: string | null;
   mode: 'qa' | 'retrieval';
+  matrix: boolean;
+  matrixSweep: LocomoRetrievalSweep | null;
+  retrievalPolicy: LocomoRetrievalPolicy | null;
+  retrievalQueryMode: LocomoRetrievalQueryMode | null;
+  retrievalBackend: LocomoRetrievalBackend | null;
+  retrievalRerank: LocomoRetrievalRerank | null;
+  retrievalTokenizer: LocomoRetrievalTokenizer | null;
+  retrievalEmbeddingProvider: LocomoRetrievalEmbeddingProvider | null;
+  retrievalEmbeddingModel: string | null;
   dataset: string | null;
   model: string | null;
   budgetTokens: number | null;
@@ -222,11 +256,18 @@ interface LocomoNativeProgress {
   completedQuestionCount: number | null;
   overallScore: number | null;
   contextF1: number | null;
+  currentPhase: LocomoProgressPhase | null;
   currentSampleId: string | null;
+  currentSampleEmbeddedTurnCount: number | null;
+  currentSampleTurnCount: number | null;
   currentSampleQuestionCount: number | null;
   currentSampleQuestionTotal: number | null;
   categories: Record<string, LocomoNativeCategoryAggregate>;
   tokenUsage: LocomoNativeTokenUsage | null;
+  variantCount: number | null;
+  completedVariantCount: number | null;
+  currentVariant: LocomoNativeRetrievalVariantProgress | null;
+  variants: LocomoNativeRetrievalVariantSummary[];
 }
 
 const MAX_QUEUED_EVAL_MESSAGES = 200;
@@ -279,10 +320,25 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
       '/eval locomo setup',
       '/eval locomo run --budget 4000 --max-questions 20',
       '/eval locomo run --mode retrieval --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --matrix --budget 4000',
+      '/eval locomo run --mode retrieval --matrix backend --budget 4000',
+      '/eval locomo run --mode retrieval --matrix rerank --budget 4000',
+      '/eval locomo run --mode retrieval --matrix tokenizer --budget 4000',
+      '/eval locomo run --mode retrieval --matrix embedding --budget 4000',
     ],
     notes: [
       'The default `qa` mode generates LoCoMo answers through HybridClaw’s local OpenAI-compatible gateway and scores the model outputs directly.',
       '`--mode retrieval` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.',
+      '`--mode retrieval --matrix` runs the default retrieval sweep across backend, rerank, and tokenizer combinations and renders a combined comparison table.',
+      '`--mode retrieval --matrix backend|rerank|tokenizer|embedding` runs a single-dimension sweep and keeps the other retrieval settings at the standard LOCOMO retrieval defaults (`no-stopwords`, `bm25`, `unicode61`) unless that dimension is the one being varied.',
+      'Retrieval-only knobs are benchmark controls: `--retrieval-query raw|no-stopwords`, `--retrieval-backend cosine|full-text|hybrid`, `--retrieval-rerank none|bm25` (default: `bm25`), `--retrieval-tokenizer unicode61|porter|trigram`, and `--retrieval-embedding hashed|transformers`.',
       'The `qa` prompt shape follows the upstream `evaluate_gpts` flow: truncated conversation context plus a short-answer QA prompt for each LoCoMo question.',
       '`--num-samples` limits conversation records. Use `--max-questions` for quick smoke runs over a small number of LoCoMo questions.',
       'By default, LOCOMO creates one fresh template-seeded agent per conversation sample. Use `--current-agent` to reuse the current agent workspace.',
@@ -510,6 +566,57 @@ function renderKeyValueSection(
   );
 }
 
+const ANSI_RESET = '\x1b[0m';
+const ANSI_INVERSE = '\x1b[7m';
+const ANSI_BEST_VALUE = '\x1b[1;93m';
+
+function stripAnsi(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
+
+function visibleLength(value: string): number {
+  return [...stripAnsi(value)].length;
+}
+
+function padAnsiEnd(value: string, width: number): string {
+  const missing = Math.max(0, width - visibleLength(value));
+  return `${value}${' '.repeat(missing)}`;
+}
+
+function styleLocomoMatrixCell(
+  value: string,
+  options?: {
+    inverse?: boolean;
+    highlight?: boolean;
+  },
+): string {
+  const codes: string[] = [];
+  if (options?.inverse) {
+    codes.push(ANSI_INVERSE);
+  }
+  if (options?.highlight) {
+    codes.push(ANSI_BEST_VALUE);
+  }
+  if (codes.length === 0) {
+    return value;
+  }
+  return `${codes.join('')}${value}${ANSI_RESET}`;
+}
+
 function renderSectionCard(title: string, lines: string[]): string {
   const bodyLines = lines.flatMap((line) =>
     String(line || '')
@@ -517,11 +624,13 @@ function renderSectionCard(title: string, lines: string[]): string {
       .map((entry) => entry.trimEnd()),
   );
   const contentWidth = Math.max(
-    title.length + 2,
-    ...bodyLines.map((line) => line.length),
+    visibleLength(title) + 2,
+    ...bodyLines.map((line) => visibleLength(line)),
   );
   const topBorder = `┌─ ${title} ${'─'.repeat(Math.max(1, contentWidth - title.length - 1))}┐`;
-  const middle = bodyLines.map((line) => `│ ${line.padEnd(contentWidth)} │`);
+  const middle = bodyLines.map(
+    (line) => `│ ${padAnsiEnd(line, contentWidth)} │`,
+  );
   const bottomBorder = `└${'─'.repeat(contentWidth + 2)}┘`;
   return [topBorder, ...middle, bottomBorder].join('\n');
 }
@@ -1450,6 +1559,222 @@ function readLocomoTokenUsage(value: unknown): LocomoNativeTokenUsage | null {
   };
 }
 
+function readLocomoRetrievalVariantSummary(
+  value: unknown,
+): LocomoNativeRetrievalVariantSummary | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const variant = value as Record<string, unknown>;
+  const id = readStringValue(variant.id);
+  const label = readStringValue(variant.label);
+  const retrievalPolicy = readLocomoRetrievalPolicy(variant.retrievalPolicy);
+  const retrievalQueryMode = readLocomoRetrievalQueryMode(
+    variant.retrievalQueryMode,
+  );
+  const retrievalBackend = readLocomoRetrievalBackend(variant.retrievalBackend);
+  const retrievalRerank = readLocomoRetrievalRerank(variant.retrievalRerank);
+  const retrievalTokenizer = readLocomoRetrievalTokenizer(
+    variant.retrievalTokenizer,
+  );
+  const retrievalEmbeddingProvider = readLocomoRetrievalEmbeddingProvider(
+    variant.retrievalEmbeddingProvider,
+  );
+  const retrievalEmbeddingModel = readStringValue(
+    variant.retrievalEmbeddingModel,
+  );
+  const sampleCount = readFiniteNumber(variant.sampleCount);
+  const questionCount = readFiniteNumber(variant.questionCount);
+  const overallScore = readFiniteNumber(variant.overallScore);
+  if (
+    !id ||
+    !label ||
+    retrievalPolicy == null ||
+    retrievalQueryMode == null ||
+    retrievalBackend == null ||
+    retrievalRerank == null ||
+    retrievalTokenizer == null ||
+    retrievalEmbeddingProvider == null ||
+    sampleCount == null ||
+    questionCount == null ||
+    overallScore == null
+  ) {
+    return null;
+  }
+  return {
+    id,
+    label,
+    retrievalPolicy,
+    retrievalQueryMode,
+    retrievalBackend,
+    retrievalRerank,
+    retrievalTokenizer,
+    retrievalEmbeddingProvider,
+    retrievalEmbeddingModel,
+    sampleCount,
+    questionCount,
+    overallScore,
+    contextF1: readFiniteNumber(variant.contextF1),
+    categories: readLocomoCategoryAggregates(variant.categories),
+  };
+}
+
+function readLocomoRetrievalVariantProgress(
+  value: unknown,
+): LocomoNativeRetrievalVariantProgress | null {
+  const summary = readLocomoRetrievalVariantSummary(value);
+  if (!summary || !value || typeof value !== 'object') {
+    return null;
+  }
+  const variant = value as Record<string, unknown>;
+  const completedSampleCount = readFiniteNumber(variant.completedSampleCount);
+  const completedQuestionCount = readFiniteNumber(
+    variant.completedQuestionCount,
+  );
+  if (completedSampleCount == null || completedQuestionCount == null) {
+    return null;
+  }
+  const currentPhase = readLocomoProgressPhase(variant.currentPhase);
+  const currentSampleId = readStringValue(variant.currentSampleId);
+  const currentSampleEmbeddedTurnCount = readFiniteNumber(
+    variant.currentSampleEmbeddedTurnCount,
+  );
+  const currentSampleTurnCount = readFiniteNumber(
+    variant.currentSampleTurnCount,
+  );
+  const currentSampleQuestionCount = readFiniteNumber(
+    variant.currentSampleQuestionCount,
+  );
+  const currentSampleQuestionTotal = readFiniteNumber(
+    variant.currentSampleQuestionTotal,
+  );
+  return {
+    ...summary,
+    currentPhase,
+    completedSampleCount,
+    completedQuestionCount,
+    currentSampleId,
+    currentSampleEmbeddedTurnCount,
+    currentSampleTurnCount,
+    currentSampleQuestionCount,
+    currentSampleQuestionTotal,
+  };
+}
+
+function readLocomoRetrievalVariants(
+  value: unknown,
+): LocomoNativeRetrievalVariantSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => readLocomoRetrievalVariantSummary(entry))
+    .filter(
+      (entry): entry is LocomoNativeRetrievalVariantSummary => entry !== null,
+    );
+}
+
+function readLocomoRetrievalPolicy(
+  value: unknown,
+): LocomoRetrievalPolicy | null {
+  if (value === 'prompt-capped' || value === 'budget-only') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalSweep(value: unknown): LocomoRetrievalSweep | null {
+  if (
+    value === 'all' ||
+    value === 'backend' ||
+    value === 'rerank' ||
+    value === 'tokenizer' ||
+    value === 'embedding'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoProgressPhase(value: unknown): LocomoProgressPhase | null {
+  if (
+    value === 'warming-embedding' ||
+    value === 'ingesting' ||
+    value === 'evaluating'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalEmbeddingProvider(
+  value: unknown,
+): LocomoRetrievalEmbeddingProvider | null {
+  const normalized = normalizeMemoryEmbeddingProviderKind(value, 'hashed');
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (
+    raw === 'hashed' ||
+    raw === 'hash' ||
+    raw === 'transformers' ||
+    raw === 'transformers.js'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function readLocomoRetrievalQueryMode(
+  value: unknown,
+): LocomoRetrievalQueryMode | null {
+  if (value === 'raw' || value === 'no-stopwords') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalBackend(
+  value: unknown,
+): LocomoRetrievalBackend | null {
+  const normalized = normalizeMemoryRecallBackend(value, 'cosine');
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (
+    raw === 'cosine' ||
+    raw === 'semantic' ||
+    raw === 'full-text' ||
+    raw === 'fulltext' ||
+    raw === 'fts-bm25' ||
+    raw === 'hybrid'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function readLocomoRetrievalRerank(
+  value: unknown,
+): LocomoRetrievalRerank | null {
+  if (value === 'none' || value === 'bm25') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalTokenizer(
+  value: unknown,
+): LocomoRetrievalTokenizer | null {
+  if (value === 'default' || value === 'unicode61') {
+    return 'unicode61';
+  }
+  if (value === 'porter' || value === 'trigram') {
+    return value;
+  }
+  return null;
+}
+
 function readTerminalBenchJobTokenUsage(
   jobDir: string,
   taskNames?: readonly string[],
@@ -1638,6 +1963,21 @@ function readLocomoNativeSummary(
       resultPath,
       predictionsPath: readStringValue(parsed.predictionsPath),
       mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
+      matrix: parsed.matrix === true,
+      matrixSweep: readLocomoRetrievalSweep(parsed.matrixSweep),
+      retrievalPolicy: readLocomoRetrievalPolicy(parsed.retrievalPolicy),
+      retrievalQueryMode: readLocomoRetrievalQueryMode(
+        parsed.retrievalQueryMode,
+      ),
+      retrievalBackend: readLocomoRetrievalBackend(parsed.retrievalBackend),
+      retrievalRerank: readLocomoRetrievalRerank(parsed.retrievalRerank),
+      retrievalTokenizer: readLocomoRetrievalTokenizer(
+        parsed.retrievalTokenizer,
+      ),
+      retrievalEmbeddingProvider: readLocomoRetrievalEmbeddingProvider(
+        parsed.retrievalEmbeddingProvider,
+      ),
+      retrievalEmbeddingModel: readStringValue(parsed.retrievalEmbeddingModel),
       dataset: readStringValue(parsed.dataset),
       model: readStringValue(parsed.model),
       budgetTokens: readFiniteNumber(parsed.budgetTokens),
@@ -1647,6 +1987,10 @@ function readLocomoNativeSummary(
       contextF1: readFiniteNumber(parsed.contextF1),
       categories: readLocomoCategoryAggregates(parsed.categories),
       tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
+      variantCount: readFiniteNumber(parsed.variantCount),
+      bestVariantId: readStringValue(parsed.bestVariantId),
+      bestVariantLabel: readStringValue(parsed.bestVariantLabel),
+      variants: readLocomoRetrievalVariants(parsed.variants),
     };
   } catch (error) {
     logger.debug(
@@ -1680,6 +2024,21 @@ function readLocomoNativeProgress(
         readStringValue(parsed.resultPath) || path.join(jobDir, 'result.json'),
       predictionsPath: readStringValue(parsed.predictionsPath),
       mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
+      matrix: parsed.matrix === true,
+      matrixSweep: readLocomoRetrievalSweep(parsed.matrixSweep),
+      retrievalPolicy: readLocomoRetrievalPolicy(parsed.retrievalPolicy),
+      retrievalQueryMode: readLocomoRetrievalQueryMode(
+        parsed.retrievalQueryMode,
+      ),
+      retrievalBackend: readLocomoRetrievalBackend(parsed.retrievalBackend),
+      retrievalRerank: readLocomoRetrievalRerank(parsed.retrievalRerank),
+      retrievalTokenizer: readLocomoRetrievalTokenizer(
+        parsed.retrievalTokenizer,
+      ),
+      retrievalEmbeddingProvider: readLocomoRetrievalEmbeddingProvider(
+        parsed.retrievalEmbeddingProvider,
+      ),
+      retrievalEmbeddingModel: readStringValue(parsed.retrievalEmbeddingModel),
       dataset: readStringValue(parsed.dataset),
       model: readStringValue(parsed.model),
       budgetTokens: readFiniteNumber(parsed.budgetTokens),
@@ -1689,7 +2048,12 @@ function readLocomoNativeProgress(
       completedQuestionCount: readFiniteNumber(parsed.completedQuestionCount),
       overallScore: readFiniteNumber(parsed.overallScore),
       contextF1: readFiniteNumber(parsed.contextF1),
+      currentPhase: readLocomoProgressPhase(parsed.currentPhase),
       currentSampleId: readStringValue(parsed.currentSampleId),
+      currentSampleEmbeddedTurnCount: readFiniteNumber(
+        parsed.currentSampleEmbeddedTurnCount,
+      ),
+      currentSampleTurnCount: readFiniteNumber(parsed.currentSampleTurnCount),
       currentSampleQuestionCount: readFiniteNumber(
         parsed.currentSampleQuestionCount,
       ),
@@ -1698,6 +2062,10 @@ function readLocomoNativeProgress(
       ),
       categories: readLocomoCategoryAggregates(parsed.categories),
       tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
+      variantCount: readFiniteNumber(parsed.variantCount),
+      completedVariantCount: readFiniteNumber(parsed.completedVariantCount),
+      currentVariant: readLocomoRetrievalVariantProgress(parsed.currentVariant),
+      variants: readLocomoRetrievalVariants(parsed.variants),
     };
   } catch (error) {
     logger.debug(
@@ -1731,6 +2099,252 @@ function formatLocomoTokenUsage(
 ): string | null {
   if (!value) return null;
   return `${value.totalTokens} total (${value.promptTokens} prompt + ${value.completionTokens} completion)`;
+}
+
+function formatLocomoRetrievalPolicy(
+  value: LocomoRetrievalPolicy | null | undefined,
+): string | null {
+  if (value === 'budget-only') {
+    return 'uncapped recall, token budget only';
+  }
+  if (value === 'prompt-capped') {
+    return 'prompt-capped recall';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalSweep(
+  value: LocomoRetrievalSweep | null | undefined,
+): string | null {
+  if (value === 'all') {
+    return 'full';
+  }
+  if (value === 'backend') {
+    return 'backend';
+  }
+  if (value === 'rerank') {
+    return 'rerank';
+  }
+  if (value === 'tokenizer') {
+    return 'tokenizer';
+  }
+  if (value === 'embedding') {
+    return 'embedding';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalQueryMode(
+  value: LocomoRetrievalQueryMode | null | undefined,
+): string | null {
+  if (value === 'raw') {
+    return 'raw question';
+  }
+  if (value === 'no-stopwords') {
+    return 'stopwords removed';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalBackend(
+  value: LocomoRetrievalBackend | null | undefined,
+): string | null {
+  if (value === 'cosine') {
+    return 'cosine';
+  }
+  if (value === 'full-text') {
+    return 'full text';
+  }
+  if (value === 'hybrid') {
+    return 'hybrid';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalRerank(
+  value: LocomoRetrievalRerank | null | undefined,
+): string | null {
+  if (value === 'none') {
+    return 'none';
+  }
+  if (value === 'bm25') {
+    return 'BM25 before budget';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalTokenizer(
+  value: LocomoRetrievalTokenizer | null | undefined,
+): string | null {
+  if (value === 'unicode61') {
+    return 'unicode61';
+  }
+  if (value === 'porter') {
+    return 'porter';
+  }
+  if (value === 'trigram') {
+    return 'trigram';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalEmbeddingProvider(
+  value: LocomoRetrievalEmbeddingProvider | null | undefined,
+): string | null {
+  if (value === 'hashed') {
+    return 'hashed';
+  }
+  if (value === 'transformers') {
+    return 'Transformers.js';
+  }
+  return null;
+}
+
+function formatLocomoProgressPhase(
+  value: LocomoProgressPhase | null | undefined,
+): string | null {
+  if (value === 'warming-embedding') {
+    return 'loading embedding model';
+  }
+  if (value === 'ingesting') {
+    return 'ingesting memory';
+  }
+  if (value === 'evaluating') {
+    return 'evaluating questions';
+  }
+  return null;
+}
+
+function formatLocomoMatrixMetric(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '-';
+  }
+  return value.toFixed(4);
+}
+
+function areLocomoMetricValuesEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-9;
+}
+
+function computeLocomoVariantMetricHighlightStats(
+  variants: LocomoNativeRetrievalVariantSummary[],
+): Array<{ max: number | null; shouldHighlight: boolean }> {
+  const metricGetters = [
+    (variant: LocomoNativeRetrievalVariantSummary) => variant.overallScore,
+    (variant: LocomoNativeRetrievalVariantSummary) => variant.contextF1 ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['1']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['2']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['3']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['4']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['5']?.meanScore ?? null,
+  ];
+  return metricGetters.map((getter) => {
+    const values = variants
+      .map((variant) => getter(variant))
+      .filter(
+        (value): value is number => value != null && Number.isFinite(value),
+      );
+    if (values.length === 0) {
+      return { max: null, shouldHighlight: false };
+    }
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    return {
+      max,
+      shouldHighlight: !areLocomoMetricValuesEqual(max, min),
+    };
+  });
+}
+
+function renderLocomoVariantComparisonSection(
+  title: string,
+  variants: LocomoNativeRetrievalVariantSummary[],
+): string {
+  if (!variants.length) {
+    return '';
+  }
+  const highlightStats = computeLocomoVariantMetricHighlightStats(variants);
+  const bestHitRate =
+    highlightStats[0]?.max != null && Number.isFinite(highlightStats[0].max)
+      ? highlightStats[0].max
+      : null;
+  const rows = variants.map((variant) => {
+    const metrics = [
+      variant.overallScore,
+      variant.contextF1 ?? null,
+      variant.categories['1']?.meanScore ?? null,
+      variant.categories['2']?.meanScore ?? null,
+      variant.categories['3']?.meanScore ?? null,
+      variant.categories['4']?.meanScore ?? null,
+      variant.categories['5']?.meanScore ?? null,
+    ];
+    return [
+      variant.label,
+      ...metrics.map((metric, index) => {
+        const formatted = formatLocomoMatrixMetric(metric);
+        const highlight = highlightStats[index]?.shouldHighlight;
+        const max = highlightStats[index]?.max;
+        if (
+          !highlight ||
+          metric == null ||
+          max == null ||
+          !Number.isFinite(metric) ||
+          !areLocomoMetricValuesEqual(metric, max)
+        ) {
+          return formatted;
+        }
+        return `${formatted}*`;
+      }),
+    ];
+  });
+  const header = ['Variant', 'HitRate', 'F1', 'C1', 'C2', 'C3', 'C4', 'C5'];
+  const widths = header.map((entry, index) =>
+    Math.max(
+      visibleLength(entry),
+      ...rows.map((row) => visibleLength(String(row[index] || ''))),
+    ),
+  );
+  return renderSectionCard(title, [
+    header.map((entry, index) => padAnsiEnd(entry, widths[index])).join('  '),
+    widths.map((width) => '-'.repeat(width)).join('  '),
+    ...rows.map((row, rowIndex) => {
+      const bestHitRateStat = highlightStats[0];
+      const isBestOverall =
+        bestHitRate != null &&
+        Number.isFinite(variants[rowIndex]?.overallScore) &&
+        areLocomoMetricValuesEqual(
+          variants[rowIndex]?.overallScore ?? 0,
+          bestHitRate,
+        );
+      return row
+        .map((entry, index) =>
+          styleLocomoMatrixCell(
+            padAnsiEnd(String(entry), widths[index]),
+            index === 0
+              ? { inverse: isBestOverall }
+              : {
+                  inverse: isBestOverall,
+                  highlight:
+                    bestHitRateStat != null &&
+                    index > 0 &&
+                    highlightStats[index - 1]?.shouldHighlight === true &&
+                    typeof entry === 'string' &&
+                    !entry.startsWith('-') &&
+                    areLocomoMetricValuesEqual(
+                      Number.parseFloat(entry),
+                      highlightStats[index - 1]?.max ?? Number.NaN,
+                    ),
+                },
+          ),
+        )
+        .join('  ');
+    }),
+  ]);
 }
 
 function describeManagedSuiteRunLifecycle(
@@ -1947,6 +2561,34 @@ function formatProgressBar(completed: number, total: number): string {
   return `[${'#'.repeat(filled)}${'-'.repeat(
     EVAL_PROGRESS_BAR_WIDTH - filled,
   )}]`;
+}
+
+function formatProgressValue(
+  completed: number | null | undefined,
+  total: number | null | undefined,
+): string | null {
+  if (
+    completed == null ||
+    total == null ||
+    !Number.isFinite(completed) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return null;
+  }
+  const normalizedCompleted = clampProgress(completed, total);
+  const normalizedTotal = Math.max(1, Math.floor(total));
+  const percent = Math.round((normalizedCompleted / normalizedTotal) * 100);
+  return `${formatProgressBar(normalizedCompleted, normalizedTotal)} ${normalizedCompleted}/${normalizedTotal} (${percent}%)`;
+}
+
+function formatLocomoEvaluationProgressValue(
+  progress: LocomoNativeProgress,
+): string | null {
+  return formatProgressValue(
+    progress.completedQuestionCount,
+    progress.questionCount,
+  );
 }
 
 function formatProgressMessage(params: {
@@ -2733,6 +3375,41 @@ function renderManagedSuiteStatus(
                 `Samples: ${latestLocomoSummary.sampleCount ?? 'unknown'}`,
                 `Questions: ${latestLocomoSummary.questionCount ?? 'unknown'}`,
                 `Budget: ${latestLocomoSummary.budgetTokens ?? 'unknown'}`,
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                latestLocomoSummary.retrievalPolicy
+                  ? [
+                      `Recall policy: ${formatLocomoRetrievalPolicy(latestLocomoSummary.retrievalPolicy) || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                !latestLocomoSummary.matrix
+                  ? [
+                      `Query prep: ${formatLocomoRetrievalQueryMode(latestLocomoSummary.retrievalQueryMode) || 'unknown'}`,
+                      `Backend: ${formatLocomoRetrievalBackend(latestLocomoSummary.retrievalBackend) || 'unknown'}`,
+                      `Rerank: ${formatLocomoRetrievalRerank(latestLocomoSummary.retrievalRerank) || 'unknown'}`,
+                      `Tokenizer: ${formatLocomoRetrievalTokenizer(latestLocomoSummary.retrievalTokenizer) || 'unknown'}`,
+                      `Embedding: ${formatLocomoRetrievalEmbeddingProvider(latestLocomoSummary.retrievalEmbeddingProvider) || 'unknown'}`,
+                      `Embedding model: ${latestLocomoSummary.retrievalEmbeddingModel || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                latestLocomoSummary.matrix &&
+                latestLocomoSummary.retrievalEmbeddingModel
+                  ? [
+                      `Embedding model: ${latestLocomoSummary.retrievalEmbeddingModel}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.matrix
+                  ? [
+                      `Sweep: ${formatLocomoRetrievalSweep(latestLocomoSummary.matrixSweep) || 'unknown'}`,
+                      `Variants: ${latestLocomoSummary.variants.length}/${latestLocomoSummary.variantCount ?? latestLocomoSummary.variants.length}`,
+                      ...(latestLocomoSummary.bestVariantLabel
+                        ? [
+                            `Best variant: ${latestLocomoSummary.bestVariantLabel}`,
+                          ]
+                        : []),
+                    ]
+                  : []),
                 `${
                   latestLocomoSummary.mode === 'retrieval'
                     ? 'Hit rate'
@@ -2751,18 +3428,20 @@ function renderManagedSuiteStatus(
                       }`,
                     ]
                   : []),
-                ...Object.entries(latestLocomoSummary.categories)
-                  .sort(([left], [right]) => Number(left) - Number(right))
-                  .map(
-                    ([category, value]) =>
-                      `cat${category}: ${
-                        formatLocomoCategoryValue(
-                          category,
-                          value,
-                          latestLocomoSummary.mode,
-                        ) || 'n/a'
-                      }`,
-                  ),
+                ...(!latestLocomoSummary.matrix
+                  ? Object.entries(latestLocomoSummary.categories)
+                      .sort(([left], [right]) => Number(left) - Number(right))
+                      .map(
+                        ([category, value]) =>
+                          `cat${category}: ${
+                            formatLocomoCategoryValue(
+                              category,
+                              value,
+                              latestLocomoSummary.mode,
+                            ) || 'n/a'
+                          }`,
+                      )
+                  : []),
                 ...(latestLocomoSummary.tokenUsage
                   ? [
                       `Tokens: ${formatLocomoTokenUsage(
@@ -2786,6 +3465,41 @@ function renderManagedSuiteStatus(
                   latestLocomoProgress.completedQuestionCount ?? 'unknown'
                 }/${latestLocomoProgress.questionCount ?? '?'}`,
                 `Budget: ${latestLocomoProgress.budgetTokens ?? 'unknown'}`,
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                latestLocomoProgress.retrievalPolicy
+                  ? [
+                      `Recall policy: ${formatLocomoRetrievalPolicy(latestLocomoProgress.retrievalPolicy) || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                !latestLocomoProgress.matrix
+                  ? [
+                      `Query prep: ${formatLocomoRetrievalQueryMode(latestLocomoProgress.retrievalQueryMode) || 'unknown'}`,
+                      `Backend: ${formatLocomoRetrievalBackend(latestLocomoProgress.retrievalBackend) || 'unknown'}`,
+                      `Rerank: ${formatLocomoRetrievalRerank(latestLocomoProgress.retrievalRerank) || 'unknown'}`,
+                      `Tokenizer: ${formatLocomoRetrievalTokenizer(latestLocomoProgress.retrievalTokenizer) || 'unknown'}`,
+                      `Embedding: ${formatLocomoRetrievalEmbeddingProvider(latestLocomoProgress.retrievalEmbeddingProvider) || 'unknown'}`,
+                      `Embedding model: ${latestLocomoProgress.retrievalEmbeddingModel || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                latestLocomoProgress.matrix &&
+                latestLocomoProgress.retrievalEmbeddingModel
+                  ? [
+                      `Embedding model: ${latestLocomoProgress.retrievalEmbeddingModel}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.matrix
+                  ? [
+                      `Sweep: ${formatLocomoRetrievalSweep(latestLocomoProgress.matrixSweep) || 'unknown'}`,
+                      `Variants: ${latestLocomoProgress.completedVariantCount ?? latestLocomoProgress.variants.length}/${latestLocomoProgress.variantCount ?? '?'}`,
+                      ...(latestLocomoProgress.currentVariant
+                        ? [
+                            `Current variant: ${latestLocomoProgress.currentVariant.label}`,
+                          ]
+                        : []),
+                    ]
+                  : []),
                 `${
                   latestLocomoProgress.mode === 'retrieval'
                     ? 'Hit rate so far'
@@ -2797,6 +3511,11 @@ function renderManagedSuiteStatus(
                 }`,
                 ...(latestLocomoProgress.mode === 'retrieval'
                   ? [
+                      ...(latestLocomoProgress.currentPhase
+                        ? [
+                            `Phase: ${formatLocomoProgressPhase(latestLocomoProgress.currentPhase) || 'unknown'}`,
+                          ]
+                        : []),
                       `Context F1 so far: ${
                         latestLocomoProgress.contextF1 != null
                           ? latestLocomoProgress.contextF1.toFixed(3)
@@ -2807,6 +3526,13 @@ function renderManagedSuiteStatus(
                 ...(latestLocomoProgress.currentSampleId
                   ? [
                       `Current sample: ${latestLocomoProgress.currentSampleId}`,
+                      ...(latestLocomoProgress.currentSampleEmbeddedTurnCount !=
+                        null &&
+                      latestLocomoProgress.currentSampleTurnCount != null
+                        ? [
+                            `Embedding turns: ${latestLocomoProgress.currentSampleEmbeddedTurnCount}/${latestLocomoProgress.currentSampleTurnCount}`,
+                          ]
+                        : []),
                       ...(latestLocomoProgress.currentSampleQuestionCount !=
                         null &&
                       latestLocomoProgress.currentSampleQuestionTotal != null
@@ -2816,18 +3542,20 @@ function renderManagedSuiteStatus(
                         : []),
                     ]
                   : []),
-                ...Object.entries(latestLocomoProgress.categories)
-                  .sort(([left], [right]) => Number(left) - Number(right))
-                  .map(
-                    ([category, value]) =>
-                      `cat${category}: ${
-                        formatLocomoCategoryValue(
-                          category,
-                          value,
-                          latestLocomoProgress.mode,
-                        ) || 'n/a'
-                      }`,
-                  ),
+                ...(!latestLocomoProgress.matrix
+                  ? Object.entries(latestLocomoProgress.categories)
+                      .sort(([left], [right]) => Number(left) - Number(right))
+                      .map(
+                        ([category, value]) =>
+                          `cat${category}: ${
+                            formatLocomoCategoryValue(
+                              category,
+                              value,
+                              latestLocomoProgress.mode,
+                            ) || 'n/a'
+                          }`,
+                      )
+                  : []),
                 ...(latestLocomoProgress.tokenUsage
                   ? [
                       `Tokens: ${formatLocomoTokenUsage(
@@ -2881,8 +3609,12 @@ function renderManagedSuiteResults(
     suite.id === 'terminal-bench-2.0' && latestJob.operation === 'run'
       ? readTerminalBenchNativeProgress(latestJob)
       : null;
+  const locomoRunActive =
+    suite.id === 'locomo' &&
+    latestJob.operation === 'run' &&
+    isRunMetaActive(latestJob);
   const locomoSummary =
-    suite.id === 'locomo' && latestJob.operation === 'run'
+    suite.id === 'locomo' && latestJob.operation === 'run' && !locomoRunActive
       ? readLocomoNativeSummary(latestJob)
       : null;
   const locomoProgress =
@@ -2952,6 +3684,20 @@ function renderManagedSuiteResults(
   }
   if (suite.id === 'locomo') {
     const locomoData = locomoSummary || locomoProgress;
+    const locomoVariantRows =
+      locomoData?.mode === 'retrieval' && locomoData.matrix
+        ? [
+            ...locomoData.variants,
+            ...(!locomoSummary && locomoProgress?.currentVariant
+              ? [
+                  {
+                    ...locomoProgress.currentVariant,
+                    label: `${locomoProgress.currentVariant.label} (running)`,
+                  },
+                ]
+              : []),
+          ]
+        : [];
     const overviewSection = renderKeyValueSection('Overview', [
       [
         'Evaluated model',
@@ -2964,6 +3710,68 @@ function renderManagedSuiteResults(
       ['Mode', locomoData?.mode || null],
       ['Dataset', locomoData?.dataset || null],
       ['Samples', locomoData?.sampleCount ?? null],
+      [
+        'Variants',
+        locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? `${locomoSummary ? locomoData.variants.length : (locomoProgress?.completedVariantCount ?? locomoData.variants.length)}/${locomoData.variantCount ?? locomoData.variants.length}`
+          : null,
+      ],
+      [
+        'Sweep',
+        locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? formatLocomoRetrievalSweep(locomoData.matrixSweep)
+          : null,
+      ],
+      [
+        'Recall policy',
+        locomoData?.mode === 'retrieval'
+          ? formatLocomoRetrievalPolicy(locomoData.retrievalPolicy)
+          : null,
+      ],
+      [
+        'Query prep',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalQueryMode(locomoData.retrievalQueryMode)
+          : null,
+      ],
+      [
+        'Backend',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalBackend(locomoData.retrievalBackend)
+          : null,
+      ],
+      [
+        'Rerank',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalRerank(locomoData.retrievalRerank)
+          : null,
+      ],
+      [
+        'Tokenizer',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalTokenizer(locomoData.retrievalTokenizer)
+          : null,
+      ],
+      [
+        'Embedding',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalEmbeddingProvider(
+              locomoData.retrievalEmbeddingProvider,
+            )
+          : null,
+      ],
+      [
+        'Embedding model',
+        locomoData?.mode === 'retrieval'
+          ? locomoData.retrievalEmbeddingModel
+          : null,
+      ],
+      [
+        'Best variant',
+        locomoSummary && locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? locomoSummary.bestVariantLabel
+          : null,
+      ],
       [
         'Questions',
         locomoSummary
@@ -2982,53 +3790,85 @@ function renderManagedSuiteResults(
       [
         locomoSummary
           ? locomoData?.mode === 'retrieval'
-            ? 'Hit rate'
+            ? locomoData.matrix
+              ? 'Best hit rate'
+              : 'Hit rate'
             : 'Overall score'
           : locomoData?.mode === 'retrieval'
-            ? 'Hit rate so far'
+            ? locomoData.matrix
+              ? 'Current hit rate'
+              : 'Hit rate so far'
             : 'Score so far',
         locomoData?.overallScore ?? null,
       ],
       [
-        locomoSummary ? 'Context F1' : 'Context F1 so far',
+        locomoSummary
+          ? locomoData?.matrix
+            ? 'Best context F1'
+            : 'Context F1'
+          : locomoData?.matrix
+            ? 'Current context F1'
+            : 'Context F1 so far',
         locomoData?.mode === 'retrieval'
           ? (locomoData?.contextF1 ?? null)
           : null,
       ],
-      [
-        'Current sample',
-        !locomoSummary && locomoProgress
-          ? locomoProgress.currentSampleId
-          : null,
-      ],
     ]);
-    const categorySection = renderKeyValueSection(
-      locomoSummary ? 'Categories' : 'Categories So Far',
-      Object.entries(locomoData?.categories || {})
-        .sort(([left], [right]) => Number(left) - Number(right))
-        .map(
-          ([category, value]) =>
+    const progressSection =
+      !locomoSummary && locomoProgress
+        ? renderKeyValueSection('Progress', [
+            ['Phase', formatLocomoProgressPhase(locomoProgress.currentPhase)],
+            ['Current sample', locomoProgress.currentSampleId],
             [
-              `cat${category}`,
-              formatLocomoCategoryValue(
-                category,
-                value,
-                locomoData?.mode || 'qa',
+              'Embedding',
+              formatProgressValue(
+                locomoProgress.currentSampleEmbeddedTurnCount,
+                locomoProgress.currentSampleTurnCount,
               ),
-            ] as const,
-        ),
-    );
+            ],
+            ['Evaluation', formatLocomoEvaluationProgressValue(locomoProgress)],
+            [
+              'Variants',
+              locomoProgress.mode === 'retrieval' && locomoProgress.matrix
+                ? formatProgressValue(
+                    locomoProgress.completedVariantCount ??
+                      locomoProgress.variants.length,
+                    locomoProgress.variantCount,
+                  )
+                : null,
+            ],
+            [
+              'Current variant',
+              locomoProgress.mode === 'retrieval' && locomoProgress.matrix
+                ? locomoProgress.currentVariant?.label
+                : null,
+            ],
+          ])
+        : null;
+    const categorySection =
+      locomoData?.mode === 'retrieval' && locomoData.matrix
+        ? renderLocomoVariantComparisonSection(
+            locomoSummary ? 'Variants' : 'Variants So Far',
+            locomoVariantRows,
+          )
+        : renderKeyValueSection(
+            locomoSummary ? 'Categories' : 'Categories So Far',
+            Object.entries(locomoData?.categories || {})
+              .sort(([left], [right]) => Number(left) - Number(right))
+              .map(
+                ([category, value]) =>
+                  [
+                    `cat${category}`,
+                    formatLocomoCategoryValue(
+                      category,
+                      value,
+                      locomoData?.mode || 'qa',
+                    ),
+                  ] as const,
+              ),
+          );
     const usageSection = renderKeyValueSection('Usage', [
       ['Tokens', formatLocomoTokenUsage(locomoData?.tokenUsage)],
-      [
-        'Current sample questions',
-        !locomoSummary &&
-        locomoProgress &&
-        locomoProgress.currentSampleQuestionCount != null &&
-        locomoProgress.currentSampleQuestionTotal != null
-          ? `${locomoProgress.currentSampleQuestionCount}/${locomoProgress.currentSampleQuestionTotal}`
-          : null,
-      ],
     ]);
     const runSection = renderKeyValueSection('Run', [
       ['Run ID', latestJob.runId],
@@ -3049,6 +3889,7 @@ function renderManagedSuiteResults(
       `${suite.title} Results`,
       joinSections([
         overviewSection,
+        progressSection,
         categorySection,
         usageSection,
         runSection,

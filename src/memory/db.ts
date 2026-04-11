@@ -81,6 +81,18 @@ import type {
   UsageWindow,
 } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
+import {
+  buildMemoryFtsDocument,
+  buildMemoryFtsMatchQuery,
+  getMemoryFtsTokenizerSpec,
+  type MemoryRecallBackend,
+  type MemoryRecallRerank,
+  type MemoryRecallTokenizer,
+  normalizeMemoryRecallBackend,
+  normalizeMemoryRecallRerank,
+  normalizeMemoryRecallTokenizer,
+  tokenizeMemoryRecallQuery,
+} from './semantic-recall.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
@@ -4584,19 +4596,11 @@ function parseTimestamp(raw: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function parseQueryTerms(query: string): string[] {
-  const lower = query
-    .toLowerCase()
-    .split(/[^a-z0-9_-]+/g)
-    .map((term) => term.trim())
-    .filter((term) => term.length >= 2);
-  if (lower.length === 0) return [];
-  const unique = new Set<string>();
-  for (const term of lower) {
-    unique.add(term);
-    if (unique.size >= 8) break;
-  }
-  return [...unique];
+function parseQueryTerms(
+  query: string,
+  tokenizer: MemoryRecallTokenizer,
+): string[] {
+  return tokenizeMemoryRecallQuery(query, 8, tokenizer);
 }
 
 const MAX_EMBEDDING_DIMENSIONS = 2048;
@@ -4812,6 +4816,7 @@ function recallSemanticMemoriesByLike(params: {
   limit: number;
   minConfidence: number;
   filter?: SemanticRecallFilter;
+  touch?: boolean;
 }): SemanticMemoryEntry[] {
   if (params.queryTerms.length === 0) return [];
   const candidateLimit = Math.max(params.limit * 8, 50);
@@ -4871,7 +4876,9 @@ function recallSemanticMemoriesByLike(params: {
     .slice(0, params.limit)
     .map((entry) => entry.row);
 
-  touchSemanticMemoryRows(ranked);
+  if (params.touch !== false) {
+    touchSemanticMemoryRows(ranked);
+  }
   return ranked;
 }
 
@@ -4881,6 +4888,7 @@ function recallSemanticMemoriesByVector(params: {
   limit: number;
   minConfidence: number;
   filter?: SemanticRecallFilter;
+  touch?: boolean;
 }): SemanticMemoryEntry[] {
   const candidateLimit = Math.max(params.limit * 10, 100);
   const whereClauses: string[] = [
@@ -4929,7 +4937,241 @@ function recallSemanticMemoriesByVector(params: {
     .slice(0, params.limit)
     .map((entry) => entry.row);
 
-  touchSemanticMemoryRows(ranked);
+  if (params.touch !== false) {
+    touchSemanticMemoryRows(ranked);
+  }
+  return ranked;
+}
+
+function rankSemanticMemoriesWithFts(params: {
+  rows: SemanticMemoryEntry[];
+  query: string;
+  limit: number;
+  tokenizer: MemoryRecallTokenizer;
+  rankMode: 'source' | 'bm25';
+}): SemanticMemoryEntry[] {
+  if (params.rows.length === 0) return [];
+  const matchQuery = buildMemoryFtsMatchQuery(
+    params.query,
+    12,
+    params.tokenizer,
+  );
+  if (!matchQuery) {
+    return [];
+  }
+
+  const ftsDb = new Database(':memory:');
+  try {
+    const tokenizerSpec = getMemoryFtsTokenizerSpec(params.tokenizer);
+    ftsDb.exec(
+      `CREATE VIRTUAL TABLE semantic_recall USING fts5(memory_id UNINDEXED, content, tokenize='${tokenizerSpec}')`,
+    );
+  } catch (error) {
+    ftsDb.close();
+    throw new Error(
+      `Full-text semantic recall requires SQLite FTS5 support: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    const rowsById = new Map<number, SemanticMemoryEntry>();
+    const insert = ftsDb.prepare(
+      'INSERT INTO semantic_recall (memory_id, content) VALUES (?, ?)',
+    );
+    const transaction = ftsDb.transaction(() => {
+      for (const row of params.rows) {
+        rowsById.set(row.id, row);
+        insert.run(
+          row.id,
+          buildMemoryFtsDocument(row.content, params.tokenizer),
+        );
+      }
+    });
+    transaction();
+
+    if (params.rankMode === 'source') {
+      const matches = ftsDb
+        .prepare(
+          `SELECT memory_id
+           FROM semantic_recall
+           WHERE semantic_recall MATCH ?`,
+        )
+        .all(matchQuery) as Array<{
+        memory_id: number;
+      }>;
+      const matchedIds = new Set<number>(
+        matches.map((match) => Number(match.memory_id)),
+      );
+      const ordered: SemanticMemoryEntry[] = [];
+      for (const row of params.rows) {
+        if (!matchedIds.has(row.id)) {
+          continue;
+        }
+        ordered.push(row);
+        if (ordered.length >= Math.max(1, params.limit)) {
+          break;
+        }
+      }
+      return ordered;
+    }
+
+    const matches = ftsDb
+      .prepare(
+        `SELECT memory_id
+         FROM semantic_recall
+         WHERE semantic_recall MATCH ?
+         ORDER BY bm25(semantic_recall)
+         LIMIT ?`,
+      )
+      .all(matchQuery, Math.max(1, params.limit)) as Array<{
+      memory_id: number;
+    }>;
+
+    const ordered: SemanticMemoryEntry[] = [];
+    for (const match of matches) {
+      const row = rowsById.get(Number(match.memory_id));
+      if (row) {
+        ordered.push(row);
+      }
+    }
+    return ordered;
+  } finally {
+    ftsDb.close();
+  }
+}
+
+function rerankSemanticMemoriesWithFts(params: {
+  rows: SemanticMemoryEntry[];
+  query: string;
+  tokenizer: MemoryRecallTokenizer;
+}): SemanticMemoryEntry[] {
+  const reranked = rankSemanticMemoriesWithFts({
+    rows: params.rows,
+    query: params.query,
+    limit: params.rows.length,
+    tokenizer: params.tokenizer,
+    rankMode: 'bm25',
+  });
+  if (reranked.length === 0) {
+    return params.rows;
+  }
+
+  const seen = new Set<number>();
+  const ordered: SemanticMemoryEntry[] = [];
+  for (const row of reranked) {
+    seen.add(row.id);
+    ordered.push(row);
+  }
+  for (const row of params.rows) {
+    if (seen.has(row.id)) {
+      continue;
+    }
+    ordered.push(row);
+  }
+  return ordered;
+}
+
+function fuseHybridSemanticMemories(params: {
+  cosineRows: SemanticMemoryEntry[];
+  fullTextRows: SemanticMemoryEntry[];
+}): SemanticMemoryEntry[] {
+  if (params.cosineRows.length === 0) {
+    return params.fullTextRows;
+  }
+  if (params.fullTextRows.length === 0) {
+    return params.cosineRows;
+  }
+
+  const rowsById = new Map<number, SemanticMemoryEntry>();
+  const scoreById = new Map<number, number>();
+  const cosineRankById = new Map<number, number>();
+  const fullTextRankById = new Map<number, number>();
+
+  for (let index = 0; index < params.cosineRows.length; index += 1) {
+    const row = params.cosineRows[index];
+    rowsById.set(row.id, row);
+    cosineRankById.set(row.id, index + 1);
+    scoreById.set(row.id, (scoreById.get(row.id) || 0) + 1 / (60 + index + 1));
+  }
+
+  for (let index = 0; index < params.fullTextRows.length; index += 1) {
+    const row = params.fullTextRows[index];
+    rowsById.set(row.id, row);
+    fullTextRankById.set(row.id, index + 1);
+    scoreById.set(row.id, (scoreById.get(row.id) || 0) + 1 / (60 + index + 1));
+  }
+
+  return [...rowsById.values()].sort((left, right) => {
+    const leftScore = scoreById.get(left.id) || 0;
+    const rightScore = scoreById.get(right.id) || 0;
+    if (rightScore !== leftScore) return rightScore - leftScore;
+
+    const leftFullTextRank =
+      fullTextRankById.get(left.id) || Number.MAX_SAFE_INTEGER;
+    const rightFullTextRank =
+      fullTextRankById.get(right.id) || Number.MAX_SAFE_INTEGER;
+    if (leftFullTextRank !== rightFullTextRank) {
+      return leftFullTextRank - rightFullTextRank;
+    }
+
+    const leftCosineRank =
+      cosineRankById.get(left.id) || Number.MAX_SAFE_INTEGER;
+    const rightCosineRank =
+      cosineRankById.get(right.id) || Number.MAX_SAFE_INTEGER;
+    if (leftCosineRank !== rightCosineRank) {
+      return leftCosineRank - rightCosineRank;
+    }
+
+    if (right.confidence !== left.confidence) {
+      return right.confidence - left.confidence;
+    }
+    return parseTimestamp(right.accessed_at) - parseTimestamp(left.accessed_at);
+  });
+}
+
+function recallSemanticMemoriesByFts(params: {
+  sessionId: string;
+  normalizedQuery: string;
+  limit: number;
+  minConfidence: number;
+  tokenizer: MemoryRecallTokenizer;
+  rankMode: 'source' | 'bm25';
+  filter?: SemanticRecallFilter;
+  touch?: boolean;
+}): SemanticMemoryEntry[] {
+  const whereClauses: string[] = [
+    'session_id = ?',
+    'deleted = 0',
+    'confidence >= ?',
+  ];
+  const args: unknown[] = [params.sessionId, params.minConfidence];
+  applySemanticRecallFilterClauses({
+    whereClauses,
+    args,
+    filter: params.filter,
+  });
+  const rows = queryAll<RawSemanticMemoryRow>(
+    db,
+    `SELECT *
+     FROM semantic_memories
+     WHERE ${whereClauses.join('\n         AND ')}
+     ORDER BY accessed_at DESC, confidence DESC`,
+    ...args,
+  ).map(mapSemanticMemoryRow);
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const ranked = rankSemanticMemoriesWithFts({
+    rows,
+    query: params.normalizedQuery,
+    limit: params.limit,
+    tokenizer: params.tokenizer,
+    rankMode: params.rankMode,
+  });
+  if (params.touch !== false) {
+    touchSemanticMemoryRows(ranked);
+  }
   return ranked;
 }
 
@@ -4938,6 +5180,7 @@ function recallSemanticMemoriesByRecent(params: {
   limit: number;
   minConfidence: number;
   filter?: SemanticRecallFilter;
+  touch?: boolean;
 }): SemanticMemoryEntry[] {
   const whereClauses: string[] = [
     'session_id = ?',
@@ -4961,8 +5204,30 @@ function recallSemanticMemoriesByRecent(params: {
     ...args,
   );
   const mapped = rows.map(mapSemanticMemoryRow);
-  touchSemanticMemoryRows(mapped);
+  if (params.touch !== false) {
+    touchSemanticMemoryRows(mapped);
+  }
   return mapped;
+}
+
+export function listSemanticMemoriesForSession(
+  sessionId: string,
+  limit = 5,
+): SemanticMemoryEntry[] {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit || 5), 50));
+  const rows = queryAll<RawSemanticMemoryRow>(
+    db,
+    `SELECT *
+     FROM semantic_memories
+     WHERE session_id = ?
+       AND deleted = 0
+     ORDER BY accessed_at DESC, confidence DESC
+     LIMIT ?`,
+    resolvedSessionId,
+    boundedLimit,
+  );
+  return rows.map(mapSemanticMemoryRow);
 }
 
 export function storeSemanticMemory(params: {
@@ -5029,22 +5294,44 @@ export function recallSemanticMemories(params: {
   sessionId: string;
   query: string;
   limit?: number;
+  limitHardCap?: number | null;
   minConfidence?: number;
   queryEmbedding?: number[] | null;
+  backend?: MemoryRecallBackend;
+  rerank?: MemoryRecallRerank;
+  tokenizer?: MemoryRecallTokenizer;
   filter?: SemanticRecallFilter;
+  touch?: boolean;
 }): SemanticMemoryEntry[] {
   const resolvedSessionId = resolveSessionIdCompat(params.sessionId);
   const normalizedQuery = params.query.trim().toLowerCase();
-  const queryTerms = parseQueryTerms(normalizedQuery);
+  const tokenizer = normalizeMemoryRecallTokenizer(
+    params.tokenizer,
+    'unicode61',
+  );
+  const queryTerms = parseQueryTerms(normalizedQuery, tokenizer);
   const queryEmbedding = normalizeEmbeddingInput(params.queryEmbedding);
 
-  const limit = Math.max(1, Math.min(Math.floor(params.limit || 5), 50));
+  const requestedLimit = Math.max(1, Math.floor(params.limit || 5));
+  const limitHardCap =
+    typeof params.limitHardCap === 'number' &&
+    Number.isFinite(params.limitHardCap)
+      ? Math.max(1, Math.floor(params.limitHardCap))
+      : params.limitHardCap === null
+        ? null
+        : 50;
+  const limit =
+    limitHardCap == null
+      ? requestedLimit
+      : Math.min(requestedLimit, limitHardCap);
   const rawMinConfidence =
     typeof params.minConfidence === 'number' &&
     Number.isFinite(params.minConfidence)
       ? params.minConfidence
       : 0.2;
   const minConfidence = Math.max(0, Math.min(1, rawMinConfidence));
+  const backend = normalizeMemoryRecallBackend(params.backend, 'cosine');
+  const rerank = normalizeMemoryRecallRerank(params.rerank, 'none');
 
   if (!queryEmbedding && queryTerms.length === 0) {
     return recallSemanticMemoriesByRecent({
@@ -5052,27 +5339,108 @@ export function recallSemanticMemories(params: {
       limit,
       minConfidence,
       filter: params.filter,
+      touch: params.touch,
     });
   }
 
-  if (queryEmbedding) {
-    return recallSemanticMemoriesByVector({
+  if (backend === 'full-text') {
+    const fullTextCandidateLimit =
+      rerank === 'bm25' ? Math.max(limit * 10, 100) : limit;
+    const fullTextCandidates = recallSemanticMemoriesByFts({
       sessionId: resolvedSessionId,
-      queryEmbedding,
-      limit,
+      normalizedQuery,
+      limit: fullTextCandidateLimit,
       minConfidence,
+      tokenizer,
+      rankMode: 'source',
       filter: params.filter,
+      touch: false,
     });
+    const selected =
+      rerank === 'bm25'
+        ? rerankSemanticMemoriesWithFts({
+            rows: fullTextCandidates,
+            query: normalizedQuery,
+            tokenizer,
+          }).slice(0, limit)
+        : fullTextCandidates;
+    if (params.touch !== false) {
+      touchSemanticMemoryRows(selected);
+    }
+    return selected;
   }
 
-  return recallSemanticMemoriesByLike({
-    sessionId: resolvedSessionId,
-    normalizedQuery,
-    queryTerms,
-    limit,
-    minConfidence,
-    filter: params.filter,
-  });
+  const cosineCandidateLimit = Math.max(limit * 10, 100);
+  const cosineCandidates = queryEmbedding
+    ? recallSemanticMemoriesByVector({
+        sessionId: resolvedSessionId,
+        queryEmbedding,
+        limit:
+          backend === 'hybrid' || rerank === 'bm25'
+            ? cosineCandidateLimit
+            : limit,
+        minConfidence,
+        filter: params.filter,
+        touch: false,
+      })
+    : recallSemanticMemoriesByLike({
+        sessionId: resolvedSessionId,
+        normalizedQuery,
+        queryTerms,
+        limit:
+          backend === 'hybrid' || rerank === 'bm25'
+            ? Math.max(limit * 8, 50)
+            : limit,
+        minConfidence,
+        filter: params.filter,
+        touch: false,
+      });
+
+  if (backend === 'hybrid') {
+    const fullTextCandidates = recallSemanticMemoriesByFts({
+      sessionId: resolvedSessionId,
+      normalizedQuery,
+      limit: cosineCandidateLimit,
+      minConfidence,
+      tokenizer,
+      rankMode: 'source',
+      filter: params.filter,
+      touch: false,
+    });
+    const fused = fuseHybridSemanticMemories({
+      cosineRows: cosineCandidates,
+      fullTextRows: fullTextCandidates,
+    });
+    const selected =
+      rerank === 'bm25'
+        ? rerankSemanticMemoriesWithFts({
+            rows: fused,
+            query: normalizedQuery,
+            tokenizer,
+          }).slice(0, limit)
+        : fused.slice(0, limit);
+    if (params.touch !== false) {
+      touchSemanticMemoryRows(selected);
+    }
+    return selected;
+  }
+
+  if (rerank === 'bm25') {
+    const reranked = rerankSemanticMemoriesWithFts({
+      rows: cosineCandidates,
+      query: normalizedQuery,
+      tokenizer,
+    }).slice(0, limit);
+    if (params.touch !== false) {
+      touchSemanticMemoryRows(reranked);
+    }
+    return reranked;
+  }
+
+  if (params.touch !== false) {
+    touchSemanticMemoryRows(cosineCandidates);
+  }
+  return cosineCandidates;
 }
 
 export function forgetSemanticMemory(id: number): boolean {

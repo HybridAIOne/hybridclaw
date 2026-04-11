@@ -62,6 +62,18 @@ Examples:
   hybridclaw eval locomo setup
   hybridclaw eval locomo run --budget 4000 --max-questions 20
   hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --matrix --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -82,6 +94,9 @@ Notes:
   - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
+  - \`locomo --mode retrieval --matrix\` runs the default retrieval sweep across backend, rerank, and tokenizer combinations and prints one comparison table.
+  - \`locomo --mode retrieval --matrix backend|rerank|tokenizer|embedding\` runs a single-dimension sweep and keeps the other retrieval settings at their defaults.
+  - Retrieval-mode knobs are benchmark-only: \`--retrieval-query raw|no-stopwords\`, \`--retrieval-backend cosine|full-text|hybrid\`, \`--retrieval-rerank none|bm25\` (default: \`bm25\`), \`--retrieval-tokenizer unicode61|porter|trigram\`, and \`--retrieval-embedding hashed|transformers\`.
   - \`locomo --num-samples\` limits conversation records; use \`--max-questions\` for fast smoke runs over a small QA slice.
   - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace.
   - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
@@ -124,6 +139,7 @@ Interactive slash commands inside TUI:
   /help
   /info
   /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
+  /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]

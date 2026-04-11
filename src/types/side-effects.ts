@@ -5,6 +5,7 @@ export type ScheduleSideEffect =
       runAt?: string;
       everyMs?: number;
       prompt: string;
+      channelId?: string;
     }
   | { action: 'remove'; taskId: number };
 

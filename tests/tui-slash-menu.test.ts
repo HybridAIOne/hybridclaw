@@ -14,6 +14,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   const labels = entries.map((entry) => entry.label);
 
   expect(labels).toContain('/show tools');
+  expect(labels).toContain('/memory inspect [sessionId]');
+  expect(labels).toContain('/memory query <query>');
   expect(labels).toContain('/model select');
   expect(labels).toContain('/dream <now|on|off>');
   expect(labels).toContain('/dream now');

@@ -179,6 +179,12 @@ function buildSampleDataset(): string {
   ]);
 }
 
+function installDatasetFixture(installDir: string, dataset: string): void {
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+  fs.writeFileSync(path.join(installDir, 'data', 'locomo10.json'), dataset);
+}
+
 function buildTwoSampleDataset(): string {
   return JSON.stringify([
     ...JSON.parse(buildSampleDataset()),
@@ -936,6 +942,88 @@ test('locomo native run throttles in-sample progress writes', async () => {
   expect(progressWrites).toHaveLength(3);
 });
 
+test('locomo retrieval writes ingestion progress before question progress', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9090/v1';
+  process.env.OPENAI_API_KEY = 'test-key';
+  process.env.HYBRIDCLAW_EVAL_MODEL = 'hybridai/gpt-4.1-mini';
+
+  installDatasetFixture(installDir, buildSampleDataset());
+  vi.spyOn(memoryService, 'recallSemanticMemories').mockReturnValue([
+    {
+      id: 1,
+      session_id: 'locomo',
+      user_id: 'locomo',
+      role: 'user',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content: 'Pepper',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+  ]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  const writeFileSpy = vi.spyOn(fs, 'writeFileSync');
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const progressSnapshots = writeFileSpy.mock.calls
+    .filter(([filePath]) => String(filePath).endsWith('progress.json'))
+    .map(
+      ([, content]) => JSON.parse(String(content)) as Record<string, unknown>,
+    );
+
+  expect(
+    progressSnapshots.some(
+      (snapshot) =>
+        snapshot.currentPhase === 'ingesting' &&
+        snapshot.currentSampleId === 'sample-1' &&
+        snapshot.currentSampleEmbeddedTurnCount === 0 &&
+        snapshot.currentSampleTurnCount === 3,
+    ),
+  ).toBe(true);
+  expect(
+    progressSnapshots.some(
+      (snapshot) =>
+        snapshot.currentPhase === 'ingesting' &&
+        snapshot.currentSampleId === 'sample-1' &&
+        snapshot.currentSampleEmbeddedTurnCount === 1 &&
+        snapshot.currentSampleTurnCount === 3,
+    ),
+  ).toBe(true);
+  expect(
+    progressSnapshots.some(
+      (snapshot) =>
+        snapshot.currentPhase === 'evaluating' &&
+        snapshot.currentSampleQuestionCount === 1 &&
+        snapshot.currentSampleQuestionTotal === 2,
+    ),
+  ).toBe(true);
+});
+
 test('official LOCOMO scoring keeps lexical F1 behavior for paraphrases', () => {
   expect(
     scoreOfficialLocomoAnswer({
@@ -986,6 +1074,11 @@ test('locomo native retrieval mode scores native memory hit rate without model c
     fs.readFileSync(path.join(jobRoot, jobDirName, 'result.json'), 'utf-8'),
   ) as {
     mode: string;
+    retrievalPolicy: string | null;
+    retrievalQueryMode: string | null;
+    retrievalBackend: string | null;
+    retrievalRerank: string | null;
+    retrievalTokenizer: string | null;
     model: string | null;
     overallScore: number;
     contextF1: number | null;
@@ -1011,6 +1104,11 @@ test('locomo native retrieval mode scores native memory hit rate without model c
   }>;
 
   expect(summary.mode).toBe('retrieval');
+  expect(summary.retrievalPolicy).toBe('budget-only');
+  expect(summary.retrievalQueryMode).toBe('no-stopwords');
+  expect(summary.retrievalBackend).toBe('cosine');
+  expect(summary.retrievalRerank).toBe('bm25');
+  expect(summary.retrievalTokenizer).toBe('unicode61');
   expect(summary.model).toBeNull();
   expect(summary.overallScore).toBe(1);
   expect(summary.contextF1).toBeGreaterThan(0);
@@ -1026,6 +1124,954 @@ test('locomo native retrieval mode scores native memory hit rate without model c
         entry.retrievedSourceMessageIds.length > 0,
     ),
   ).toBe(true);
+});
+
+test('locomo retrieval mode bypasses prompt-memory caps and relies on raw memory recall plus budgeting', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const buildPromptSpy = vi.spyOn(memoryService, 'buildPromptMemoryContext');
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue(
+    Array.from({ length: 20 }, (_, index) => ({
+      id: index + 1,
+      session_id: 'locomo-session',
+      role: 'assistant',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content: `Synthetic recalled memory ${index + 1}`,
+      confidence: 1,
+      embedding: null,
+      source_message_id: index + 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    })),
+  );
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(buildPromptSpy).not.toHaveBeenCalled();
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      limit: 3,
+      limitHardCap: null,
+      minConfidence: 0,
+      query: expect.any(String),
+      sessionId: expect.any(String),
+    }),
+  );
+});
+
+test('locomo retrieval mode can strip stopwords from the recall query', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--retrieval-query',
+    'no-stopwords',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      query: 'What does Pepper love playing every evening?',
+      queryMode: 'no-stopwords',
+    }),
+  );
+});
+
+test('locomo retrieval mode passes the full-text backend through memoryService', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--retrieval-backend',
+    'full-text',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'full-text',
+    }),
+  );
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobRoot, jobDirName, 'result.json'), 'utf-8'),
+  ) as {
+    retrievalBackend: string | null;
+    overallScore: number;
+  };
+  expect(summary.retrievalBackend).toBe('full-text');
+  expect(summary.overallScore).toBe(0);
+});
+
+test('locomo retrieval mode passes full-text BM25 rerank through memoryService', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--retrieval-backend',
+    'full-text',
+    '--retrieval-rerank',
+    'bm25',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'full-text',
+      rerank: 'bm25',
+    }),
+  );
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobRoot, jobDirName, 'result.json'), 'utf-8'),
+  ) as {
+    retrievalBackend: string | null;
+    retrievalRerank: string | null;
+  };
+
+  expect(summary.retrievalBackend).toBe('full-text');
+  expect(summary.retrievalRerank).toBe('bm25');
+});
+
+test('locomo retrieval mode passes BM25 rerank through memoryService', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    JSON.stringify([
+      {
+        sample_id: 'sample-rerank',
+        conversation: {
+          speaker_a: 'Alice',
+          speaker_b: 'Bob',
+          session_1_date_time: '2024-03-01 10:00:00',
+          session_1: [
+            {
+              speaker: 'Alice',
+              dia_id: 'D1:1',
+              text: 'Pepper loves playing fetch every evening.',
+            },
+            {
+              speaker: 'Bob',
+              dia_id: 'D1:2',
+              text: 'The weather turned rainy today.',
+            },
+          ],
+        },
+        qa: [
+          {
+            question: 'What does Pepper love playing every evening?',
+            answer: 'fetch',
+            evidence: ['D1:1'],
+            category: 1,
+          },
+        ],
+      },
+    ]),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([
+    {
+      id: 2,
+      session_id: 'locomo-session',
+      role: 'assistant',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content:
+        'DATE: 2024-03-01 10:00:00\nBob said, "The weather turned rainy today."',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 2,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+    {
+      id: 1,
+      session_id: 'locomo-session',
+      role: 'user',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content:
+        'DATE: 2024-03-01 10:00:00\nAlice said, "Pepper loves playing fetch every evening."',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+  ]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--retrieval-rerank',
+    'bm25',
+    '--budget',
+    '1',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      rerank: 'bm25',
+    }),
+  );
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobRoot, jobDirName, 'result.json'), 'utf-8'),
+  ) as {
+    retrievalRerank: string | null;
+    overallScore: number;
+    predictionsPath: string;
+  };
+
+  expect(summary.retrievalRerank).toBe('bm25');
+  expect(summary.overallScore).toBe(0);
+});
+
+test('locomo retrieval mode passes trigram tokenizer through memoryService', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--retrieval-tokenizer',
+    'trigram',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tokenizer: 'trigram',
+    }),
+  );
+});
+
+test('locomo retrieval matrix sweeps all retrieval variants and writes a combined summary', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  fs.mkdirSync(path.join(installDir, 'data'), { recursive: true });
+  fs.writeFileSync(
+    path.join(installDir, 'data', 'locomo10.json'),
+    buildSampleDataset(),
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(installDir, '.hybridclaw-setup-ok'), 'ok\n');
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockImplementation((params) => {
+    const query = String(params.query || '');
+    const answerContent = query.includes('Pepper')
+      ? 'DATE: 2024-03-01 10:00:00\nAlice said, "Pepper loves playing fetch every evening."'
+      : 'DATE: 2024-03-01 10:00:00\nAlice said, "Tomorrow I will pack crunchy carrots for lunch."';
+    if (params.backend === 'cosine') {
+      return [];
+    }
+    return [
+      {
+        id: 1,
+        session_id: 'locomo-session',
+        role: 'user',
+        source: 'locomo-retrieval',
+        scope: 'episodic',
+        metadata: {},
+        content: answerContent,
+        confidence: 1,
+        embedding: null,
+        source_message_id: 1,
+        created_at: new Date().toISOString(),
+        accessed_at: new Date().toISOString(),
+        access_count: 0,
+      },
+    ];
+  });
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--matrix',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const jobDir = path.join(jobRoot, jobDirName);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
+  ) as {
+    matrix: boolean;
+    matrixSweep: string | null;
+    retrievalQueryMode: string | null;
+    retrievalBackend: string | null;
+    retrievalRerank: string | null;
+    retrievalTokenizer: string | null;
+    variantCount: number | null;
+    bestVariantLabel: string | null;
+    overallScore: number | null;
+    variants: Array<{
+      id: string;
+      label: string;
+      retrievalQueryMode: string;
+      retrievalBackend: string;
+      retrievalRerank: string;
+      overallScore: number;
+    }>;
+    predictionsPath: string;
+  };
+  const predictions = JSON.parse(
+    fs.readFileSync(summary.predictionsPath, 'utf-8'),
+  ) as {
+    matrix: boolean;
+    variants: Array<{
+      id: string;
+      label: string;
+      predictionsPath: string;
+      sampleCount: number;
+      questionCount: number;
+    }>;
+  };
+  const firstVariantPredictions = JSON.parse(
+    fs.readFileSync(predictions.variants[0]?.predictionsPath || '', 'utf-8'),
+  ) as {
+    matrix: boolean;
+    predictions: unknown[];
+  };
+
+  expect(summary.matrix).toBe(true);
+  expect(summary.matrixSweep).toBe('all');
+  expect(summary.retrievalQueryMode).toBeNull();
+  expect(summary.retrievalBackend).toBeNull();
+  expect(summary.retrievalRerank).toBeNull();
+  expect(summary.variantCount).toBe(16);
+  expect(summary.variants).toHaveLength(16);
+  expect(summary.bestVariantLabel).toBe('full-text');
+  expect(summary.overallScore).toBe(1);
+  expect(summary.variants.map((variant) => variant.label)).toContain('cosine');
+  expect(summary.variants.map((variant) => variant.label)).not.toContain(
+    'cosine + porter',
+  );
+  expect(summary.variants.map((variant) => variant.label)).not.toContain(
+    'cosine + trigram',
+  );
+  expect(summary.variants.map((variant) => variant.label)).toContain(
+    'full-text',
+  );
+  expect(summary.variants.map((variant) => variant.label)).toContain(
+    'full-text + bm25',
+  );
+  expect(summary.variants.map((variant) => variant.label)).toContain(
+    'full-text + porter',
+  );
+  expect(summary.variants.map((variant) => variant.label)).toContain('hybrid');
+  expect(predictions.matrix).toBe(true);
+  expect(predictions.variants).toHaveLength(16);
+  expect(predictions.variants[0]?.predictionsPath).toContain(
+    '/matrix-predictions/',
+  );
+  expect(firstVariantPredictions.matrix).toBe(true);
+  expect(firstVariantPredictions.predictions.length).toBeGreaterThan(0);
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'full-text',
+      rerank: 'none',
+      queryMode: 'no-stopwords',
+      tokenizer: 'unicode61',
+    }),
+  );
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'full-text',
+      rerank: 'none',
+      queryMode: 'no-stopwords',
+      tokenizer: 'porter',
+    }),
+  );
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'hybrid',
+      rerank: 'bm25',
+      queryMode: 'no-stopwords',
+      tokenizer: 'trigram',
+    }),
+  );
+});
+
+test('locomo retrieval backend matrix sweep varies backend only', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  installDatasetFixture(installDir, buildSampleDataset());
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockImplementation((params) => {
+    const answerContent =
+      params.backend === 'full-text' ? 'Pepper' : 'Alice said Pepper';
+    return [
+      {
+        id: 1,
+        session_id: 'locomo',
+        user_id: 'locomo',
+        role: 'user',
+        source: 'locomo-retrieval',
+        scope: 'episodic',
+        metadata: {},
+        content: answerContent,
+        confidence: 1,
+        embedding: null,
+        source_message_id: 1,
+        created_at: new Date().toISOString(),
+        accessed_at: new Date().toISOString(),
+        access_count: 0,
+      },
+    ];
+  });
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--matrix',
+    'backend',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const jobDir = path.join(jobRoot, jobDirName);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
+  ) as {
+    matrix: boolean;
+    matrixSweep: string | null;
+    variantCount: number | null;
+    variants: Array<{
+      label: string;
+      retrievalBackend: string;
+      retrievalRerank: string;
+      retrievalTokenizer: string;
+    }>;
+  };
+
+  expect(summary.matrix).toBe(true);
+  expect(summary.matrixSweep).toBe('backend');
+  expect(summary.variantCount).toBe(3);
+  expect(summary.variants.map((variant) => variant.label)).toEqual([
+    'cosine + bm25',
+    'full-text + bm25',
+    'hybrid + bm25',
+  ]);
+  expect(
+    summary.variants.every((variant) => variant.retrievalRerank === 'bm25'),
+  ).toBe(true);
+  expect(
+    summary.variants.every(
+      (variant) => variant.retrievalTokenizer === 'unicode61',
+    ),
+  ).toBe(true);
+});
+
+test('locomo retrieval rerank matrix sweep varies rerank only', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  installDatasetFixture(installDir, buildSampleDataset());
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([
+    {
+      id: 1,
+      session_id: 'locomo',
+      user_id: 'locomo',
+      role: 'user',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content: 'Pepper',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+  ]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--matrix',
+    'rerank',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const jobDir = path.join(jobRoot, jobDirName);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
+  ) as {
+    matrixSweep: string | null;
+    variantCount: number | null;
+    variants: Array<{
+      label: string;
+      retrievalBackend: string;
+      retrievalRerank: string;
+      retrievalTokenizer: string;
+    }>;
+  };
+
+  expect(summary.matrixSweep).toBe('rerank');
+  expect(summary.variantCount).toBe(2);
+  expect(summary.variants.map((variant) => variant.label)).toEqual([
+    'cosine',
+    'cosine + bm25',
+  ]);
+  expect(
+    summary.variants.every((variant) => variant.retrievalBackend === 'cosine'),
+  ).toBe(true);
+  expect(
+    summary.variants.every(
+      (variant) => variant.retrievalTokenizer === 'unicode61',
+    ),
+  ).toBe(true);
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'cosine',
+      rerank: 'bm25',
+      queryMode: 'no-stopwords',
+      tokenizer: 'unicode61',
+    }),
+  );
+});
+
+test('locomo retrieval tokenizer matrix sweep varies tokenizer only', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  installDatasetFixture(installDir, buildSampleDataset());
+
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  recallSpy.mockReturnValue([
+    {
+      id: 1,
+      session_id: 'locomo',
+      user_id: 'locomo',
+      role: 'user',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content: 'Pepper',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+  ]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--matrix',
+    'tokenizer',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const jobDir = path.join(jobRoot, jobDirName);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
+  ) as {
+    matrixSweep: string | null;
+    variantCount: number | null;
+    variants: Array<{
+      label: string;
+      retrievalBackend: string;
+      retrievalRerank: string;
+      retrievalTokenizer: string;
+    }>;
+  };
+
+  expect(summary.matrixSweep).toBe('tokenizer');
+  expect(summary.variantCount).toBe(3);
+  expect(summary.variants.map((variant) => variant.label)).toEqual([
+    'cosine + bm25',
+    'cosine + porter + bm25',
+    'cosine + trigram + bm25',
+  ]);
+  expect(
+    summary.variants.every((variant) => variant.retrievalBackend === 'cosine'),
+  ).toBe(true);
+  expect(
+    summary.variants.every((variant) => variant.retrievalRerank === 'bm25'),
+  ).toBe(true);
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'cosine',
+      rerank: 'bm25',
+      queryMode: 'no-stopwords',
+      tokenizer: 'trigram',
+    }),
+  );
+});
+
+test('locomo retrieval embedding matrix sweep varies embedding provider only', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+  installDatasetFixture(installDir, buildSampleDataset());
+
+  const storeSpy = vi
+    .spyOn(memoryService, 'storeSemanticMemory')
+    .mockReturnValue(1);
+  const recallSpy = vi.spyOn(memoryService, 'recallSemanticMemories');
+  const warmupSpy = vi
+    .spyOn(memoryService, 'warmupEmbeddingProvider')
+    .mockImplementation(() => {});
+  recallSpy.mockReturnValue([
+    {
+      id: 1,
+      session_id: 'locomo',
+      user_id: 'locomo',
+      role: 'user',
+      source: 'locomo-retrieval',
+      scope: 'episodic',
+      metadata: {},
+      content: 'Pepper',
+      confidence: 1,
+      embedding: null,
+      source_message_id: 1,
+      created_at: new Date().toISOString(),
+      accessed_at: new Date().toISOString(),
+      access_count: 0,
+    },
+  ]);
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    throw new Error('retrieval mode should not call the model gateway');
+  });
+
+  await runLocomoNativeCli([
+    'run',
+    '--install-dir',
+    installDir,
+    '--mode',
+    'retrieval',
+    '--matrix',
+    'embedding',
+    '--budget',
+    '4000',
+    '--num-samples',
+    '1',
+  ]);
+
+  const jobRoot = path.join(installDir, 'jobs');
+  const [jobDirName] = fs.readdirSync(jobRoot);
+  const jobDir = path.join(jobRoot, jobDirName);
+  const summary = JSON.parse(
+    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
+  ) as {
+    matrixSweep: string | null;
+    variantCount: number | null;
+    variants: Array<{
+      label: string;
+      retrievalBackend: string;
+      retrievalRerank: string;
+      retrievalTokenizer: string;
+      retrievalEmbeddingProvider: string;
+    }>;
+  };
+
+  expect(summary.matrixSweep).toBe('embedding');
+  expect(summary.variantCount).toBe(2);
+  expect(summary.variants.map((variant) => variant.label)).toEqual([
+    'cosine + bm25',
+    'cosine + bm25 + transformers',
+  ]);
+  expect(
+    summary.variants.map((variant) => variant.retrievalEmbeddingProvider),
+  ).toEqual(['hashed', 'transformers']);
+  expect(
+    summary.variants.every((variant) => variant.retrievalBackend === 'cosine'),
+  ).toBe(true);
+  expect(
+    summary.variants.every((variant) => variant.retrievalRerank === 'bm25'),
+  ).toBe(true);
+  expect(
+    summary.variants.every(
+      (variant) => variant.retrievalTokenizer === 'unicode61',
+    ),
+  ).toBe(true);
+  expect(warmupSpy).toHaveBeenCalledWith('transformers');
+  const firstTransformersStoreIndex = storeSpy.mock.calls.findIndex(
+    ([params]) => params.embeddingProvider === 'transformers',
+  );
+  expect(firstTransformersStoreIndex).toBeGreaterThanOrEqual(0);
+  expect(warmupSpy.mock.invocationCallOrder[0]).toBeLessThan(
+    storeSpy.mock.invocationCallOrder[firstTransformersStoreIndex] ||
+      Number.POSITIVE_INFINITY,
+  );
+  expect(storeSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      embeddingProvider: 'transformers',
+    }),
+  );
+  expect(recallSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      backend: 'cosine',
+      rerank: 'bm25',
+      queryMode: 'no-stopwords',
+      tokenizer: 'unicode61',
+      embeddingProvider: 'transformers',
+    }),
+  );
+});
+
+test('locomo retrieval matrix rejects explicit retrieval overrides', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+
+  await expect(
+    runLocomoNativeCli([
+      'run',
+      '--install-dir',
+      installDir,
+      '--mode',
+      'retrieval',
+      '--matrix',
+      '--retrieval-backend',
+      'full-text',
+    ]),
+  ).rejects.toThrow(/cannot be combined with explicit retrieval flags/i);
+});
+
+test('locomo retrieval matrix rejects unknown matrix sweep', async () => {
+  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const installDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-locomo-'),
+  );
+
+  await expect(
+    runLocomoNativeCli([
+      'run',
+      '--install-dir',
+      installDir,
+      '--mode',
+      'retrieval',
+      '--matrix',
+      'nonsense',
+    ]),
+  ).rejects.toThrow(/unsupported locomo matrix sweep/i);
 });
 
 test('locomo native retrieval hit-rate matches substring evidence recall semantics', () => {

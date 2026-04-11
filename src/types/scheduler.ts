@@ -16,6 +16,7 @@ export interface ScheduledTask {
 // CamelCase projection of ScheduledTask passed over the container IPC boundary.
 export interface ScheduledTaskInput {
   id: number;
+  channelId: string;
   cronExpr: string;
   runAt: string | null;
   everyMs: number | null;

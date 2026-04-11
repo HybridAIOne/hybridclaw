@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const spawnMock = vi.fn();
 const spawnSyncMock = vi.fn(() => ({ status: 0 }));
@@ -10,6 +10,8 @@ const isContainerMaxConcurrentExplicitMock = vi.fn(() => false);
 const maxConcurrentContainersState = { value: 5 };
 const originalHome = process.env.HOME;
 const originalHybridClawHome = process.env.HYBRIDCLAW_HOME;
+const originalDisableConfigWatcher =
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const originalProcessKill = process.kill;
 const harnessVersion = (
   JSON.parse(
@@ -17,6 +19,24 @@ const harnessVersion = (
   ) as { version: string }
 ).version;
 const harnessLabel = `Harness          HybridClaw v${harnessVersion}`;
+
+function stripAnsi(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
 
 vi.mock('../src/config/config.ts', async () => {
   const actual = await vi.importActual('../src/config/config.ts');
@@ -41,6 +61,22 @@ vi.mock('node:child_process', () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
 
+beforeEach(() => {
+  const homeDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-home-'),
+  );
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const ops = config.ops as Record<string, unknown>;
+  ops.dbPath = path.join(homeDir, '.hybridclaw', 'data', 'hybridclaw.db');
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+});
+
 afterEach(() => {
   spawnMock.mockReset();
   spawnSyncMock.mockClear();
@@ -58,6 +94,12 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_HOME;
   } else {
     process.env.HYBRIDCLAW_HOME = originalHybridClawHome;
+  }
+  if (originalDisableConfigWatcher == null) {
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+  } else {
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
+      originalDisableConfigWatcher;
   }
 });
 
@@ -101,6 +143,21 @@ function writeLocomoResult(
   jobDir: string,
   result: {
     mode?: 'qa' | 'retrieval';
+    matrix?: boolean;
+    matrixSweep?:
+      | 'all'
+      | 'backend'
+      | 'rerank'
+      | 'tokenizer'
+      | 'embedding'
+      | null;
+    retrievalPolicy?: 'prompt-capped' | 'budget-only' | null;
+    retrievalQueryMode?: 'raw' | 'no-stopwords' | null;
+    retrievalBackend?: 'cosine' | 'full-text' | 'hybrid' | null;
+    retrievalRerank?: 'none' | 'bm25' | null;
+    retrievalTokenizer?: 'unicode61' | 'porter' | 'trigram' | null;
+    retrievalEmbeddingProvider?: 'hashed' | 'transformers' | null;
+    retrievalEmbeddingModel?: string | null;
     sampleCount?: number;
     questionCount?: number;
     budgetTokens?: number;
@@ -131,6 +188,42 @@ function writeLocomoResult(
       {
         suite: 'locomo',
         mode: result.mode ?? 'qa',
+        matrix: result.matrix === true,
+        matrixSweep:
+          result.matrix === true ? (result.matrixSweep ?? 'all') : null,
+        retrievalPolicy:
+          result.mode === 'retrieval'
+            ? (result.retrievalPolicy ?? 'budget-only')
+            : null,
+        retrievalQueryMode:
+          result.mode === 'retrieval' && result.matrix !== true
+            ? (result.retrievalQueryMode ?? 'no-stopwords')
+            : null,
+        retrievalBackend:
+          result.mode === 'retrieval' && result.matrix !== true
+            ? (result.retrievalBackend ?? 'cosine')
+            : null,
+        retrievalRerank:
+          result.mode === 'retrieval' && result.matrix !== true
+            ? (result.retrievalRerank ?? 'bm25')
+            : null,
+        retrievalTokenizer:
+          result.mode === 'retrieval' && result.matrix !== true
+            ? (result.retrievalTokenizer ?? 'unicode61')
+            : null,
+        retrievalEmbeddingProvider:
+          result.mode === 'retrieval' && result.matrix !== true
+            ? (result.retrievalEmbeddingProvider ?? 'hashed')
+            : null,
+        retrievalEmbeddingModel:
+          result.mode === 'retrieval'
+            ? (result.retrievalEmbeddingModel ??
+              (result.retrievalEmbeddingProvider === 'transformers'
+                ? 'onnx-community/embeddinggemma-300m-ONNX'
+                : result.matrix === true && result.matrixSweep === 'embedding'
+                  ? 'onnx-community/embeddinggemma-300m-ONNX'
+                  : null))
+            : null,
         dataset: 'locomo10.json',
         generatedAt: '2026-04-10T08:00:00.000Z',
         model:
@@ -145,23 +238,26 @@ function writeLocomoResult(
           result.mode === 'retrieval' ? (result.contextF1 ?? 0.113) : null,
         resultPath: path.join(jobDir, 'result.json'),
         predictionsPath: path.join(jobDir, 'predictions.json'),
-        categories: result.categories ?? {
-          '1': {
-            meanScore: 0.625,
-            questionCount: 16,
-            contextF1: result.mode === 'retrieval' ? 0.125 : null,
-          },
-          '2': {
-            meanScore: 0.5,
-            questionCount: 8,
-            contextF1: result.mode === 'retrieval' ? 0.1 : null,
-          },
-          '5': {
-            meanScore: 0.75,
-            questionCount: 16,
-            contextF1: result.mode === 'retrieval' ? 0.05 : null,
-          },
-        },
+        categories:
+          result.matrix === true
+            ? {}
+            : (result.categories ?? {
+                '1': {
+                  meanScore: 0.625,
+                  questionCount: 16,
+                  contextF1: result.mode === 'retrieval' ? 0.125 : null,
+                },
+                '2': {
+                  meanScore: 0.5,
+                  questionCount: 8,
+                  contextF1: result.mode === 'retrieval' ? 0.1 : null,
+                },
+                '5': {
+                  meanScore: 0.75,
+                  questionCount: 16,
+                  contextF1: result.mode === 'retrieval' ? 0.05 : null,
+                },
+              }),
         tokenUsage:
           result.mode === 'retrieval'
             ? null
@@ -171,6 +267,96 @@ function writeLocomoResult(
                 totalTokens: 1380,
                 responsesWithUsage: 40,
               }),
+        variantCount: result.matrix === true ? 16 : null,
+        bestVariantId: result.matrix === true ? 'full-text' : null,
+        bestVariantLabel: result.matrix === true ? 'full-text' : null,
+        variants:
+          result.matrix === true
+            ? [
+                {
+                  id: 'cosine',
+                  label: 'cosine',
+                  retrievalPolicy: 'budget-only',
+                  retrievalQueryMode: 'no-stopwords',
+                  retrievalBackend: 'cosine',
+                  retrievalRerank: 'none',
+                  retrievalTokenizer: 'unicode61',
+                  retrievalEmbeddingProvider: 'hashed',
+                  sampleCount: result.sampleCount ?? 2,
+                  questionCount: result.questionCount ?? 40,
+                  overallScore: 0.535,
+                  contextF1: 0.002,
+                  categories: {
+                    '1': {
+                      meanScore: 0.31,
+                      questionCount: 16,
+                      contextF1: 0.002,
+                    },
+                    '2': {
+                      meanScore: 0.652,
+                      questionCount: 8,
+                      contextF1: 0.001,
+                    },
+                    '3': {
+                      meanScore: 0.326,
+                      questionCount: 4,
+                      contextF1: 0.002,
+                    },
+                    '4': {
+                      meanScore: 0.602,
+                      questionCount: 8,
+                      contextF1: 0.002,
+                    },
+                    '5': {
+                      meanScore: 0.51,
+                      questionCount: 4,
+                      contextF1: 0.002,
+                    },
+                  },
+                },
+                {
+                  id: 'full-text',
+                  label: 'full-text',
+                  retrievalPolicy: 'budget-only',
+                  retrievalQueryMode: 'no-stopwords',
+                  retrievalBackend: 'full-text',
+                  retrievalRerank: 'none',
+                  retrievalTokenizer: 'unicode61',
+                  retrievalEmbeddingProvider: 'hashed',
+                  sampleCount: result.sampleCount ?? 2,
+                  questionCount: result.questionCount ?? 40,
+                  overallScore: result.overallScore ?? 0.747,
+                  contextF1: result.contextF1 ?? 0.002,
+                  categories: {
+                    '1': {
+                      meanScore: 0.481,
+                      questionCount: 16,
+                      contextF1: 0.002,
+                    },
+                    '2': {
+                      meanScore: 0.837,
+                      questionCount: 8,
+                      contextF1: 0.001,
+                    },
+                    '3': {
+                      meanScore: 0.423,
+                      questionCount: 4,
+                      contextF1: 0.002,
+                    },
+                    '4': {
+                      meanScore: 0.808,
+                      questionCount: 8,
+                      contextF1: 0.003,
+                    },
+                    '5': {
+                      meanScore: 0.805,
+                      questionCount: 4,
+                      contextF1: 0.002,
+                    },
+                  },
+                },
+              ]
+            : [],
         samples: [],
       },
       null,
@@ -183,6 +369,21 @@ function writeLocomoProgress(
   jobDir: string,
   progress: {
     mode?: 'qa' | 'retrieval';
+    matrix?: boolean;
+    matrixSweep?:
+      | 'all'
+      | 'backend'
+      | 'rerank'
+      | 'tokenizer'
+      | 'embedding'
+      | null;
+    retrievalPolicy?: 'prompt-capped' | 'budget-only' | null;
+    retrievalQueryMode?: 'raw' | 'no-stopwords' | null;
+    retrievalBackend?: 'cosine' | 'full-text' | 'hybrid' | null;
+    retrievalRerank?: 'none' | 'bm25' | null;
+    retrievalTokenizer?: 'unicode61' | 'porter' | 'trigram' | null;
+    retrievalEmbeddingProvider?: 'hashed' | 'transformers' | null;
+    retrievalEmbeddingModel?: string | null;
     sampleCount?: number;
     completedSampleCount?: number;
     questionCount?: number;
@@ -191,7 +392,10 @@ function writeLocomoProgress(
     overallScore?: number;
     contextF1?: number | null;
     model?: string;
+    currentPhase?: 'warming-embedding' | 'ingesting' | 'evaluating' | null;
     currentSampleId?: string | null;
+    currentSampleEmbeddedTurnCount?: number | null;
+    currentSampleTurnCount?: number | null;
     currentSampleQuestionCount?: number | null;
     currentSampleQuestionTotal?: number | null;
     tokenUsage?: {
@@ -217,6 +421,43 @@ function writeLocomoProgress(
       {
         suite: 'locomo',
         mode: progress.mode ?? 'qa',
+        matrix: progress.matrix === true,
+        matrixSweep:
+          progress.matrix === true ? (progress.matrixSweep ?? 'all') : null,
+        retrievalPolicy:
+          progress.mode === 'retrieval'
+            ? (progress.retrievalPolicy ?? 'budget-only')
+            : null,
+        retrievalQueryMode:
+          progress.mode === 'retrieval' && progress.matrix !== true
+            ? (progress.retrievalQueryMode ?? 'no-stopwords')
+            : null,
+        retrievalBackend:
+          progress.mode === 'retrieval' && progress.matrix !== true
+            ? (progress.retrievalBackend ?? 'cosine')
+            : null,
+        retrievalRerank:
+          progress.mode === 'retrieval' && progress.matrix !== true
+            ? (progress.retrievalRerank ?? 'bm25')
+            : null,
+        retrievalTokenizer:
+          progress.mode === 'retrieval' && progress.matrix !== true
+            ? (progress.retrievalTokenizer ?? 'unicode61')
+            : null,
+        retrievalEmbeddingProvider:
+          progress.mode === 'retrieval' && progress.matrix !== true
+            ? (progress.retrievalEmbeddingProvider ?? 'hashed')
+            : null,
+        retrievalEmbeddingModel:
+          progress.mode === 'retrieval'
+            ? (progress.retrievalEmbeddingModel ??
+              (progress.retrievalEmbeddingProvider === 'transformers'
+                ? 'onnx-community/embeddinggemma-300m-ONNX'
+                : progress.matrix === true &&
+                    progress.matrixSweep === 'embedding'
+                  ? 'onnx-community/embeddinggemma-300m-ONNX'
+                  : null))
+            : null,
         dataset: 'locomo10.json',
         updatedAt: '2026-04-10T08:00:00.000Z',
         model:
@@ -231,19 +472,26 @@ function writeLocomoProgress(
         overallScore: progress.overallScore ?? 0.429,
         contextF1:
           progress.mode === 'retrieval' ? (progress.contextF1 ?? 0.091) : null,
+        currentPhase: progress.currentPhase ?? null,
         currentSampleId: progress.currentSampleId ?? 'conv-26',
+        currentSampleEmbeddedTurnCount:
+          progress.currentSampleEmbeddedTurnCount ?? null,
+        currentSampleTurnCount: progress.currentSampleTurnCount ?? null,
         currentSampleQuestionCount: progress.currentSampleQuestionCount ?? 7,
         currentSampleQuestionTotal: progress.currentSampleQuestionTotal ?? 20,
         progressPath: path.join(jobDir, 'progress.json'),
         resultPath: path.join(jobDir, 'result.json'),
         predictionsPath: path.join(jobDir, 'predictions.json'),
-        categories: progress.categories ?? {
-          '1': {
-            meanScore: 0.571,
-            questionCount: 7,
-            contextF1: progress.mode === 'retrieval' ? 0.111 : null,
-          },
-        },
+        categories:
+          progress.matrix === true
+            ? {}
+            : (progress.categories ?? {
+                '1': {
+                  meanScore: 0.571,
+                  questionCount: 7,
+                  contextF1: progress.mode === 'retrieval' ? 0.111 : null,
+                },
+              }),
         tokenUsage:
           progress.mode === 'retrieval'
             ? null
@@ -253,6 +501,69 @@ function writeLocomoProgress(
                 totalTokens: 245,
                 responsesWithUsage: 7,
               }),
+        variantCount: progress.matrix === true ? 18 : null,
+        completedVariantCount: progress.matrix === true ? 1 : null,
+        currentVariant:
+          progress.matrix === true
+            ? {
+                id: 'hybrid-bm25',
+                label: 'hybrid + bm25',
+                retrievalPolicy: 'budget-only',
+                retrievalQueryMode: 'no-stopwords',
+                retrievalBackend: 'hybrid',
+                retrievalRerank: 'bm25',
+                retrievalTokenizer: 'unicode61',
+                retrievalEmbeddingProvider: 'hashed',
+                sampleCount: progress.sampleCount ?? 2,
+                completedSampleCount: progress.completedSampleCount ?? 0,
+                questionCount: progress.questionCount ?? 20,
+                completedQuestionCount: progress.completedQuestionCount ?? 7,
+                overallScore: progress.overallScore ?? 0.429,
+                contextF1: progress.contextF1 ?? 0.091,
+                currentPhase: progress.currentPhase ?? null,
+                currentSampleId: progress.currentSampleId ?? 'conv-26',
+                currentSampleEmbeddedTurnCount:
+                  progress.currentSampleEmbeddedTurnCount ?? null,
+                currentSampleTurnCount: progress.currentSampleTurnCount ?? null,
+                currentSampleQuestionCount:
+                  progress.currentSampleQuestionCount ?? 7,
+                currentSampleQuestionTotal:
+                  progress.currentSampleQuestionTotal ?? 20,
+                categories: {
+                  '1': {
+                    meanScore: 0.571,
+                    questionCount: 7,
+                    contextF1: 0.111,
+                  },
+                },
+              }
+            : null,
+        variants:
+          progress.matrix === true
+            ? [
+                {
+                  id: 'cosine',
+                  label: 'cosine',
+                  retrievalPolicy: 'budget-only',
+                  retrievalQueryMode: 'no-stopwords',
+                  retrievalBackend: 'cosine',
+                  retrievalRerank: 'none',
+                  retrievalTokenizer: 'unicode61',
+                  retrievalEmbeddingProvider: 'hashed',
+                  sampleCount: progress.sampleCount ?? 2,
+                  questionCount: progress.questionCount ?? 20,
+                  overallScore: 0.535,
+                  contextF1: 0.002,
+                  categories: {
+                    '1': {
+                      meanScore: 0.31,
+                      questionCount: 7,
+                      contextF1: 0.002,
+                    },
+                  },
+                },
+              ]
+            : [],
       },
       null,
       2,
@@ -671,7 +982,24 @@ test('runs managed locomo with retrieval mode', async () => {
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
   await handleEvalCommand({
-    args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
+    args: [
+      'locomo',
+      'run',
+      '--mode',
+      'retrieval',
+      '--retrieval-query',
+      'no-stopwords',
+      '--retrieval-backend',
+      'full-text',
+      '--retrieval-rerank',
+      'bm25',
+      '--retrieval-tokenizer',
+      'trigram',
+      '--retrieval-embedding',
+      'transformers',
+      '--max-questions',
+      '20',
+    ],
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
@@ -682,6 +1010,197 @@ test('runs managed locomo with retrieval mode', async () => {
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--mode');
   expect(shellArgs[1]).toContain('retrieval');
+  expect(shellArgs[1]).toContain('--retrieval-query');
+  expect(shellArgs[1]).toContain('no-stopwords');
+  expect(shellArgs[1]).toContain('--retrieval-backend');
+  expect(shellArgs[1]).toContain('full-text');
+  expect(shellArgs[1]).toContain('--retrieval-rerank');
+  expect(shellArgs[1]).toContain('bm25');
+  expect(shellArgs[1]).toContain('--retrieval-tokenizer');
+  expect(shellArgs[1]).toContain('trigram');
+  expect(shellArgs[1]).toContain('--retrieval-embedding');
+  expect(shellArgs[1]).toContain('transformers');
+});
+
+test('runs managed locomo retrieval matrix sweep', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: [
+      'locomo',
+      'run',
+      '--mode',
+      'retrieval',
+      '--matrix',
+      '--budget',
+      '4000',
+    ],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--mode');
+  expect(shellArgs[1]).toContain('retrieval');
+  expect(shellArgs[1]).toContain('--matrix');
+  expect(shellArgs[1]).not.toContain('--retrieval-query');
+  expect(shellArgs[1]).not.toContain('--retrieval-backend');
+  expect(shellArgs[1]).not.toContain('--retrieval-rerank');
+});
+
+test('runs managed locomo retrieval rerank matrix sweep', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: [
+      'locomo',
+      'run',
+      '--mode',
+      'retrieval',
+      '--matrix',
+      'rerank',
+      '--budget',
+      '4000',
+    ],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--matrix');
+  expect(shellArgs[1]).toContain('rerank');
+  expect(shellArgs[1]).not.toContain('--retrieval-query');
+  expect(shellArgs[1]).not.toContain('--retrieval-backend');
+  expect(shellArgs[1]).not.toContain('--retrieval-rerank');
+});
+
+test('runs managed locomo retrieval embedding matrix sweep', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  await handleEvalCommand({
+    args: [
+      'locomo',
+      'run',
+      '--mode',
+      'retrieval',
+      '--matrix',
+      'embedding',
+      '--budget',
+      '4000',
+    ],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('--matrix');
+  expect(shellArgs[1]).toContain('embedding');
+  expect(shellArgs[1]).not.toContain('--retrieval-query');
+  expect(shellArgs[1]).not.toContain('--retrieval-backend');
+  expect(shellArgs[1]).not.toContain('--retrieval-rerank');
+  expect(shellArgs[1]).not.toContain('--retrieval-tokenizer');
+  expect(shellArgs[1]).not.toContain('--retrieval-embedding');
+});
+
+test('does not apply memory config defaults to locomo retrieval flags', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const homeDir = process.env.HOME;
+  if (!homeDir) {
+    throw new Error('Expected HOME to be set for eval-command tests.');
+  }
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+    memory: {
+      queryMode: string;
+      backend: string;
+      rerank: string;
+      tokenizer: string;
+      embedding: {
+        provider: string;
+      };
+    };
+  };
+  config.memory.queryMode = 'no-stopwords';
+  config.memory.backend = 'full-text';
+  config.memory.rerank = 'bm25';
+  config.memory.tokenizer = 'trigram';
+  config.memory.embedding.provider = 'transformers';
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  spawnMock.mockReturnValue({
+    pid: 6798,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).not.toContain('--retrieval-query');
+  expect(result.text).not.toContain('--retrieval-backend');
+  expect(result.text).not.toContain('--retrieval-rerank');
+  expect(result.text).not.toContain('--retrieval-tokenizer');
+  expect(result.text).not.toContain('--retrieval-embedding');
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).not.toContain('--retrieval-query');
+  expect(shellArgs[1]).not.toContain('--retrieval-backend');
+  expect(shellArgs[1]).not.toContain('--retrieval-rerank');
+  expect(shellArgs[1]).not.toContain('--retrieval-tokenizer');
+  expect(shellArgs[1]).not.toContain('--retrieval-embedding');
 });
 
 test('starts detached terminal-bench setup', async () => {
@@ -1143,6 +1662,7 @@ test('reports locomo retrieval latest run in status output', async () => {
   fs.mkdirSync(runDir, { recursive: true });
   writeLocomoResult(jobDir, {
     mode: 'retrieval',
+    retrievalEmbeddingProvider: 'transformers',
     overallScore: 0.812,
     contextF1: 0.143,
     categories: {
@@ -1200,6 +1720,12 @@ test('reports locomo retrieval latest run in status output', async () => {
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Mode: retrieval');
+  expect(result.text).toContain(
+    'Recall policy: uncapped recall, token budget only',
+  );
+  expect(result.text).toContain('Query prep: stopwords removed');
+  expect(result.text).toContain('Backend: cosine');
+  expect(result.text).toContain('Rerank: BM25 before budget');
   expect(result.text).toContain('Hit rate: 0.812');
   expect(result.text).toContain('Context F1: 0.143');
   expect(result.text).toContain(
@@ -1409,6 +1935,7 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   fs.mkdirSync(runDir, { recursive: true });
   writeLocomoResult(jobDir, {
     mode: 'retrieval',
+    retrievalEmbeddingProvider: 'transformers',
     overallScore: 0.812,
     contextF1: 0.143,
     categories: {
@@ -1467,6 +1994,17 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
   expect(result.text).toMatch(/Mode\s+retrieval/);
+  expect(result.text).toMatch(
+    /Recall policy\s+uncapped recall, token budget only/,
+  );
+  expect(result.text).toMatch(/Query prep\s+stopwords removed/);
+  expect(result.text).toMatch(/Backend\s+cosine/);
+  expect(result.text).toMatch(/Rerank\s+BM25 before budget/);
+  expect(result.text).toMatch(/Tokenizer\s+unicode61/);
+  expect(result.text).toMatch(/Embedding\s+Transformers\.js/);
+  expect(result.text).toMatch(
+    /Embedding model\s+onnx-community\/embeddinggemma-300m-ONNX/,
+  );
   expect(result.text).not.toMatch(/Evaluated model\s+/);
   expect(result.text).toMatch(/Hit rate\s+0\.812/);
   expect(result.text).toMatch(/Context F1\s+0\.143/);
@@ -1475,6 +2013,82 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   );
   expect(result.text).not.toContain('Tokens');
   expect(result.text).toContain('Predictions JSON');
+});
+
+test('shows locomo retrieval matrix summary table in results', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-matrix-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-11');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {
+    mode: 'retrieval',
+    matrix: true,
+    matrixSweep: 'rerank',
+    overallScore: 0.747,
+    contextF1: 0.002,
+  });
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run-matrix',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-11T08:00:00.000Z',
+        finishedAt: '2026-04-11T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --mode retrieval --matrix --budget 4000',
+        displayCommand: 'locomo run --mode retrieval --matrix --budget 4000',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Sweep\s+rerank/);
+  expect(result.text).toMatch(/Variants\s+2\/16/);
+  expect(result.text).toMatch(/Best variant\s+full-text/);
+  expect(result.text).toMatch(/Best hit rate\s+0\.747/);
+  expect(result.text).not.toMatch(/Query prep\s+/);
+  expect(result.text).not.toMatch(/Backend\s+/);
+  expect(result.text).toContain('\x1b[7m');
+  expect(result.text).toContain('\x1b[1;93m');
+  const plainText = stripAnsi(result.text);
+  expect(plainText).toContain('full-text');
+  expect(plainText).toContain('0.7470');
+  expect(result.text).toContain('Variant');
+  expect(result.text).toContain('HitRate');
 });
 
 test('logs debug when locomo result json is malformed', async () => {
@@ -1603,11 +2217,193 @@ test('shows locomo run progress in results while a run is active', async () => {
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
   expect(result.text).toMatch(/Status\s+running/);
+  expect(result.text).toContain('⏳ Progress');
   expect(result.text).toMatch(/Questions\s+7\/20/);
   expect(result.text).toMatch(/Completed samples\s+0\/2/);
   expect(result.text).toMatch(/Score so far\s+0\.429/);
   expect(result.text).toMatch(/Current sample\s+conv-26/);
-  expect(result.text).toMatch(/Current sample questions\s+7\/20/);
+  expect(result.text).toMatch(/Evaluation\s+\[[#-]+\]\s+7\/20\s+\(35%\)/);
+  expect(result.text).toContain('Progress JSON');
+});
+
+test('shows locomo retrieval matrix progress in results while a run is active', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-matrix-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-11');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoProgress(jobDir, {
+    mode: 'retrieval',
+    matrix: true,
+    matrixSweep: 'rerank',
+    sampleCount: 10,
+    completedSampleCount: 3,
+    questionCount: 1986,
+    completedQuestionCount: 441,
+    overallScore: 0.612,
+    contextF1: 0.003,
+    currentPhase: 'ingesting',
+    currentSampleId: 'conv-30',
+    currentSampleEmbeddedTurnCount: 37,
+    currentSampleTurnCount: 239,
+    currentSampleQuestionCount: 18,
+    currentSampleQuestionTotal: 105,
+  });
+  process.kill = vi.fn();
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run-matrix',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-11T08:00:00.000Z',
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command: 'locomo run --mode retrieval --matrix --budget 4000',
+        displayCommand: 'locomo run --mode retrieval --matrix --budget 4000',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Status\s+running/);
+  expect(result.text).toContain('⏳ Progress');
+  expect(result.text).toMatch(/Sweep\s+rerank/);
+  expect(result.text).toMatch(/Variants\s+1\/18/);
+  expect(result.text).toMatch(/Variants\s+\[[#-]+\]\s+1\/18\s+\(6%\)/);
+  expect(result.text).toMatch(/Phase\s+ingesting memory/);
+  expect(result.text).toMatch(/Current variant\s+hybrid \+ bm25/);
+  expect(result.text).toMatch(/Current sample\s+conv-30/);
+  expect(result.text).toMatch(/Embedding\s+\[[#-]+\]\s+37\/239\s+\(15%\)/);
+  expect(result.text).toMatch(/Evaluation\s+\[[#-]+\]\s+441\/1986\s+\(22%\)/);
+  expect(result.text).toMatch(/Current hit rate\s+0\.612/);
+  expect(result.text).toContain('Variants So Far');
+  expect(result.text).toContain('hybrid + bm25 (running)');
+  expect(result.text).toContain('Progress JSON');
+});
+
+test('prefers locomo progress over completed summary while the run is still active', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  installLocomoLayout(dataDir);
+  const runDir = path.join(dataDir, 'evals', 'eval-locomo-run-active-abc123');
+  const jobDir = path.join(dataDir, 'evals', 'locomo', 'jobs', '2026-04-11');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeLocomoResult(jobDir, {
+    mode: 'retrieval',
+    retrievalEmbeddingProvider: 'transformers',
+    retrievalEmbeddingModel: 'onnx-community/embeddinggemma-300m-ONNX',
+    sampleCount: 1,
+    questionCount: 1,
+    overallScore: 1,
+    contextF1: 0.001,
+    categories: {
+      '2': {
+        meanScore: 1,
+        questionCount: 1,
+        contextF1: 0.001,
+      },
+    },
+  });
+  writeLocomoProgress(jobDir, {
+    mode: 'retrieval',
+    sampleCount: 1,
+    completedSampleCount: 0,
+    questionCount: 1,
+    completedQuestionCount: 0,
+    overallScore: null,
+    contextF1: null,
+    currentPhase: 'ingesting',
+    currentSampleId: 'conv-26',
+    currentSampleEmbeddedTurnCount: 150,
+    currentSampleTurnCount: 419,
+  });
+  process.kill = vi.fn();
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-locomo-run-active',
+        suiteId: 'locomo',
+        operation: 'run',
+        pid: 4452,
+        startedAt: '2026-04-11T08:00:00.000Z',
+        cwd: path.join(dataDir, 'evals', 'locomo'),
+        command:
+          'locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 1',
+        displayCommand:
+          'locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 1',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-5.4-nano',
+        baseModel: 'hybridai/gpt-5.4-nano',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand({
+    args: ['locomo', 'results'],
+    dataDir,
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('LOCOMO Results');
+  expect(result.text).toMatch(/Status\s+running/);
+  expect(result.text).toContain('⏳ Progress');
+  expect(result.text).toMatch(/Phase\s+ingesting memory/);
+  expect(result.text).toMatch(/Current sample\s+conv-26/);
+  expect(result.text).toMatch(/Embedding\s+\[[#-]+\]\s+150\/419\s+\(36%\)/);
+  expect(result.text).toMatch(/Evaluation\s+\[[#-]+\]\s+0\/1\s+\(0%\)/);
+  expect(result.text).not.toMatch(/Hit rate\s+1/);
+  expect(result.text).not.toMatch(/Category 2 \| Hit 1\.000/);
   expect(result.text).toContain('Progress JSON');
 });
 

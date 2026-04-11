@@ -4,6 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
+import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../../container/shared/workspace-time.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import {
@@ -114,6 +118,7 @@ import {
   getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
+  listSemanticMemoriesForSession,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
@@ -239,6 +244,7 @@ import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
+import type { MemoryCitation, SemanticMemoryEntry } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type {
   ConversationHistoryPage,
@@ -1543,6 +1549,278 @@ function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
   return resolveDefaultAgentId(getRuntimeConfig());
+}
+
+const MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS = 280;
+const MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS = 140;
+const MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS = 180;
+const MEMORY_INSPECT_RECENT_MESSAGE_LIMIT = 4;
+const MEMORY_INSPECT_RECENT_SEMANTIC_LIMIT = 3;
+const MEMORY_INSPECT_CANONICAL_WINDOW = 12;
+const MEMORY_INSPECT_CANONICAL_PREVIEW_LIMIT = 3;
+
+function formatInspectionTimestamp(raw: string | null | undefined): string {
+  const value = String(raw || '').trim();
+  if (!value) return 'none';
+  return `${formatDisplayTimestamp(value)} (${formatRelativeTime(value)})`;
+}
+
+function readInspectionFilePreview(filePath: string): {
+  exists: boolean;
+  chars: number;
+  preview: string | null;
+} {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return {
+        exists: false,
+        chars: 0,
+        preview: null,
+      };
+    }
+    const content = fs.readFileSync(filePath, 'utf-8').trim();
+    return {
+      exists: true,
+      chars: content.length,
+      preview: content
+        ? abbreviateForUser(content, MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS)
+        : '(empty)',
+    };
+  } catch {
+    return {
+      exists: false,
+      chars: 0,
+      preview: null,
+    };
+  }
+}
+
+function formatMemoryInspectMessage(message: {
+  role: string;
+  content: string;
+}): string {
+  return `- ${String(message.role || 'unknown')
+    .trim()
+    .toLowerCase()}: ${abbreviateForUser(
+    String(message.content || ''),
+    MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function formatMemoryInspectSemanticEntry(entry: {
+  id: number;
+  source: string;
+  scope: string;
+  confidence: number;
+  content: string;
+}): string {
+  return `- [${entry.id}] ${entry.source}/${entry.scope} ${Math.round(
+    Math.max(0, Math.min(1, entry.confidence)) * 100,
+  )}%: ${abbreviateForUser(
+    entry.content,
+    MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function formatMemoryInspectCanonicalEntry(entry: {
+  role: string;
+  content: string;
+  session_id: string;
+}): string {
+  return `- ${String(entry.role || 'unknown')
+    .trim()
+    .toLowerCase()} [${entry.session_id}]: ${abbreviateForUser(
+    entry.content,
+    MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function resolveWorkspaceTodayMemoryNote(workspacePath: string): {
+  timezone: string | null;
+  fileName: string;
+  filePath: string;
+} {
+  const userPath = path.join(workspacePath, 'USER.md');
+  let timezone: string | null = null;
+  try {
+    if (fs.existsSync(userPath)) {
+      timezone =
+        extractUserTimezone(fs.readFileSync(userPath, 'utf-8')) || null;
+    }
+  } catch {
+    timezone = null;
+  }
+  const dateStamp = currentDateStampInTimezone(timezone || undefined);
+  const fileName = `memory/${dateStamp}.md`;
+  return {
+    timezone,
+    fileName,
+    filePath: path.join(workspacePath, fileName),
+  };
+}
+
+function buildMemoryInspectReport(params: { session: Session }): string {
+  const targetSession = params.session;
+  const agentId = resolveSessionAgentId(targetSession);
+  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+  const memoryFilePath = path.join(workspacePath, 'MEMORY.md');
+  const memoryFile = readInspectionFilePreview(memoryFilePath);
+  const todayNote = resolveWorkspaceTodayMemoryNote(workspacePath);
+  const todayNotePreview = readInspectionFilePreview(todayNote.filePath);
+  const transcriptPath = path.join(
+    workspacePath,
+    '.session-transcripts',
+    `${targetSession.id}.jsonl`,
+  );
+  const recentMessages = memoryService.getRecentMessages(
+    targetSession.id,
+    MEMORY_INSPECT_RECENT_MESSAGE_LIMIT,
+  );
+  const summaryText = String(targetSession.session_summary || '').trim();
+  const recentSemantic = listSemanticMemoriesForSession(
+    targetSession.id,
+    MEMORY_INSPECT_RECENT_SEMANTIC_LIMIT,
+  );
+  const canonicalScope = resolveCanonicalContextScope(targetSession);
+  const canonicalContext = canonicalScope
+    ? memoryService.getCanonicalContext({
+        agentId,
+        userId: canonicalScope,
+        windowSize: MEMORY_INSPECT_CANONICAL_WINDOW,
+        excludeSessionId: targetSession.id,
+      })
+    : { summary: null, recent_messages: [] };
+  const canonicalPreview = canonicalContext.recent_messages.slice(
+    -MEMORY_INSPECT_CANONICAL_PREVIEW_LIMIT,
+  );
+
+  return [
+    `Session: ${targetSession.id}`,
+    `Agent: ${agentId}`,
+    `Workspace: ${workspacePath}`,
+    `Session key: ${targetSession.session_key || '(none)'}`,
+    `Main session key: ${targetSession.main_session_key || '(none)'}`,
+    '',
+    '1. Workspace memory file (`MEMORY.md`)',
+    `Present: ${memoryFile.exists ? 'yes' : 'no'}`,
+    `Path: ${memoryFilePath}`,
+    `Chars: ${memoryFile.exists ? formatCompactNumber(memoryFile.chars) : '0'}`,
+    `Preview: ${memoryFile.preview || '(missing)'}`,
+    '',
+    `2. Workspace daily note for today (\`${todayNote.fileName}\`)`,
+    `Present: ${todayNotePreview.exists ? 'yes' : 'no'}`,
+    `Timezone: ${todayNote.timezone || 'local default'}`,
+    `Path: ${todayNote.filePath}`,
+    `Chars: ${todayNotePreview.exists ? formatCompactNumber(todayNotePreview.chars) : '0'}`,
+    `Preview: ${todayNotePreview.preview || '(missing)'}`,
+    '',
+    '3. Raw session history',
+    `Active messages: ${formatCompactNumber(targetSession.message_count)}`,
+    `Transcript mirror: ${fs.existsSync(transcriptPath) ? transcriptPath : '(missing)'}`,
+    `Recent tail (${recentMessages.length}):`,
+    ...(recentMessages.length > 0
+      ? recentMessages.map(formatMemoryInspectMessage)
+      : ['- (none)']),
+    '',
+    '4. Compacted session summary',
+    `Stored: ${summaryText ? 'yes' : 'no'}`,
+    `Compactions: ${formatCompactNumber(targetSession.compaction_count)}`,
+    `Summary updated: ${formatInspectionTimestamp(targetSession.summary_updated_at)}`,
+    `Last memory flush: ${formatInspectionTimestamp(targetSession.memory_flush_at)}`,
+    `Preview: ${
+      summaryText
+        ? abbreviateForUser(summaryText, MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS)
+        : '(none)'
+    }`,
+    '',
+    '5. Semantic memory store',
+    'Prompt behavior: query-matched only; stored rows are not injected wholesale.',
+    `Recent stored entries (${recentSemantic.length} shown):`,
+    ...(recentSemantic.length > 0
+      ? recentSemantic.map(formatMemoryInspectSemanticEntry)
+      : ['- (none)']),
+    '',
+    '6. Canonical cross-channel memory',
+    `Scope: ${canonicalScope || '(none)'}`,
+    `Prompt-time summary present: ${canonicalContext.summary ? 'yes' : 'no'}`,
+    `Summary preview: ${
+      canonicalContext.summary
+        ? abbreviateForUser(
+            canonicalContext.summary,
+            MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS,
+          )
+        : '(none)'
+    }`,
+    `Prompt-time recent messages from other sessions: ${formatCompactNumber(
+      canonicalContext.recent_messages.length,
+    )}`,
+    ...(canonicalPreview.length > 0
+      ? canonicalPreview.map(formatMemoryInspectCanonicalEntry)
+      : ['- (none)']),
+  ].join('\n');
+}
+
+function formatMemoryQueryCitation(
+  citation: MemoryCitation,
+  memory: SemanticMemoryEntry | undefined,
+): string {
+  return `- ${citation.ref} -> memory ${citation.memoryId} (${Math.round(
+    Math.max(0, Math.min(1, citation.confidence)) * 100,
+  )}%): ${abbreviateForUser(
+    memory?.content || citation.content,
+    MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function buildMemoryQueryReport(params: {
+  session: Session;
+  query: string;
+}): string {
+  const targetSession = params.session;
+  const query = params.query.trim();
+  const promptContext = memoryService.buildPromptMemoryContext({
+    session: targetSession,
+    query,
+    touchSemanticRecall: false,
+  });
+  const summaryText = String(targetSession.session_summary || '').trim();
+  const summaryIncluded = summaryText
+    ? Boolean(promptContext.promptSummary?.includes(summaryText))
+    : false;
+  const promptSummary =
+    promptContext.promptSummary || '(nothing would be attached)';
+
+  return [
+    `Session: ${targetSession.id}`,
+    `Query: ${query}`,
+    'Mode: read-only diagnostic (matches prompt assembly without updating semantic recall access metadata)',
+    `Stored session summary: ${summaryText ? 'yes' : 'no'}`,
+    `Summary included: ${summaryText ? (summaryIncluded ? 'yes' : 'no') : 'n/a'}`,
+    `Summary confidence: ${
+      promptContext.summaryConfidence == null
+        ? 'n/a'
+        : `${Math.round(Math.max(0, Math.min(1, promptContext.summaryConfidence)) * 100)}%`
+    }`,
+    `Semantic matches attached: ${formatCompactNumber(
+      promptContext.semanticMemories.length,
+    )}`,
+    `Semantic prompt hard cap: ${formatCompactNumber(
+      getRuntimeConfig().memory.semanticPromptHardCap,
+    )}`,
+    '',
+    'Matched semantic memories:',
+    ...(promptContext.citationIndex.length > 0
+      ? promptContext.citationIndex.map((citation, index) =>
+          formatMemoryQueryCitation(
+            citation,
+            promptContext.semanticMemories[index],
+          ),
+        )
+      : ['- (none)']),
+    '',
+    'Exact attached block:',
+    promptSummary,
+  ].join('\n');
 }
 
 type TraceExportResult = Awaited<
@@ -7014,6 +7292,62 @@ export async function handleGatewayCommand(
             err instanceof Error ? err.message : String(err),
           );
         }
+      }
+
+      case 'memory': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Memory Commands Restricted',
+            '`memory inspect` and `memory query` expose workspace and session memory details and are only available from local TUI/web sessions.',
+          );
+        }
+
+        const rawSub = (req.args[1] || '').trim();
+        const sub = rawSub.toLowerCase();
+        if (sub && sub !== 'inspect' && sub !== 'query') {
+          return badCommand(
+            'Usage',
+            'Usage: `memory inspect [sessionId]` | `memory query <query>`',
+          );
+        }
+
+        if (sub === 'query') {
+          const query = req.args.slice(2).join(' ').trim();
+          if (!query) {
+            return badCommand('Usage', 'Usage: `memory query <query>`');
+          }
+          return infoCommand(
+            'Memory Query',
+            buildMemoryQueryReport({
+              session,
+              query,
+            }),
+          );
+        }
+
+        const targetSessionArg =
+          sub === 'inspect' ? req.args[2] : req.args[1] || session.id || '';
+        const targetSessionId =
+          String(targetSessionArg || '').trim() || session.id;
+        if (!targetSessionId) {
+          return badCommand(
+            'Usage',
+            'Usage: `memory inspect [sessionId]` | `memory query <query>`',
+          );
+        }
+
+        const targetSession = memoryService.getSessionById(targetSessionId);
+        if (!targetSession) {
+          return badCommand(
+            'Not Found',
+            `Session \`${targetSessionId}\` was not found.`,
+          );
+        }
+
+        return infoCommand(
+          'Memory Inspection',
+          buildMemoryInspectReport({ session: targetSession }),
+        );
       }
 
       case 'status': {

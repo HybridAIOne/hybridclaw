@@ -215,6 +215,41 @@ The built-in path for a successful turn is roughly:
 8. On `/dream` or the scheduled consolidation run, fold older daily notes into
    `MEMORY.md` and decay stale semantic memories.
 
+## Inspecting And Querying Live Memory
+
+For local diagnostics, HybridClaw exposes:
+
+```text
+/memory inspect [sessionId]
+/memory query <query>
+hybridclaw gateway memory inspect [sessionId]
+```
+
+These commands are local-only because they print internal memory state.
+
+`/memory inspect [sessionId]` reports:
+
+- the current workspace `MEMORY.md` file
+- today's `memory/YYYY-MM-DD.md` note in the workspace timezone
+- recent raw session history and the transcript mirror path
+- the stored `session_summary`, compaction count, and last memory flush time
+- recent semantic-memory rows stored for the session
+- canonical cross-session scope plus the prompt-time cross-channel recall view
+
+`/memory query <query>` shows the exact built-in prompt-memory block the
+current session would attach for that query, including:
+
+- whether the stored `session_summary` would be included
+- which semantic recalls would attach and their `[mem:n]` citations
+- the final attached block exactly as prompt assembly would format it
+
+The query command is a read-only diagnostic: it mirrors prompt assembly without
+updating semantic recall access metadata.
+
+Use these commands when you need to explain why HybridClaw answered with
+certain prior context, or when you want to verify which memory layer is missing
+something.
+
 ## Defaults, Caps, And Thresholds
 
 The values below describe the built-in defaults in the current codebase.
@@ -262,12 +297,26 @@ The values below describe the built-in defaults in the current codebase.
 | --- | ---: | --- |
 | semantic write cap | `1,200` chars | stored semantic memory content is normalized and truncated to this size |
 | prompt recall default | `5` memories | normal prompt assembly asks for up to five semantic matches |
-| prompt recall hard cap | `12` memories | `buildPromptMemoryContext()` clamps prompt injection to at most twelve memories |
+| prompt recall hard cap | `12` memories | `buildPromptMemoryContext()` clamps prompt injection to at most `memory.semanticPromptHardCap` memories |
 | low-level recall hard cap | `50` memories | lower-level semantic recall API maximum for non-prompt callers |
+| embedding provider | `hashed` | `memory.embedding.provider` selects the semantic vector source: the built-in hashed fallback or a local Transformers.js model |
+| Transformers.js model | `onnx-community/embeddinggemma-300m-ONNX` | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
+| Transformers.js revision | `75a84c732f1884df76bec365346230e32f582c82` | `memory.embedding.revision` pins the exact Hugging Face model revision downloaded on first use |
+| Transformers.js dtype | `q8` | `memory.embedding.dtype` selects the local ONNX quantization variant (`fp32`, `q8`, or `q4`) |
+| query prep mode | `no-stopwords` | `memory.queryMode` can keep the raw query or strip common stopwords before recall |
+| recall backend | `hybrid` | `memory.backend` selects cosine retrieval, full-text BM25 retrieval, or a hybrid fusion of both |
+| rerank mode | `bm25` | `memory.rerank` can BM25-rerank the chosen candidate set before the final prompt slice |
+| tokenizer | `porter` | `memory.tokenizer` selects the SQLite FTS tokenizer used for lexical matching: `unicode61`, `porter`, or `trigram` |
 | semantic min confidence | `0.2` | rows below this are not recalled by default |
 | semantic decay rate | `0.1` | nightly decay multiplies stale confidence by `0.9` |
 | semantic stale threshold | `7` days | only memories not accessed for at least seven days are decayed |
 | semantic decay floor | `0.1` | nightly decay never pushes confidence below this floor |
+
+If you enable `memory.embedding.provider = "transformers"`, the first cosine
+query will download and cache the configured ONNX model under
+`~/.hybridclaw/cache/transformers`. Gated Hugging Face models follow the
+standard `HF_TOKEN` / `HF_ACCESS_TOKEN` environment variables supported by
+Transformers.js.
 
 ### Session Summary Decay
 
