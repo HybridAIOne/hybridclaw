@@ -8,6 +8,7 @@ export { Cog } from './Cog';
 export { Config } from './Config';
 export { Dashboard } from './Dashboard';
 export { Docs } from './Docs';
+export { Email } from './Email';
 export { Gateway } from './Gateway';
 export { Github } from './Github';
 export { HybridClaw } from './HybridClaw';

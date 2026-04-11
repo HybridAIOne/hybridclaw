@@ -112,6 +112,42 @@ export interface AdminSession {
   lastActive: string;
 }
 
+export interface AdminEmailThread {
+  sessionId: string;
+  channelId: string;
+  senderName: string | null;
+  subject: string;
+  preview: string | null;
+  summary: string | null;
+  messageCount: number;
+  userMessageCount: number;
+  lastMessageRole: string | null;
+  createdAt: string;
+  lastActive: string;
+}
+
+export interface AdminEmailMailboxResponse {
+  enabled: boolean;
+  address: string;
+  folders: string[];
+  threads: AdminEmailThread[];
+}
+
+export interface GatewayHistoryMessage {
+  id: number;
+  session_id: string;
+  user_id: string;
+  username: string | null;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface GatewayHistoryResponse {
+  sessionId: string;
+  history: GatewayHistoryMessage[];
+}
+
 export interface AdminTerminalStartResponse {
   sessionId: string;
   websocketPath: string;

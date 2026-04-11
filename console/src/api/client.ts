@@ -9,6 +9,7 @@ import type {
   AdminConfig,
   AdminConfigResponse,
   AdminCreateSkillPayload,
+  AdminEmailMailboxResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -26,6 +27,7 @@ import type {
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
+  GatewayHistoryResponse,
   GatewayStatus,
 } from './types';
 
@@ -193,6 +195,31 @@ export async function fetchSessions(token: string): Promise<AdminSession[]> {
     { token },
   );
   return payload.sessions;
+}
+
+export function fetchAdminEmailMailbox(
+  token: string,
+): Promise<AdminEmailMailboxResponse> {
+  return requestJson<AdminEmailMailboxResponse>('/api/admin/email', { token });
+}
+
+export function fetchHistory(
+  token: string,
+  params: {
+    sessionId: string;
+    limit?: number;
+  },
+): Promise<GatewayHistoryResponse> {
+  const query = new URLSearchParams({ sessionId: params.sessionId });
+  if (typeof params.limit === 'number') {
+    query.set('limit', String(params.limit));
+  }
+  return requestJson<GatewayHistoryResponse>(
+    `/api/history?${query.toString()}`,
+    {
+      token,
+    },
+  );
 }
 
 export function deleteSession(

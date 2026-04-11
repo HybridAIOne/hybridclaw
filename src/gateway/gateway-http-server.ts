@@ -113,6 +113,7 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminEmailMailbox,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
@@ -2171,6 +2172,10 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
 
+function handleApiAdminEmail(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminEmailMailbox());
+}
+
 async function handleApiAdminAgents(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3140,6 +3145,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
+            return;
+          }
+          if (pathname === '/api/admin/email' && method === 'GET') {
+            handleApiAdminEmail(res);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {

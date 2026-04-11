@@ -449,6 +449,27 @@ export interface GatewayAdminSession {
   lastActive: string;
 }
 
+export interface GatewayAdminEmailThread {
+  sessionId: string;
+  channelId: string;
+  senderName: string | null;
+  subject: string;
+  preview: string | null;
+  summary: string | null;
+  messageCount: number;
+  userMessageCount: number;
+  lastMessageRole: string | null;
+  createdAt: string;
+  lastActive: string;
+}
+
+export interface GatewayAdminEmailMailboxResponse {
+  enabled: boolean;
+  address: string;
+  folders: string[];
+  threads: GatewayAdminEmailThread[];
+}
+
 export interface GatewayAdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;

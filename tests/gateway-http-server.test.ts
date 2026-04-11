@@ -569,6 +569,12 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminEmailMailbox = vi.fn(() => ({
+    enabled: true,
+    address: 'agent@example.com',
+    folders: ['INBOX'],
+    threads: [],
+  }));
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
       totalPlugins: 2,
@@ -1005,6 +1011,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    getGatewayAdminEmailMailbox,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
@@ -1111,6 +1118,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminEmailMailbox,
     getGatewayAgents,
     getGatewayAdminAgents,
     runGatewayPluginTool,
@@ -3199,6 +3207,23 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('returns admin email mailbox summaries for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/email' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailMailbox).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      enabled: true,
+      address: 'agent@example.com',
+      folders: ['INBOX'],
     });
   });
 

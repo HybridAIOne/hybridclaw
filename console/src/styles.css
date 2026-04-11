@@ -1105,6 +1105,276 @@ th {
   min-width: 0;
 }
 
+.mailbox-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(300px, 0.95fr) minmax(0, 1.35fr);
+  min-height: 720px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  overflow: hidden;
+}
+
+.mailbox-sidebar,
+.mailbox-thread-column,
+.mailbox-detail {
+  min-width: 0;
+}
+
+.mailbox-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 18px;
+  background: var(--panel-muted);
+  border-right: 1px solid var(--line);
+}
+
+.mailbox-sidebar-section,
+.mailbox-folder-list,
+.mailbox-tag-list,
+.mailbox-thread-copy,
+.mailbox-detail-copy,
+.mailbox-message-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mailbox-folder-button,
+.mailbox-thread-button {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mailbox-folder-button {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.mailbox-folder-button strong,
+.mailbox-folder-button small {
+  display: block;
+}
+
+.mailbox-folder-button strong {
+  color: var(--accent-strong);
+}
+
+.mailbox-folder-button small {
+  color: var(--muted-foreground);
+  line-height: 1.35;
+}
+
+.mailbox-folder-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mailbox-tag-list {
+  align-content: start;
+}
+
+.mailbox-thread-column {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-bg) 92%, var(--panel-muted));
+}
+
+.mailbox-column-header,
+.mailbox-detail-header,
+.mailbox-thread-top,
+.mailbox-thread-meta,
+.mailbox-message-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mailbox-column-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-bg);
+}
+
+.mailbox-column-header strong,
+.mailbox-column-header small,
+.mailbox-thread-copy span,
+.mailbox-thread-copy small,
+.mailbox-message-header strong,
+.mailbox-message-header small {
+  display: block;
+}
+
+.mailbox-column-header small,
+.mailbox-thread-copy small,
+.mailbox-message-header small {
+  color: var(--muted-foreground);
+}
+
+.mailbox-thread-list,
+.mailbox-message-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.mailbox-thread-list {
+  padding: 12px;
+  align-content: start;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--panel-bg) 94%, transparent),
+    color-mix(in srgb, var(--panel-muted) 20%, transparent)
+  );
+}
+
+.mailbox-thread-button {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel-bg);
+}
+
+.mailbox-thread-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-focus);
+}
+
+.mailbox-thread-top strong,
+.mailbox-thread-top span,
+.mailbox-thread-copy span,
+.mailbox-thread-copy small {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.mailbox-thread-top strong,
+.mailbox-thread-copy span {
+  line-height: 1.25;
+}
+
+.mailbox-thread-top span,
+.mailbox-thread-meta {
+  color: var(--muted-foreground);
+}
+
+.mailbox-thread-meta {
+  flex-wrap: wrap;
+}
+
+.mailbox-detail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  background: var(--panel-bg);
+}
+
+.mailbox-detail-empty {
+  margin: 18px;
+}
+
+.mailbox-detail-header {
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-soft) 72%, transparent),
+    transparent
+  );
+}
+
+.mailbox-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mailbox-detail-heading h3 {
+  margin: 0;
+  font-size: clamp(1.3rem, 2vw, 1.8rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.mailbox-role-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.mailbox-role-pill.needs-reply {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-strong);
+}
+
+.mailbox-role-pill.replied {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.mailbox-message-list {
+  padding: 18px;
+  align-content: start;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--panel-muted) 12%, transparent),
+    transparent 220px
+  );
+}
+
+.mailbox-message-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-card);
+}
+
+.mailbox-message-card.assistant {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 52%, var(--panel-bg));
+}
+
+.mailbox-message-card.user {
+  background: color-mix(in srgb, var(--panel-bg) 86%, var(--panel-muted));
+}
+
+.mailbox-message-header span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.mailbox-message-body {
+  white-space: pre-wrap;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .session-row-main {
   flex: 1 1 auto;
 }
@@ -1543,6 +1813,16 @@ th {
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
+
+  .mailbox-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .mailbox-sidebar,
+  .mailbox-thread-column {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
 }
 
 @media (max-width: 780px) {
@@ -1618,5 +1898,11 @@ th {
   .terminal-shell,
   .terminal-host {
     min-height: 60vh;
+  }
+
+  .mailbox-detail-header,
+  .mailbox-column-header,
+  .mailbox-message-header {
+    flex-direction: column;
   }
 }
