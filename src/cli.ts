@@ -792,8 +792,7 @@ async function startGatewayBackend(
   }
 
   ensureGatewayRunDir();
-  const out = fs.openSync(GATEWAY_LOG_PATH, 'a');
-  const err = fs.openSync(GATEWAY_LOG_PATH, 'a');
+  const logFd = fs.openSync(GATEWAY_LOG_PATH, 'a');
   const cliEntry = process.argv[1];
   const childArgs = [
     cliEntry,
@@ -804,15 +803,16 @@ async function startGatewayBackend(
     ...(logRequests ? ['--log-requests'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
-  const child = spawn(process.execPath, childArgs, {
+  const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
     detached: true,
-    stdio: ['ignore', out, err],
+    stdio: ['ignore', logFd, logFd],
     cwd: process.cwd(),
     env: {
       ...process.env,
       [GATEWAY_STDIO_TO_LOG_ENV]: '1',
     },
   });
+  fs.closeSync(logFd);
   child.unref();
 
   if (!child.pid) {

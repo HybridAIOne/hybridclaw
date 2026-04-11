@@ -1,29 +1,18 @@
-import { Link, useRouterState } from '@tanstack/react-router';
+import { useRouterState } from '@tanstack/react-router';
 import type { ComponentType, ReactNode } from 'react';
 import { useAuth } from '../auth';
-import { ThemeToggle } from './theme-toggle';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
+import { AppSidebar } from './sidebar/app-sidebar';
+import {
+  getSidebarStyleVars,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from './sidebar/index';
+import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
-const NAV_ITEMS: ReadonlyArray<{
-  to: string;
-  label: string;
-  icon?: ComponentType;
-}> = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/terminal', label: 'Terminal' },
-  { to: '/gateway', label: 'Gateway' },
-  { to: '/sessions', label: 'Sessions' },
-  { to: '/channels', label: 'Channels' },
-  { to: '/models', label: 'Models' },
-  { to: '/scheduler', label: 'Scheduler' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/mcp', label: 'MCP' },
-  { to: '/audit', label: 'Audit' },
-  { to: '/skills', label: 'Skills' },
-  { to: '/plugins', label: 'Plugins' },
-  { to: '/tools', label: 'Tools' },
-  { to: '/config', label: 'Config' },
-];
+const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((g) => g.items);
+const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
@@ -53,100 +42,56 @@ export function AppShell(props: { children: ReactNode }) {
       ? '/'
       : pathname;
   const currentNavItem =
-    NAV_ITEMS.find((item) => item.to === adminPath) || NAV_ITEMS[0];
+    ALL_NAV_ITEMS.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
-    <div className="app-frame">
-      <aside className="sidebar">
-        <div>
-          <div className="brand-block">
-            <p className="eyebrow">HybridClaw</p>
-            <div className="brand-title">
-              <span className="nav-link-icon" aria-hidden="true">
-                <Admin />
-              </span>
-              <h1>Admin console</h1>
-            </div>
-          </div>
-
-          <nav className="nav-group" aria-label="Primary">
-            {NAV_ITEMS.map((item) => {
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  activeProps={{ className: 'nav-link active' }}
-                  inactiveProps={{ className: 'nav-link' }}
-                  activeOptions={{ exact: item.to === '/' }}
-                >
-                  {item.icon ? (
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <item.icon />
-                    </span>
-                  ) : null}
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="sidebar-footer">
-          {auth.gatewayStatus?.version ? (
-            <span className="meta-chip sidebar-meta-chip">
-              {auth.gatewayStatus.version}
-            </span>
-          ) : null}
-          <div className="sidebar-footer-right">
-            <ThemeToggle />
-            {auth.token ? (
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={auth.logout}
-              >
-                Forget token
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </aside>
-
-      <main className="main-panel">
+    <SidebarProvider style={SIDEBAR_STYLE}>
+      <AppSidebar
+        groups={SIDEBAR_NAV_GROUPS}
+        version={auth.gatewayStatus?.version}
+        showLogout={Boolean(auth.token)}
+        onLogout={auth.logout}
+      />
+      <SidebarInset className="main-panel">
         <div className="topbar">
           <div className="topbar-title">
-            <h2>{currentNavItem.label}</h2>
+            <div className="topbar-heading">
+              <SidebarTrigger className="topbar-sidebar-trigger" />
+              <h2>{currentNavItem.label}</h2>
+            </div>
           </div>
           <nav className="view-switch" aria-label="Switch view">
             {VIEW_SWITCH_ITEMS.map((item) => {
-              const classes = item.active
-                ? 'view-switch-link active'
-                : 'view-switch-link';
-
-              if (item.active) {
-                return (
-                  <span key={item.href} className={classes} aria-current="page">
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <item.icon />
-                    </span>
-                    <span>{item.label}</span>
-                  </span>
-                );
-              }
-
-              return (
-                <a key={item.href} className={classes} href={item.href}>
+              const inner = (
+                <>
                   <span className="nav-link-icon" aria-hidden="true">
                     <item.icon />
                   </span>
                   <span>{item.label}</span>
+                </>
+              );
+              return item.active ? (
+                <span
+                  key={item.href}
+                  className="view-switch-link active"
+                  aria-current="page"
+                >
+                  {inner}
+                </span>
+              ) : (
+                <a
+                  key={item.href}
+                  className="view-switch-link"
+                  href={item.href}
+                >
+                  {inner}
                 </a>
               );
             })}
           </nav>
         </div>
         <div className="page-content">{props.children}</div>
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
