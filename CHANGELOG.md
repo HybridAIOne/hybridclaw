@@ -2,6 +2,8 @@
 
 ## [Coming up]
 
+## [0.12.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.3)
+
 ### Added
 
 - **Telegram Bot API transport**: Added a built-in Telegram channel with
