@@ -14,9 +14,32 @@
   history, `session_summary`, recent semantic-memory rows, canonical
   cross-session recall state, and the exact prompt-memory block the current
   session would attach for a query.
+- **Admin email mailbox surfaces**: Added admin-console and gateway support for
+  browsing the configured built-in email mailbox, listing folders and message
+  metadata, and composing or replying from the operator UI without leaving the
+  HybridClaw runtime.
+- **Native LOCOMO eval workflow**: Added managed `hybridclaw eval locomo ...`
+  and local `/eval locomo ...` flows with official dataset setup, QA and
+  retrieval modes, detached run logs, and retrieval sweeps across backend,
+  rerank, tokenizer, and embedding settings.
+- **Bundled GBrain plugin**: Added the bundled `gbrain` plugin so HybridClaw
+  can query an external GBrain knowledge brain for prompt-time recall, expose
+  discovered `gbrain_*` tools, and provide `/gbrain ...` passthrough operations
+  from local sessions.
+- **Bundled manim-video skill**: Added a repo-shipped `manim-video` skill with
+  setup helpers, reference packs, and render guidance for scripted explainer
+  videos and animation workflows.
 
 ### Changed
 
+- **Model catalog and provider routing**: `/model list` plus selector surfaces
+  now use provider-scoped model catalogs for Codex, OpenRouter, Mistral, and
+  Hugging Face, Codex models use explicit `openai-codex/...` ids, and status
+  output carries discovered model metadata more consistently.
+- **Admin console navigation and channel UX**: The embedded console now uses a
+  structured sidebar taxonomy, a clearer channel catalog, richer channel/email
+  surfaces, and refreshed icons/layout so operators can reach models, channels,
+  plugins, tools, and gateway state from one navigation frame.
 - **Shared inbound media cache**: Email, Telegram, WhatsApp, and Microsoft
   Teams now stage locally downloaded inbound media under the shared
   `uploaded-media-cache` runtime directory instead of per-channel temp
@@ -25,6 +48,18 @@
 - **Telegram config reload behavior**: Running gateways now restart the
   Telegram integration automatically when `telegram.*` config changes land, so
   most setup edits apply within a few seconds without a full gateway restart.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **HybridAI auxiliary model prefixes**: Auxiliary-model routing now strips the
+  leading provider prefix correctly so HybridAI requests do not fail when the
+  configured model name already carries a provider namespace.
+- **GBrain tool discovery robustness**: The bundled GBrain plugin now times out
+  cleanly when `gbrain --tools-json` hangs and reports parse failures with
+  stdout/stderr previews during discovery.
 
 ## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
 

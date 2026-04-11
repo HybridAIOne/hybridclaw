@@ -886,35 +886,45 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.12.2</div>
-    <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.2 adds bundled Honcho and MemPalace memory providers, plugin dependency install and health checks, sortable admin tool catalogs with managed gateway restart UX, Discord concierge approval buttons, and safer runtime defaults.</p>
+    <div class="section-label">Since v0.12.2</div>
+    <h2 class="section-title">Current development highlights</h2>
+    <p class="section-desc">Post-v0.12.2 work adds Telegram transport, built-in memory inspection, provider-aware model catalogs, native LOCOMO evals, refreshed admin navigation, the bundled <code>manim-video</code> skill, and the new <code>gbrain</code> plugin, with smaller runtime polish around media staging, hot reloads, and model routing.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
+      <div class="feature-icon">&#x1f4f2;</div>
+      <h3>Telegram transport</h3>
+      <p>HybridClaw now ships a built-in Telegram Bot API channel with BotFather setup, DM/group policies, topic-safe <code>telegram:&lt;chatId&gt;</code> send targets, inbound media handling, and admin-channel controls.</p>
+    </div>
+    <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Honcho memory plugin</h3>
-      <p>The bundled <code>honcho-memory</code> plugin mirrors HybridClaw sessions into Honcho, surfaces prompt-time recall plus direct Honcho tools, and keeps built-in memory active alongside the external provider.</p>
+      <h3>Memory inspection</h3>
+      <p>Local TUI and web sessions can inspect built-in memory layers with <code>/memory inspect</code> and preview the exact attached prompt-memory block for a query with <code>/memory query</code>.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4da;</div>
-      <h3>MemPalace memory plugin</h3>
-      <p>The bundled <code>mempalace-memory</code> plugin can mirror turns back into MemPalace, expose <code>/mempalace ...</code> controls, and route recall through CLI helpers or an active <code>mempalace</code> MCP server.</p>
+      <div class="feature-icon">&#x1f4cb;</div>
+      <h3>Model catalogs</h3>
+      <p><code>/model list</code> and status surfaces now expose provider-aware catalogs for Codex, OpenRouter, Mistral, and Hugging Face, with explicit <code>openai-codex/...</code> model ids and richer discovered metadata.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x2705;</div>
-      <h3>Plugin dependency setup</h3>
-      <p>Plugin manifests can declare npm, pip, and external runtime dependencies; install and reinstall flows provision them with approval, accept bare repo plugin ids, and <code>plugin check</code> reports package, binary, env, and config health.</p>
+      <div class="feature-icon">&#x1f52c;</div>
+      <h3>Native LOCOMO evals</h3>
+      <p><code>hybridclaw eval locomo</code> and local <code>/eval locomo</code> now cover official dataset setup, QA and retrieval runs, detached logs, and matrix sweeps across retrieval backends, rerankers, tokenizers, and embeddings.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2709;</div>
+      <h3>Admin email and sidebar UX</h3>
+      <p>The embedded console now uses a structured sidebar taxonomy and adds a built-in email mailbox view so operators can browse folders, inspect messages, and send replies from the admin surface.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f9e9;</div>
+      <h3>New extension surfaces</h3>
+      <p>The bundled <code>gbrain</code> plugin adds external knowledge-brain recall plus <code>gbrain_*</code> tools, and the new <code>manim-video</code> skill adds guided video-animation workflows with install helpers and references.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e0;</div>
-      <h3>Admin tools and gateway UX</h3>
-      <p>The admin console now keeps the tools catalog limited to live built-in and enabled plugin tools, supports sortable tables across admin views, and adds a managed gateway restart action with clearer restart state handling.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f680;</div>
-      <h3>Safer operator flows</h3>
-      <p>Discord urgency prompts now use native buttons, built-in email config changes trigger automatic transport reloads, reminder examples use timezone-offset timestamps, and provider requests stop sending stray <code>maxTokens</code> to non-Anthropic APIs.</p>
+      <h3>Runtime polish</h3>
+      <p>Inbound media now lands under one shared cache, Telegram config changes hot-reload in place, host-mode TUI startup avoids unnecessary container rebuild checks, and HybridAI auxiliary model routing handles provider prefixes correctly.</p>
     </div>
   </div>
 </section>
@@ -1261,7 +1271,7 @@
           <td>Skill system</td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>54 bundled + Skills Hub</span></td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>53 bundled + ClawHub</span></td>
-          <td><span class="compare-text">32 bundled + 7 import sources</span></td>
+          <td><span class="compare-text">33 bundled + 7 import sources</span></td>
         </tr>
         <tr>
           <td>Skill standard</td>
@@ -1390,7 +1400,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Local Eval Workflows</h3>
-      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>tau2</code> and native <code>terminal-bench-2.0</code> runs, detached logs, and progress summaries under <code>~/.hybridclaw/data/evals/</code>.</p>
+      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>locomo</code>, <code>tau2</code>, and native <code>terminal-bench-2.0</code> runs, detached logs, retrieval sweeps, and progress summaries under <code>~/.hybridclaw/data/evals/</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
@@ -1426,7 +1436,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>HybridClaw ships with 32 bundled skills, category-aware catalog and admin authoring flows, and OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery with prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
+      <p>HybridClaw ships with 33 bundled skills, including the <code>manim-video</code> animation workflow, category-aware catalog and admin authoring flows, and OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery with prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Agent Packaging</h3>
@@ -1458,7 +1468,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Plugin Extensibility</h3>
-      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install the repo-shipped <code>qmd-memory</code> or <code>brevo-email</code> plugins for external retrieval and per-agent email routing.</p>
+      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install repo-shipped plugins such as <code>gbrain</code>, <code>honcho-memory</code>, <code>mempalace-memory</code>, <code>qmd-memory</code>, and <code>brevo-email</code> for external retrieval, memory recall, and per-agent email routing.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
