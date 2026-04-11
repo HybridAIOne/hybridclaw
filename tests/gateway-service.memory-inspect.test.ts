@@ -135,7 +135,9 @@ test('memory inspect reports the built-in memory layers for the current session'
     'User asked: Render the deploy animation I responded: I can render it after the assets are in place.',
   );
   expect(result.text).toContain('6. Canonical cross-channel memory');
-  expect(result.text).toContain('Remember the deploy checklist from yesterday.');
+  expect(result.text).toContain(
+    'Remember the deploy checklist from yesterday.',
+  );
 });
 
 test('memory inspect rejects remote sessions', async () => {

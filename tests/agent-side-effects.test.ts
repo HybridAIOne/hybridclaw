@@ -41,7 +41,9 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
     rearmScheduler,
   }));
 
-  const { initDatabase, getTasksForSession } = await import('../src/memory/db.ts');
+  const { initDatabase, getTasksForSession } = await import(
+    '../src/memory/db.ts'
+  );
   const { processSideEffects } = await import('../src/agent/side-effects.ts');
 
   initDatabase({ quiet: true });
