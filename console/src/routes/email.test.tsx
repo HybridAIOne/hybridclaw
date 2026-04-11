@@ -1,32 +1,56 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminConfigResponse,
+  AdminEmailDeleteResponse,
+  AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
-  GatewayHistoryResponse,
+  AdminEmailMessageResponse,
 } from '../api/types';
 import { EmailPage } from './email';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchAdminEmailMailboxMock =
   vi.fn<() => Promise<AdminEmailMailboxResponse>>();
-const fetchHistoryMock =
+const fetchAdminEmailFolderMock =
   vi.fn<
     (
       token: string,
-      params: { sessionId: string; limit?: number },
-    ) => Promise<GatewayHistoryResponse>
+      params: { folder: string; limit?: number },
+    ) => Promise<AdminEmailFolderResponse>
+  >();
+const fetchAdminEmailMessageMock =
+  vi.fn<
+    (
+      token: string,
+      params: { folder: string; uid: number },
+    ) => Promise<AdminEmailMessageResponse>
+  >();
+const deleteAdminEmailMessageMock =
+  vi.fn<
+    (
+      token: string,
+      params: { folder: string; uid: number },
+    ) => Promise<AdminEmailDeleteResponse>
   >();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchAdminEmailMailbox: () => fetchAdminEmailMailboxMock(),
-  fetchHistory: (
+  fetchAdminEmailFolder: (
     token: string,
-    params: { sessionId: string; limit?: number },
-  ) => fetchHistoryMock(token, params),
+    params: { folder: string; limit?: number },
+  ) => fetchAdminEmailFolderMock(token, params),
+  fetchAdminEmailMessage: (
+    token: string,
+    params: { folder: string; uid: number },
+  ) => fetchAdminEmailMessageMock(token, params),
+  deleteAdminEmailMessage: (
+    token: string,
+    params: { folder: string; uid: number },
+  ) => deleteAdminEmailMessageMock(token, params),
 }));
 
 vi.mock('../auth', () => ({
@@ -196,33 +220,21 @@ function makeMailboxResponse(): AdminEmailMailboxResponse {
   return {
     enabled: true,
     address: 'agent@example.com',
-    folders: ['INBOX', 'VIP'],
-    threads: [
+    defaultFolder: 'INBOX',
+    folders: [
       {
-        sessionId: 'email-session-2',
-        channelId: 'founder@example.com',
-        senderName: 'Founder',
-        subject: 'Launch checklist',
-        preview: 'Can you confirm the status on the rollout?',
-        summary: null,
-        messageCount: 1,
-        userMessageCount: 1,
-        lastMessageRole: 'user',
-        createdAt: '2026-04-10T08:00:00.000Z',
-        lastActive: '2026-04-10T09:00:00.000Z',
+        path: 'INBOX',
+        name: 'Inbox',
+        specialUse: '\\Inbox',
+        total: 12,
+        unseen: 2,
       },
       {
-        sessionId: 'email-session-1',
-        channelId: 'finance@example.com',
-        senderName: 'Finance Ops',
-        subject: 'Quarterly plan',
-        preview: 'Budget reviewed. I sent the highlights back already.',
-        summary: null,
-        messageCount: 2,
-        userMessageCount: 1,
-        lastMessageRole: 'assistant',
-        createdAt: '2026-04-09T08:00:00.000Z',
-        lastActive: '2026-04-09T09:00:00.000Z',
+        path: 'VIP',
+        name: 'VIP',
+        specialUse: null,
+        total: 3,
+        unseen: 1,
       },
     ],
   };
@@ -247,76 +259,328 @@ describe('EmailPage', () => {
   beforeEach(() => {
     fetchConfigMock.mockReset();
     fetchAdminEmailMailboxMock.mockReset();
-    fetchHistoryMock.mockReset();
+    fetchAdminEmailFolderMock.mockReset();
+    fetchAdminEmailMessageMock.mockReset();
+    deleteAdminEmailMessageMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
   });
 
-  it('shows mailbox threads and opens the selected conversation', async () => {
+  it('shows the list first, opens a selected message, and deletes from list or detail view', async () => {
     fetchConfigMock.mockResolvedValue(makeConfigResponse(true));
     fetchAdminEmailMailboxMock.mockResolvedValue(makeMailboxResponse());
-    fetchHistoryMock.mockImplementation(
-      async (_token, params): Promise<GatewayHistoryResponse> => ({
-        sessionId: params.sessionId,
-        history:
-          params.sessionId === 'email-session-2'
-            ? [
+    const deletedMessageKeys = new Set<string>();
+    fetchAdminEmailFolderMock.mockImplementation(
+      async (_token, params): Promise<AdminEmailFolderResponse> =>
+        params.folder === 'VIP'
+          ? {
+              folder: 'VIP',
+              messages: deletedMessageKeys.has('VIP:90')
+                ? []
+                : [
+                    {
+                      folder: 'VIP',
+                      uid: 90,
+                      messageId: '<msg-90@example.com>',
+                      subject: 'Board update',
+                      fromAddress: 'founder@example.com',
+                      fromName: 'Founder',
+                      preview: 'Attached is the latest board update.',
+                      receivedAt: '2026-04-10T09:00:00.000Z',
+                      seen: false,
+                      flagged: false,
+                      answered: false,
+                      hasAttachments: true,
+                    },
+                  ],
+            }
+          : {
+              folder: 'INBOX',
+              messages: deletedMessageKeys.has('INBOX:44')
+                ? []
+                : [
+                    {
+                      folder: 'INBOX',
+                      uid: 44,
+                      messageId: '<msg-44@example.com>',
+                      subject: 'Quarterly plan',
+                      fromAddress: 'finance@example.com',
+                      fromName: 'Finance Ops',
+                      preview:
+                        'Please review the updated budget before tomorrow morning and confirm the final staffing numbers for each team.',
+                      receivedAt: '2026-04-09T09:00:00.000Z',
+                      seen: false,
+                      flagged: false,
+                      answered: true,
+                      hasAttachments: false,
+                    },
+                  ],
+            },
+    );
+    fetchAdminEmailMessageMock.mockImplementation(
+      async (_token, params): Promise<AdminEmailMessageResponse> =>
+        params.folder === 'VIP'
+          ? {
+              message: {
+                folder: 'VIP',
+                uid: 90,
+                messageId: '<msg-90@example.com>',
+                subject: 'Board update',
+                fromAddress: 'founder@example.com',
+                fromName: 'Founder',
+                preview: 'Attached is the latest board update.',
+                receivedAt: '2026-04-10T09:00:00.000Z',
+                seen: false,
+                flagged: false,
+                answered: false,
+                hasAttachments: true,
+                to: [{ name: 'Agent', address: 'agent@example.com' }],
+                cc: [],
+                bcc: [],
+                replyTo: [],
+                text: 'Attached is the latest board update.',
+                attachments: [
+                  {
+                    filename: 'board-update.pdf',
+                    contentType: 'application/pdf',
+                    size: 2048,
+                  },
+                ],
+                metadata: null,
+              },
+              thread: [
                 {
-                  id: 2,
-                  session_id: 'email-session-2',
-                  user_id: 'founder@example.com',
-                  username: 'Founder',
-                  role: 'user',
-                  content:
-                    '[Subject: Launch checklist]\n\nCan you confirm the status on the rollout?',
-                  created_at: '2026-04-10T09:00:00.000Z',
+                  folder: 'VIP',
+                  uid: 86,
+                  messageId: '<msg-86@example.com>',
+                  subject: 'Board update',
+                  fromAddress: 'founder@example.com',
+                  fromName: 'Founder',
+                  preview: 'Circling back on the board pack.',
+                  receivedAt: '2026-04-08T09:00:00.000Z',
+                  seen: true,
+                  flagged: false,
+                  answered: false,
+                  hasAttachments: false,
+                  to: [{ name: 'Agent', address: 'agent@example.com' }],
+                  cc: [],
+                  bcc: [],
+                  replyTo: [],
+                  text: 'Circling back on the board pack.',
+                  attachments: [],
+                  metadata: null,
                 },
-              ]
-            : [
                 {
-                  id: 1,
-                  session_id: 'email-session-1',
-                  user_id: 'finance@example.com',
-                  username: 'Finance Ops',
-                  role: 'user',
-                  content:
-                    '[Subject: Quarterly plan]\n\nPlease review the updated budget.',
-                  created_at: '2026-04-09T08:00:00.000Z',
-                },
-                {
-                  id: 3,
-                  session_id: 'email-session-1',
-                  user_id: 'assistant',
-                  username: 'HybridClaw',
-                  role: 'assistant',
-                  content:
-                    'Budget reviewed. I sent the highlights back already.',
-                  created_at: '2026-04-09T09:00:00.000Z',
+                  folder: 'VIP',
+                  uid: 90,
+                  messageId: '<msg-90@example.com>',
+                  subject: 'Board update',
+                  fromAddress: 'founder@example.com',
+                  fromName: 'Founder',
+                  preview: 'Attached is the latest board update.',
+                  receivedAt: '2026-04-10T09:00:00.000Z',
+                  seen: false,
+                  flagged: false,
+                  answered: false,
+                  hasAttachments: true,
+                  to: [{ name: 'Agent', address: 'agent@example.com' }],
+                  cc: [],
+                  bcc: [],
+                  replyTo: [],
+                  text: 'Attached is the latest board update.',
+                  attachments: [
+                    {
+                      filename: 'board-update.pdf',
+                      contentType: 'application/pdf',
+                      size: 2048,
+                    },
+                  ],
+                  metadata: {
+                    agentId: 'main',
+                    model: 'hybridai/gpt-5',
+                    provider: 'hybridai',
+                    totalTokens: 1234,
+                    tokenSource: 'api',
+                  },
                 },
               ],
-      }),
+            }
+          : {
+              message: {
+                folder: 'INBOX',
+                uid: 44,
+                messageId: '<msg-44@example.com>',
+                subject: 'Quarterly plan',
+                fromAddress: 'finance@example.com',
+                fromName: 'Finance Ops',
+                preview:
+                  'Please review the updated budget before tomorrow morning and confirm the final staffing numbers for each team.',
+                receivedAt: '2026-04-09T09:00:00.000Z',
+                seen: false,
+                flagged: false,
+                answered: true,
+                hasAttachments: false,
+                to: [{ name: 'Agent', address: 'agent@example.com' }],
+                cc: [],
+                bcc: [],
+                replyTo: [],
+                text: 'Please review the updated budget.',
+                attachments: [],
+                metadata: {
+                  agentId: 'main',
+                  model: 'hybridai/gpt-5',
+                  provider: 'hybridai',
+                  totalTokens: 1234,
+                  tokenSource: 'api',
+                },
+              },
+              thread: [
+                {
+                  folder: 'INBOX',
+                  uid: 40,
+                  messageId: '<msg-40@example.com>',
+                  subject: 'Quarterly plan',
+                  fromAddress: 'finance@example.com',
+                  fromName: 'Finance Ops',
+                  preview: 'Initial budget draft shared yesterday.',
+                  receivedAt: '2026-04-08T09:00:00.000Z',
+                  seen: true,
+                  flagged: false,
+                  answered: false,
+                  hasAttachments: false,
+                  to: [{ name: 'Agent', address: 'agent@example.com' }],
+                  cc: [],
+                  bcc: [],
+                  replyTo: [],
+                  text: 'Initial budget draft shared yesterday.',
+                  attachments: [],
+                  metadata: null,
+                },
+                {
+                  folder: 'INBOX',
+                  uid: 44,
+                  messageId: '<msg-44@example.com>',
+                  subject: 'Quarterly plan',
+                  fromAddress: 'finance@example.com',
+                  fromName: 'Finance Ops',
+                  preview:
+                    'Please review the updated budget before tomorrow morning and confirm the final staffing numbers for each team.',
+                  receivedAt: '2026-04-09T09:00:00.000Z',
+                  seen: false,
+                  flagged: false,
+                  answered: true,
+                  hasAttachments: false,
+                  to: [{ name: 'Agent', address: 'agent@example.com' }],
+                  cc: [],
+                  bcc: [],
+                  replyTo: [],
+                  text: 'Please review the updated budget.',
+                  attachments: [],
+                  metadata: {
+                    agentId: 'main',
+                    model: 'hybridai/gpt-5',
+                    provider: 'hybridai',
+                    totalTokens: 1234,
+                    tokenSource: 'api',
+                  },
+                },
+              ],
+            },
+    );
+    deleteAdminEmailMessageMock.mockImplementation(
+      async (_token, params): Promise<AdminEmailDeleteResponse> => {
+        deletedMessageKeys.add(`${params.folder}:${params.uid}`);
+        return {
+          deleted: true,
+          targetFolder: 'Trash',
+          permanent: false,
+        };
+      },
     );
 
     renderEmailPage();
 
-    expect(
-      await screen.findByRole('heading', { name: 'Launch checklist' }),
-    ).not.toBeNull();
-    expect(await screen.findByText('Waiting on HybridClaw')).not.toBeNull();
-    expect(
-      await screen.findByRole('button', { name: /finance ops/i }),
-    ).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: /finance ops/i }));
-
+    expect(await screen.findByRole('button', { name: /inbox/i })).not.toBeNull();
+    expect(await screen.findByText('Quarterly plan')).not.toBeNull();
     expect(
       await screen.findByText(
-        'Budget reviewed. I sent the highlights back already.',
+        'Please review the updated budget before tomorrow morning and confirm th…',
       ),
     ).not.toBeNull();
-    expect(fetchHistoryMock).toHaveBeenCalledWith('test-token', {
-      sessionId: 'email-session-1',
-      limit: 200,
+    expect(fetchAdminEmailFolderMock).toHaveBeenCalledWith('test-token', {
+      folder: 'INBOX',
+      limit: 40,
+    });
+    expect(fetchAdminEmailMessageMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Quarterly plan').closest('button')!);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Quarterly plan' }),
+    ).not.toBeNull();
+    expect(
+      await screen.findByText('Initial budget draft shared yesterday.'),
+    ).not.toBeNull();
+    expect(await screen.findByText('Agent: main')).not.toBeNull();
+    expect(await screen.findByText('Model: hybridai/gpt-5')).not.toBeNull();
+    expect(await screen.findByText('Provider: hybridai')).not.toBeNull();
+    expect(await screen.findByText('Tokens: 1,234')).not.toBeNull();
+    expect(await screen.findByRole('button', { name: /back to message list/i })).not.toBeNull();
+    expect(fetchAdminEmailMessageMock).toHaveBeenCalledWith('test-token', {
+      folder: 'INBOX',
+      uid: 44,
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /back to message list/i }),
+    );
+
+    expect(await screen.findByText('Quarterly plan')).not.toBeNull();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete Quarterly plan' }),
+    );
+
+    await waitFor(() =>
+      expect(deleteAdminEmailMessageMock).toHaveBeenCalledWith('test-token', {
+        folder: 'INBOX',
+        uid: 44,
+      }),
+    );
+    expect(
+      await screen.findByText('No IMAP messages match this folder and search.'),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /vip/i }));
+    expect(await screen.findByText('Board update')).not.toBeNull();
+
+    fireEvent.click(screen.getByText('Board update').closest('button')!);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Board update' }),
+    ).not.toBeNull();
+    expect(
+      await screen.findByText('Circling back on the board pack.'),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: /delete/i }),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() =>
+      expect(deleteAdminEmailMessageMock).toHaveBeenCalledWith('test-token', {
+        folder: 'VIP',
+        uid: 90,
+      }),
+    );
+    expect(
+      await screen.findByText('No IMAP messages match this folder and search.'),
+    ).not.toBeNull();
+
+    expect(fetchAdminEmailMessageMock).toHaveBeenCalledWith('test-token', {
+      folder: 'VIP',
+      uid: 90,
     });
   });
 

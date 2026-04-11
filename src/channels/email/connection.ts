@@ -1,10 +1,14 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { ImapFlow } from 'imapflow';
+import { DATA_DIR } from '../../config/config.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
-import { createEmailDedupSet, type EmailDedupSet } from './dedup.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
+const EMAIL_CURSOR_STATE_DIR = path.join(DATA_DIR, 'email');
+const EMAIL_CURSOR_STATE_VERSION = 1;
 
 export interface EmailFetchedMessage {
   folder: string;
@@ -17,6 +21,11 @@ export interface EmailConnectionManager {
   stop: () => Promise<void>;
 }
 
+interface PersistedFolderCursorState {
+  uidValidity: string | null;
+  lastProcessedUid: number;
+}
+
 function resolveFolders(folders: string[]): string[] {
   const resolved = folders
     .map((folder) => String(folder || '').trim())
@@ -24,12 +33,105 @@ function resolveFolders(folders: string[]): string[] {
   return resolved.length > 0 ? [...new Set(resolved)] : ['INBOX'];
 }
 
-function buildDedupKey(folder: string, uid: number): string {
-  return `${folder}:${uid}`;
+function resolveCursorStatePath(address: string): string {
+  const encodedAddress = Buffer.from(
+    String(address || '')
+      .trim()
+      .toLowerCase(),
+  )
+    .toString('base64url')
+    .replace(/=+$/g, '');
+  return path.join(
+    EMAIL_CURSOR_STATE_DIR,
+    `${encodedAddress || 'default'}-cursor-state.json`,
+  );
 }
 
 function resolveMailboxUidNext(client: ImapFlow): number {
   return Math.max(1, client.mailbox ? client.mailbox.uidNext : 1);
+}
+
+function resolveMailboxUidValidity(client: ImapFlow): string | null {
+  return client.mailbox
+    ? normalizeUidValidity(client.mailbox.uidValidity)
+    : null;
+}
+
+function normalizeUidValidity(
+  value: bigint | string | null | undefined,
+): string | null {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function normalizeLastProcessedUid(value: unknown): number {
+  const normalized = Math.max(0, Math.trunc(Number(value) || 0));
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+async function loadPersistedFolderCursorState(
+  address: string,
+): Promise<Map<string, PersistedFolderCursorState>> {
+  const statePath = resolveCursorStatePath(address);
+  try {
+    const raw = await fs.readFile(statePath, 'utf8');
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      folders?: Record<
+        string,
+        {
+          uidValidity?: string | null;
+          lastProcessedUid?: number;
+        }
+      >;
+    };
+    if (parsed.version !== EMAIL_CURSOR_STATE_VERSION || !parsed.folders) {
+      return new Map();
+    }
+    return new Map(
+      Object.entries(parsed.folders).map(([folder, state]) => [
+        folder,
+        {
+          uidValidity: normalizeUidValidity(state?.uidValidity),
+          lastProcessedUid: normalizeLastProcessedUid(state?.lastProcessedUid),
+        },
+      ]),
+    );
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : '';
+    if (code === 'ENOENT') {
+      return new Map();
+    }
+    logger.warn({ error, statePath }, 'Failed to read email cursor state');
+    return new Map();
+  }
+}
+
+async function savePersistedFolderCursorState(
+  address: string,
+  state: Map<string, PersistedFolderCursorState>,
+): Promise<void> {
+  const statePath = resolveCursorStatePath(address);
+  const serialized = {
+    version: EMAIL_CURSOR_STATE_VERSION,
+    folders: Object.fromEntries(
+      [...state.entries()].map(([folder, cursor]) => [
+        folder,
+        {
+          uidValidity: cursor.uidValidity,
+          lastProcessedUid: cursor.lastProcessedUid,
+        },
+      ]),
+    ),
+  };
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
+  await fs.writeFile(statePath, JSON.stringify(serialized, null, 2));
 }
 
 export function createEmailConnectionManager(
@@ -39,8 +141,7 @@ export function createEmailConnectionManager(
 ): EmailConnectionManager {
   const childLogger = logger.child({ channel: 'email' });
   const folders = resolveFolders(config.folders);
-  const dedup: EmailDedupSet = createEmailDedupSet();
-  const startupUidNext = new Map<string, number>();
+  const persistedCursorState = new Map<string, PersistedFolderCursorState>();
 
   let client: ImapFlow | null = null;
   let started = false;
@@ -49,6 +150,7 @@ export function createEmailConnectionManager(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let connectingPromise: Promise<void> | null = null;
+  let stateLoaded = false;
 
   const clearPollTimer = (): void => {
     if (!pollTimer) return;
@@ -100,16 +202,17 @@ export function createEmailConnectionManager(
   const initializeFolders = async (): Promise<void> => {
     const activeClient = client;
     if (!activeClient) return;
+    if (!stateLoaded) {
+      const loadedState = await loadPersistedFolderCursorState(config.address);
+      for (const [folder, cursor] of loadedState.entries()) {
+        persistedCursorState.set(folder, cursor);
+      }
+      stateLoaded = true;
+    }
 
     for (const folder of folders) {
       const lock = await activeClient.getMailboxLock(folder);
-      try {
-        if (!startupUidNext.has(folder)) {
-          startupUidNext.set(folder, resolveMailboxUidNext(activeClient));
-        }
-      } finally {
-        lock.release();
-      }
+      lock.release();
     }
   };
 
@@ -141,39 +244,84 @@ export function createEmailConnectionManager(
 
     const lock = await activeClient.getMailboxLock(folder);
     try {
-      const baselineUid =
-        startupUidNext.get(folder) ?? resolveMailboxUidNext(activeClient);
-      if (!startupUidNext.has(folder)) {
-        startupUidNext.set(folder, baselineUid);
+      const uidValidity = resolveMailboxUidValidity(activeClient);
+      const storedCursor = persistedCursorState.get(folder);
+      let lastProcessedUid =
+        storedCursor && storedCursor.uidValidity === uidValidity
+          ? storedCursor.lastProcessedUid
+          : 0;
+
+      const maxKnownUid = resolveMailboxUidNext(activeClient) - 1;
+      if (maxKnownUid <= lastProcessedUid) {
+        if (
+          !storedCursor ||
+          storedCursor.uidValidity !== uidValidity ||
+          storedCursor.lastProcessedUid !== lastProcessedUid
+        ) {
+          persistedCursorState.set(folder, {
+            uidValidity,
+            lastProcessedUid,
+          });
+          await savePersistedFolderCursorState(
+            config.address,
+            persistedCursorState,
+          );
+        }
+        return;
       }
 
-      const unseen = await activeClient.search({ seen: false }, { uid: true });
-      if (!Array.isArray(unseen) || unseen.length === 0) return;
-
-      const pending = unseen
-        .filter((uid) => uid >= baselineUid)
+      const allUids =
+        (await activeClient.search({ all: true }, { uid: true })) || [];
+      const pending = [...new Set(allUids)]
+        .filter((uid) => uid > lastProcessedUid)
         .sort((left, right) => left - right);
+      if (pending.length === 0) {
+        if (!storedCursor || storedCursor.uidValidity !== uidValidity) {
+          persistedCursorState.set(folder, {
+            uidValidity,
+            lastProcessedUid: maxKnownUid,
+          });
+          await savePersistedFolderCursorState(
+            config.address,
+            persistedCursorState,
+          );
+        }
+        return;
+      }
 
       for (const uid of pending) {
-        const dedupKey = buildDedupKey(folder, uid);
-        if (dedup.has(dedupKey)) {
-          startupUidNext.set(
-            folder,
-            Math.max(startupUidNext.get(folder) || baselineUid, uid + 1),
+        const message = await fetchOneMessage(folder, uid);
+        if (!message) {
+          lastProcessedUid = uid;
+          persistedCursorState.set(folder, {
+            uidValidity,
+            lastProcessedUid,
+          });
+          await savePersistedFolderCursorState(
+            config.address,
+            persistedCursorState,
           );
           continue;
         }
 
-        const message = await fetchOneMessage(folder, uid);
-        if (!message) continue;
-
         await onNewMessages([message]);
-        await activeClient.messageFlagsAdd([uid], ['\\Seen'], { uid: true });
-        dedup.add(dedupKey);
-        startupUidNext.set(
-          folder,
-          Math.max(startupUidNext.get(folder) || baselineUid, uid + 1),
+        lastProcessedUid = uid;
+        persistedCursorState.set(folder, {
+          uidValidity,
+          lastProcessedUid,
+        });
+        await savePersistedFolderCursorState(
+          config.address,
+          persistedCursorState,
         );
+        try {
+          await activeClient.messageFlagsAdd([uid], ['\\Seen'], { uid: true });
+        } catch (error) {
+          childLogger.warn(
+            { error, folder, uid },
+            'Failed to mark processed email as seen',
+          );
+        }
       }
     } finally {
       lock.release();
@@ -258,8 +406,8 @@ export function createEmailConnectionManager(
       started = false;
       clearPollTimer();
       clearReconnectTimer();
-      dedup.clear();
-      startupUidNext.clear();
+      persistedCursorState.clear();
+      stateLoaded = false;
       await closeClient();
     },
   };

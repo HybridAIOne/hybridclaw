@@ -417,6 +417,9 @@ export async function handleGatewayMessage(
     return attachSessionIdentity({
       status: 'success',
       result: conciergeTurn.resultText,
+      agentId,
+      model,
+      provider,
       components:
         source === 'discord'
           ? buildConciergeChoiceComponents({
@@ -547,6 +550,9 @@ export async function handleGatewayMessage(
       status: 'error',
       result: null,
       toolsUsed: [],
+      agentId,
+      model,
+      provider,
       error,
     };
   }
@@ -576,6 +582,9 @@ export async function handleGatewayMessage(
       status: 'success',
       result: resultText,
       toolsUsed: [],
+      agentId,
+      model,
+      provider,
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
@@ -1080,6 +1089,9 @@ export async function handleGatewayMessage(
         result: null,
         toolsUsed: output.toolsUsed || [],
         pluginsUsed,
+        agentId,
+        model,
+        provider,
         artifacts: output.artifacts,
         toolExecutions,
         tokenUsage: output.tokenUsage,
@@ -1195,6 +1207,9 @@ export async function handleGatewayMessage(
       result: resultText,
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
+      agentId,
+      model,
+      provider,
       memoryCitations: output.memoryCitations,
       artifacts: output.artifacts,
       toolExecutions,
@@ -1282,6 +1297,9 @@ export async function handleGatewayMessage(
       result: null,
       toolsUsed: [],
       pluginsUsed,
+      agentId,
+      model,
+      provider,
       toolExecutions: undefined,
       error: errorMsg,
     });

@@ -51,6 +51,9 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  agentId?: string;
+  model?: string;
+  provider?: string;
   memoryCitations?: MemoryCitation[];
   components?: GatewayMessageComponents;
   sessionId?: string;
@@ -449,25 +452,80 @@ export interface GatewayAdminSession {
   lastActive: string;
 }
 
-export interface GatewayAdminEmailThread {
-  sessionId: string;
-  channelId: string;
-  senderName: string | null;
+export interface GatewayAdminEmailFolder {
+  path: string;
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unseen: number;
+}
+
+export interface GatewayAdminEmailMessageSummary {
+  folder: string;
+  uid: number;
+  messageId: string | null;
   subject: string;
+  fromAddress: string | null;
+  fromName: string | null;
   preview: string | null;
-  summary: string | null;
-  messageCount: number;
-  userMessageCount: number;
-  lastMessageRole: string | null;
-  createdAt: string;
-  lastActive: string;
+  receivedAt: string | null;
+  seen: boolean;
+  flagged: boolean;
+  answered: boolean;
+  hasAttachments: boolean;
+}
+
+export interface GatewayAdminEmailParticipant {
+  name: string | null;
+  address: string | null;
+}
+
+export interface GatewayAdminEmailAttachment {
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface GatewayAdminEmailMessageMetadata {
+  agentId: string | null;
+  model: string | null;
+  provider: string | null;
+  totalTokens: number | null;
+  tokenSource: 'api' | 'estimated' | null;
+}
+
+export interface GatewayAdminEmailMessageDetail
+  extends GatewayAdminEmailMessageSummary {
+  to: GatewayAdminEmailParticipant[];
+  cc: GatewayAdminEmailParticipant[];
+  bcc: GatewayAdminEmailParticipant[];
+  replyTo: GatewayAdminEmailParticipant[];
+  text: string | null;
+  attachments: GatewayAdminEmailAttachment[];
+  metadata: GatewayAdminEmailMessageMetadata | null;
 }
 
 export interface GatewayAdminEmailMailboxResponse {
   enabled: boolean;
   address: string;
-  folders: string[];
-  threads: GatewayAdminEmailThread[];
+  folders: GatewayAdminEmailFolder[];
+  defaultFolder: string | null;
+}
+
+export interface GatewayAdminEmailFolderResponse {
+  folder: string;
+  messages: GatewayAdminEmailMessageSummary[];
+}
+
+export interface GatewayAdminEmailMessageResponse {
+  message: GatewayAdminEmailMessageDetail | null;
+  thread: GatewayAdminEmailMessageDetail[];
+}
+
+export interface GatewayAdminEmailDeleteResponse {
+  deleted: true;
+  targetFolder: string | null;
+  permanent: boolean;
 }
 
 export interface GatewayAdminUsageSummary {

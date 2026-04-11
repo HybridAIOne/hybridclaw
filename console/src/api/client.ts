@@ -9,7 +9,10 @@ import type {
   AdminConfig,
   AdminConfigResponse,
   AdminCreateSkillPayload,
+  AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
+  AdminEmailDeleteResponse,
+  AdminEmailMessageResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -27,7 +30,6 @@ import type {
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
-  GatewayHistoryResponse,
   GatewayStatus,
 } from './types';
 
@@ -203,21 +205,60 @@ export function fetchAdminEmailMailbox(
   return requestJson<AdminEmailMailboxResponse>('/api/admin/email', { token });
 }
 
-export function fetchHistory(
+export function fetchAdminEmailFolder(
   token: string,
   params: {
-    sessionId: string;
+    folder: string;
     limit?: number;
   },
-): Promise<GatewayHistoryResponse> {
-  const query = new URLSearchParams({ sessionId: params.sessionId });
+): Promise<AdminEmailFolderResponse> {
+  const query = new URLSearchParams({ folder: params.folder });
   if (typeof params.limit === 'number') {
     query.set('limit', String(params.limit));
   }
-  return requestJson<GatewayHistoryResponse>(
-    `/api/history?${query.toString()}`,
+  return requestJson<AdminEmailFolderResponse>(
+    `/api/admin/email/messages?${query.toString()}`,
     {
       token,
+    },
+  );
+}
+
+export function fetchAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailMessageResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailMessageResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+    },
+  );
+}
+
+export function deleteAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailDeleteResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailDeleteResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+      method: 'DELETE',
     },
   );
 }

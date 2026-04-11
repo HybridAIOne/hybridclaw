@@ -48,6 +48,12 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import {
+  deleteLiveAdminEmailMessage,
+  fetchLiveAdminEmailFolder,
+  fetchLiveAdminEmailMailbox,
+  fetchLiveAdminEmailMessage,
+} from '../channels/email/admin-mailbox.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
@@ -316,8 +322,10 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminEmailFolderResponse,
+  type GatewayAdminEmailDeleteResponse,
   type GatewayAdminEmailMailboxResponse,
-  type GatewayAdminEmailThread,
+  type GatewayAdminEmailMessageResponse,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
@@ -1098,104 +1106,6 @@ function mapAdminSession(session: Session): GatewayAdminSession {
 }
 
 const EMAIL_SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
-const EMAIL_THREAD_SUBJECT_MAX_LENGTH = 96;
-const EMAIL_THREAD_PREVIEW_MAX_LENGTH = 180;
-const EMAIL_THREAD_NAME_MAX_LENGTH = 48;
-
-function extractEmailThreadSubject(
-  raw: string | null | undefined,
-): string | null {
-  const subject = String(raw || '')
-    .match(EMAIL_SUBJECT_PREFIX_RE)?.[1]
-    ?.trim();
-  return subject
-    ? trimSessionPreviewText(subject, EMAIL_THREAD_SUBJECT_MAX_LENGTH)
-    : null;
-}
-
-function stripEmailThreadSubject(
-  raw: string | null | undefined,
-): string | null {
-  const normalized = String(raw || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(EMAIL_SUBJECT_PREFIX_RE, '')
-    .trim();
-  return trimSessionPreviewText(normalized, EMAIL_THREAD_PREVIEW_MAX_LENGTH);
-}
-
-function formatEmailContactLabel(address: string): string {
-  const localPart = String(address || '').split('@')[0] || address;
-  const compact = localPart
-    .replace(/[._-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!compact) return address;
-  return compact.replace(/\b[a-z]/g, (match) => match.toUpperCase());
-}
-
-function resolveEmailThreadSenderName(
-  messages: StoredMessage[],
-  address: string,
-): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (String(message.role || '').toLowerCase() !== 'user') continue;
-    const normalizedName = trimSessionPreviewText(
-      message.username,
-      EMAIL_THREAD_NAME_MAX_LENGTH,
-    );
-    if (
-      normalizedName &&
-      normalizeEmailAddress(normalizedName) !== normalizeEmailAddress(address)
-    ) {
-      return normalizedName;
-    }
-  }
-
-  return trimSessionPreviewText(
-    formatEmailContactLabel(address),
-    EMAIL_THREAD_NAME_MAX_LENGTH,
-  );
-}
-
-function resolveEmailThreadSubject(params: {
-  firstMessage: string | null;
-  lastMessage: string | null;
-  summary: string | null;
-  address: string;
-}): string {
-  return (
-    extractEmailThreadSubject(params.firstMessage) ||
-    extractEmailThreadSubject(params.lastMessage) ||
-    trimSessionPreviewText(params.summary, EMAIL_THREAD_SUBJECT_MAX_LENGTH) ||
-    trimSessionPreviewText(
-      formatEmailContactLabel(params.address),
-      EMAIL_THREAD_SUBJECT_MAX_LENGTH,
-    ) ||
-    'HybridClaw'
-  );
-}
-
-function resolveEmailThreadPreview(params: {
-  firstMessage: string | null;
-  lastMessage: string | null;
-  summary: string | null;
-}): string | null {
-  return (
-    stripEmailThreadSubject(params.lastMessage) ||
-    stripEmailThreadSubject(params.firstMessage) ||
-    trimSessionPreviewText(params.summary, EMAIL_THREAD_PREVIEW_MAX_LENGTH)
-  );
-}
-
-function normalizeEmailThreadRole(
-  role: string | null | undefined,
-): string | null {
-  const normalized = String(role || '')
-    .trim()
-    .toLowerCase();
-  return normalized || null;
-}
 
 function parseIntOrNull(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -3455,65 +3365,90 @@ export function getGatewayAdminSessions(): GatewayAdminSession[] {
   return getAllSessions().map(mapAdminSession);
 }
 
-export function getGatewayAdminEmailMailbox(): GatewayAdminEmailMailboxResponse {
-  const runtimeConfig = getRuntimeConfig();
-  const emailSessions = getAllSessions().filter((session) =>
-    Boolean(normalizeEmailAddress(session.channel_id)),
-  );
-  const boundaryMessages = getSessionBoundaryMessagesBySessionIds(
-    emailSessions.map((session) => session.id),
-  );
-  const threads: GatewayAdminEmailThread[] = emailSessions
-    .map((session) => {
-      const address =
-        normalizeEmailAddress(session.channel_id) || session.channel_id;
-      const boundary = boundaryMessages.get(session.id) || {
-        firstMessage: null,
-        lastMessage: null,
-      };
-      const recentMessages = getRecentMessages(session.id, 12);
-      const lastMessage = recentMessages.at(-1) || null;
-      const messageCounts = getSessionMessageCounts(session.id);
+function resolveGatewayAdminEmailPassword(
+  runtimeConfig: RuntimeConfig,
+): string {
+  const credential = resolveRuntimeCredentialStatus('EMAIL_PASSWORD', [
+    process.env.EMAIL_PASSWORD,
+  ]);
+  return credential.value || String(runtimeConfig.email.password || '').trim();
+}
 
-      return {
-        sessionId: session.id,
-        channelId: address,
-        senderName: resolveEmailThreadSenderName(recentMessages, address),
-        subject: resolveEmailThreadSubject({
-          firstMessage: boundary.firstMessage,
-          lastMessage: boundary.lastMessage,
-          summary: session.session_summary,
-          address,
-        }),
-        preview: resolveEmailThreadPreview({
-          firstMessage: boundary.firstMessage,
-          lastMessage: boundary.lastMessage,
-          summary: session.session_summary,
-        }),
-        summary: session.session_summary,
-        messageCount: session.message_count,
-        userMessageCount: messageCounts.userMessages,
-        lastMessageRole: normalizeEmailThreadRole(lastMessage?.role),
-        createdAt: session.created_at,
-        lastActive: session.last_active,
-      };
-    })
-    .sort(
-      (left, right) =>
-        (parseTimestamp(right.lastActive)?.getTime() || 0) -
-        (parseTimestamp(left.lastActive)?.getTime() || 0),
-    );
+function assertGatewayAdminEmailMailboxConfigured(
+  runtimeConfig: RuntimeConfig,
+): {
+  config: RuntimeConfig['email'];
+  password: string;
+} {
+  if (!runtimeConfig.email.enabled) {
+    throw new Error('Email channel is not enabled.');
+  }
+  if (!runtimeConfig.email.address.trim()) {
+    throw new Error('Email address is not configured.');
+  }
+  if (!runtimeConfig.email.imapHost.trim()) {
+    throw new Error('Email IMAP host is not configured.');
+  }
+  const password = resolveGatewayAdminEmailPassword(runtimeConfig);
+  if (!password) {
+    throw new Error('Email password is not configured.');
+  }
+  return {
+    config: runtimeConfig.email,
+    password,
+  };
+}
+
+export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMailboxResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  if (!runtimeConfig.email.enabled) {
+    return {
+      enabled: false,
+      address: runtimeConfig.email.address,
+      folders: [],
+      defaultFolder: null,
+    };
+  }
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  const mailbox = await fetchLiveAdminEmailMailbox(config, password);
 
   return {
-    enabled: runtimeConfig.email.enabled,
-    address: runtimeConfig.email.address,
-    folders: dedupeStrings(
-      runtimeConfig.email.folders
-        .map((folder) => String(folder || '').trim())
-        .filter(Boolean),
-    ),
-    threads,
+    enabled: true,
+    address: mailbox.address,
+    folders: mailbox.folders,
+    defaultFolder: mailbox.defaultFolder,
   };
+}
+
+export async function getGatewayAdminEmailFolder(params: {
+  folder: string;
+  limit?: number;
+}): Promise<GatewayAdminEmailFolderResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailFolder(config, password, params);
+}
+
+export async function getGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailMessageResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailMessage(config, password, params);
+}
+
+export async function deleteGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailDeleteResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return deleteLiveAdminEmailMessage(config, password, params);
 }
 
 export function deleteGatewayAdminSession(

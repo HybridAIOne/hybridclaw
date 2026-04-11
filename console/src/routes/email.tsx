@@ -1,117 +1,321 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import {
+  deleteAdminEmailMessage,
+  fetchAdminEmailFolder,
   fetchAdminEmailMailbox,
+  fetchAdminEmailMessage,
   fetchConfig,
-  fetchHistory,
 } from '../api/client';
-import type { AdminEmailThread, GatewayHistoryMessage } from '../api/types';
+import type {
+  AdminEmailFolder,
+  AdminEmailMessageDetail,
+  AdminEmailMessageSummary,
+} from '../api/types';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import { PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
-type MailboxFolder = 'inbox' | 'needs-reply' | 'replied' | 'all-mail';
+const MAILBOX_MESSAGE_LIMIT = 40;
+const MAILBOX_THREAD_PREVIEW_MAX_LENGTH = 72;
+const MAILBOX_REFRESH_INTERVAL_MS = 10_000;
+const TOKEN_COUNT_FORMATTER = new Intl.NumberFormat();
 
-const MAILBOX_FOLDERS: ReadonlyArray<{
-  id: MailboxFolder;
-  label: string;
-  description: string;
-}> = [
-  {
-    id: 'inbox',
-    label: 'Inbox',
-    description: 'All tracked email threads',
-  },
-  {
-    id: 'needs-reply',
-    label: 'Needs reply',
-    description: 'Last message came from the sender',
-  },
-  {
-    id: 'replied',
-    label: 'Replied',
-    description: 'HybridClaw answered last',
-  },
-  {
-    id: 'all-mail',
-    label: 'All mail',
-    description: 'Unfiltered mailbox mirror',
-  },
-];
-
-const HISTORY_LIMIT = 200;
-const INLINE_SUBJECT_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
-
-function stripInlineSubject(raw: string): string {
-  return raw.replace(INLINE_SUBJECT_RE, '').trim();
+function isDraftFolder(folder: AdminEmailFolder): boolean {
+  const specialUse = String(folder.specialUse || '').toLowerCase();
+  const name = folder.name.toLowerCase();
+  return specialUse === '\\drafts' || name.includes('draft');
 }
 
-function matchesFolder(
-  thread: AdminEmailThread,
-  folder: MailboxFolder,
+function folderCountValue(folder: AdminEmailFolder): string | null {
+  if (folder.unseen > 0) return String(folder.unseen);
+  if (isDraftFolder(folder) && folder.total > 0) return String(folder.total);
+  return null;
+}
+
+function folderIcon(folder: AdminEmailFolder) {
+  const specialUse = String(folder.specialUse || '').toLowerCase();
+  const name = folder.name.toLowerCase();
+
+  if (specialUse === '\\inbox' || name === 'inbox') {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M4.25 5.5h11.5v9.25H12l-2 2-2-2H4.25V5.5Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (
+    name.includes('later') ||
+    name.includes('snooze') ||
+    name.includes('zur')
+  ) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle
+          cx="10"
+          cy="10"
+          r="6.25"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        />
+        <path
+          d="M10 6.75V10l2.25 1.75"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (
+    specialUse === '\\flagged' ||
+    name.includes('important') ||
+    name.includes('priority') ||
+    name.includes('star')
+  ) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="m6 5.25 6.5 4.75L6 14.75h8.25"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (specialUse === '\\sent' || name.includes('sent')) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M4.5 10 15.75 4.75l-2.75 10.5-3.5-3-2.75 2V10Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (isDraftFolder(folder)) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M6 3.75h5.5l2.5 2.5v10H6v-12.5Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M11.5 3.75v2.5H14"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (
+    specialUse === '\\junk' ||
+    name.includes('spam') ||
+    name.includes('junk')
+  ) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M8 3.75h4l4.25 4.25v4L12 16.25H8L3.75 12V8L8 3.75Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M10 7.25v3.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <circle cx="10" cy="13.2" r="0.95" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (
+    specialUse === '\\trash' ||
+    name.includes('trash') ||
+    name.includes('bin')
+  ) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M6.5 6.25h7l-.65 9H7.15l-.65-9Zm1.75 0V4.75h3.5v1.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (specialUse === '\\archive' || name.includes('archive')) {
+    return (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M4.25 5h11.5v3H4.25V5Zm.5 3h10.5v7.25H4.75V8Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8 10.5h4"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M3.75 6.5h4.5l1.5 1.75h6.5v6.75H3.75V6.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function messageSelectionKey(message: { folder: string; uid: number }): string {
+  return `${message.folder}:${message.uid}`;
+}
+
+function isSyntheticMessageUid(uid: number): boolean {
+  return uid < 0;
+}
+
+function messageSenderLabel(message: AdminEmailMessageSummary): string {
+  return message.fromName?.trim() || message.fromAddress?.trim() || 'Unknown';
+}
+
+function threadPreviewLabel(message: AdminEmailMessageSummary): string {
+  const preview = String(message.preview || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!preview) return 'No preview available.';
+  if (preview.length <= MAILBOX_THREAD_PREVIEW_MAX_LENGTH) return preview;
+  return `${preview.slice(0, MAILBOX_THREAD_PREVIEW_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
+function formatMailboxListTimestamp(raw: string | null): string {
+  if (!raw) return 'Unknown';
+  const timestamp = new Date(raw);
+  if (Number.isNaN(timestamp.getTime())) return 'Unknown';
+
+  const now = new Date();
+  const isSameDay =
+    timestamp.getFullYear() === now.getFullYear() &&
+    timestamp.getMonth() === now.getMonth() &&
+    timestamp.getDate() === now.getDate();
+  if (isSameDay) {
+    return timestamp.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  const isSameYear = timestamp.getFullYear() === now.getFullYear();
+  return timestamp.toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+    ...(isSameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+function messageMetadataRows(message: AdminEmailMessageDetail): string[] {
+  const metadata = message.metadata;
+  if (!metadata) return [];
+
+  const rows: string[] = [];
+  if (metadata.agentId) {
+    rows.push(`Agent: ${metadata.agentId}`);
+  }
+  if (metadata.model) {
+    rows.push(`Model: ${metadata.model}`);
+  }
+  if (metadata.provider) {
+    rows.push(`Provider: ${metadata.provider}`);
+  }
+  if (metadata.totalTokens !== null) {
+    rows.push(
+      `Tokens: ${TOKEN_COUNT_FORMATTER.format(metadata.totalTokens)}${
+        metadata.tokenSource === 'estimated' ? ' estimated' : ''
+      }`,
+    );
+  }
+  return rows;
+}
+
+function renderMessageMetadata(message: AdminEmailMessageDetail) {
+  const rows = messageMetadataRows(message);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mailbox-message-metadata">
+      {rows.map((row) => (
+        <small key={`${message.uid}:${row}`}>{row}</small>
+      ))}
+    </div>
+  );
+}
+
+function trashIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M6.5 6.25h7l-.65 9H7.15l-.65-9Zm1.75 0V4.75h3.5v1.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function matchesSearch(
+  message: AdminEmailMessageSummary,
+  query: string,
 ): boolean {
-  if (folder === 'needs-reply') {
-    return thread.lastMessageRole === 'user';
-  }
-  if (folder === 'replied') {
-    return thread.lastMessageRole === 'assistant';
-  }
-  return true;
-}
-
-function matchesSearch(thread: AdminEmailThread, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
   return [
-    thread.senderName || '',
-    thread.channelId,
-    thread.subject,
-    thread.preview || '',
-    thread.summary || '',
+    message.fromName || '',
+    message.fromAddress || '',
+    message.subject,
+    message.preview || '',
   ]
     .join(' ')
     .toLowerCase()
     .includes(needle);
 }
 
-function visibleMailboxMessages(
-  messages: GatewayHistoryMessage[] | undefined,
-): GatewayHistoryMessage[] {
-  return (messages || []).filter((message) => {
-    const role = String(message.role || '').toLowerCase();
-    return role === 'user' || role === 'assistant';
-  });
-}
-
-function threadSenderLabel(thread: AdminEmailThread): string {
-  return thread.senderName?.trim() || thread.channelId;
-}
-
-function messageAuthorLabel(
-  message: GatewayHistoryMessage,
-  thread: AdminEmailThread,
-): string {
-  if (String(message.role || '').toLowerCase() === 'assistant') {
-    return 'HybridClaw';
-  }
-  return String(message.username || '').trim() || threadSenderLabel(thread);
-}
-
-function messageMetaLabel(
-  message: GatewayHistoryMessage,
-  thread: AdminEmailThread,
-): string {
-  if (String(message.role || '').toLowerCase() === 'assistant') {
-    return `reply to ${thread.channelId}`;
-  }
-  return thread.channelId;
-}
-
 export function EmailPage() {
   const auth = useAuth();
-  const [folder, setFolder] = useState<MailboxFolder>('inbox');
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
+    null,
+  );
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(
     null,
   );
   const deferredSearch = useDeferredValue(search);
@@ -123,41 +327,131 @@ export function EmailPage() {
   const mailboxQuery = useQuery({
     queryKey: ['admin-email-mailbox', auth.token],
     queryFn: () => fetchAdminEmailMailbox(auth.token),
+    enabled: configQuery.data?.config.email.enabled === true,
+    refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
   });
 
   const emailEnabled = configQuery.data?.config.email.enabled === true;
-  const mailbox = mailboxQuery.data;
-  const filteredThreads = (mailbox?.threads || []).filter(
-    (thread) =>
-      matchesFolder(thread, folder) && matchesSearch(thread, deferredSearch),
-  );
-  const selectedThread =
-    filteredThreads.find((thread) => thread.sessionId === selectedSessionId) ||
-    filteredThreads[0] ||
-    null;
-  const historyQuery = useQuery({
-    queryKey: ['history', auth.token, selectedThread?.sessionId, HISTORY_LIMIT],
-    queryFn: () =>
-      fetchHistory(auth.token, {
-        sessionId: selectedThread?.sessionId || '',
-        limit: HISTORY_LIMIT,
-      }),
-    enabled: emailEnabled && Boolean(selectedThread?.sessionId),
-  });
+  const folders = mailboxQuery.data?.folders || [];
 
   useEffect(() => {
-    if (!filteredThreads.length) {
-      if (selectedSessionId !== null) {
-        setSelectedSessionId(null);
+    const nextFolder =
+      mailboxQuery.data?.defaultFolder ||
+      mailboxQuery.data?.folders[0]?.path ||
+      null;
+    if (!nextFolder) {
+      if (selectedFolder !== null) {
+        setSelectedFolder(null);
       }
       return;
     }
-    if (
-      !filteredThreads.some((thread) => thread.sessionId === selectedSessionId)
-    ) {
-      setSelectedSessionId(filteredThreads[0]?.sessionId || null);
+    if (!folders.some((folder) => folder.path === selectedFolder)) {
+      setSelectedFolder(nextFolder);
     }
-  }, [filteredThreads, selectedSessionId]);
+  }, [
+    folders,
+    mailboxQuery.data?.defaultFolder,
+    mailboxQuery.data?.folders[0]?.path,
+    selectedFolder,
+  ]);
+
+  const folderMessagesQuery = useQuery({
+    queryKey: [
+      'admin-email-folder',
+      auth.token,
+      selectedFolder,
+      MAILBOX_MESSAGE_LIMIT,
+    ],
+    queryFn: () =>
+      fetchAdminEmailFolder(auth.token, {
+        folder: selectedFolder || '',
+        limit: MAILBOX_MESSAGE_LIMIT,
+      }),
+    enabled: emailEnabled && Boolean(selectedFolder),
+    refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
+  });
+
+  const filteredMessages = (folderMessagesQuery.data?.messages || []).filter(
+    (message) => matchesSearch(message, deferredSearch),
+  );
+  const selectedMessageSummary = selectedMessageId
+    ? filteredMessages.find(
+        (message) => messageSelectionKey(message) === selectedMessageId,
+      ) || null
+    : null;
+
+  useEffect(() => {
+    if (selectedMessageId === null) {
+      return;
+    }
+
+    if (
+      !filteredMessages.some(
+        (message) => messageSelectionKey(message) === selectedMessageId,
+      )
+    ) {
+      setSelectedMessageId(null);
+    }
+  }, [filteredMessages, selectedMessageId]);
+
+  const messageDetailQuery = useQuery({
+    queryKey: [
+      'admin-email-message',
+      auth.token,
+      selectedMessageSummary?.folder,
+      selectedMessageSummary?.uid,
+    ],
+    queryFn: () =>
+      fetchAdminEmailMessage(auth.token, {
+        folder: selectedMessageSummary?.folder || '',
+        uid: selectedMessageSummary?.uid || 0,
+      }),
+    enabled: emailEnabled && Boolean(selectedMessageSummary),
+    refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (params: { folder: string; uid: number }) =>
+      deleteAdminEmailMessage(auth.token, params),
+    onMutate: (params) => {
+      setDeletingMessageId(messageSelectionKey(params));
+    },
+    onSuccess: async (_payload, params) => {
+      const selectionKey = messageSelectionKey(params);
+      if (selectedMessageId === selectionKey) {
+        setSelectedMessageId(null);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['admin-email-mailbox', auth.token],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            'admin-email-folder',
+            auth.token,
+            params.folder,
+            MAILBOX_MESSAGE_LIMIT,
+          ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            'admin-email-message',
+            auth.token,
+            params.folder,
+            params.uid,
+          ],
+        }),
+      ]);
+    },
+    onSettled: () => {
+      setDeletingMessageId(null);
+    },
+  });
+
+  function handleDeleteMessage(params: { folder: string; uid: number }): void {
+    deleteMutation.reset();
+    deleteMutation.mutate(params);
+  }
 
   if (configQuery.isLoading && !configQuery.data) {
     return <div className="empty-state">Loading mailbox settings...</div>;
@@ -184,21 +478,19 @@ export function EmailPage() {
           }
         />
 
-        <Panel title="Email mailbox" accent="warm">
-          <div className="empty-state">
-            Email is currently disabled. Turn on the email channel first, then
-            return to `/admin/email`.
-          </div>
-        </Panel>
+        <div className="empty-state">
+          Email is currently disabled. Turn on the email channel first, then
+          return to `/admin/email`.
+        </div>
       </div>
     );
   }
 
-  if (mailboxQuery.isLoading && !mailbox) {
-    return <div className="empty-state">Loading mailbox...</div>;
+  if (mailboxQuery.isLoading && !mailboxQuery.data) {
+    return <div className="empty-state">Connecting to IMAP mailbox...</div>;
   }
 
-  if (mailboxQuery.isError && !mailbox) {
+  if (mailboxQuery.isError && !mailboxQuery.data) {
     return (
       <div className="empty-state error">
         {(mailboxQuery.error as Error).message}
@@ -206,17 +498,20 @@ export function EmailPage() {
     );
   }
 
-  const messages = visibleMailboxMessages(historyQuery.data?.history);
-  const mailboxAddress =
-    mailbox?.address.trim() ||
-    configQuery.data?.config.email.address.trim() ||
-    'mailbox';
+  const selectedFolderMeta =
+    folders.find((folder) => folder.path === selectedFolder) ||
+    folders[0] ||
+    null;
+  const selectedMessage = messageDetailQuery.data?.message || null;
+  const selectedThread = messageDetailQuery.data?.thread || [];
+  const isMessageOpen = selectedMessageSummary !== null;
+  const deleteError =
+    deleteMutation.error instanceof Error ? deleteMutation.error.message : null;
 
   return (
     <div className="page-stack">
       <PageHeader
         title="Email"
-        description={`Simple mailbox view for ${mailboxAddress}. It uses stored email session history, so the first pass stays lightweight and admin-native.`}
         actions={
           <input
             className="compact-search"
@@ -227,198 +522,343 @@ export function EmailPage() {
         }
       />
 
-      <Panel title="Mailbox" subtitle={mailboxAddress} accent="warm">
-        <div className="mailbox-shell">
-          <aside className="mailbox-sidebar">
-            <div className="mailbox-sidebar-section">
-              <p className="eyebrow">Folders</p>
-              <div className="mailbox-folder-list">
-                {MAILBOX_FOLDERS.map((item) => {
-                  const count = (mailbox?.threads || []).filter((thread) =>
-                    matchesFolder(thread, item.id),
-                  ).length;
-                  return (
-                    <button
-                      key={item.id}
-                      className={
-                        folder === item.id
-                          ? 'mailbox-folder-button active'
-                          : 'mailbox-folder-button'
-                      }
-                      type="button"
-                      onClick={() => setFolder(item.id)}
-                    >
-                      <span>{item.label}</span>
-                      <strong>{count}</strong>
-                      <small>{item.description}</small>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mailbox-sidebar-section">
-              <p className="eyebrow">Watched IMAP folders</p>
-              {mailbox?.folders.length ? (
-                <div className="mailbox-tag-list">
-                  {mailbox.folders.map((folderName) => (
-                    <span key={folderName} className="meta-chip">
-                      {folderName}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="supporting-text">
-                  No extra IMAP folders configured. This view is mirroring the
-                  default inbox only.
-                </p>
-              )}
-            </div>
-          </aside>
-
-          <section className="mailbox-thread-column">
-            <div className="mailbox-column-header">
-              <div>
-                <strong>
-                  {MAILBOX_FOLDERS.find((item) => item.id === folder)?.label}
-                </strong>
-                <small>
-                  {filteredThreads.length} thread
-                  {filteredThreads.length === 1 ? '' : 's'}
-                </small>
-              </div>
-              <span className="meta-chip">
-                {mailbox?.threads.length || 0} total
-              </span>
-            </div>
-
-            <div className="mailbox-thread-list">
-              {filteredThreads.length === 0 ? (
-                <div className="empty-state">
-                  No email threads match this folder and search.
-                </div>
-              ) : (
-                filteredThreads.map((thread) => (
+      <div className="mailbox-shell">
+        <aside className="mailbox-sidebar">
+          <div className="mailbox-sidebar-section">
+            <div className="mailbox-folder-list">
+              {folders.map((folder) => {
+                const count = folderCountValue(folder);
+                const isActive = selectedFolder === folder.path;
+                return (
                   <button
-                    key={thread.sessionId}
-                    className={
-                      thread.sessionId === selectedThread?.sessionId
-                        ? 'mailbox-thread-button active'
-                        : 'mailbox-thread-button'
-                    }
+                    key={folder.path}
+                    className={[
+                      'mailbox-folder-button',
+                      isActive ? 'active' : '',
+                      count ? 'is-emphasized' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     type="button"
-                    onClick={() => setSelectedSessionId(thread.sessionId)}
+                    onClick={() => {
+                      setSelectedFolder(folder.path);
+                      setSelectedMessageId(null);
+                    }}
                   >
-                    <div className="mailbox-thread-top">
-                      <strong>{threadSenderLabel(thread)}</strong>
-                      <span>{formatRelativeTime(thread.lastActive)}</span>
-                    </div>
-                    <div className="mailbox-thread-copy">
-                      <span>{thread.subject}</span>
-                      <small>
-                        {thread.preview || 'No preview available yet.'}
-                      </small>
-                    </div>
-                    <div className="mailbox-thread-meta">
-                      <span className="meta-chip">
-                        {thread.messageCount} msgs
+                    <span className="mailbox-folder-row">
+                      <span className="mailbox-folder-title">
+                        <span
+                          className="mailbox-folder-symbol"
+                          aria-hidden="true"
+                        >
+                          {folderIcon(folder)}
+                        </span>
+                        <span className="mailbox-folder-label">
+                          {folder.name}
+                        </span>
                       </span>
-                      {thread.lastMessageRole === 'user' ? (
-                        <span className="mailbox-role-pill needs-reply">
-                          Needs reply
-                        </span>
-                      ) : thread.lastMessageRole === 'assistant' ? (
-                        <span className="mailbox-role-pill replied">
-                          Replied
-                        </span>
-                      ) : null}
-                    </div>
+                      {count ? <strong>{count}</strong> : null}
+                    </span>
                   </button>
-                ))
-              )}
+                );
+              })}
             </div>
-          </section>
+          </div>
+        </aside>
 
-          <section className="mailbox-detail">
-            {!selectedThread ? (
-              <div className="empty-state mailbox-detail-empty">
-                Pick a thread to inspect its stored conversation.
+        <section className="mailbox-main">
+          {!isMessageOpen ? (
+            <>
+              <div className="mailbox-column-header">
+                <div>
+                  <strong>{selectedFolderMeta?.name || 'Mailbox'}</strong>
+                  <small>
+                    {folderMessagesQuery.isLoading && !folderMessagesQuery.data
+                      ? 'Loading messages...'
+                      : `${filteredMessages.length} shown`}
+                  </small>
+                </div>
+                {selectedFolderMeta ? (
+                  <span className="meta-chip">
+                    {selectedFolderMeta.unseen > 0
+                      ? `${selectedFolderMeta.unseen} unread`
+                      : `${selectedFolderMeta.total} total`}
+                  </span>
+                ) : null}
               </div>
-            ) : (
-              <>
-                <div className="mailbox-detail-header">
-                  <div className="mailbox-detail-copy">
-                    <div className="mailbox-detail-heading">
-                      <h3>{selectedThread.subject}</h3>
-                      {selectedThread.lastMessageRole === 'user' ? (
-                        <span className="mailbox-role-pill needs-reply">
-                          Waiting on HybridClaw
+              {deleteError ? (
+                <div className="mailbox-inline-error">{deleteError}</div>
+              ) : null}
+
+              <div className="mailbox-thread-list">
+                {folderMessagesQuery.isLoading && !folderMessagesQuery.data ? (
+                  <div className="empty-state">
+                    Loading live IMAP messages...
+                  </div>
+                ) : folderMessagesQuery.isError ? (
+                  <div className="empty-state error">
+                    {(folderMessagesQuery.error as Error).message}
+                  </div>
+                ) : filteredMessages.length === 0 ? (
+                  <div className="empty-state">
+                    No IMAP messages match this folder and search.
+                  </div>
+                ) : (
+                  filteredMessages.map((message) => (
+                    <div
+                      key={messageSelectionKey(message)}
+                      className={[
+                        'mailbox-thread-row',
+                        !message.seen ? 'is-unread' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      <button
+                        className="mailbox-thread-button"
+                        type="button"
+                        onClick={() =>
+                          setSelectedMessageId(messageSelectionKey(message))
+                        }
+                      >
+                        <div className="mailbox-thread-summary">
+                          <strong className="mailbox-thread-sender">
+                            {messageSenderLabel(message)}
+                          </strong>
+                          <span className="mailbox-thread-separator">-</span>
+                          <strong className="mailbox-thread-subject">
+                            {message.subject}
+                          </strong>
+                          <span className="mailbox-thread-separator">-</span>
+                          <span className="mailbox-thread-preview">
+                            {threadPreviewLabel(message)}
+                          </span>
+                        </div>
+                        <span className="mailbox-thread-time">
+                          {formatMailboxListTimestamp(message.receivedAt)}
                         </span>
-                      ) : selectedThread.lastMessageRole === 'assistant' ? (
-                        <span className="mailbox-role-pill replied">
-                          Last reply sent
-                        </span>
-                      ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="mailbox-icon-button mailbox-thread-delete"
+                        aria-label={`Delete ${message.subject}`}
+                        disabled={
+                          deletingMessageId === messageSelectionKey(message) ||
+                          isSyntheticMessageUid(message.uid)
+                        }
+                        onClick={() =>
+                          handleDeleteMessage({
+                            folder: message.folder,
+                            uid: message.uid,
+                          })
+                        }
+                      >
+                        {trashIcon()}
+                      </button>
                     </div>
-                    <p className="supporting-text">
-                      {threadSenderLabel(selectedThread)} ·{' '}
-                      {selectedThread.channelId} · {selectedThread.messageCount}{' '}
-                      messages · updated{' '}
-                      {formatRelativeTime(selectedThread.lastActive)}
-                    </p>
+                  ))
+                )}
+              </div>
+            </>
+          ) : (
+            <section className="mailbox-detail">
+              <div className="mailbox-detail-toolbar">
+                <div className="mailbox-detail-toolbar-main">
+                  <button
+                    type="button"
+                    className="mailbox-back-button"
+                    aria-label="Back to message list"
+                    onClick={() => setSelectedMessageId(null)}
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <path
+                        d="M11.75 4.75 6.5 10l5.25 5.25"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <div className="mailbox-detail-toolbar-copy">
+                    <strong>{selectedFolderMeta?.name || 'Mailbox'}</strong>
+                    <small>
+                      {selectedMessageSummary.receivedAt
+                        ? formatRelativeTime(selectedMessageSummary.receivedAt)
+                        : 'Selected message'}
+                    </small>
                   </div>
                 </div>
-
-                <div className="mailbox-message-list">
-                  {historyQuery.isLoading ? (
-                    <div className="empty-state">Loading thread…</div>
-                  ) : historyQuery.isError ? (
-                    <div className="empty-state error">
-                      {(historyQuery.error as Error).message}
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="empty-state">
-                      No stored email messages were found for this thread yet.
-                    </div>
-                  ) : (
-                    messages.map((message) => {
-                      const isAssistant =
-                        String(message.role || '').toLowerCase() ===
-                        'assistant';
-                      return (
-                        <article
-                          key={message.id}
-                          className={
-                            isAssistant
-                              ? 'mailbox-message-card assistant'
-                              : 'mailbox-message-card user'
-                          }
-                        >
-                          <div className="mailbox-message-header">
-                            <div>
-                              <strong>
-                                {messageAuthorLabel(message, selectedThread)}
-                              </strong>
-                              <small>
-                                {messageMetaLabel(message, selectedThread)}
-                              </small>
-                            </div>
-                            <span>{formatDateTime(message.created_at)}</span>
-                          </div>
-                          <div className="mailbox-message-body">
-                            {stripInlineSubject(message.content) ||
-                              '(empty message)'}
-                          </div>
-                        </article>
-                      );
+                <button
+                  type="button"
+                  className="ghost-button mailbox-detail-delete"
+                  disabled={
+                    deletingMessageId ===
+                      messageSelectionKey(selectedMessageSummary) ||
+                    isSyntheticMessageUid(selectedMessageSummary.uid)
+                  }
+                  onClick={() =>
+                    handleDeleteMessage({
+                      folder: selectedMessageSummary.folder,
+                      uid: selectedMessageSummary.uid,
                     })
-                  )}
+                  }
+                >
+                  <span className="mailbox-detail-delete-icon">
+                    {trashIcon()}
+                  </span>
+                  <span>Delete</span>
+                </button>
+              </div>
+              {deleteError ? (
+                <div className="mailbox-inline-error">{deleteError}</div>
+              ) : null}
+
+              {messageDetailQuery.isLoading && !messageDetailQuery.data ? (
+                <div className="empty-state mailbox-detail-empty">
+                  Loading message...
                 </div>
-              </>
-            )}
-          </section>
-        </div>
-      </Panel>
+              ) : messageDetailQuery.isError ? (
+                <div className="empty-state error mailbox-detail-empty">
+                  {(messageDetailQuery.error as Error).message}
+                </div>
+              ) : !selectedMessage ? (
+                <div className="empty-state mailbox-detail-empty">
+                  This message is no longer available in the selected folder.
+                </div>
+              ) : (
+                <>
+                  <div className="mailbox-detail-header">
+                    <div className="mailbox-detail-copy">
+                      <div className="mailbox-detail-heading">
+                        <h3>{selectedMessage.subject}</h3>
+                        {!selectedMessage.seen ? (
+                          <span className="mailbox-role-pill needs-reply">
+                            Unread
+                          </span>
+                        ) : null}
+                        {selectedMessage.answered ? (
+                          <span className="mailbox-role-pill replied">
+                            Answered
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="supporting-text">
+                        {messageSenderLabel(selectedMessageSummary)}
+                        {selectedMessage.fromAddress
+                          ? ` · ${selectedMessage.fromAddress}`
+                          : ''}
+                        {selectedMessage.receivedAt
+                          ? ` · ${formatDateTime(selectedMessage.receivedAt)}`
+                          : ''}
+                      </p>
+                      <p className="supporting-text">
+                        To:{' '}
+                        {selectedMessage.to.length > 0
+                          ? selectedMessage.to
+                              .map(
+                                (entry) =>
+                                  entry.name?.trim() ||
+                                  entry.address?.trim() ||
+                                  'Unknown',
+                              )
+                              .join(', ')
+                          : 'No recipients'}
+                      </p>
+                      {selectedMessage.cc.length > 0 ? (
+                        <p className="supporting-text">
+                          Cc:{' '}
+                          {selectedMessage.cc
+                            .map(
+                              (entry) =>
+                                entry.name?.trim() ||
+                                entry.address?.trim() ||
+                                'Unknown',
+                            )
+                            .join(', ')}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mailbox-message-list">
+                    {selectedThread.map((message) => (
+                      <article
+                        key={`${message.folder}:${message.uid}`}
+                        className={
+                          message.uid === selectedMessage.uid
+                            ? 'mailbox-message-card user is-selected'
+                            : 'mailbox-message-card user'
+                        }
+                      >
+                        <div className="mailbox-message-header">
+                          <div>
+                            <strong>
+                              {message.fromName ||
+                                message.fromAddress ||
+                                'Unknown'}
+                            </strong>
+                            <small>
+                              {message.fromAddress
+                                ? message.fromAddress
+                                : 'Unknown sender'}
+                              {message.receivedAt
+                                ? ` · ${formatDateTime(message.receivedAt)}`
+                                : ''}
+                            </small>
+                            <small>
+                              To:{' '}
+                              {message.to.length > 0
+                                ? message.to
+                                    .map(
+                                      (entry) =>
+                                        entry.name?.trim() ||
+                                        entry.address?.trim() ||
+                                        'Unknown',
+                                    )
+                                    .join(', ')
+                                : 'No recipients'}
+                            </small>
+                            {message.cc.length > 0 ? (
+                              <small>
+                                Cc:{' '}
+                                {message.cc
+                                  .map(
+                                    (entry) =>
+                                      entry.name?.trim() ||
+                                      entry.address?.trim() ||
+                                      'Unknown',
+                                  )
+                                  .join(', ')}
+                              </small>
+                            ) : null}
+                          </div>
+                        </div>
+                        {renderMessageMetadata(message)}
+                        {message.attachments.length > 0 ? (
+                          <div className="mailbox-tag-list">
+                            {message.attachments.map((attachment) => (
+                              <span
+                                key={`${message.uid}:${attachment.filename || 'attachment'}:${attachment.size || 0}`}
+                                className="meta-chip"
+                              >
+                                {attachment.filename || 'attachment'}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mailbox-message-body">
+                          {message.text || '(empty message)'}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

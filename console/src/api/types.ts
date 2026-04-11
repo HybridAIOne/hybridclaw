@@ -112,25 +112,79 @@ export interface AdminSession {
   lastActive: string;
 }
 
-export interface AdminEmailThread {
-  sessionId: string;
-  channelId: string;
-  senderName: string | null;
+export interface AdminEmailFolder {
+  path: string;
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unseen: number;
+}
+
+export interface AdminEmailMessageSummary {
+  folder: string;
+  uid: number;
+  messageId: string | null;
   subject: string;
+  fromAddress: string | null;
+  fromName: string | null;
   preview: string | null;
-  summary: string | null;
-  messageCount: number;
-  userMessageCount: number;
-  lastMessageRole: string | null;
-  createdAt: string;
-  lastActive: string;
+  receivedAt: string | null;
+  seen: boolean;
+  flagged: boolean;
+  answered: boolean;
+  hasAttachments: boolean;
+}
+
+export interface AdminEmailParticipant {
+  name: string | null;
+  address: string | null;
+}
+
+export interface AdminEmailAttachment {
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface AdminEmailMessageMetadata {
+  agentId: string | null;
+  model: string | null;
+  provider: string | null;
+  totalTokens: number | null;
+  tokenSource: 'api' | 'estimated' | null;
+}
+
+export interface AdminEmailMessageDetail extends AdminEmailMessageSummary {
+  to: AdminEmailParticipant[];
+  cc: AdminEmailParticipant[];
+  bcc: AdminEmailParticipant[];
+  replyTo: AdminEmailParticipant[];
+  text: string | null;
+  attachments: AdminEmailAttachment[];
+  metadata: AdminEmailMessageMetadata | null;
 }
 
 export interface AdminEmailMailboxResponse {
   enabled: boolean;
   address: string;
-  folders: string[];
-  threads: AdminEmailThread[];
+  folders: AdminEmailFolder[];
+  defaultFolder: string | null;
+}
+
+export interface AdminEmailFolderResponse {
+  folder: string;
+  messages: AdminEmailMessageSummary[];
+}
+
+export interface AdminEmailMessageResponse {
+  message: AdminEmailMessageDetail | null;
+  thread: AdminEmailMessageDetail[];
+}
+
+export interface AdminEmailDeleteResponse {
+  deleted: true;
+  targetFolder: string | null;
+  permanent: boolean;
 }
 
 export interface GatewayHistoryMessage {

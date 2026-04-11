@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { marked } from 'marked';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import type Mail from 'nodemailer/lib/mailer/index.js';
 import type { Transporter } from 'nodemailer';
 import sanitizeHtml from 'sanitize-html';
 import { EMAIL_TEXT_CHUNK_LIMIT } from '../../config/config.js';
@@ -7,6 +9,10 @@ import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
+import {
+  buildEmailMetadataHeaders,
+  type EmailDeliveryMetadata,
+} from './metadata.js';
 import {
   createOutboundThreadContext,
   ensureReplySubject,
@@ -53,6 +59,10 @@ export interface EmailSendResult {
   messageIds: string[];
   subject: string;
   threadContext: ThreadContext | null;
+  sentCopies: Array<{
+    messageId: string | null;
+    raw: Buffer;
+  }>;
 }
 
 export interface EmailSendParams {
@@ -66,6 +76,7 @@ export interface EmailSendParams {
   references?: string[] | null;
   selfAddress: string;
   threadContext: ThreadContext | null;
+  metadata?: EmailDeliveryMetadata | null;
   attachment?:
     | {
         filePath: string;
@@ -278,6 +289,21 @@ export function prepareEmailTextChunks(
   return options?.allowEmpty ? [] : ['(no content)'];
 }
 
+async function buildRawMailCopy(
+  mail: Mail.Options,
+): Promise<{
+  messageId: string | null;
+  raw: Buffer;
+}> {
+  const composer = new MailComposer(mail);
+  const message = composer.compile();
+  const messageId = normalizeMessageId(message.messageId());
+  return {
+    messageId,
+    raw: await message.build(),
+  };
+}
+
 export async function sendEmail(
   params: EmailSendParams,
 ): Promise<EmailSendResult> {
@@ -301,8 +327,10 @@ export async function sendEmail(
   // Attachment-only sends still need a single outbound message when the body
   // is intentionally empty.
   const effectiveChunks = chunks.length > 0 ? chunks : [''];
+  const metadataHeaders = buildEmailMetadataHeaders(params.metadata);
 
   const messageIds: string[] = [];
+  const sentCopies: Array<{ messageId: string | null; raw: Buffer }> = [];
   let nextThreadContext = explicitThreadHeaders
     ? {
         subject: resolved.subject,
@@ -323,7 +351,7 @@ export async function sendEmail(
         : '';
     const text = `${partPrefix}${effectiveChunks[index]}`.trim();
     const html = renderEmailHtml(text);
-    const info = (await params.transport.sendMail({
+    const mail: Mail.Options = {
       from: params.selfAddress,
       to: params.to,
       ...(cc ? { cc } : {}),
@@ -331,6 +359,7 @@ export async function sendEmail(
       subject: resolved.subject,
       text: text || undefined,
       html,
+      ...(metadataHeaders ? { headers: metadataHeaders } : {}),
       ...buildThreadHeaders(nextThreadContext, firstChunkHeaders),
       attachments:
         params.attachment && index === 0
@@ -344,9 +373,18 @@ export async function sendEmail(
               },
             ]
           : undefined,
+    };
+    const rawCopy = await buildRawMailCopy(mail);
+    sentCopies.push(rawCopy);
+
+    const info = (await params.transport.sendMail({
+      ...mail,
+      ...(rawCopy.messageId ? { messageId: rawCopy.messageId } : {}),
     })) as MailSendInfo;
 
-    const messageId = String(info.messageId || '').trim();
+    const messageId = String(
+      info.messageId || rawCopy.messageId || '',
+    ).trim();
     const accepted = normalizeRecipientList(info.accepted);
     const rejected = normalizeRecipientList(info.rejected);
     const pending = normalizeRecipientList(info.pending);
@@ -399,5 +437,6 @@ export async function sendEmail(
     messageIds,
     subject: resolved.subject,
     threadContext: nextThreadContext,
+    sentCopies,
   };
 }
