@@ -173,6 +173,10 @@ export interface AdminEmailMailboxResponse {
 
 export interface AdminEmailFolderResponse {
   folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
   messages: AdminEmailMessageSummary[];
 }
 

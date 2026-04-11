@@ -5,7 +5,6 @@ import {
   fetchAdminEmailFolder,
   fetchAdminEmailMailbox,
   fetchAdminEmailMessage,
-  fetchConfig,
 } from '../api/client';
 import type {
   AdminEmailFolder,
@@ -13,6 +12,7 @@ import type {
   AdminEmailMessageSummary,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { useAppShellConfig } from '../components/app-shell';
 import { PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -309,9 +309,11 @@ function matchesSearch(
 
 export function EmailPage() {
   const auth = useAuth();
+  const shellConfig = useAppShellConfig();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [messageOffset, setMessageOffset] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
     null,
   );
@@ -320,18 +322,14 @@ export function EmailPage() {
   );
   const deferredSearch = useDeferredValue(search);
 
-  const configQuery = useQuery({
-    queryKey: ['config', auth.token],
-    queryFn: () => fetchConfig(auth.token),
-  });
   const mailboxQuery = useQuery({
     queryKey: ['admin-email-mailbox', auth.token],
     queryFn: () => fetchAdminEmailMailbox(auth.token),
-    enabled: configQuery.data?.config.email.enabled === true,
+    enabled: shellConfig.configReady && shellConfig.emailEnabled,
     refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
   });
 
-  const emailEnabled = configQuery.data?.config.email.enabled === true;
+  const emailEnabled = mailboxQuery.data?.enabled ?? shellConfig.emailEnabled;
   const folders = mailboxQuery.data?.folders || [];
 
   useEffect(() => {
@@ -342,11 +340,13 @@ export function EmailPage() {
     if (!nextFolder) {
       if (selectedFolder !== null) {
         setSelectedFolder(null);
+        setMessageOffset(0);
       }
       return;
     }
     if (!folders.some((folder) => folder.path === selectedFolder)) {
       setSelectedFolder(nextFolder);
+      setMessageOffset(0);
     }
   }, [
     folders,
@@ -360,16 +360,28 @@ export function EmailPage() {
       'admin-email-folder',
       auth.token,
       selectedFolder,
+      messageOffset,
       MAILBOX_MESSAGE_LIMIT,
     ],
     queryFn: () =>
       fetchAdminEmailFolder(auth.token, {
         folder: selectedFolder || '',
         limit: MAILBOX_MESSAGE_LIMIT,
+        offset: messageOffset,
       }),
     enabled: emailEnabled && Boolean(selectedFolder),
     refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
   });
+
+  useEffect(() => {
+    const page = folderMessagesQuery.data;
+    if (!page || folderMessagesQuery.isLoading) {
+      return;
+    }
+    if (messageOffset > 0 && page.messages.length === 0) {
+      setMessageOffset(Math.max(0, messageOffset - MAILBOX_MESSAGE_LIMIT));
+    }
+  }, [folderMessagesQuery.data, folderMessagesQuery.isLoading, messageOffset]);
 
   const filteredMessages = (folderMessagesQuery.data?.messages || []).filter(
     (message) => matchesSearch(message, deferredSearch),
@@ -426,12 +438,7 @@ export function EmailPage() {
           queryKey: ['admin-email-mailbox', auth.token],
         }),
         queryClient.invalidateQueries({
-          queryKey: [
-            'admin-email-folder',
-            auth.token,
-            params.folder,
-            MAILBOX_MESSAGE_LIMIT,
-          ],
+          queryKey: ['admin-email-folder', auth.token, params.folder],
         }),
         queryClient.invalidateQueries({
           queryKey: [
@@ -453,14 +460,18 @@ export function EmailPage() {
     deleteMutation.mutate(params);
   }
 
-  if (configQuery.isLoading && !configQuery.data) {
+  if (!shellConfig.configReady) {
     return <div className="empty-state">Loading mailbox settings...</div>;
   }
 
-  if (configQuery.isError && !configQuery.data) {
+  if (mailboxQuery.isLoading && !mailboxQuery.data) {
+    return <div className="empty-state">Connecting to IMAP mailbox...</div>;
+  }
+
+  if (mailboxQuery.isError && !mailboxQuery.data) {
     return (
       <div className="empty-state error">
-        {(configQuery.error as Error).message}
+        {(mailboxQuery.error as Error).message}
       </div>
     );
   }
@@ -486,22 +497,17 @@ export function EmailPage() {
     );
   }
 
-  if (mailboxQuery.isLoading && !mailboxQuery.data) {
-    return <div className="empty-state">Connecting to IMAP mailbox...</div>;
-  }
-
-  if (mailboxQuery.isError && !mailboxQuery.data) {
-    return (
-      <div className="empty-state error">
-        {(mailboxQuery.error as Error).message}
-      </div>
-    );
-  }
-
   const selectedFolderMeta =
     folders.find((folder) => folder.path === selectedFolder) ||
     folders[0] ||
     null;
+  const pageMessageCount = folderMessagesQuery.data?.messages.length || 0;
+  const pageRangeStart =
+    pageMessageCount > 0 ? (folderMessagesQuery.data?.offset || 0) + 1 : 0;
+  const pageRangeEnd =
+    pageMessageCount > 0
+      ? (folderMessagesQuery.data?.offset || 0) + pageMessageCount
+      : 0;
   const selectedMessage = messageDetailQuery.data?.message || null;
   const selectedThread = messageDetailQuery.data?.thread || [];
   const isMessageOpen = selectedMessageSummary !== null;
@@ -542,6 +548,7 @@ export function EmailPage() {
                     type="button"
                     onClick={() => {
                       setSelectedFolder(folder.path);
+                      setMessageOffset(0);
                       setSelectedMessageId(null);
                     }}
                   >
@@ -575,16 +582,55 @@ export function EmailPage() {
                   <small>
                     {folderMessagesQuery.isLoading && !folderMessagesQuery.data
                       ? 'Loading messages...'
-                      : `${filteredMessages.length} shown`}
+                      : `${filteredMessages.length} shown on this page`}
                   </small>
                 </div>
-                {selectedFolderMeta ? (
-                  <span className="meta-chip">
-                    {selectedFolderMeta.unseen > 0
-                      ? `${selectedFolderMeta.unseen} unread`
-                      : `${selectedFolderMeta.total} total`}
-                  </span>
-                ) : null}
+                <div className="mailbox-column-actions">
+                  {selectedFolderMeta ? (
+                    <span className="meta-chip">
+                      {selectedFolderMeta.unseen > 0
+                        ? `${selectedFolderMeta.unseen} unread`
+                        : `${selectedFolderMeta.total} total`}
+                    </span>
+                  ) : null}
+                  <div className="mailbox-pagination">
+                    <small>
+                      {pageMessageCount > 0
+                        ? `${pageRangeStart}-${pageRangeEnd}`
+                        : '0'}
+                    </small>
+                    <button
+                      type="button"
+                      className="ghost-button mailbox-page-button"
+                      disabled={
+                        folderMessagesQuery.isFetching ||
+                        folderMessagesQuery.data?.previousOffset === null
+                      }
+                      onClick={() =>
+                        setMessageOffset(
+                          folderMessagesQuery.data?.previousOffset || 0,
+                        )
+                      }
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button mailbox-page-button"
+                      disabled={
+                        folderMessagesQuery.isFetching ||
+                        folderMessagesQuery.data?.nextOffset === null
+                      }
+                      onClick={() =>
+                        setMessageOffset(
+                          folderMessagesQuery.data?.nextOffset || 0,
+                        )
+                      }
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
               </div>
               {deleteError ? (
                 <div className="mailbox-inline-error">{deleteError}</div>

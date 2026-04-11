@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import type { ComponentType, ReactNode } from 'react';
+import {
+  type ComponentType,
+  createContext,
+  type ReactNode,
+  useContext,
+} from 'react';
 import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
@@ -15,6 +20,16 @@ import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
 const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
+
+type AppShellConfigContextValue = {
+  configReady: boolean;
+  emailEnabled: boolean;
+};
+
+const AppShellConfigContext = createContext<AppShellConfigContextValue>({
+  configReady: false,
+  emailEnabled: false,
+});
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
@@ -47,6 +62,7 @@ export function AppShell(props: { children: ReactNode }) {
     : pathname === '/admin'
       ? '/'
       : pathname;
+  const configReady = Boolean(configQuery.data);
   const emailEnabled = configQuery.data?.config.email.enabled === true;
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
@@ -59,53 +75,59 @@ export function AppShell(props: { children: ReactNode }) {
     navItems.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
-    <SidebarProvider style={SIDEBAR_STYLE}>
-      <AppSidebar
-        groups={sidebarGroups}
-        version={auth.gatewayStatus?.version}
-        showLogout={Boolean(auth.token)}
-        onLogout={auth.logout}
-      />
-      <SidebarInset className="main-panel">
-        <div className="topbar">
-          <div className="topbar-title">
-            <div className="topbar-heading">
-              <SidebarTrigger className="topbar-sidebar-trigger" />
-              <h2>{currentNavItem.label}</h2>
+    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
+      <SidebarProvider style={SIDEBAR_STYLE}>
+        <AppSidebar
+          groups={sidebarGroups}
+          version={auth.gatewayStatus?.version}
+          showLogout={Boolean(auth.token)}
+          onLogout={auth.logout}
+        />
+        <SidebarInset className="main-panel">
+          <div className="topbar">
+            <div className="topbar-title">
+              <div className="topbar-heading">
+                <SidebarTrigger className="topbar-sidebar-trigger" />
+                <h2>{currentNavItem.label}</h2>
+              </div>
             </div>
-          </div>
-          <nav className="view-switch" aria-label="Switch view">
-            {VIEW_SWITCH_ITEMS.map((item) => {
-              const inner = (
-                <>
-                  <span className="nav-link-icon" aria-hidden="true">
-                    <item.icon />
+            <nav className="view-switch" aria-label="Switch view">
+              {VIEW_SWITCH_ITEMS.map((item) => {
+                const inner = (
+                  <>
+                    <span className="nav-link-icon" aria-hidden="true">
+                      <item.icon />
+                    </span>
+                    <span>{item.label}</span>
+                  </>
+                );
+                return item.active ? (
+                  <span
+                    key={item.href}
+                    className="view-switch-link active"
+                    aria-current="page"
+                  >
+                    {inner}
                   </span>
-                  <span>{item.label}</span>
-                </>
-              );
-              return item.active ? (
-                <span
-                  key={item.href}
-                  className="view-switch-link active"
-                  aria-current="page"
-                >
-                  {inner}
-                </span>
-              ) : (
-                <a
-                  key={item.href}
-                  className="view-switch-link"
-                  href={item.href}
-                >
-                  {inner}
-                </a>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="page-content">{props.children}</div>
-      </SidebarInset>
-    </SidebarProvider>
+                ) : (
+                  <a
+                    key={item.href}
+                    className="view-switch-link"
+                    href={item.href}
+                  >
+                    {inner}
+                  </a>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="page-content">{props.children}</div>
+        </SidebarInset>
+      </SidebarProvider>
+    </AppShellConfigContext.Provider>
   );
+}
+
+export function useAppShellConfig(): AppShellConfigContextValue {
+  return useContext(AppShellConfigContext);
 }

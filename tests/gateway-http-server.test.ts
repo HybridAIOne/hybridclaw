@@ -585,6 +585,10 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminEmailFolder = vi.fn(async () => ({
     folder: 'INBOX',
+    offset: 0,
+    limit: 20,
+    previousOffset: null,
+    nextOffset: null,
     messages: [
       {
         folder: 'INBOX',
@@ -3344,6 +3348,24 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('rejects unauthorized requests for live admin email mailbox metadata', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/admin/email',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayAdminEmailMailbox).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
   test('returns live admin email messages for a selected folder', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -3368,6 +3390,24 @@ describe('gateway HTTP server', () => {
         },
       ],
     });
+  });
+
+  test('passes mailbox pagination params for a selected folder', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/email/messages?folder=INBOX&limit=20&offset=40',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailFolder).toHaveBeenCalledWith({
+      folder: 'INBOX',
+      limit: 20,
+      offset: 40,
+    });
+    expect(res.statusCode).toBe(200);
   });
 
   test('returns live admin email message detail for a selected message', async () => {

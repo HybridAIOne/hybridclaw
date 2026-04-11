@@ -9,6 +9,7 @@ import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
+import { extractInlineEmailSubject } from './inline-subject.js';
 import {
   buildEmailMetadataHeaders,
   type EmailDeliveryMetadata,
@@ -20,7 +21,6 @@ import {
 } from './threading.js';
 
 const OUTBOUND_DELAY_MS = 350;
-const SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
 const SINGLE_ASTERISK_BOLD_RE =
   /(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*(?=($|[^\w*]))/g;
 const EMAIL_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -151,24 +151,6 @@ export function renderEmailHtml(text: string): string | undefined {
   ].join('');
 }
 
-function extractInlineSubject(text: string): {
-  subject: string | null;
-  body: string;
-} {
-  const normalized = String(text || '').replace(/\r\n?/g, '\n');
-  const match = normalized.match(SUBJECT_PREFIX_RE);
-  if (!match?.[1]) {
-    return { subject: null, body: normalized.trim() };
-  }
-
-  const subject = match[1].trim();
-  const body = normalized.slice(match[0].length).trim();
-  return {
-    subject: subject || null,
-    body,
-  };
-}
-
 function normalizeMessageId(raw: string | null | undefined): string | null {
   const normalized = String(raw || '').trim();
   return normalized || null;
@@ -249,7 +231,7 @@ function resolveSubjectAndBody(
   subject: string;
   body: string;
 } {
-  const extracted = extractInlineSubject(text);
+  const extracted = extractInlineEmailSubject(text);
   if (threadContext) {
     return {
       subject: ensureReplySubject(threadContext.subject),

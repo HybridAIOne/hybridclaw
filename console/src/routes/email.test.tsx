@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  AdminConfigResponse,
   AdminEmailDeleteResponse,
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
@@ -10,14 +9,13 @@ import type {
 } from '../api/types';
 import { EmailPage } from './email';
 
-const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchAdminEmailMailboxMock =
   vi.fn<() => Promise<AdminEmailMailboxResponse>>();
 const fetchAdminEmailFolderMock =
   vi.fn<
     (
       token: string,
-      params: { folder: string; limit?: number },
+      params: { folder: string; limit?: number; offset?: number },
     ) => Promise<AdminEmailFolderResponse>
   >();
 const fetchAdminEmailMessageMock =
@@ -35,13 +33,13 @@ const deleteAdminEmailMessageMock =
     ) => Promise<AdminEmailDeleteResponse>
   >();
 const useAuthMock = vi.fn();
+const useAppShellConfigMock = vi.fn();
 
 vi.mock('../api/client', () => ({
-  fetchConfig: () => fetchConfigMock(),
   fetchAdminEmailMailbox: () => fetchAdminEmailMailboxMock(),
   fetchAdminEmailFolder: (
     token: string,
-    params: { folder: string; limit?: number },
+    params: { folder: string; limit?: number; offset?: number },
   ) => fetchAdminEmailFolderMock(token, params),
   fetchAdminEmailMessage: (
     token: string,
@@ -57,164 +55,9 @@ vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
-function makeConfigResponse(enabled: boolean): AdminConfigResponse {
-  return {
-    path: '/tmp/config.json',
-    config: {
-      version: 1,
-      hybridai: {
-        baseUrl: '',
-        defaultModel: 'gpt-5',
-        defaultChatbotId: '',
-        maxTokens: 0,
-        enableRag: false,
-        models: [],
-      },
-      discord: {
-        prefix: '!',
-        guildMembersIntent: false,
-        presenceIntent: false,
-        commandsOnly: false,
-        commandMode: 'public',
-        commandAllowedUserIds: [],
-        commandUserId: '',
-        groupPolicy: 'open',
-        sendPolicy: 'open',
-        sendAllowedChannelIds: [],
-        freeResponseChannels: [],
-        textChunkLimit: 2000,
-        maxLinesPerMessage: 10,
-        humanDelay: { mode: 'off', minMs: 0, maxMs: 0 },
-        typingMode: 'instant',
-        presence: {
-          enabled: false,
-          intervalMs: 0,
-          healthyText: '',
-          degradedText: '',
-          exhaustedText: '',
-          activityType: 'playing',
-        },
-        lifecycleReactions: {
-          enabled: false,
-          removeOnComplete: false,
-          phases: {
-            queued: '',
-            thinking: '',
-            toolUse: '',
-            streaming: '',
-            done: '',
-            error: '',
-          },
-        },
-        debounceMs: 0,
-        ackReaction: '',
-        ackReactionScope: 'off',
-        removeAckAfterReply: false,
-        rateLimitPerUser: 0,
-        rateLimitExemptRoles: [],
-        suppressPatterns: [],
-        maxConcurrentPerChannel: 0,
-        guilds: {},
-      },
-      msteams: {
-        enabled: false,
-        appId: '',
-        tenantId: '',
-        webhook: { port: 0, path: '' },
-        groupPolicy: 'disabled',
-        dmPolicy: 'disabled',
-        allowFrom: [],
-        teams: {},
-        requireMention: false,
-        textChunkLimit: 0,
-        replyStyle: 'thread',
-        mediaMaxMb: 5,
-        dangerouslyAllowNameMatching: false,
-        mediaAllowHosts: [],
-        mediaAuthAllowHosts: [],
-      },
-      telegram: {
-        enabled: false,
-        botToken: '',
-        pollIntervalMs: 0,
-        dmPolicy: 'disabled',
-        groupPolicy: 'disabled',
-        allowFrom: [],
-        groupAllowFrom: [],
-        requireMention: false,
-        textChunkLimit: 0,
-        mediaMaxMb: 5,
-      },
-      whatsapp: {
-        dmPolicy: 'disabled',
-        groupPolicy: 'disabled',
-        allowFrom: [],
-        groupAllowFrom: [],
-        textChunkLimit: 0,
-        debounceMs: 0,
-        sendReadReceipts: false,
-        ackReaction: '',
-        mediaMaxMb: 5,
-      },
-      imessage: {
-        enabled: false,
-        backend: 'local',
-        cliPath: '',
-        dbPath: '',
-        pollIntervalMs: 0,
-        serverUrl: '',
-        password: '',
-        webhookPath: '',
-        allowPrivateNetwork: false,
-        dmPolicy: 'disabled',
-        groupPolicy: 'disabled',
-        allowFrom: [],
-        groupAllowFrom: [],
-        textChunkLimit: 0,
-        debounceMs: 0,
-        mediaMaxMb: 5,
-      },
-      email: {
-        enabled,
-        imapHost: 'imap.example.com',
-        imapPort: 993,
-        imapSecure: true,
-        smtpHost: 'smtp.example.com',
-        smtpPort: 465,
-        smtpSecure: true,
-        address: 'agent@example.com',
-        password: '',
-        pollIntervalMs: 60_000,
-        folders: ['INBOX', 'VIP'],
-        allowFrom: [],
-        textChunkLimit: 50_000,
-        mediaMaxMb: 10,
-      },
-      container: {
-        sandboxMode: 'container',
-        image: '',
-        memory: '',
-        memorySwap: '',
-        cpus: '',
-        network: '',
-        timeoutMs: 0,
-        binds: [],
-        additionalMounts: '',
-        maxOutputBytes: 0,
-        maxConcurrent: 0,
-      },
-      ops: {
-        healthHost: '',
-        healthPort: 0,
-        webApiToken: '',
-        gatewayBaseUrl: '',
-        gatewayApiToken: '',
-        dbPath: '',
-        logLevel: 'info',
-      },
-    },
-  };
-}
+vi.mock('../components/app-shell', () => ({
+  useAppShellConfig: () => useAppShellConfigMock(),
+}));
 
 function makeMailboxResponse(): AdminEmailMailboxResponse {
   return {
@@ -240,12 +83,19 @@ function makeMailboxResponse(): AdminEmailMailboxResponse {
   };
 }
 
-function renderEmailPage(): void {
+function renderEmailPage(options?: {
+  configReady?: boolean;
+  emailEnabled?: boolean;
+}): void {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
+  });
+  useAppShellConfigMock.mockReturnValue({
+    configReady: options?.configReady ?? true,
+    emailEnabled: options?.emailEnabled ?? true,
   });
 
   render(
@@ -257,17 +107,16 @@ function renderEmailPage(): void {
 
 describe('EmailPage', () => {
   beforeEach(() => {
-    fetchConfigMock.mockReset();
     fetchAdminEmailMailboxMock.mockReset();
     fetchAdminEmailFolderMock.mockReset();
     fetchAdminEmailMessageMock.mockReset();
     deleteAdminEmailMessageMock.mockReset();
     useAuthMock.mockReset();
+    useAppShellConfigMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
   });
 
   it('shows the list first, opens a selected message, and deletes from list or detail view', async () => {
-    fetchConfigMock.mockResolvedValue(makeConfigResponse(true));
     fetchAdminEmailMailboxMock.mockResolvedValue(makeMailboxResponse());
     const deletedMessageKeys = new Set<string>();
     fetchAdminEmailFolderMock.mockImplementation(
@@ -275,6 +124,10 @@ describe('EmailPage', () => {
         params.folder === 'VIP'
           ? {
               folder: 'VIP',
+              offset: params.offset || 0,
+              limit: params.limit || 40,
+              previousOffset: null,
+              nextOffset: null,
               messages: deletedMessageKeys.has('VIP:90')
                 ? []
                 : [
@@ -296,6 +149,10 @@ describe('EmailPage', () => {
             }
           : {
               folder: 'INBOX',
+              offset: params.offset || 0,
+              limit: params.limit || 40,
+              previousOffset: null,
+              nextOffset: null,
               messages: deletedMessageKeys.has('INBOX:44')
                 ? []
                 : [
@@ -512,10 +369,18 @@ describe('EmailPage', () => {
     expect(fetchAdminEmailFolderMock).toHaveBeenCalledWith('test-token', {
       folder: 'INBOX',
       limit: 40,
+      offset: 0,
     });
     expect(fetchAdminEmailMessageMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('Quarterly plan').closest('button')!);
+    const quarterlyPlanButton = screen
+      .getByText('Quarterly plan')
+      .closest('button');
+    expect(quarterlyPlanButton).not.toBeNull();
+    if (!quarterlyPlanButton) {
+      throw new Error('Quarterly plan button not found');
+    }
+    fireEvent.click(quarterlyPlanButton);
 
     expect(
       await screen.findByRole('heading', { name: 'Quarterly plan' }),
@@ -558,7 +423,14 @@ describe('EmailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /vip/i }));
     expect(await screen.findByText('Board update')).not.toBeNull();
 
-    fireEvent.click(screen.getByText('Board update').closest('button')!);
+    const boardUpdateButton = screen
+      .getByText('Board update')
+      .closest('button');
+    expect(boardUpdateButton).not.toBeNull();
+    if (!boardUpdateButton) {
+      throw new Error('Board update button not found');
+    }
+    fireEvent.click(boardUpdateButton);
 
     expect(
       await screen.findByRole('heading', { name: 'Board update' }),
@@ -586,11 +458,87 @@ describe('EmailPage', () => {
     });
   });
 
-  it('shows setup guidance when email is disabled', async () => {
-    fetchConfigMock.mockResolvedValue(makeConfigResponse(false));
+  it('pages through mailbox messages with previous and next controls', async () => {
     fetchAdminEmailMailboxMock.mockResolvedValue(makeMailboxResponse());
+    fetchAdminEmailFolderMock.mockImplementation(
+      async (_token, params): Promise<AdminEmailFolderResponse> => {
+        const offset = params.offset || 0;
+        if (offset >= 40) {
+          return {
+            folder: 'INBOX',
+            offset,
+            limit: params.limit || 40,
+            previousOffset: 0,
+            nextOffset: null,
+            messages: [
+              {
+                folder: 'INBOX',
+                uid: 12,
+                messageId: '<msg-12@example.com>',
+                subject: 'Older note',
+                fromAddress: 'ops@example.com',
+                fromName: 'Ops',
+                preview: 'This is an older message on the second page.',
+                receivedAt: '2026-04-08T09:00:00.000Z',
+                seen: true,
+                flagged: false,
+                answered: false,
+                hasAttachments: false,
+              },
+            ],
+          };
+        }
+
+        return {
+          folder: 'INBOX',
+          offset,
+          limit: params.limit || 40,
+          previousOffset: null,
+          nextOffset: 40,
+          messages: [
+            {
+              folder: 'INBOX',
+              uid: 44,
+              messageId: '<msg-44@example.com>',
+              subject: 'Quarterly plan',
+              fromAddress: 'finance@example.com',
+              fromName: 'Finance Ops',
+              preview: 'Newest page one message.',
+              receivedAt: '2026-04-09T09:00:00.000Z',
+              seen: false,
+              flagged: false,
+              answered: true,
+              hasAttachments: false,
+            },
+          ],
+        };
+      },
+    );
 
     renderEmailPage();
+
+    expect(await screen.findByText('Quarterly plan')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Previous' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(await screen.findByText('Older note')).not.toBeNull();
+    expect(fetchAdminEmailFolderMock).toHaveBeenCalledWith('test-token', {
+      folder: 'INBOX',
+      limit: 40,
+      offset: 40,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+
+    expect(await screen.findByText('Quarterly plan')).not.toBeNull();
+  });
+
+  it('shows setup guidance when email is disabled', async () => {
+    renderEmailPage({ emailEnabled: false });
 
     expect(
       await screen.findByText(
@@ -600,5 +548,25 @@ describe('EmailPage', () => {
     expect(
       screen.getByRole('link', { name: /open channel settings/i }),
     ).not.toBeNull();
+    expect(fetchAdminEmailMailboxMock).not.toHaveBeenCalled();
+  });
+
+  it('shows setup guidance when the mailbox endpoint reports email disabled', async () => {
+    fetchAdminEmailMailboxMock.mockResolvedValue({
+      ...makeMailboxResponse(),
+      enabled: false,
+      folders: [],
+      defaultFolder: null,
+    });
+
+    renderEmailPage();
+
+    expect(
+      await screen.findByText(
+        'Enable the email channel to surface a mailbox view here.',
+      ),
+    ).not.toBeNull();
+    expect(fetchAdminEmailMailboxMock).toHaveBeenCalledTimes(1);
+    expect(fetchAdminEmailFolderMock).not.toHaveBeenCalled();
   });
 });

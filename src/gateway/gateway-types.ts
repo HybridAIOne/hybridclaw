@@ -514,6 +514,10 @@ export interface GatewayAdminEmailMailboxResponse {
 
 export interface GatewayAdminEmailFolderResponse {
   folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
   messages: GatewayAdminEmailMessageSummary[];
 }
 

@@ -1251,6 +1251,27 @@ th {
   background: var(--panel-bg);
 }
 
+.mailbox-column-actions,
+.mailbox-pagination {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mailbox-column-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mailbox-pagination small {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.mailbox-page-button {
+  min-width: 5.75rem;
+}
+
 .mailbox-column-header strong,
 .mailbox-column-header small,
 .mailbox-thread-copy span,

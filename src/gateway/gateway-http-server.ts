@@ -2199,12 +2199,23 @@ async function handleApiAdminEmailFolder(
     return;
   }
 
+  const offsetRaw = url.searchParams.get('offset')?.trim() || '';
+  const offset = offsetRaw ? Number.parseInt(offsetRaw, 10) : undefined;
+  if (
+    offsetRaw &&
+    (typeof offset !== 'number' || !Number.isFinite(offset) || offset < 0)
+  ) {
+    sendJson(res, 400, { error: '`offset` must be a non-negative integer.' });
+    return;
+  }
+
   sendJson(
     res,
     200,
     await getGatewayAdminEmailFolder({
       folder,
       ...(typeof limit === 'number' ? { limit } : {}),
+      ...(typeof offset === 'number' ? { offset } : {}),
     }),
   );
 }

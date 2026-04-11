@@ -21,6 +21,7 @@ import type { StructuredAuditEntry } from '../../types/audit.js';
 import type { Session, StoredMessage } from '../../types/session.js';
 import { normalizeEmailAddress } from './allowlist.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
+import { extractInlineEmailSubject } from './inline-subject.js';
 import {
   isTrashFolderCandidate,
   listSelectableFolders,
@@ -44,7 +45,6 @@ const SYNTHETIC_AUDIT_LIMIT = 100;
 const SYNTHETIC_SENT_FOLDER_AUDIT_LIMIT = 500;
 const SYNTHETIC_IMAP_MATCH_WINDOW_MS = 5 * 60 * 1000;
 const SYNTHETIC_RECIPIENT_INFERENCE_WINDOW_MS = 60 * 60 * 1000;
-const SYNTHETIC_SUBJECT_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
 const EMAIL_ADDRESS_CANDIDATE_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 
 export interface LiveAdminEmailFolder {
@@ -107,6 +107,10 @@ export interface LiveAdminEmailMailboxSnapshot {
 
 export interface LiveAdminEmailFolderSnapshot {
   folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
   messages: LiveAdminEmailMessageSummary[];
 }
 
@@ -283,24 +287,6 @@ function collapseWhitespace(value: string): string {
 
 function normalizeComparableText(value: string | null | undefined): string {
   return collapseWhitespace(String(value || '')).toLowerCase();
-}
-
-function extractSubjectAndBody(value: string): {
-  subject: string | null;
-  body: string;
-} {
-  const normalized = String(value || '').replace(/\r\n?/g, '\n');
-  const match = normalized.match(SYNTHETIC_SUBJECT_RE);
-  if (!match?.[1]) {
-    return {
-      subject: null,
-      body: normalized.trim(),
-    };
-  }
-  return {
-    subject: trimText(match[1]),
-    body: normalized.slice(match[0].length).trim(),
-  };
 }
 
 function summarizeTextPreview(value: string | null | undefined): string | null {
@@ -737,7 +723,7 @@ function buildSyntheticSentMessagesFromAudit(params: {
             '',
         ),
       );
-      const { subject: inlineSubject, body } = extractSubjectAndBody(
+      const { subject: inlineSubject, body } = extractInlineEmailSubject(
         rawContent || '',
       );
       const normalizedBody = trimText(body);
@@ -1052,7 +1038,7 @@ function buildSyntheticSentMessages(params: {
         return null;
       }
 
-      const { subject, body } = extractSubjectAndBody(content);
+      const { subject, body } = extractInlineEmailSubject(content);
       const normalizedBody = trimText(body);
       if (!normalizedBody) {
         return null;
@@ -1513,6 +1499,7 @@ export async function fetchLiveAdminEmailFolder(
   params: {
     folder: string;
     limit?: number;
+    offset?: number;
   },
 ): Promise<LiveAdminEmailFolderSnapshot> {
   return withLiveEmailClient(config, password, async (client) => {
@@ -1524,13 +1511,15 @@ export async function fetchLiveAdminEmailFolder(
         Math.trunc(params.limit || DEFAULT_MESSAGE_LIMIT),
       ),
     );
+    const offset = Math.max(0, Math.trunc(params.offset || 0));
+    const pageEnd = offset + limit;
     const isSentFolder = await isSentFolderPath(client, folder);
     const lock = await client.getMailboxLock(folder);
     try {
       const uids = (await client.search({ all: true }, { uid: true })) || [];
       const recentUids = [...uids]
         .sort((left, right) => right - left)
-        .slice(0, limit);
+        .slice(0, pageEnd);
       const fetched =
         recentUids.length > 0
           ? await client.fetchAll(
@@ -1551,7 +1540,7 @@ export async function fetchLiveAdminEmailFolder(
         ? buildSyntheticSentMessagesFromAudit({
             selfAddress: config.address,
             realMessages,
-            limit,
+            limit: pageEnd,
           }).map((message) => toMessageSummary(message))
         : [];
       const messages = [...realMessages, ...syntheticMessages].filter(
@@ -1572,7 +1561,15 @@ export async function fetchLiveAdminEmailFolder(
         if (rightMs !== leftMs) return rightMs - leftMs;
         return right.uid - left.uid;
       });
-      return { folder, messages: messages.slice(0, limit) };
+      const hasMore = uids.length > pageEnd || messages.length > pageEnd;
+      return {
+        folder,
+        offset,
+        limit,
+        previousOffset: offset > 0 ? Math.max(0, offset - limit) : null,
+        nextOffset: hasMore ? offset + limit : null,
+        messages: messages.slice(offset, pageEnd),
+      };
     } finally {
       lock.release();
     }

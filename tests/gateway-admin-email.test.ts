@@ -192,6 +192,10 @@ test('lists live IMAP folders and message previews for the selected folder', asy
   expect(mailbox.folders).toHaveLength(2);
   expect(folder).toMatchObject({
     folder: 'INBOX',
+    offset: 0,
+    limit: 20,
+    previousOffset: null,
+    nextOffset: null,
     messages: [
       {
         uid: 44,
@@ -210,6 +214,92 @@ test('lists live IMAP folders and message previews for the selected folder', asy
     ],
   });
   expect(search).toHaveBeenCalledWith({ all: true }, { uid: true });
+  expect(release).toHaveBeenCalledTimes(1);
+});
+
+test('paginates live IMAP folder messages with offset metadata', async () => {
+  mockAdminMailboxDb();
+  const release = vi.fn();
+  const list = vi.fn(async () => [
+    {
+      path: 'INBOX',
+      name: 'Inbox',
+      flags: new Set<string>(),
+      specialUse: '\\Inbox',
+      status: {
+        messages: 4,
+        unseen: 0,
+      },
+    },
+  ]);
+  const getMailboxLock = vi.fn(async () => ({ path: 'INBOX', release }));
+  const search = vi.fn(async () => [41, 42, 43, 44]);
+  const fetchAll = vi.fn(async (uids: number[]) =>
+    uids.map((uid) => ({
+      seq: uid,
+      uid,
+      envelope: {
+        messageId: `<msg-${uid}@example.com>`,
+        subject: `Message ${uid}`,
+        from: [{ name: `Sender ${uid}`, address: `sender-${uid}@example.com` }],
+      },
+      internalDate: new Date(
+        `2026-03-${String(15 - (44 - uid)).padStart(2, '0')}T10:00:00.000Z`,
+      ),
+      flags: new Set<string>(),
+      bodyStructure: { part: '1', type: 'text/plain' },
+    })),
+  );
+  const download = vi.fn(async (uid: string) => ({
+    meta: {},
+    content: Readable.from([`Preview ${uid}`]),
+  }));
+  const mockClient = {
+    connect: vi.fn(async () => {}),
+    logout: vi.fn(async () => {}),
+    close: vi.fn(() => {}),
+    list,
+    getMailboxLock,
+    search,
+    fetchAll,
+    download,
+  };
+  const MockImapFlow = vi.fn(function MockImapFlow() {
+    return mockClient;
+  });
+
+  vi.doMock('imapflow', () => ({ ImapFlow: MockImapFlow }));
+
+  const { fetchLiveAdminEmailFolder } = await import(
+    '../src/channels/email/admin-mailbox.js'
+  );
+
+  const folder = await fetchLiveAdminEmailFolder(BASE_EMAIL_CONFIG, 'secret', {
+    folder: 'INBOX',
+    limit: 2,
+    offset: 2,
+  });
+
+  expect(fetchAll).toHaveBeenCalledWith([44, 43, 42, 41], expect.anything(), {
+    uid: true,
+  });
+  expect(folder).toMatchObject({
+    folder: 'INBOX',
+    offset: 2,
+    limit: 2,
+    previousOffset: 0,
+    nextOffset: null,
+    messages: [
+      {
+        uid: 42,
+        subject: 'Message 42',
+      },
+      {
+        uid: 41,
+        subject: 'Message 41',
+      },
+    ],
+  });
   expect(release).toHaveBeenCalledTimes(1);
 });
 

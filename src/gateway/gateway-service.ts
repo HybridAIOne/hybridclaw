@@ -3420,6 +3420,7 @@ export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMa
 export async function getGatewayAdminEmailFolder(params: {
   folder: string;
   limit?: number;
+  offset?: number;
 }): Promise<GatewayAdminEmailFolderResponse> {
   const runtimeConfig = getRuntimeConfig();
   const { config, password } =

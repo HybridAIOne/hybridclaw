@@ -210,11 +210,15 @@ export function fetchAdminEmailFolder(
   params: {
     folder: string;
     limit?: number;
+    offset?: number;
   },
 ): Promise<AdminEmailFolderResponse> {
   const query = new URLSearchParams({ folder: params.folder });
   if (typeof params.limit === 'number') {
     query.set('limit', String(params.limit));
+  }
+  if (typeof params.offset === 'number') {
+    query.set('offset', String(params.offset));
   }
   return requestJson<AdminEmailFolderResponse>(
     `/api/admin/email/messages?${query.toString()}`,
