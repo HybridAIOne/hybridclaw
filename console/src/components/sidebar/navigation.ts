@@ -5,6 +5,7 @@ import {
   Cog,
   Config,
   Dashboard,
+  Email,
   Gateway,
   Jobs,
   Models,
@@ -20,6 +21,7 @@ export type SidebarNavItem = {
   to: string;
   label: string;
   icon: ComponentType;
+  requiresEmail?: boolean;
 };
 
 export type SidebarNavGroup = {
@@ -43,6 +45,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/gateway', label: 'Gateway', icon: Gateway },
       { to: '/sessions', label: 'Sessions', icon: Sessions },
       { to: '/channels', label: 'Channels', icon: Channels },
+      { to: '/email', label: 'Email', icon: Email, requiresEmail: true },
       { to: '/models', label: 'Models', icon: Models },
       { to: '/scheduler', label: 'Scheduler', icon: Scheduler },
       { to: '/mcp', label: 'MCP', icon: Cog },
