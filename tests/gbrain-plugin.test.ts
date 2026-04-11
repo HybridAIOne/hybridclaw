@@ -34,6 +34,8 @@ function writeGbrainStub(
     doctorPayload?: Record<string, unknown>;
     passthroughText?: string;
     queryResults?: unknown[];
+    toolsJsonDelayMs?: number;
+    toolsJsonRaw?: string;
     toolsJson?: Array<{
       description: string;
       name: string;
@@ -164,6 +166,15 @@ function writeGbrainStub(
       '  })',
       '}',
       'if (args[0] === "--tools-json") {',
+      `  const toolsJsonDelayMs = ${JSON.stringify(options?.toolsJsonDelayMs || 0)}`,
+      `  const toolsJsonRaw = ${JSON.stringify(options?.toolsJsonRaw || '')}`,
+      '  if (toolsJsonDelayMs > 0) {',
+      '    await new Promise((resolve) => setTimeout(resolve, toolsJsonDelayMs))',
+      '  }',
+      '  if (toolsJsonRaw) {',
+      '    await writeStdout(toolsJsonRaw)',
+      '    process.exit(0)',
+      '  }',
       `  await writeStdout(${JSON.stringify(toolsJson)})`,
       '  process.exit(0)',
       '}',
@@ -517,4 +528,44 @@ test('runGbrain forwards declared gbrain credentials and strips unrelated secret
       process.env.HYBRIDCLAW_GBRAIN_SECRET_TEST = previousSecret;
     }
   }
+});
+
+test('discoverGbrainToolsSync times out when --tools-json hangs', async () => {
+  const cwd = makeTempDir('hybridclaw-gbrain-project-');
+  const gbrainCommand = writeGbrainStub(cwd, {
+    toolsJsonDelayMs: 200,
+  });
+  const { discoverGbrainToolsSync } = await import(
+    '../plugins/gbrain/src/gbrain-process.js'
+  );
+
+  expect(() =>
+    discoverGbrainToolsSync({
+      command: gbrainCommand,
+      maxInjectedChars: 500,
+      timeoutMs: 10,
+      workingDirectory: cwd,
+    }),
+  ).toThrow('GBrain tool discovery timed out after 10ms.');
+});
+
+test('discoverGbrainToolsSync surfaces malformed discovery JSON with previews', async () => {
+  const cwd = makeTempDir('hybridclaw-gbrain-project-');
+  const gbrainCommand = writeGbrainStub(cwd, {
+    toolsJsonRaw: '{"bad"',
+  });
+  const { discoverGbrainToolsSync } = await import(
+    '../plugins/gbrain/src/gbrain-process.js'
+  );
+
+  expect(() =>
+    discoverGbrainToolsSync({
+      command: gbrainCommand,
+      maxInjectedChars: 500,
+      timeoutMs: 1000,
+      workingDirectory: cwd,
+    }),
+  ).toThrow(
+    /Failed to parse GBrain tool discovery JSON:.*stdout preview: \{"bad".*stderr preview: \(empty\)\./,
+  );
 });

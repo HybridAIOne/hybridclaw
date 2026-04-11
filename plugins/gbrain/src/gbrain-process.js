@@ -34,6 +34,7 @@ const MIN_CAPTURE_BYTES = 32_768;
 const CAPTURE_BYTES_PER_INJECTED_CHAR = 2;
 const MAX_DISCOVERY_CAPTURE_BYTES = 256 * 1024;
 const MAX_PASSTHROUGH_CAPTURE_BYTES = 512 * 1024;
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 30_000;
 const MIN_PASSTHROUGH_TIMEOUT_MS = 15 * 60 * 1000;
 const GBRAIN_TIMEOUT_KILL_GRACE_MS = 250;
 const GBRAIN_ENV_ALLOWLIST = [
@@ -541,13 +542,24 @@ export async function buildGbrainPromptContextResult({
 }
 
 export function discoverGbrainToolsSync(config) {
+  const configuredTimeoutMs = Number(config.timeoutMs);
+  const discoveryTimeoutMs =
+    Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+      ? configuredTimeoutMs
+      : DEFAULT_DISCOVERY_TIMEOUT_MS;
   const result = spawnSync(config.command, ['--tools-json'], {
     cwd: config.workingDirectory,
     env: buildGbrainProcessEnv(config),
     encoding: 'utf-8',
     maxBuffer: MAX_DISCOVERY_CAPTURE_BYTES,
+    timeout: discoveryTimeoutMs,
   });
 
+  if (result.error?.code === 'ETIMEDOUT') {
+    throw new Error(
+      `GBrain tool discovery timed out after ${discoveryTimeoutMs}ms.`,
+    );
+  }
   if (result.error) {
     throw result.error;
   }
@@ -561,7 +573,24 @@ export function discoverGbrainToolsSync(config) {
     );
   }
 
-  const parsed = JSON.parse(String(result.stdout || '[]'));
+  const stdoutText = String(result.stdout || '[]');
+  let parsed;
+  try {
+    parsed = JSON.parse(stdoutText);
+  } catch (error) {
+    const previewLimit = 200;
+    const stdoutPreview = collapseTextWhitespace(stdoutText).slice(
+      0,
+      previewLimit,
+    );
+    const stderrPreview = collapseTextWhitespace(String(result.stderr || ''))
+      .slice(0, previewLimit);
+    const parseMessage =
+      error instanceof Error ? error.message : String(error || 'Unknown error');
+    throw new Error(
+      `Failed to parse GBrain tool discovery JSON: ${parseMessage}. stdout preview: ${stdoutPreview || '(empty)'}; stderr preview: ${stderrPreview || '(empty)'}.`,
+    );
+  }
   if (!Array.isArray(parsed)) {
     throw new Error('GBrain tool discovery returned an unexpected payload.');
   }
