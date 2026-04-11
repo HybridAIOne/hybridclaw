@@ -19,6 +19,14 @@ import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
 import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
+import {
+  sendTelegramMediaToChat,
+  sendToTelegramChat,
+} from '../telegram/runtime.js';
+import {
+  isTelegramChannelId,
+  normalizeTelegramSendTargetId,
+} from '../telegram/target.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -36,6 +44,7 @@ const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
 const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
+const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
 
@@ -103,8 +112,15 @@ function normalizeLocalMessageTarget(rawTarget: string): string | null {
   if (!trimmed) return null;
   if (isDiscordChannelId(trimmed)) return null;
   if (isWhatsAppJid(trimmed)) return null;
+  if (isTelegramChannelId(trimmed)) return null;
   if (isEmailAddress(trimmed)) return null;
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
+}
+
+function normalizeTelegramMessageTarget(rawTarget: string): string | null {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return null;
+  return normalizeTelegramSendTargetId(trimmed) ?? null;
 }
 
 function normalizeEmailMessageTarget(rawTarget: string): string | null {
@@ -349,6 +365,48 @@ async function runEmailMessageSendAction(
   };
 }
 
+async function runTelegramMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const filePath = resolveMessageToolSendFilePath(request);
+  const hasComponents = hasMessageComponents(request);
+  if (!content && !filePath) {
+    throw new Error(
+      'content is required for Telegram send unless filePath is provided.',
+    );
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for Telegram sends.');
+  }
+
+  if (filePath) {
+    await sendTelegramMediaToChat({
+      target: channelId,
+      filePath,
+      caption: content || undefined,
+    });
+    return {
+      ok: true,
+      action: 'send',
+      channelId,
+      transport: 'telegram',
+      attachmentCount: 1,
+      contentLength: content.length,
+    };
+  }
+
+  await sendToTelegramChat(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'telegram',
+    contentLength: content.length,
+  };
+}
+
 async function runEmailReadAction(
   request: DiscordToolActionRequest,
   params: {
@@ -460,9 +518,24 @@ export async function runMessageToolAction(
   }
 
   const rawChannelId = String(request.channelId || '').trim();
+  if (
+    rawChannelId &&
+    MESSAGE_TOOL_TELEGRAM_PREFIX_RE.test(rawChannelId) &&
+    !normalizeTelegramMessageTarget(rawChannelId)
+  ) {
+    throw new Error(
+      'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
+    );
+  }
+
   const whatsappChannelId = normalizeWhatsAppMessageTarget(rawChannelId);
   if (whatsappChannelId) {
     return await runWhatsAppMessageSendAction(request, whatsappChannelId);
+  }
+
+  const telegramChannelId = normalizeTelegramMessageTarget(rawChannelId);
+  if (telegramChannelId) {
+    return await runTelegramMessageSendAction(request, telegramChannelId);
   }
 
   const emailChannelId = normalizeEmailMessageTarget(rawChannelId);

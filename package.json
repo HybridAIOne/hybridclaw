@@ -2,7 +2,7 @@
   "name": "@hybridaione/hybridclaw",
   "version": "0.12.2",
   "type": "module",
-  "description": "Personal AI assistant bot for Discord, powered by HybridAI",
+  "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
     "type": "git",
     "url": "https://github.com/HybridAIOne/hybridclaw"
@@ -79,6 +79,7 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "ajv": "8.18.0",
     "better-sqlite3": "12.8.0",
@@ -100,6 +101,7 @@
     "pptxgenjs": "4.0.1",
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.1",
+    "stemmer": "2.0.1",
     "ws": "8.20.0",
     "xlsx-populate": "1.21.0",
     "yaml": "2.8.3",

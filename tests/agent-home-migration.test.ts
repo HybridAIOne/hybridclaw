@@ -662,6 +662,78 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   );
 });
 
+test('does not import Codex model lists from OpenClaw migration input', async () => {
+  const homeDir = makeTempHome();
+  const sourceRoot = path.join(homeDir, '.openclaw');
+  const loggerWarn = vi.fn();
+
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: loggerWarn,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+  }));
+
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, 'openclaw.json'),
+    `${JSON.stringify(
+      {
+        agents: {
+          defaults: {
+            model: 'openai-codex/custom-preview',
+          },
+        },
+        models: {
+          providers: {
+            codex: {
+              baseUrl: 'https://codex.example/v1',
+              models: [
+                'openai-codex/custom-preview',
+                'openai-codex/custom-shadow',
+              ],
+            },
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+
+  const migration = await importFreshMigrator(homeDir);
+  await migration.migrateAgentHome({
+    sourceKind: 'openclaw',
+    sourceRoot,
+    migrateSecrets: false,
+  });
+
+  const config = readJson(path.join(homeDir, '.hybridclaw', 'config.json'));
+
+  expect((config.hybridai as { defaultModel: string }).defaultModel).toBe(
+    'openai-codex/custom-preview',
+  );
+  expect(config.codex).not.toHaveProperty('models');
+  expect(loggerWarn).toHaveBeenCalledWith(
+    { model: 'openai-codex/custom-preview' },
+    'Preserved imported Codex default model, but Codex models are discovery-driven and not written to config',
+  );
+  expect(loggerWarn).toHaveBeenCalledWith(
+    {
+      provider: 'codex',
+      models: [
+        'openai-codex/custom-preview',
+        'openai-codex/custom-shadow',
+      ],
+    },
+    'Ignoring imported Codex model list; Codex models are discovery-driven and not written to config',
+  );
+});
+
 test('migrates compatible Hermes Agent state into HybridClaw', async () => {
   const homeDir = makeTempHome();
   const sourceRoot = path.join(homeDir, '.hermes');

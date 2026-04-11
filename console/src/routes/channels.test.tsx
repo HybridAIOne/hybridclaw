@@ -109,6 +109,18 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],
     },
+    telegram: {
+      enabled: false,
+      botToken: '',
+      pollIntervalMs: 1500,
+      dmPolicy: 'disabled',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      requireMention: true,
+      textChunkLimit: 4000,
+      mediaMaxMb: 20,
+    },
     whatsapp: {
       dmPolicy: 'pairing',
       groupPolicy: 'disabled',
@@ -207,6 +219,10 @@ describe('ChannelsPage', () => {
         tokenConfigured: false,
         tokenSource: null,
       },
+      telegram: {
+        tokenConfigured: false,
+        tokenSource: null,
+      },
       email: {
         passwordConfigured: false,
         passwordSource: null,
@@ -254,6 +270,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     await screen.findByRole('button', { name: /Discord/i });
+    screen.getByRole('button', { name: /Telegram/i });
     screen.getByRole('button', { name: /Email/i });
     expect(screen.queryByText('No explicit bindings exist yet.')).toBeNull();
   });
@@ -358,6 +375,10 @@ describe('ChannelsPage', () => {
         tokenConfigured: true,
         tokenSource: 'runtime-secrets',
       },
+      telegram: {
+        tokenConfigured: false,
+        tokenSource: null,
+      },
       email: {
         passwordConfigured: false,
         passwordSource: null,
@@ -380,6 +401,28 @@ describe('ChannelsPage', () => {
       name: /Discord/i,
     });
     expect(discordButton.textContent || '').toContain('active');
+  });
+
+  it('shows Telegram as configured when enabled without a token', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        telegram: {
+          ...makeConfig().telegram,
+          enabled: true,
+          dmPolicy: 'allowlist',
+          allowFrom: ['@ops_user'],
+        },
+      }),
+    });
+
+    renderChannelsPage();
+
+    const telegramButton = await screen.findByRole('button', {
+      name: /Telegram/i,
+    });
+    expect(telegramButton.textContent || '').toContain('configured');
+    expect(telegramButton.textContent || '').not.toContain('active');
   });
 
   it('renders the live WhatsApp pairing QR on the channel page', async () => {
@@ -922,5 +965,107 @@ describe('ChannelsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Email/i }));
     screen.getByRole('button', { name: 'Change password' });
     expect(screen.queryByRole('button', { name: 'Set password' })).toBeNull();
+  });
+
+  it('updates Telegram bot tokens through encrypted runtime secrets', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        telegram: {
+          ...makeConfig().telegram,
+          enabled: true,
+          dmPolicy: 'allowlist',
+          botToken: '',
+        },
+      }),
+    });
+    setRuntimeSecretMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'stored',
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      discord: {
+        tokenConfigured: false,
+        tokenSource: null,
+      },
+      telegram: {
+        tokenConfigured: true,
+        tokenSource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        discord: {
+          tokenConfigured: false,
+          tokenSource: null,
+        },
+        telegram: {
+          tokenConfigured: true,
+          tokenSource: 'runtime-secrets',
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Telegram/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Telegram/i }));
+    expect(screen.queryByLabelText('New token')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change token' }));
+    fireEvent.change(screen.getByLabelText('New token'), {
+      target: { value: 'telegram-bot-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save token' }));
+
+    await waitFor(() => {
+      expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'TELEGRAM_BOT_TOKEN',
+        'telegram-bot-token',
+      );
+    });
+
+    screen.getByText('Token updated in encrypted runtime secrets.');
   });
 });

@@ -50,7 +50,6 @@ import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
-  expandSkillInvocationWithResolution,
   resolveObservedSkillName,
 } from '../skills/skills.js';
 import {
@@ -672,31 +671,32 @@ export async function handleGatewayMessage(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
-  const { messages, skills, historyStats } = buildConversationContext({
-    agentId,
-    sessionSummary: mergedSessionSummary,
-    retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
-      ? null
-      : pluginPromptSummary,
-    history,
-    currentUserContent: effectiveUserTurnContent,
-    promptMode: req.promptMode,
-    includePromptParts: req.includePromptParts,
-    omitPromptParts: req.omitPromptParts,
-    extraSafetyText: fullAutoOperatingContract,
-    runtimeInfo: {
-      chatbotId,
-      model,
-      defaultModel: HYBRIDAI_MODEL,
-      channel,
-      channelType,
-      channelId: req.channelId,
-      guildId: req.guildId,
-      sessionContext,
-      workspacePath: workspaceDisplayPath,
-    },
-    blockedTools: mediaPolicy.blockedTools,
-  });
+  const { messages, skills, historyStats, explicitSkillInvocation } =
+    buildConversationContext({
+      agentId,
+      sessionSummary: mergedSessionSummary,
+      retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
+        ? null
+        : pluginPromptSummary,
+      history,
+      currentUserContent: effectiveUserTurnContent,
+      promptMode: req.promptMode,
+      includePromptParts: req.includePromptParts,
+      omitPromptParts: req.omitPromptParts,
+      extraSafetyText: fullAutoOperatingContract,
+      runtimeInfo: {
+        chatbotId,
+        model,
+        defaultModel: HYBRIDAI_MODEL,
+        channel,
+        channelType,
+        channelId: req.channelId,
+        guildId: req.guildId,
+        sessionContext,
+        workspacePath: workspaceDisplayPath,
+      },
+      blockedTools: mediaPolicy.blockedTools,
+    });
   const historyStart =
     messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
   recordAuditEvent({
@@ -740,23 +740,19 @@ export async function handleGatewayMessage(
     );
   }
   const mediaContextBlock = buildMediaPromptContext(media);
-  const skillInvocation = expandSkillInvocationWithResolution(
-    effectiveUserTurnContent,
-    skills,
-  );
-  const skillArgsContext = skillInvocation.invocation
+  const skillArgsContext = explicitSkillInvocation
     ? await preprocessContextReferences({
-        message: skillInvocation.invocation.args,
+        message: explicitSkillInvocation.args,
         ...contextReferenceOptions,
       })
     : null;
-  const expandedUserContent = skillInvocation.invocation
+  const expandedUserContent = explicitSkillInvocation
     ? expandResolvedSkillInvocation(
-        skillInvocation.invocation,
+        explicitSkillInvocation,
         skillArgsContext?.message ?? '',
       )
     : effectiveUserTurnContentExpanded;
-  const explicitSkillName = skillInvocation.invocation?.skill.name || null;
+  const explicitSkillName = explicitSkillInvocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;

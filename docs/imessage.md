@@ -14,7 +14,7 @@ You will edit:
 - runtime config: `~/.hybridclaw/config.json`
 - runtime secrets: `~/.hybridclaw/credentials.json`
 
-You can start from [config.example.json](../config.example.json) and copy the
+You can start from [config.example.json](https://github.com/HybridAIOne/hybridclaw/blob/main/config.example.json) and copy the
 `imessage` block into your local runtime config.
 
 ## Quick Setup Commands

@@ -5,10 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import { isContainerMaxConcurrentExplicit } from '../config/runtime-config.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
+import { resolveInstallRoot } from '../infra/install-root.js';
+import { logger } from '../logger.js';
 import {
   enqueueProactiveMessage,
   isDatabaseInitialized,
 } from '../memory/db.js';
+import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
+import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
@@ -16,9 +20,29 @@ import {
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from './eval-profile.js';
+import type {
+  LocomoAgentMode,
+  LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
+  LocomoRetrievalVariantProgress as LocomoNativeRetrievalVariantProgress,
+  LocomoRetrievalVariantSummary as LocomoNativeRetrievalVariantSummary,
+  LocomoTokenUsage as LocomoNativeTokenUsage,
+  LocomoProgressPhase,
+  LocomoRetrievalBackend,
+  LocomoRetrievalEmbeddingProvider,
+  LocomoRetrievalPolicy,
+  LocomoRetrievalQueryMode,
+  LocomoRetrievalRerank,
+  LocomoRetrievalSweep,
+  LocomoRetrievalTokenizer,
+} from './locomo-types.js';
+import {
+  LOCOMO_DATASET_FILENAME,
+  LOCOMO_SETUP_MARKER,
+} from './locomo-types.js';
 
 type EvalSuiteId =
   | 'swebench-verified'
+  | 'locomo'
   | 'terminal-bench-2.0'
   | 'agentbench'
   | 'gaia';
@@ -77,9 +101,17 @@ interface EvalRunPreparation {
   progress: EvalProgressSpec | null;
 }
 
+interface ParsedEvalAction {
+  action: string;
+  profile: EvalProfile;
+  commandArgs: string[];
+  workspaceModeExplicit: boolean;
+  error?: string;
+}
+
 interface EvalSetupCommand {
   command: string;
-  strategy: 'uv' | 'system-python';
+  strategy: 'native' | 'uv' | 'system-python';
 }
 
 interface EvalRunMeta {
@@ -171,6 +203,73 @@ interface TerminalBenchNativeTokenUsage {
   apiUsageAvailable: boolean;
 }
 
+interface LocomoNativeSummary {
+  jobDir: string;
+  resultPath: string;
+  predictionsPath: string | null;
+  mode: 'qa' | 'retrieval';
+  matrix: boolean;
+  matrixSweep: LocomoRetrievalSweep | null;
+  retrievalPolicy: LocomoRetrievalPolicy | null;
+  retrievalQueryMode: LocomoRetrievalQueryMode | null;
+  retrievalBackend: LocomoRetrievalBackend | null;
+  retrievalRerank: LocomoRetrievalRerank | null;
+  retrievalTokenizer: LocomoRetrievalTokenizer | null;
+  retrievalEmbeddingProvider: LocomoRetrievalEmbeddingProvider | null;
+  retrievalEmbeddingModel: string | null;
+  dataset: string | null;
+  model: string | null;
+  budgetTokens: number | null;
+  sampleCount: number | null;
+  questionCount: number | null;
+  overallScore: number | null;
+  contextF1: number | null;
+  categories: Record<string, LocomoNativeCategoryAggregate>;
+  tokenUsage: LocomoNativeTokenUsage | null;
+  variantCount: number | null;
+  bestVariantId: string | null;
+  bestVariantLabel: string | null;
+  variants: LocomoNativeRetrievalVariantSummary[];
+}
+
+interface LocomoNativeProgress {
+  jobDir: string;
+  progressPath: string;
+  resultPath: string;
+  predictionsPath: string | null;
+  mode: 'qa' | 'retrieval';
+  matrix: boolean;
+  matrixSweep: LocomoRetrievalSweep | null;
+  retrievalPolicy: LocomoRetrievalPolicy | null;
+  retrievalQueryMode: LocomoRetrievalQueryMode | null;
+  retrievalBackend: LocomoRetrievalBackend | null;
+  retrievalRerank: LocomoRetrievalRerank | null;
+  retrievalTokenizer: LocomoRetrievalTokenizer | null;
+  retrievalEmbeddingProvider: LocomoRetrievalEmbeddingProvider | null;
+  retrievalEmbeddingModel: string | null;
+  dataset: string | null;
+  model: string | null;
+  budgetTokens: number | null;
+  sampleCount: number | null;
+  completedSampleCount: number | null;
+  questionCount: number | null;
+  completedQuestionCount: number | null;
+  overallScore: number | null;
+  contextF1: number | null;
+  currentPhase: LocomoProgressPhase | null;
+  currentSampleId: string | null;
+  currentSampleEmbeddedTurnCount: number | null;
+  currentSampleTurnCount: number | null;
+  currentSampleQuestionCount: number | null;
+  currentSampleQuestionTotal: number | null;
+  categories: Record<string, LocomoNativeCategoryAggregate>;
+  tokenUsage: LocomoNativeTokenUsage | null;
+  variantCount: number | null;
+  completedVariantCount: number | null;
+  currentVariant: LocomoNativeRetrievalVariantProgress | null;
+  variants: LocomoNativeRetrievalVariantSummary[];
+}
+
 const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
 const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
@@ -205,6 +304,45 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     notes: [
       'This step evaluates a predictions JSONL; produce patches with your HybridClaw-driven harness first.',
       '`/eval ...` injects the OpenAI-compatible HybridClaw endpoint for any predictor step you run through this helper.',
+    ],
+  },
+  {
+    id: 'locomo',
+    title: 'LOCOMO',
+    summary:
+      'Native HybridClaw LoCoMo QA benchmark over the official long-conversation dataset.',
+    aliases: ['lo-co-mo', 'locomo-memory'],
+    prereqs: [
+      'Node.js 22',
+      'network access during `setup` to download `locomo10.json`',
+    ],
+    starter: [
+      '/eval locomo setup',
+      '/eval locomo run --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20',
+      '/eval locomo run --mode retrieval --matrix --budget 4000',
+      '/eval locomo run --mode retrieval --matrix backend --budget 4000',
+      '/eval locomo run --mode retrieval --matrix rerank --budget 4000',
+      '/eval locomo run --mode retrieval --matrix tokenizer --budget 4000',
+      '/eval locomo run --mode retrieval --matrix embedding --budget 4000',
+    ],
+    notes: [
+      'The default `qa` mode generates LoCoMo answers through HybridClaw’s local OpenAI-compatible gateway and scores the model outputs directly.',
+      '`--mode retrieval` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.',
+      '`--mode retrieval --matrix` runs the default retrieval sweep across backend, rerank, and tokenizer combinations and renders a combined comparison table.',
+      '`--mode retrieval --matrix backend|rerank|tokenizer|embedding` runs a single-dimension sweep and keeps the other retrieval settings at the standard LOCOMO retrieval defaults (`no-stopwords`, `bm25`, `unicode61`) unless that dimension is the one being varied.',
+      'Retrieval-only knobs are benchmark controls: `--retrieval-query raw|no-stopwords`, `--retrieval-backend cosine|full-text|hybrid`, `--retrieval-rerank none|bm25` (default: `bm25`), `--retrieval-tokenizer unicode61|porter|trigram`, and `--retrieval-embedding hashed|transformers`.',
+      'The `qa` prompt shape follows the upstream `evaluate_gpts` flow: truncated conversation context plus a short-answer QA prompt for each LoCoMo question.',
+      '`--num-samples` limits conversation records. Use `--max-questions` for quick smoke runs over a small number of LoCoMo questions.',
+      'By default, LOCOMO creates one fresh template-seeded agent per conversation sample. Use `--current-agent` to reuse the current agent workspace.',
+      'Prompt/profile eval flags flow through `HYBRIDCLAW_EVAL_MODEL`, so agent/workspace mode and prompt ablations affect the benchmarked run.',
     ],
   },
   {
@@ -330,7 +468,7 @@ function renderSuiteList(): string[] {
 }
 
 function isImplementedManagedSuite(suite: EvalSuiteDefinition): boolean {
-  return suite.id === 'terminal-bench-2.0';
+  return suite.id === 'terminal-bench-2.0' || suite.id === 'locomo';
 }
 
 function renderUnimplementedSuite(
@@ -351,6 +489,7 @@ function renderUnimplementedSuite(
     ...describeEvalProfile(env.profile).map((entry) => `- ${entry}`),
     '',
     'Implemented suites today:',
+    '- `/eval locomo ...`',
     '- `/eval terminal-bench-2.0 ...`',
     '- `/eval tau2 ...`',
   ].join('\n');
@@ -363,6 +502,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Usage:',
     '- `/eval list`',
     '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `/eval locomo [setup|run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
@@ -379,7 +519,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `terminal-bench-2.0` and `tau2` are implemented today.',
+    'Only `locomo`, `terminal-bench-2.0`, and `tau2` are implemented today.',
   ].join('\n');
 }
 
@@ -426,6 +566,74 @@ function renderKeyValueSection(
   );
 }
 
+const ANSI_RESET = '\x1b[0m';
+const ANSI_METRIC_VALUE = '\x1b[93m';
+const ANSI_BEST_VALUE = '\x1b[30;103m';
+
+function stripAnsi(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
+
+function visibleLength(value: string): number {
+  return [...stripAnsi(value)].length;
+}
+
+function padAnsiEnd(value: string, width: number): string {
+  const missing = Math.max(0, width - visibleLength(value));
+  return `${value}${' '.repeat(missing)}`;
+}
+
+function truncateTextEnd(value: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  const characters = [...String(value || '')];
+  if (characters.length <= width) {
+    return value;
+  }
+  if (width === 1) {
+    return '…';
+  }
+  return `${characters.slice(0, width - 1).join('')}…`;
+}
+
+function resolveEvalRenderColumns(): number {
+  return Math.max(72, process.stdout.columns || 120);
+}
+
+function styleLocomoMatrixCell(
+  value: string,
+  options?: {
+    highlight?: boolean;
+    metric?: boolean;
+  },
+): string {
+  if (options?.highlight) {
+    return `${ANSI_BEST_VALUE}${value}${ANSI_RESET}`;
+  }
+  if (options?.metric) {
+    return `${ANSI_METRIC_VALUE}${value}${ANSI_RESET}`;
+  }
+  if (!options) {
+    return value;
+  }
+  return value;
+}
+
 function renderSectionCard(title: string, lines: string[]): string {
   const bodyLines = lines.flatMap((line) =>
     String(line || '')
@@ -433,11 +641,13 @@ function renderSectionCard(title: string, lines: string[]): string {
       .map((entry) => entry.trimEnd()),
   );
   const contentWidth = Math.max(
-    title.length + 2,
-    ...bodyLines.map((line) => line.length),
+    visibleLength(title) + 2,
+    ...bodyLines.map((line) => visibleLength(line)),
   );
   const topBorder = `┌─ ${title} ${'─'.repeat(Math.max(1, contentWidth - title.length - 1))}┐`;
-  const middle = bodyLines.map((line) => `│ ${line.padEnd(contentWidth)} │`);
+  const middle = bodyLines.map(
+    (line) => `│ ${padAnsiEnd(line, contentWidth)} │`,
+  );
   const bottomBorder = `└${'─'.repeat(contentWidth + 2)}┘`;
   return [topBorder, ...middle, bottomBorder].join('\n');
 }
@@ -523,7 +733,7 @@ function renderRecipe(
     '',
     'Managed commands:',
     `- \`/eval ${suite.id} setup\``,
-    `- \`/eval ${suite.id} run --num-tasks 10\``,
+    `- \`${getManagedSuiteRunExample(suite)}\``,
     `- \`/eval ${suite.id} status\``,
     `- \`/eval ${suite.id} stop\``,
     `- \`/eval ${suite.id} results\``,
@@ -531,6 +741,17 @@ function renderRecipe(
     '',
     'Launch the starter or your own command with `/eval <shell command...>`.',
   ].join('\n');
+}
+
+function getManagedSuiteRunExample(suite: EvalSuiteDefinition): string {
+  switch (suite.id) {
+    case 'locomo':
+      return '/eval locomo run --budget 4000 --max-questions 20';
+    case 'terminal-bench-2.0':
+      return '/eval terminal-bench-2.0 run --num-tasks 10';
+    default:
+      return `/eval ${suite.id} run`;
+  }
 }
 
 function renderTau2Usage(env: EvalEnvironment, dataDir: string): string {
@@ -602,12 +823,22 @@ function getTau2InstallDir(dataDir: string): string {
 function getManagedSuiteSetup(
   suite: EvalSuiteDefinition,
 ): ManagedEvalSuiteSetup | null {
-  if (suite.id !== 'terminal-bench-2.0') return null;
-  return {
-    installDirName: 'terminal-bench-2.0',
-    strategyDescription:
-      'uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test',
-  };
+  switch (suite.id) {
+    case 'locomo':
+      return {
+        installDirName: 'locomo',
+        strategyDescription:
+          'native HybridClaw LOCOMO harness with official locomo10 dataset download',
+      };
+    case 'terminal-bench-2.0':
+      return {
+        installDirName: 'terminal-bench-2.0',
+        strategyDescription:
+          'uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test',
+      };
+    default:
+      return null;
+  }
 }
 
 function getManagedSuiteInstallDir(
@@ -627,7 +858,16 @@ function getManagedSuiteMarkerPath(
 ): string {
   return path.join(
     getManagedSuiteInstallDir(suite, dataDir),
-    '.hybridclaw-setup-ok',
+    LOCOMO_SETUP_MARKER,
+  );
+}
+
+function getLocomoDatasetPath(dataDir: string): string {
+  return path.join(
+    getEvalBaseDir(dataDir),
+    'locomo',
+    'data',
+    LOCOMO_DATASET_FILENAME,
   );
 }
 
@@ -654,6 +894,12 @@ function isManagedSuiteInstalled(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): boolean {
+  if (suite.id === 'locomo') {
+    return (
+      fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
+      fs.existsSync(getLocomoDatasetPath(dataDir))
+    );
+  }
   return (
     fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
     fs.existsSync(getManagedSuitePythonPath(suite, dataDir))
@@ -684,8 +930,19 @@ function getManagedSuiteSetupCommand(
   }
 
   const installDir = getManagedSuiteInstallDir(suite, dataDir);
+  if (suite.id === 'locomo') {
+    return {
+      strategy: 'native',
+      command: buildInternalEvalCommand('__eval-locomo-native', [
+        'setup',
+        '--install-dir',
+        installDir,
+      ]),
+    };
+  }
+
   const installDirQuoted = quoteShellArg(installDir);
-  const markerFile = '.hybridclaw-setup-ok';
+  const markerFile = LOCOMO_SETUP_MARKER;
   const venvPython =
     process.platform === 'win32'
       ? '.venv\\Scripts\\python.exe'
@@ -761,12 +1018,54 @@ function getManagedSuiteNextStep(
   _dataDir: string,
 ): string {
   switch (suite.id) {
+    case 'locomo': {
+      return '/eval locomo run --budget 4000 --max-questions 20';
+    }
     case 'terminal-bench-2.0': {
       return `/eval terminal-bench-2.0 run --num-tasks 10`;
     }
     default:
       return `/eval ${suite.id}`;
   }
+}
+
+function buildInternalEvalCommand(commandName: string, args: string[]): string {
+  const commandArgs =
+    resolveInternalEvalLauncherCommandArgs().map(quoteShellArg);
+
+  return buildCommandString([
+    ...commandArgs,
+    commandName,
+    ...args.map((entry) =>
+      entry.startsWith('--') ? entry : quoteShellArg(entry),
+    ),
+  ]);
+}
+
+function resolveInternalEvalLauncherCommandArgs(): string[] {
+  const installRoot = resolveInstallRoot();
+  const sourceCliPath = path.join(installRoot, 'src', 'cli.ts');
+  const tsxCliPath = path.join(
+    installRoot,
+    'node_modules',
+    'tsx',
+    'dist',
+    'cli.mjs',
+  );
+  const distCliPath = path.join(installRoot, 'dist', 'cli.js');
+
+  if (fs.existsSync(sourceCliPath) && fs.existsSync(tsxCliPath)) {
+    return [process.execPath, tsxCliPath, sourceCliPath];
+  }
+  if (fs.existsSync(distCliPath)) {
+    return [process.execPath, distCliPath];
+  }
+
+  const cliEntry = process.argv[1]?.trim();
+  if (!cliEntry) {
+    throw new Error('Unable to resolve the HybridClaw CLI entry point.');
+  }
+  return [process.execPath, path.resolve(cliEntry)];
 }
 
 function getTerminalBenchDatasetHelperPath(dataDir: string): string {
@@ -830,7 +1129,24 @@ function prepareManagedSuiteRun(
   env: EvalEnvironment,
   effectiveAgentId: string,
   args: string[],
+  workspaceModeExplicit: boolean,
 ): ManagedSuiteRunPreparation | null {
+  if (suite.id === 'locomo') {
+    const agentMode = resolveLocomoAgentMode(workspaceModeExplicit);
+    return {
+      commandArgs: ['locomo', 'run', ...args],
+      command: buildInternalEvalCommand('__eval-locomo-native', [
+        'run',
+        '--install-dir',
+        getManagedSuiteInstallDir(suite, dataDir),
+        '--agent-mode',
+        agentMode,
+        ...args,
+      ]),
+      displayCommand: buildCommandString([suite.id, 'run', ...args]),
+      cwd: dataDir,
+    };
+  }
   if (suite.id !== 'terminal-bench-2.0') return null;
   ensureTerminalBenchDatasetHelper(dataDir);
 
@@ -862,12 +1178,9 @@ function prepareManagedSuiteRun(
     translatedArgs.push('--n-concurrent', String(defaultConcurrency));
   }
 
-  const cliEntry = process.argv[1]?.trim();
-  if (!cliEntry) return null;
   const promptMode = 'none';
   const internalArgs = [
-    quoteShellArg(process.execPath),
-    quoteShellArg(path.resolve(cliEntry)),
+    ...resolveInternalEvalLauncherCommandArgs().map(quoteShellArg),
     '__eval-terminal-bench-native',
     '--install-dir',
     quoteShellArg(getManagedSuiteInstallDir(suite, dataDir)),
@@ -900,6 +1213,12 @@ function prepareManagedSuiteRun(
     displayCommand: buildCommandString([suite.id, 'run', ...args]),
     cwd: dataDir,
   };
+}
+
+function resolveLocomoAgentMode(
+  workspaceModeExplicit: boolean,
+): LocomoAgentMode {
+  return workspaceModeExplicit ? 'current-agent' : 'conversation-fresh';
 }
 
 function quoteShellArg(value: string): string {
@@ -1180,8 +1499,297 @@ function readTerminalBenchJobDir(meta: EvalRunMeta): string | null {
   return jobDir ? jobDir : null;
 }
 
-function readFiniteTokenNumber(value: unknown, fallback = 0): number {
+function readFiniteNumber(
+  value: unknown,
+  fallback: number | null = null,
+): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readFiniteTokenNumber(value: unknown, fallback = 0): number {
+  return readFiniteNumber(value, fallback) ?? fallback;
+}
+
+function readStringValue(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readLocomoCategoryAggregates(
+  value: unknown,
+): Record<string, LocomoNativeCategoryAggregate> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([category, aggregate]) => {
+      const parsedAggregate =
+        aggregate && typeof aggregate === 'object' ? aggregate : {};
+      return [
+        category,
+        {
+          meanScore:
+            readFiniteNumber(
+              (parsedAggregate as { meanScore?: unknown }).meanScore,
+              0,
+            ) ?? 0,
+          questionCount:
+            readFiniteNumber(
+              (parsedAggregate as { questionCount?: unknown }).questionCount,
+              0,
+            ) ?? 0,
+          contextF1: readFiniteNumber(
+            (parsedAggregate as { contextF1?: unknown }).contextF1,
+          ),
+        },
+      ];
+    }),
+  ) as Record<string, LocomoNativeCategoryAggregate>;
+}
+
+function readLocomoTokenUsage(value: unknown): LocomoNativeTokenUsage | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const tokenUsage = value as {
+    promptTokens?: unknown;
+    completionTokens?: unknown;
+    totalTokens?: unknown;
+    responsesWithUsage?: unknown;
+  };
+  const promptTokens = readFiniteNumber(tokenUsage.promptTokens);
+  const completionTokens = readFiniteNumber(tokenUsage.completionTokens);
+  const totalTokens = readFiniteNumber(tokenUsage.totalTokens);
+  const responsesWithUsage = readFiniteNumber(tokenUsage.responsesWithUsage);
+  if (
+    promptTokens == null ||
+    completionTokens == null ||
+    totalTokens == null ||
+    responsesWithUsage == null
+  ) {
+    return null;
+  }
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    responsesWithUsage,
+  };
+}
+
+function readLocomoRetrievalVariantSummary(
+  value: unknown,
+): LocomoNativeRetrievalVariantSummary | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const variant = value as Record<string, unknown>;
+  const id = readStringValue(variant.id);
+  const label = readStringValue(variant.label);
+  const retrievalPolicy = readLocomoRetrievalPolicy(variant.retrievalPolicy);
+  const retrievalQueryMode = readLocomoRetrievalQueryMode(
+    variant.retrievalQueryMode,
+  );
+  const retrievalBackend = readLocomoRetrievalBackend(variant.retrievalBackend);
+  const retrievalRerank = readLocomoRetrievalRerank(variant.retrievalRerank);
+  const retrievalTokenizer = readLocomoRetrievalTokenizer(
+    variant.retrievalTokenizer,
+  );
+  const retrievalEmbeddingProvider = readLocomoRetrievalEmbeddingProvider(
+    variant.retrievalEmbeddingProvider,
+  );
+  const retrievalEmbeddingModel = readStringValue(
+    variant.retrievalEmbeddingModel,
+  );
+  const sampleCount = readFiniteNumber(variant.sampleCount);
+  const questionCount = readFiniteNumber(variant.questionCount);
+  const overallScore = readFiniteNumber(variant.overallScore);
+  if (
+    !id ||
+    !label ||
+    retrievalPolicy == null ||
+    retrievalQueryMode == null ||
+    retrievalBackend == null ||
+    retrievalRerank == null ||
+    retrievalTokenizer == null ||
+    retrievalEmbeddingProvider == null ||
+    sampleCount == null ||
+    questionCount == null ||
+    overallScore == null
+  ) {
+    return null;
+  }
+  return {
+    id,
+    label,
+    retrievalPolicy,
+    retrievalQueryMode,
+    retrievalBackend,
+    retrievalRerank,
+    retrievalTokenizer,
+    retrievalEmbeddingProvider,
+    retrievalEmbeddingModel,
+    sampleCount,
+    questionCount,
+    overallScore,
+    contextF1: readFiniteNumber(variant.contextF1),
+    categories: readLocomoCategoryAggregates(variant.categories),
+  };
+}
+
+function readLocomoRetrievalVariantProgress(
+  value: unknown,
+): LocomoNativeRetrievalVariantProgress | null {
+  const summary = readLocomoRetrievalVariantSummary(value);
+  if (!summary || !value || typeof value !== 'object') {
+    return null;
+  }
+  const variant = value as Record<string, unknown>;
+  const completedSampleCount = readFiniteNumber(variant.completedSampleCount);
+  const completedQuestionCount = readFiniteNumber(
+    variant.completedQuestionCount,
+  );
+  if (completedSampleCount == null || completedQuestionCount == null) {
+    return null;
+  }
+  const currentPhase = readLocomoProgressPhase(variant.currentPhase);
+  const currentSampleId = readStringValue(variant.currentSampleId);
+  const currentSampleEmbeddedTurnCount = readFiniteNumber(
+    variant.currentSampleEmbeddedTurnCount,
+  );
+  const currentSampleTurnCount = readFiniteNumber(
+    variant.currentSampleTurnCount,
+  );
+  const currentSampleQuestionCount = readFiniteNumber(
+    variant.currentSampleQuestionCount,
+  );
+  const currentSampleQuestionTotal = readFiniteNumber(
+    variant.currentSampleQuestionTotal,
+  );
+  return {
+    ...summary,
+    currentPhase,
+    completedSampleCount,
+    completedQuestionCount,
+    currentSampleId,
+    currentSampleEmbeddedTurnCount,
+    currentSampleTurnCount,
+    currentSampleQuestionCount,
+    currentSampleQuestionTotal,
+  };
+}
+
+function readLocomoRetrievalVariants(
+  value: unknown,
+): LocomoNativeRetrievalVariantSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => readLocomoRetrievalVariantSummary(entry))
+    .filter(
+      (entry): entry is LocomoNativeRetrievalVariantSummary => entry !== null,
+    );
+}
+
+function readLocomoRetrievalPolicy(
+  value: unknown,
+): LocomoRetrievalPolicy | null {
+  if (value === 'prompt-capped' || value === 'budget-only') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalSweep(value: unknown): LocomoRetrievalSweep | null {
+  if (
+    value === 'all' ||
+    value === 'backend' ||
+    value === 'rerank' ||
+    value === 'tokenizer' ||
+    value === 'embedding'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoProgressPhase(value: unknown): LocomoProgressPhase | null {
+  if (
+    value === 'warming-embedding' ||
+    value === 'ingesting' ||
+    value === 'evaluating'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalEmbeddingProvider(
+  value: unknown,
+): LocomoRetrievalEmbeddingProvider | null {
+  const normalized = normalizeMemoryEmbeddingProviderKind(value, 'hashed');
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (
+    raw === 'hashed' ||
+    raw === 'hash' ||
+    raw === 'transformers' ||
+    raw === 'transformers.js'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function readLocomoRetrievalQueryMode(
+  value: unknown,
+): LocomoRetrievalQueryMode | null {
+  if (value === 'raw' || value === 'no-stopwords') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalBackend(
+  value: unknown,
+): LocomoRetrievalBackend | null {
+  const normalized = normalizeMemoryRecallBackend(value, 'cosine');
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (
+    raw === 'cosine' ||
+    raw === 'semantic' ||
+    raw === 'full-text' ||
+    raw === 'fulltext' ||
+    raw === 'fts-bm25' ||
+    raw === 'hybrid'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function readLocomoRetrievalRerank(
+  value: unknown,
+): LocomoRetrievalRerank | null {
+  if (value === 'none' || value === 'bm25') {
+    return value;
+  }
+  return null;
+}
+
+function readLocomoRetrievalTokenizer(
+  value: unknown,
+): LocomoRetrievalTokenizer | null {
+  if (value === 'default' || value === 'unicode61') {
+    return 'unicode61';
+  }
+  if (value === 'porter' || value === 'trigram') {
+    return value;
+  }
+  return null;
 }
 
 function readTerminalBenchJobTokenUsage(
@@ -1343,6 +1951,431 @@ function readTerminalBenchNativeProgress(
     pending,
     tokenUsage: readTerminalBenchJobTokenUsage(jobDir),
   };
+}
+
+function readLocomoJobDir(meta: EvalRunMeta): string | null {
+  if (meta.suiteId !== 'locomo' || meta.operation !== 'run') {
+    return null;
+  }
+  const stdoutText = readLogFileText(meta.stdoutPath);
+  const match = stdoutText.match(/^Job dir:\s*(.+)$/m);
+  const jobDir = String(match?.[1] || '').trim();
+  return jobDir || null;
+}
+
+function readLocomoNativeSummary(
+  meta: EvalRunMeta,
+): LocomoNativeSummary | null {
+  const jobDir = readLocomoJobDir(meta);
+  if (!jobDir) return null;
+  const resultPath = path.join(jobDir, 'result.json');
+  if (!fs.existsSync(resultPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    return {
+      jobDir,
+      resultPath,
+      predictionsPath: readStringValue(parsed.predictionsPath),
+      mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
+      matrix: parsed.matrix === true,
+      matrixSweep: readLocomoRetrievalSweep(parsed.matrixSweep),
+      retrievalPolicy: readLocomoRetrievalPolicy(parsed.retrievalPolicy),
+      retrievalQueryMode: readLocomoRetrievalQueryMode(
+        parsed.retrievalQueryMode,
+      ),
+      retrievalBackend: readLocomoRetrievalBackend(parsed.retrievalBackend),
+      retrievalRerank: readLocomoRetrievalRerank(parsed.retrievalRerank),
+      retrievalTokenizer: readLocomoRetrievalTokenizer(
+        parsed.retrievalTokenizer,
+      ),
+      retrievalEmbeddingProvider: readLocomoRetrievalEmbeddingProvider(
+        parsed.retrievalEmbeddingProvider,
+      ),
+      retrievalEmbeddingModel: readStringValue(parsed.retrievalEmbeddingModel),
+      dataset: readStringValue(parsed.dataset),
+      model: readStringValue(parsed.model),
+      budgetTokens: readFiniteNumber(parsed.budgetTokens),
+      sampleCount: readFiniteNumber(parsed.sampleCount),
+      questionCount: readFiniteNumber(parsed.questionCount),
+      overallScore: readFiniteNumber(parsed.overallScore),
+      contextF1: readFiniteNumber(parsed.contextF1),
+      categories: readLocomoCategoryAggregates(parsed.categories),
+      tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
+      variantCount: readFiniteNumber(parsed.variantCount),
+      bestVariantId: readStringValue(parsed.bestVariantId),
+      bestVariantLabel: readStringValue(parsed.bestVariantLabel),
+      variants: readLocomoRetrievalVariants(parsed.variants),
+    };
+  } catch (error) {
+    logger.debug(
+      {
+        err: error,
+        runId: meta.runId,
+        resultPath,
+      },
+      'Failed to parse LOCOMO result summary',
+    );
+    return null;
+  }
+}
+
+function readLocomoNativeProgress(
+  meta: EvalRunMeta,
+): LocomoNativeProgress | null {
+  const jobDir = readLocomoJobDir(meta);
+  if (!jobDir) return null;
+  const progressPath = path.join(jobDir, 'progress.json');
+  if (!fs.existsSync(progressPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(progressPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    return {
+      jobDir,
+      progressPath,
+      resultPath:
+        readStringValue(parsed.resultPath) || path.join(jobDir, 'result.json'),
+      predictionsPath: readStringValue(parsed.predictionsPath),
+      mode: parsed.mode === 'retrieval' ? 'retrieval' : 'qa',
+      matrix: parsed.matrix === true,
+      matrixSweep: readLocomoRetrievalSweep(parsed.matrixSweep),
+      retrievalPolicy: readLocomoRetrievalPolicy(parsed.retrievalPolicy),
+      retrievalQueryMode: readLocomoRetrievalQueryMode(
+        parsed.retrievalQueryMode,
+      ),
+      retrievalBackend: readLocomoRetrievalBackend(parsed.retrievalBackend),
+      retrievalRerank: readLocomoRetrievalRerank(parsed.retrievalRerank),
+      retrievalTokenizer: readLocomoRetrievalTokenizer(
+        parsed.retrievalTokenizer,
+      ),
+      retrievalEmbeddingProvider: readLocomoRetrievalEmbeddingProvider(
+        parsed.retrievalEmbeddingProvider,
+      ),
+      retrievalEmbeddingModel: readStringValue(parsed.retrievalEmbeddingModel),
+      dataset: readStringValue(parsed.dataset),
+      model: readStringValue(parsed.model),
+      budgetTokens: readFiniteNumber(parsed.budgetTokens),
+      sampleCount: readFiniteNumber(parsed.sampleCount),
+      completedSampleCount: readFiniteNumber(parsed.completedSampleCount),
+      questionCount: readFiniteNumber(parsed.questionCount),
+      completedQuestionCount: readFiniteNumber(parsed.completedQuestionCount),
+      overallScore: readFiniteNumber(parsed.overallScore),
+      contextF1: readFiniteNumber(parsed.contextF1),
+      currentPhase: readLocomoProgressPhase(parsed.currentPhase),
+      currentSampleId: readStringValue(parsed.currentSampleId),
+      currentSampleEmbeddedTurnCount: readFiniteNumber(
+        parsed.currentSampleEmbeddedTurnCount,
+      ),
+      currentSampleTurnCount: readFiniteNumber(parsed.currentSampleTurnCount),
+      currentSampleQuestionCount: readFiniteNumber(
+        parsed.currentSampleQuestionCount,
+      ),
+      currentSampleQuestionTotal: readFiniteNumber(
+        parsed.currentSampleQuestionTotal,
+      ),
+      categories: readLocomoCategoryAggregates(parsed.categories),
+      tokenUsage: readLocomoTokenUsage(parsed.tokenUsage),
+      variantCount: readFiniteNumber(parsed.variantCount),
+      completedVariantCount: readFiniteNumber(parsed.completedVariantCount),
+      currentVariant: readLocomoRetrievalVariantProgress(parsed.currentVariant),
+      variants: readLocomoRetrievalVariants(parsed.variants),
+    };
+  } catch (error) {
+    logger.debug(
+      {
+        err: error,
+        runId: meta.runId,
+        progressPath,
+      },
+      'Failed to parse LOCOMO progress summary',
+    );
+    return null;
+  }
+}
+
+function formatLocomoCategoryValue(
+  category: string,
+  value: LocomoNativeCategoryAggregate | undefined,
+  mode: 'qa' | 'retrieval',
+): string | null {
+  if (!value) return null;
+  if (mode === 'retrieval') {
+    return `Category ${category} | Hit ${value.meanScore.toFixed(3)} | F1 ${(
+      value.contextF1 ?? 0
+    ).toFixed(3)} | Q ${value.questionCount}`;
+  }
+  return `Category ${category} | Score ${value.meanScore.toFixed(3)} | Q ${value.questionCount}`;
+}
+
+function formatLocomoTokenUsage(
+  value: LocomoNativeTokenUsage | null | undefined,
+): string | null {
+  if (!value) return null;
+  return `${value.totalTokens} total (${value.promptTokens} prompt + ${value.completionTokens} completion)`;
+}
+
+function formatLocomoRetrievalPolicy(
+  value: LocomoRetrievalPolicy | null | undefined,
+): string | null {
+  if (value === 'budget-only') {
+    return 'uncapped recall, token budget only';
+  }
+  if (value === 'prompt-capped') {
+    return 'prompt-capped recall';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalSweep(
+  value: LocomoRetrievalSweep | null | undefined,
+): string | null {
+  if (value === 'all') {
+    return 'full';
+  }
+  if (value === 'backend') {
+    return 'backend';
+  }
+  if (value === 'rerank') {
+    return 'rerank';
+  }
+  if (value === 'tokenizer') {
+    return 'tokenizer';
+  }
+  if (value === 'embedding') {
+    return 'embedding';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalQueryMode(
+  value: LocomoRetrievalQueryMode | null | undefined,
+): string | null {
+  if (value === 'raw') {
+    return 'raw question';
+  }
+  if (value === 'no-stopwords') {
+    return 'stopwords removed';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalBackend(
+  value: LocomoRetrievalBackend | null | undefined,
+): string | null {
+  if (value === 'cosine') {
+    return 'cosine';
+  }
+  if (value === 'full-text') {
+    return 'full text';
+  }
+  if (value === 'hybrid') {
+    return 'hybrid';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalRerank(
+  value: LocomoRetrievalRerank | null | undefined,
+): string | null {
+  if (value === 'none') {
+    return 'none';
+  }
+  if (value === 'bm25') {
+    return 'BM25 before budget';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalTokenizer(
+  value: LocomoRetrievalTokenizer | null | undefined,
+): string | null {
+  if (value === 'unicode61') {
+    return 'unicode61';
+  }
+  if (value === 'porter') {
+    return 'porter';
+  }
+  if (value === 'trigram') {
+    return 'trigram';
+  }
+  return null;
+}
+
+function formatLocomoRetrievalEmbeddingProvider(
+  value: LocomoRetrievalEmbeddingProvider | null | undefined,
+): string | null {
+  if (value === 'hashed') {
+    return 'hashed';
+  }
+  if (value === 'transformers') {
+    return 'Transformers.js';
+  }
+  return null;
+}
+
+function formatLocomoProgressPhase(
+  value: LocomoProgressPhase | null | undefined,
+): string | null {
+  if (value === 'warming-embedding') {
+    return 'loading embedding model';
+  }
+  if (value === 'ingesting') {
+    return 'ingesting memory';
+  }
+  if (value === 'evaluating') {
+    return 'evaluating questions';
+  }
+  return null;
+}
+
+function formatLocomoMatrixMetric(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '-';
+  }
+  return value.toFixed(4);
+}
+
+function areLocomoMetricValuesEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-9;
+}
+
+function computeLocomoVariantMetricHighlightStats(
+  variants: LocomoNativeRetrievalVariantSummary[],
+): Array<{ max: number | null; shouldHighlight: boolean }> {
+  const metricGetters = [
+    (variant: LocomoNativeRetrievalVariantSummary) => variant.overallScore,
+    (variant: LocomoNativeRetrievalVariantSummary) => variant.contextF1 ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['1']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['2']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['3']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['4']?.meanScore ?? null,
+    (variant: LocomoNativeRetrievalVariantSummary) =>
+      variant.categories['5']?.meanScore ?? null,
+  ];
+  return metricGetters.map((getter) => {
+    const values = variants
+      .map((variant) => getter(variant))
+      .filter(
+        (value): value is number => value != null && Number.isFinite(value),
+      );
+    if (values.length === 0) {
+      return { max: null, shouldHighlight: false };
+    }
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    return {
+      max,
+      shouldHighlight: !areLocomoMetricValuesEqual(max, min),
+    };
+  });
+}
+
+function renderLocomoVariantComparisonSection(
+  title: string,
+  variants: LocomoNativeRetrievalVariantSummary[],
+): string {
+  if (!variants.length) {
+    return '';
+  }
+  const highlightStats = computeLocomoVariantMetricHighlightStats(variants);
+  const bestHitRate =
+    highlightStats[0]?.max != null && Number.isFinite(highlightStats[0].max)
+      ? highlightStats[0].max
+      : null;
+  const header = ['Variant', 'HitRate', 'F1', 'C1', 'C2', 'C3', 'C4', 'C5'];
+  const metricColumns = variants.map((variant) => [
+    variant.overallScore,
+    variant.contextF1 ?? null,
+    variant.categories['1']?.meanScore ?? null,
+    variant.categories['2']?.meanScore ?? null,
+    variant.categories['3']?.meanScore ?? null,
+    variant.categories['4']?.meanScore ?? null,
+    variant.categories['5']?.meanScore ?? null,
+  ]);
+  const metricHighlightMatrix = metricColumns.map((metrics) =>
+    metrics.map(
+      (metric, index) =>
+        highlightStats[index]?.shouldHighlight === true &&
+        metric != null &&
+        Number.isFinite(metric) &&
+        areLocomoMetricValuesEqual(metric, highlightStats[index]?.max ?? NaN),
+    ),
+  );
+  const metricStrings = metricColumns.map((metrics, rowIndex) =>
+    metrics.map((metric, index) => {
+      const formatted = formatLocomoMatrixMetric(metric);
+      return metricHighlightMatrix[rowIndex]?.[index]
+        ? `${formatted}*`
+        : formatted;
+    }),
+  );
+  const metricWidths = header
+    .slice(1)
+    .map((entry, index) =>
+      Math.max(
+        visibleLength(entry),
+        ...metricStrings.map((row) => visibleLength(row[index] || '')),
+      ),
+    );
+  const separator = '  ';
+  const totalMetricWidth =
+    metricWidths.reduce((total, width) => total + width, 0) +
+    separator.length * metricWidths.length;
+  const maxContentWidth = Math.max(60, resolveEvalRenderColumns() - 6);
+  const maxVariantWidth = Math.max(
+    visibleLength(header[0]),
+    ...variants.map((variant) => visibleLength(variant.label)),
+  );
+  const variantWidth = Math.max(
+    visibleLength(header[0]),
+    Math.min(maxVariantWidth, maxContentWidth - totalMetricWidth),
+  );
+  const rows = variants.map((variant, rowIndex) => {
+    const metrics = metricColumns[rowIndex];
+    const isBestOverall =
+      bestHitRate != null &&
+      Number.isFinite(variant.overallScore) &&
+      areLocomoMetricValuesEqual(variant.overallScore, bestHitRate);
+    const variantLabel = padAnsiEnd(
+      truncateTextEnd(variant.label, variantWidth),
+      variantWidth,
+    );
+    const metricCells = metrics.map((_metric, index) => {
+      const formatted = padAnsiEnd(
+        metricStrings[rowIndex][index] || '-',
+        metricWidths[index],
+      );
+      const highlight = metricHighlightMatrix[rowIndex]?.[index] === true;
+      return styleLocomoMatrixCell(formatted, {
+        highlight,
+        metric: true,
+      });
+    });
+    return [
+      styleLocomoMatrixCell(variantLabel, { highlight: isBestOverall }),
+      ...metricCells,
+    ];
+  });
+  return renderSectionCard(title, [
+    [
+      padAnsiEnd(header[0], variantWidth),
+      ...header
+        .slice(1)
+        .map((entry, index) => padAnsiEnd(entry, metricWidths[index])),
+    ].join(separator),
+    [variantWidth, ...metricWidths]
+      .map((width) => '-'.repeat(width))
+      .join(separator),
+    ...rows.map((row) => row.join(separator)),
+  ]);
 }
 
 function describeManagedSuiteRunLifecycle(
@@ -1559,6 +2592,34 @@ function formatProgressBar(completed: number, total: number): string {
   return `[${'#'.repeat(filled)}${'-'.repeat(
     EVAL_PROGRESS_BAR_WIDTH - filled,
   )}]`;
+}
+
+function formatProgressValue(
+  completed: number | null | undefined,
+  total: number | null | undefined,
+): string | null {
+  if (
+    completed == null ||
+    total == null ||
+    !Number.isFinite(completed) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return null;
+  }
+  const normalizedCompleted = clampProgress(completed, total);
+  const normalizedTotal = Math.max(1, Math.floor(total));
+  const percent = Math.round((normalizedCompleted / normalizedTotal) * 100);
+  return `${formatProgressBar(normalizedCompleted, normalizedTotal)} ${normalizedCompleted}/${normalizedTotal} (${percent}%)`;
+}
+
+function formatLocomoEvaluationProgressValue(
+  progress: LocomoNativeProgress,
+): string | null {
+  return formatProgressValue(
+    progress.completedQuestionCount,
+    progress.questionCount,
+  );
 }
 
 function formatProgressMessage(params: {
@@ -2300,6 +3361,14 @@ function renderManagedSuiteStatus(
     suite.id === 'terminal-bench-2.0' && latestRun
       ? readTerminalBenchNativeSummary(latestRun)
       : null;
+  const latestLocomoSummary =
+    suite.id === 'locomo' && latestRun
+      ? readLocomoNativeSummary(latestRun)
+      : null;
+  const latestLocomoProgress =
+    suite.id === 'locomo' && latestRun
+      ? readLocomoNativeProgress(latestRun)
+      : null;
   const setupFailure =
     !installed && latestSetup ? describeRunFailureReason(latestSetup) : null;
 
@@ -2307,6 +3376,11 @@ function renderManagedSuiteStatus(
     `Install dir: ${installDir}`,
     `Installed: ${installed ? 'yes' : 'no'}`,
     `Marker: ${fs.existsSync(markerPath) ? markerPath : 'missing'}`,
+    ...(suite.id === 'locomo'
+      ? [
+          `Dataset: ${fs.existsSync(getLocomoDatasetPath(dataDir)) ? getLocomoDatasetPath(dataDir) : 'missing'}`,
+        ]
+      : []),
     ...(executablePath
       ? [
           `Executable: ${fs.existsSync(executablePath) ? executablePath : 'missing'}`,
@@ -2326,6 +3400,203 @@ function renderManagedSuiteStatus(
           `Command: ${latestRun.displayCommand || latestRun.command}`,
           `Stdout: ${latestRun.stdoutPath}`,
           `Stderr: ${latestRun.stderrPath}`,
+          ...(latestLocomoSummary
+            ? [
+                `Mode: ${latestLocomoSummary.mode}`,
+                `Samples: ${latestLocomoSummary.sampleCount ?? 'unknown'}`,
+                `Questions: ${latestLocomoSummary.questionCount ?? 'unknown'}`,
+                `Budget: ${latestLocomoSummary.budgetTokens ?? 'unknown'}`,
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                latestLocomoSummary.retrievalPolicy
+                  ? [
+                      `Recall policy: ${formatLocomoRetrievalPolicy(latestLocomoSummary.retrievalPolicy) || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                !latestLocomoSummary.matrix
+                  ? [
+                      `Query prep: ${formatLocomoRetrievalQueryMode(latestLocomoSummary.retrievalQueryMode) || 'unknown'}`,
+                      `Backend: ${formatLocomoRetrievalBackend(latestLocomoSummary.retrievalBackend) || 'unknown'}`,
+                      `Rerank: ${formatLocomoRetrievalRerank(latestLocomoSummary.retrievalRerank) || 'unknown'}`,
+                      `Tokenizer: ${formatLocomoRetrievalTokenizer(latestLocomoSummary.retrievalTokenizer) || 'unknown'}`,
+                      `Embedding: ${formatLocomoRetrievalEmbeddingProvider(latestLocomoSummary.retrievalEmbeddingProvider) || 'unknown'}`,
+                      `Embedding model: ${latestLocomoSummary.retrievalEmbeddingModel || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.mode === 'retrieval' &&
+                latestLocomoSummary.matrix &&
+                latestLocomoSummary.retrievalEmbeddingModel
+                  ? [
+                      `Embedding model: ${latestLocomoSummary.retrievalEmbeddingModel}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.matrix
+                  ? [
+                      `Sweep: ${formatLocomoRetrievalSweep(latestLocomoSummary.matrixSweep) || 'unknown'}`,
+                      `Variants: ${latestLocomoSummary.variants.length}/${latestLocomoSummary.variantCount ?? latestLocomoSummary.variants.length}`,
+                      ...(latestLocomoSummary.bestVariantLabel
+                        ? [
+                            `Best variant: ${latestLocomoSummary.bestVariantLabel}`,
+                          ]
+                        : []),
+                    ]
+                  : []),
+                `${
+                  latestLocomoSummary.mode === 'retrieval'
+                    ? 'Hit rate'
+                    : 'Overall score'
+                }: ${
+                  latestLocomoSummary.overallScore != null
+                    ? latestLocomoSummary.overallScore.toFixed(3)
+                    : 'unknown'
+                }`,
+                ...(latestLocomoSummary.mode === 'retrieval'
+                  ? [
+                      `Context F1: ${
+                        latestLocomoSummary.contextF1 != null
+                          ? latestLocomoSummary.contextF1.toFixed(3)
+                          : 'unknown'
+                      }`,
+                    ]
+                  : []),
+                ...(!latestLocomoSummary.matrix
+                  ? Object.entries(latestLocomoSummary.categories)
+                      .sort(([left], [right]) => Number(left) - Number(right))
+                      .map(
+                        ([category, value]) =>
+                          `cat${category}: ${
+                            formatLocomoCategoryValue(
+                              category,
+                              value,
+                              latestLocomoSummary.mode,
+                            ) || 'n/a'
+                          }`,
+                      )
+                  : []),
+                ...(latestLocomoSummary.tokenUsage
+                  ? [
+                      `Tokens: ${formatLocomoTokenUsage(
+                        latestLocomoSummary.tokenUsage,
+                      )}`,
+                    ]
+                  : []),
+                ...(latestLocomoSummary.predictionsPath
+                  ? [`Predictions: ${latestLocomoSummary.predictionsPath}`]
+                  : []),
+              ]
+            : []),
+          ...(!latestLocomoSummary && latestLocomoProgress
+            ? [
+                `Mode: ${latestLocomoProgress.mode}`,
+                `Samples: ${latestLocomoProgress.sampleCount ?? 'unknown'}`,
+                `Completed samples: ${
+                  latestLocomoProgress.completedSampleCount ?? 'unknown'
+                }/${latestLocomoProgress.sampleCount ?? '?'}`,
+                `Questions: ${
+                  latestLocomoProgress.completedQuestionCount ?? 'unknown'
+                }/${latestLocomoProgress.questionCount ?? '?'}`,
+                `Budget: ${latestLocomoProgress.budgetTokens ?? 'unknown'}`,
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                latestLocomoProgress.retrievalPolicy
+                  ? [
+                      `Recall policy: ${formatLocomoRetrievalPolicy(latestLocomoProgress.retrievalPolicy) || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                !latestLocomoProgress.matrix
+                  ? [
+                      `Query prep: ${formatLocomoRetrievalQueryMode(latestLocomoProgress.retrievalQueryMode) || 'unknown'}`,
+                      `Backend: ${formatLocomoRetrievalBackend(latestLocomoProgress.retrievalBackend) || 'unknown'}`,
+                      `Rerank: ${formatLocomoRetrievalRerank(latestLocomoProgress.retrievalRerank) || 'unknown'}`,
+                      `Tokenizer: ${formatLocomoRetrievalTokenizer(latestLocomoProgress.retrievalTokenizer) || 'unknown'}`,
+                      `Embedding: ${formatLocomoRetrievalEmbeddingProvider(latestLocomoProgress.retrievalEmbeddingProvider) || 'unknown'}`,
+                      `Embedding model: ${latestLocomoProgress.retrievalEmbeddingModel || 'unknown'}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.mode === 'retrieval' &&
+                latestLocomoProgress.matrix &&
+                latestLocomoProgress.retrievalEmbeddingModel
+                  ? [
+                      `Embedding model: ${latestLocomoProgress.retrievalEmbeddingModel}`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.matrix
+                  ? [
+                      `Sweep: ${formatLocomoRetrievalSweep(latestLocomoProgress.matrixSweep) || 'unknown'}`,
+                      `Variants: ${latestLocomoProgress.completedVariantCount ?? latestLocomoProgress.variants.length}/${latestLocomoProgress.variantCount ?? '?'}`,
+                      ...(latestLocomoProgress.currentVariant
+                        ? [
+                            `Current variant: ${latestLocomoProgress.currentVariant.label}`,
+                          ]
+                        : []),
+                    ]
+                  : []),
+                `${
+                  latestLocomoProgress.mode === 'retrieval'
+                    ? 'Hit rate so far'
+                    : 'Score so far'
+                }: ${
+                  latestLocomoProgress.overallScore != null
+                    ? latestLocomoProgress.overallScore.toFixed(3)
+                    : 'unknown'
+                }`,
+                ...(latestLocomoProgress.mode === 'retrieval'
+                  ? [
+                      ...(latestLocomoProgress.currentPhase
+                        ? [
+                            `Phase: ${formatLocomoProgressPhase(latestLocomoProgress.currentPhase) || 'unknown'}`,
+                          ]
+                        : []),
+                      `Context F1 so far: ${
+                        latestLocomoProgress.contextF1 != null
+                          ? latestLocomoProgress.contextF1.toFixed(3)
+                          : 'unknown'
+                      }`,
+                    ]
+                  : []),
+                ...(latestLocomoProgress.currentSampleId
+                  ? [
+                      `Current sample: ${latestLocomoProgress.currentSampleId}`,
+                      ...(latestLocomoProgress.currentSampleEmbeddedTurnCount !=
+                        null &&
+                      latestLocomoProgress.currentSampleTurnCount != null
+                        ? [
+                            `Embedding turns: ${latestLocomoProgress.currentSampleEmbeddedTurnCount}/${latestLocomoProgress.currentSampleTurnCount}`,
+                          ]
+                        : []),
+                      ...(latestLocomoProgress.currentSampleQuestionCount !=
+                        null &&
+                      latestLocomoProgress.currentSampleQuestionTotal != null
+                        ? [
+                            `Current sample questions: ${latestLocomoProgress.currentSampleQuestionCount}/${latestLocomoProgress.currentSampleQuestionTotal}`,
+                          ]
+                        : []),
+                    ]
+                  : []),
+                ...(!latestLocomoProgress.matrix
+                  ? Object.entries(latestLocomoProgress.categories)
+                      .sort(([left], [right]) => Number(left) - Number(right))
+                      .map(
+                        ([category, value]) =>
+                          `cat${category}: ${
+                            formatLocomoCategoryValue(
+                              category,
+                              value,
+                              latestLocomoProgress.mode,
+                            ) || 'n/a'
+                          }`,
+                      )
+                  : []),
+                ...(latestLocomoProgress.tokenUsage
+                  ? [
+                      `Tokens: ${formatLocomoTokenUsage(
+                        latestLocomoProgress.tokenUsage,
+                      )}`,
+                    ]
+                  : []),
+                `Progress JSON: ${latestLocomoProgress.progressPath}`,
+              ]
+            : []),
           ...(latestTerminalBenchSummary
             ? [
                 `Score: ${latestTerminalBenchSummary.mean.toFixed(3)}`,
@@ -2368,6 +3639,18 @@ function renderManagedSuiteResults(
   const terminalBenchProgress =
     suite.id === 'terminal-bench-2.0' && latestJob.operation === 'run'
       ? readTerminalBenchNativeProgress(latestJob)
+      : null;
+  const locomoRunActive =
+    suite.id === 'locomo' &&
+    latestJob.operation === 'run' &&
+    isRunMetaActive(latestJob);
+  const locomoSummary =
+    suite.id === 'locomo' && latestJob.operation === 'run' && !locomoRunActive
+      ? readLocomoNativeSummary(latestJob)
+      : null;
+  const locomoProgress =
+    suite.id === 'locomo' && latestJob.operation === 'run'
+      ? readLocomoNativeProgress(latestJob)
       : null;
   if (suite.id === 'terminal-bench-2.0') {
     const overviewSection = renderKeyValueSection('Overview', [
@@ -2428,6 +3711,221 @@ function renderManagedSuiteResults(
     return infoResult(
       `${suite.title} Results`,
       joinSections([overviewSection, outcomeSection, runSection, pathsSection]),
+    );
+  }
+  if (suite.id === 'locomo') {
+    const locomoData = locomoSummary || locomoProgress;
+    const locomoVariantRows =
+      locomoData?.mode === 'retrieval' && locomoData.matrix
+        ? [
+            ...locomoData.variants,
+            ...(!locomoSummary && locomoProgress?.currentVariant
+              ? [
+                  {
+                    ...locomoProgress.currentVariant,
+                    label: `${locomoProgress.currentVariant.label} (running)`,
+                  },
+                ]
+              : []),
+          ]
+        : [];
+    const overviewSection = renderKeyValueSection('Overview', [
+      [
+        'Evaluated model',
+        locomoData?.mode !== 'retrieval'
+          ? latestJob.baseModel || latestJob.model
+          : null,
+      ],
+      ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+      ['Status', describeManagedSuiteRunLifecycle(latestJob)],
+      ['Mode', locomoData?.mode || null],
+      ['Dataset', locomoData?.dataset || null],
+      ['Samples', locomoData?.sampleCount ?? null],
+      [
+        'Variants',
+        locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? `${locomoSummary ? locomoData.variants.length : (locomoProgress?.completedVariantCount ?? locomoData.variants.length)}/${locomoData.variantCount ?? locomoData.variants.length}`
+          : null,
+      ],
+      [
+        'Sweep',
+        locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? formatLocomoRetrievalSweep(locomoData.matrixSweep)
+          : null,
+      ],
+      [
+        'Recall policy',
+        locomoData?.mode === 'retrieval'
+          ? formatLocomoRetrievalPolicy(locomoData.retrievalPolicy)
+          : null,
+      ],
+      [
+        'Query prep',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalQueryMode(locomoData.retrievalQueryMode)
+          : null,
+      ],
+      [
+        'Backend',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalBackend(locomoData.retrievalBackend)
+          : null,
+      ],
+      [
+        'Rerank',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalRerank(locomoData.retrievalRerank)
+          : null,
+      ],
+      [
+        'Tokenizer',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalTokenizer(locomoData.retrievalTokenizer)
+          : null,
+      ],
+      [
+        'Embedding',
+        locomoData?.mode === 'retrieval' && !locomoData.matrix
+          ? formatLocomoRetrievalEmbeddingProvider(
+              locomoData.retrievalEmbeddingProvider,
+            )
+          : null,
+      ],
+      [
+        'Embedding model',
+        locomoData?.mode === 'retrieval'
+          ? locomoData.retrievalEmbeddingModel
+          : null,
+      ],
+      [
+        'Best variant',
+        locomoSummary && locomoData?.mode === 'retrieval' && locomoData.matrix
+          ? locomoSummary.bestVariantLabel
+          : null,
+      ],
+      [
+        'Questions',
+        locomoSummary
+          ? locomoSummary.questionCount
+          : locomoProgress
+            ? `${locomoProgress.completedQuestionCount ?? '?'}/${locomoProgress.questionCount ?? '?'}`
+            : null,
+      ],
+      [
+        'Completed samples',
+        !locomoSummary && locomoProgress
+          ? `${locomoProgress.completedSampleCount ?? '?'}/${locomoProgress.sampleCount ?? '?'}`
+          : null,
+      ],
+      ['Budget', locomoData?.budgetTokens ?? null],
+      [
+        locomoSummary
+          ? locomoData?.mode === 'retrieval'
+            ? locomoData.matrix
+              ? 'Best hit rate'
+              : 'Hit rate'
+            : 'Overall score'
+          : locomoData?.mode === 'retrieval'
+            ? locomoData.matrix
+              ? 'Current hit rate'
+              : 'Hit rate so far'
+            : 'Score so far',
+        locomoData?.overallScore ?? null,
+      ],
+      [
+        locomoSummary
+          ? locomoData?.matrix
+            ? 'Best context F1'
+            : 'Context F1'
+          : locomoData?.matrix
+            ? 'Current context F1'
+            : 'Context F1 so far',
+        locomoData?.mode === 'retrieval'
+          ? (locomoData?.contextF1 ?? null)
+          : null,
+      ],
+    ]);
+    const progressSection =
+      !locomoSummary && locomoProgress
+        ? renderKeyValueSection('Progress', [
+            ['Phase', formatLocomoProgressPhase(locomoProgress.currentPhase)],
+            ['Current sample', locomoProgress.currentSampleId],
+            [
+              'Embedding',
+              formatProgressValue(
+                locomoProgress.currentSampleEmbeddedTurnCount,
+                locomoProgress.currentSampleTurnCount,
+              ),
+            ],
+            ['Evaluation', formatLocomoEvaluationProgressValue(locomoProgress)],
+            [
+              'Variants',
+              locomoProgress.mode === 'retrieval' && locomoProgress.matrix
+                ? formatProgressValue(
+                    locomoProgress.completedVariantCount ??
+                      locomoProgress.variants.length,
+                    locomoProgress.variantCount,
+                  )
+                : null,
+            ],
+            [
+              'Current variant',
+              locomoProgress.mode === 'retrieval' && locomoProgress.matrix
+                ? locomoProgress.currentVariant?.label
+                : null,
+            ],
+          ])
+        : null;
+    const categorySection =
+      locomoData?.mode === 'retrieval' && locomoData.matrix
+        ? renderLocomoVariantComparisonSection(
+            locomoSummary ? 'Variants' : 'Variants So Far',
+            locomoVariantRows,
+          )
+        : renderKeyValueSection(
+            locomoSummary ? 'Categories' : 'Categories So Far',
+            Object.entries(locomoData?.categories || {})
+              .sort(([left], [right]) => Number(left) - Number(right))
+              .map(
+                ([category, value]) =>
+                  [
+                    `cat${category}`,
+                    formatLocomoCategoryValue(
+                      category,
+                      value,
+                      locomoData?.mode || 'qa',
+                    ),
+                  ] as const,
+              ),
+          );
+    const usageSection = renderKeyValueSection('Usage', [
+      ['Tokens', formatLocomoTokenUsage(locomoData?.tokenUsage)],
+    ]);
+    const runSection = renderKeyValueSection('Run', [
+      ['Run ID', latestJob.runId],
+      ['Command', latestJob.displayCommand || latestJob.command],
+    ]);
+    const pathsSection = renderKeyValueSection('Paths', [
+      ['Job dir', locomoData?.jobDir || null],
+      [
+        'Progress JSON',
+        !locomoSummary && locomoProgress ? locomoProgress.progressPath : null,
+      ],
+      ['Predictions JSON', locomoData?.predictionsPath || null],
+      ['Result JSON', locomoData?.resultPath || null],
+      ['Stdout', latestJob.stdoutPath],
+      ['Stderr', latestJob.stderrPath],
+    ]);
+    return infoResult(
+      `${suite.title} Results`,
+      joinSections([
+        overviewSection,
+        progressSection,
+        categorySection,
+        usageSection,
+        runSection,
+        pathsSection,
+      ]),
     );
   }
   return infoResult(
@@ -2574,11 +4072,21 @@ async function handleManagedSuiteRun(params: {
   effectiveAgentId?: string;
   channelId?: string;
   args: string[];
+  workspaceModeExplicit: boolean;
 }): Promise<GatewayCommandResult> {
   if (!isManagedSuiteInstalled(params.suite, params.dataDir)) {
     return errorResult(
       `${params.suite.title} Setup Required`,
       `Run \`/eval ${params.suite.id} setup\` first.`,
+    );
+  }
+  if (
+    params.suite.id === 'locomo' &&
+    params.env.profile.workspaceMode === 'fresh-agent'
+  ) {
+    return errorResult(
+      `${params.suite.title} Run`,
+      'Native LOCOMO does not support `--fresh-agent`. It already uses one fresh agent per conversation by default; use `--current-agent` to reuse the current agent workspace.',
     );
   }
   if (
@@ -2597,6 +4105,7 @@ async function handleManagedSuiteRun(params: {
     params.env,
     params.effectiveAgentId || 'main',
     params.args,
+    params.workspaceModeExplicit,
   );
   if (!prepared) {
     return errorResult(
@@ -2684,6 +4193,7 @@ async function handleManagedSuiteCommand(params: {
   channelId?: string;
   subcommand?: string;
   args?: string[];
+  workspaceModeExplicit: boolean;
 }): Promise<GatewayCommandResult> {
   const subcommand = String(params.subcommand || '')
     .trim()
@@ -2701,6 +4211,7 @@ async function handleManagedSuiteCommand(params: {
         `${params.suite.title} is not implemented yet.`,
         '',
         'Implemented suites today:',
+        '- `/eval locomo ...`',
         '- `/eval terminal-bench-2.0 ...`',
         '- `/eval tau2 ...`',
       ].join('\n'),
@@ -2723,6 +4234,7 @@ async function handleManagedSuiteCommand(params: {
         effectiveAgentId: params.effectiveAgentId,
         channelId: params.channelId,
         args: params.args || [],
+        workspaceModeExplicit: params.workspaceModeExplicit,
       });
     case 'status':
       return infoResult(
@@ -2848,6 +4360,13 @@ function parseEvalProfileFlag(
   }
 }
 
+function isWorkspaceModeFlag(arg: string): boolean {
+  const normalized = String(arg || '')
+    .trim()
+    .toLowerCase();
+  return normalized === '--current-agent' || normalized === '--fresh-agent';
+}
+
 function finalizeEvalProfile(profile: EvalProfile): EvalProfile {
   if (profile.workspaceMode === 'fresh-agent') {
     delete profile.agentId;
@@ -2860,13 +4379,9 @@ function finalizeEvalProfile(profile: EvalProfile): EvalProfile {
 function parseEvalAction(
   args: string[],
   effectiveAgentId?: string,
-): {
-  action: string;
-  profile: EvalProfile;
-  commandArgs: string[];
-  error?: string;
-} {
+): ParsedEvalAction {
   const profile = buildDefaultEvalProfile(effectiveAgentId);
+  let workspaceModeExplicit = false;
   if (
     args.length === 1 &&
     ['help', '--help', '-h'].includes(
@@ -2879,13 +4394,23 @@ function parseEvalAction(
       action: 'help',
       profile: finalizeEvalProfile(profile),
       commandArgs: [],
+      workspaceModeExplicit,
     };
   }
   let index = 0;
 
   while (index < args.length && args[index]?.startsWith('--')) {
     const error = parseEvalProfileFlag(args[index], profile);
-    if (error) return { action: '', profile, commandArgs: [], error };
+    if (error) {
+      return {
+        action: '',
+        profile,
+        commandArgs: [],
+        workspaceModeExplicit,
+        error,
+      };
+    }
+    workspaceModeExplicit ||= isWorkspaceModeFlag(args[index] || '');
     index += 1;
   }
 
@@ -2897,6 +4422,7 @@ function parseEvalAction(
       action: '',
       profile: finalizeEvalProfile(profile),
       commandArgs: [],
+      workspaceModeExplicit,
     };
   }
   const rawAction = String(args[index] || '').trim();
@@ -2907,6 +4433,7 @@ function parseEvalAction(
       action: '',
       profile: finalizeEvalProfile(profile),
       commandArgs: [],
+      workspaceModeExplicit,
       error:
         'Use `/eval <shell command...>` instead of `/eval run <shell command...>`.',
     };
@@ -2919,6 +4446,7 @@ function parseEvalAction(
           action: 'run',
           profile: finalizeEvalProfile(profile),
           commandArgs: [rawAction, ...args.slice(index)],
+          workspaceModeExplicit,
         };
       }
       const error = parseEvalProfileFlag(args[index], profile);
@@ -2927,8 +4455,10 @@ function parseEvalAction(
           action: 'run',
           profile: finalizeEvalProfile(profile),
           commandArgs: [rawAction, ...args.slice(index)],
+          workspaceModeExplicit,
         };
       }
+      workspaceModeExplicit ||= isWorkspaceModeFlag(args[index] || '');
       index += 1;
     }
 
@@ -2936,6 +4466,7 @@ function parseEvalAction(
       action,
       profile: finalizeEvalProfile(profile),
       commandArgs: [],
+      workspaceModeExplicit,
     };
   }
 
@@ -2943,6 +4474,7 @@ function parseEvalAction(
     action: 'run',
     profile: finalizeEvalProfile(profile),
     commandArgs: [rawAction, ...args.slice(index)],
+    workspaceModeExplicit,
   };
 }
 
@@ -3007,6 +4539,7 @@ export async function handleEvalCommand(
           channelId: params.channelId,
           subcommand: managedSubcommand,
           args: parsed.commandArgs.slice(2),
+          workspaceModeExplicit: parsed.workspaceModeExplicit,
         });
       }
     }
@@ -3069,5 +4602,6 @@ export async function handleEvalCommand(
     effectiveAgentId: params.effectiveAgentId,
     channelId: params.channelId,
     subcommand: 'help',
+    workspaceModeExplicit: parsed.workspaceModeExplicit,
   });
 }

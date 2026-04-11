@@ -51,6 +51,16 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['h'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
+  expect(mapTuiSlashCommandToGatewayArgs(['memory'])).toEqual([
+    'memory',
+    'inspect',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['memory', 'inspect', 'session-1']),
+  ).toEqual(['memory', 'inspect', 'session-1']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['memory', 'query', 'deploy', 'animation']),
+  ).toEqual(['memory', 'query', 'deploy', 'animation']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['auth', 'status', 'hybridai']),
   ).toEqual(['auth', 'status', 'hybridai']);
@@ -145,6 +155,17 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'runs', 'demo-skill']),
   ).toEqual(['skill', 'runs', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'install', 'demo-skill']),
+  ).toEqual(['skill', 'install', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'install',
+      'pdf',
+      'brew-poppler',
+    ]),
+  ).toEqual(['skill', 'install', 'pdf', 'brew-poppler']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
   ).toEqual(['skill', 'learn', 'demo-skill']);

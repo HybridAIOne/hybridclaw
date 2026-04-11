@@ -5,6 +5,8 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const sendTelegramMediaToChat = vi.fn(async () => {});
+  const sendToTelegramChat = vi.fn(async () => {});
   const hasActiveMSTeamsSession = vi.fn(
     (sessionId: string) => sessionId === 'teams:dm:user-aad-id',
   );
@@ -106,6 +108,10 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
   }));
+  vi.doMock('../src/channels/telegram/runtime.js', () => ({
+    sendTelegramMediaToChat,
+    sendToTelegramChat,
+  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     hasActiveMSTeamsSession,
     sendToActiveMSTeamsSession,
@@ -136,6 +142,8 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    sendTelegramMediaToChat,
+    sendToTelegramChat,
     getRecentMessages,
     getWhatsAppAuthStatus,
     sendToWhatsAppChat,
@@ -209,6 +217,70 @@ test('send action normalizes WhatsApp phone numbers before delivery', async () =
     action: 'send',
     channelId: '491234567890@s.whatsapp.net',
     transport: 'whatsapp',
+  });
+});
+
+test('send action routes Telegram targets through Telegram transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'telegram:-1001234567890:topic:42',
+    content: 'hello telegram',
+  });
+
+  expect(state.sendToTelegramChat).toHaveBeenCalledWith(
+    'telegram:-1001234567890:topic:42',
+    'hello telegram',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'telegram:-1001234567890:topic:42',
+    transport: 'telegram',
+  });
+});
+
+test('send action rejects telegram-prefixed usernames for Telegram sends', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'telegram:@benkoehler',
+      content: 'hello telegram username',
+    }),
+  ).rejects.toThrow(
+    'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
+  );
+  expect(state.sendToTelegramChat).not.toHaveBeenCalled();
+  expect(state.sendToEmail).not.toHaveBeenCalled();
+});
+
+test('send action routes Telegram uploads through Telegram media delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'wa:test',
+    channelId: 'telegram:123456789',
+    content: 'caption',
+    filePath: 'notes/image.png',
+  });
+
+  expect(state.sendTelegramMediaToChat).toHaveBeenCalledWith({
+    target: 'telegram:123456789',
+    filePath: '/tmp/hybridclaw-agent-workspace/notes/image.png',
+    caption: 'caption',
+  });
+  expect(state.sendToTelegramChat).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'telegram:123456789',
+    transport: 'telegram',
+    attachmentCount: 1,
   });
 });
 

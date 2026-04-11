@@ -4542,7 +4542,7 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 
-  it('uses a reachable container-mode gateway for tui preflight even when local config is host', async () => {
+  it('keeps host-mode tui preflight on the local runtime config even when a reachable gateway reports container mode', async () => {
     const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
       await importFreshCli({
         gatewayReachable: true,
@@ -4552,8 +4552,8 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['tui']);
 
-    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
-    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 

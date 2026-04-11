@@ -1,5 +1,5 @@
 export function ChannelLogo(props: {
-  kind: 'discord' | 'whatsapp' | 'email' | 'msteams' | 'imessage';
+  kind: 'discord' | 'telegram' | 'whatsapp' | 'email' | 'msteams' | 'imessage';
 }) {
   switch (props.kind) {
     case 'discord':
@@ -28,6 +28,18 @@ export function ChannelLogo(props: {
             <path
               fill="#25D366"
               d="M13.2 12.3c-.2 0-.4.1-.5.4-.3.4-.7 1-.7 1.8s.7 1.7.8 1.8c.1.1 1.5 2.3 3.6 3.2 1.8.8 2.2.7 2.6.6.4-.1 1.2-.5 1.4-1 .1-.5.1-.8.1-.9 0-.1-.2-.2-.5-.3l-1.4-.7c-.2-.1-.4-.1-.5.1l-.6.8c-.1.1-.3.2-.5.1-.3-.1-1-.4-1.9-1.2-.8-.7-1.2-1.5-1.4-1.7-.1-.3 0-.4.1-.5l.4-.5c.1-.1.1-.3.2-.4s0-.3 0-.4l-.6-1.5c-.1-.3-.3-.4-.5-.4Z"
+            />
+          </svg>
+        </span>
+      );
+    case 'telegram':
+      return (
+        <span className="channel-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <circle cx="16" cy="16" r="13" fill="#27A7E7" />
+            <path
+              fill="#FFFFFF"
+              d="m23.4 10.2-2.3 11c-.2 1-.8 1.3-1.6.8l-3.5-2.6-1.7 1.6c-.2.2-.4.4-.7.4l.3-3.7 6.8-6.1c.3-.3-.1-.4-.4-.2l-8.4 5.3-3.6-1.1c-.8-.2-.8-.8.2-1.2l14-5.4c.7-.3 1.2.2 1 .9Z"
             />
           </svg>
         </span>

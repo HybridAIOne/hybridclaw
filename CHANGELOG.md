@@ -2,6 +2,30 @@
 
 ## [Coming up]
 
+### Added
+
+- **Telegram Bot API transport**: Added a built-in Telegram channel with
+  BotFather token setup, DM/group policy controls, admin Channels support,
+  managed `TELEGRAM_BOT_TOKEN` storage, inbound media handling, and canonical
+  outbound `telegram:<chatId>` send targets.
+- **Built-in memory inspection command**: Added local `/memory inspect
+  [sessionId]`, `/memory query <query>`, and `hybridclaw gateway memory inspect
+  [sessionId]` diagnostics to show `MEMORY.md`, today's daily note, recent raw
+  history, `session_summary`, recent semantic-memory rows, canonical
+  cross-session recall state, and the exact prompt-memory block the current
+  session would attach for a query.
+
+### Changed
+
+- **Shared inbound media cache**: Email, Telegram, WhatsApp, and Microsoft
+  Teams now stage locally downloaded inbound media under the shared
+  `uploaded-media-cache` runtime directory instead of per-channel temp
+  folders, aligning cleanup and runtime-safe media paths across those
+  transports.
+- **Telegram config reload behavior**: Running gateways now restart the
+  Telegram integration automatically when `telegram.*` config changes land, so
+  most setup edits apply within a few seconds without a full gateway restart.
+
 ## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
 
 ### Added

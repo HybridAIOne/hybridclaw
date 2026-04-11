@@ -18,8 +18,9 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 ## Latest Highlights
 
 - The admin console's Channels page centralizes transport status and
-  browser-based setup across Discord, WhatsApp, email, Microsoft Teams, and
-  iMessage, including managed secrets and live WhatsApp pairing QR display.
+  browser-based setup across Discord, Telegram, WhatsApp, email, Microsoft
+  Teams, and iMessage, including managed secrets and live WhatsApp pairing QR
+  display.
 - The gateway exposes a loopback OpenAI-compatible API at `/v1/models` and
   `/v1/chat/completions` for local eval harnesses and OpenAI-compatible tools.
 - Built-in email delivery and the repo-shipped `brevo-email` plugin can

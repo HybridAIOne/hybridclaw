@@ -4,16 +4,13 @@ import {
   APPROVE_TEXT_CHANNEL_USAGE,
   type ApprovalScopeMode,
 } from '../approval-commands.js';
-import {
-  buildResponseText,
-  formatError,
-  formatInfo,
-} from '../channels/discord/delivery.js';
+import { buildResponseText } from '../channels/discord/delivery.js';
 import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { formatError, formatInfo } from '../utils/text-format.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,

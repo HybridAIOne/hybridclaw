@@ -32,11 +32,19 @@ const NOOP_WA_LOGGER = {
   error() {},
 };
 
+const sharedMediaDataDirs: string[] = [];
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../src/channels/whatsapp/phone.ts');
   vi.doUnmock('@whiskeysockets/baileys');
+  vi.doUnmock('../src/config/config.js');
   vi.resetModules();
+  while (sharedMediaDataDirs.length > 0) {
+    const dataDir = sharedMediaDataDirs.pop();
+    if (!dataDir) continue;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 describe('whatsapp inbound policy filtering', () => {
@@ -180,6 +188,10 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('keeps media-only inbound messages instead of dropping them on the empty-content guard', async () => {
+    const dataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-shared-inbound-'),
+    );
+    sharedMediaDataDirs.push(dataDir);
     vi.doMock('@whiskeysockets/baileys', async () => {
       const actual = await vi.importActual<
         typeof import('@whiskeysockets/baileys')
@@ -191,6 +203,14 @@ describe('whatsapp inbound policy filtering', () => {
         normalizeMessageContent: vi.fn((message) => message),
       };
     });
+    vi.doMock('../src/config/config.js', () => ({
+      get CONTAINER_SANDBOX_MODE() {
+        return 'host';
+      },
+      get DATA_DIR() {
+        return dataDir;
+      },
+    }));
 
     const { processInboundWhatsAppMessage: processInbound } = await import(
       '../src/channels/whatsapp/inbound.ts'
@@ -224,9 +244,12 @@ describe('whatsapp inbound policy filtering', () => {
     expect(result).not.toBeNull();
     expect(result?.media).toHaveLength(1);
     expect(result?.content).toBe('<media:image>');
+    expect(result?.media[0]?.path || '').toContain('uploaded-media-cache');
+    expect(fs.existsSync(result?.media[0]?.path || '')).toBe(true);
 
     if (result) {
       await cleanupWhatsAppInboundMedia(result.media);
+      expect(fs.existsSync(result.media[0]?.path || '')).toBe(true);
     }
   });
 
