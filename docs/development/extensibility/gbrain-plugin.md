@@ -583,6 +583,16 @@ For the upstream verification runbook, see
 - Prefer `query` for natural-language prompts. It is the default and lets
   GBrain combine vector search, keyword search, and multi-query expansion.
 - Prefer `search` when you are debugging exact-name hits or page-path probes.
+- On a fresh local setup, initialize GBrain before testing the plugin:
+
+  ```bash
+  mkdir -p ~/.gbrain
+  gbrain init
+  ```
+
+  This creates the local PGLite brain at `~/.gbrain/brain.pglite`. That path is
+  the local GBrain database, not the markdown brain repo. Keep plugin
+  `workingDirectory` pointed at the repo you actually import and sync.
 - Set `workingDirectory` explicitly. It is the single most common source of
   "loaded plugin, wrong brain" confusion.
 - If you install GBrain through the Bun wrapper, make sure `bun` is also on
