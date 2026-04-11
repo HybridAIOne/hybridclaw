@@ -27,13 +27,13 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
 import {
   initEmail,
   sendEmailAttachmentTo,
   sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
-import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
 import {
   isIMessageHandle,
   normalizeIMessageHandle,

@@ -19,12 +19,12 @@ const SENT_FOLDER_PATTERNS = [
 ] as const;
 
 function normalizeFolderPath(value: string | null | undefined): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
-export function isSelectableFolder(entry: {
-  flags: Set<string>;
-}): boolean {
+export function isSelectableFolder(entry: { flags: Set<string> }): boolean {
   return !entry.flags.has(NOSELECT_FLAG);
 }
 
@@ -68,11 +68,17 @@ export async function listSelectableFolders(
 export async function resolveTrashFolderPath(
   client: ImapFlow,
 ): Promise<string | null> {
-  return (await listSelectableFolders(client)).find(isTrashFolderCandidate)?.path || null;
+  return (
+    (await listSelectableFolders(client)).find(isTrashFolderCandidate)?.path ||
+    null
+  );
 }
 
 export async function resolveSentFolderPath(
   client: ImapFlow,
 ): Promise<string | null> {
-  return (await listSelectableFolders(client)).find(isSentFolderCandidate)?.path || null;
+  return (
+    (await listSelectableFolders(client)).find(isSentFolderCandidate)?.path ||
+    null
+  );
 }

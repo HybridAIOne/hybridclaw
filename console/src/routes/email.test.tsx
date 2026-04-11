@@ -500,7 +500,9 @@ describe('EmailPage', () => {
 
     renderEmailPage();
 
-    expect(await screen.findByRole('button', { name: /inbox/i })).not.toBeNull();
+    expect(
+      await screen.findByRole('button', { name: /inbox/i }),
+    ).not.toBeNull();
     expect(await screen.findByText('Quarterly plan')).not.toBeNull();
     expect(
       await screen.findByText(
@@ -525,7 +527,9 @@ describe('EmailPage', () => {
     expect(await screen.findByText('Model: hybridai/gpt-5')).not.toBeNull();
     expect(await screen.findByText('Provider: hybridai')).not.toBeNull();
     expect(await screen.findByText('Tokens: 1,234')).not.toBeNull();
-    expect(await screen.findByRole('button', { name: /back to message list/i })).not.toBeNull();
+    expect(
+      await screen.findByRole('button', { name: /back to message list/i }),
+    ).not.toBeNull();
     expect(fetchAdminEmailMessageMock).toHaveBeenCalledWith('test-token', {
       folder: 'INBOX',
       uid: 44,
@@ -562,9 +566,7 @@ describe('EmailPage', () => {
     expect(
       await screen.findByText('Circling back on the board pack.'),
     ).not.toBeNull();
-    expect(
-      screen.getByRole('button', { name: /delete/i }),
-    ).not.toBeNull();
+    expect(screen.getByRole('button', { name: /delete/i })).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
 

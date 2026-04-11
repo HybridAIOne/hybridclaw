@@ -40,9 +40,7 @@ function normalizeTokenCount(value: unknown): number | null {
 
 function normalizeTokenSource(value: unknown): EmailDeliveryTokenSource | null {
   const normalized = trimString(value)?.toLowerCase();
-  return normalized === 'api' || normalized === 'estimated'
-    ? normalized
-    : null;
+  return normalized === 'api' || normalized === 'estimated' ? normalized : null;
 }
 
 function resolveHeaderLookup(
@@ -54,10 +52,7 @@ function resolveHeaderLookup(
   return headers;
 }
 
-function readHeaderValue(
-  lookup: HeaderLookup,
-  headerName: string,
-): unknown {
+function readHeaderValue(lookup: HeaderLookup, headerName: string): unknown {
   const direct = lookup.get(headerName);
   if (direct != null) return direct;
 
@@ -148,7 +143,9 @@ export function parseEmailDeliveryMetadata(
   const agentId = trimString(
     readHeaderValue(lookup, EMAIL_METADATA_HEADERS.agentId),
   );
-  const model = trimString(readHeaderValue(lookup, EMAIL_METADATA_HEADERS.model));
+  const model = trimString(
+    readHeaderValue(lookup, EMAIL_METADATA_HEADERS.model),
+  );
   const provider = trimString(
     readHeaderValue(lookup, EMAIL_METADATA_HEADERS.provider),
   );

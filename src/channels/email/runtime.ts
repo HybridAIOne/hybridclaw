@@ -1,5 +1,5 @@
-import nodemailer, { type Transporter } from 'nodemailer';
 import { ImapFlow } from 'imapflow';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
@@ -7,9 +7,9 @@ import { EMAIL_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';
+import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
 import { resolveSentFolderPath } from './mailbox-folders.js';
 import type { EmailDeliveryMetadata } from './metadata.js';
-import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
 export type EmailReplyFn = (content: string) => Promise<void>;
@@ -226,18 +226,20 @@ export function createEmailRuntime(): EmailRuntime {
       selfAddress: address,
       threadContext: tracker.get(params.to),
     });
-    await appendSentCopiesToImap(runtime.config, runtime.password, result.sentCopies).catch(
-      (error) => {
-        logger.warn(
-          {
-            error,
-            to: params.to,
-            sentCopyCount: result.sentCopies.length,
-          },
-          'Failed to append sent email copy to IMAP Sent folder',
-        );
-      },
-    );
+    await appendSentCopiesToImap(
+      runtime.config,
+      runtime.password,
+      result.sentCopies,
+    ).catch((error) => {
+      logger.warn(
+        {
+          error,
+          to: params.to,
+          sentCopyCount: result.sentCopies.length,
+        },
+        'Failed to append sent email copy to IMAP Sent folder',
+      );
+    });
     if (result.threadContext) {
       tracker.remember(params.to, result.threadContext);
     }

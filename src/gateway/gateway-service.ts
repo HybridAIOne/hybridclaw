@@ -54,7 +54,6 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
-import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
@@ -231,7 +230,6 @@ import {
 import {
   buildSessionBoundaryPreview,
   SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
-  trimSessionPreviewText,
 } from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
@@ -322,8 +320,8 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
-  type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailDeleteResponse,
+  type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
   type GatewayAdminJobsContextResponse,
@@ -1104,8 +1102,6 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     lastActive: session.last_active,
   };
 }
-
-const EMAIL_SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
 
 function parseIntOrNull(raw: string | undefined): number | null {
   if (!raw) return null;

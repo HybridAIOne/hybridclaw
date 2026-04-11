@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { marked } from 'marked';
+import type { Transporter } from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import type Mail from 'nodemailer/lib/mailer/index.js';
-import type { Transporter } from 'nodemailer';
 import sanitizeHtml from 'sanitize-html';
 import { EMAIL_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import { logger } from '../../logger.js';
@@ -289,9 +289,7 @@ export function prepareEmailTextChunks(
   return options?.allowEmpty ? [] : ['(no content)'];
 }
 
-async function buildRawMailCopy(
-  mail: Mail.Options,
-): Promise<{
+async function buildRawMailCopy(mail: Mail.Options): Promise<{
   messageId: string | null;
   raw: Buffer;
 }> {
@@ -382,9 +380,7 @@ export async function sendEmail(
       ...(rawCopy.messageId ? { messageId: rawCopy.messageId } : {}),
     })) as MailSendInfo;
 
-    const messageId = String(
-      info.messageId || rawCopy.messageId || '',
-    ).trim();
+    const messageId = String(info.messageId || rawCopy.messageId || '').trim();
     const accepted = normalizeRecipientList(info.accepted);
     const rejected = normalizeRecipientList(info.rejected);
     const pending = normalizeRecipientList(info.pending);

@@ -898,7 +898,9 @@ describe('email runtime', () => {
     await runtime.sendToEmail('boss@example.com', 'hello from the bot');
 
     expect(sendMail).toHaveBeenCalledTimes(1);
-    const generatedMessageId = String(sendMail.mock.calls[0]?.[0]?.messageId || '');
+    const generatedMessageId = String(
+      sendMail.mock.calls[0]?.[0]?.messageId || '',
+    );
     expect(generatedMessageId).toMatch(/^<.+@example\.com>$/);
     expect(search).toHaveBeenCalledWith(
       { header: { 'message-id': generatedMessageId } },
