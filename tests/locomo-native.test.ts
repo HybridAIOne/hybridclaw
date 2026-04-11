@@ -1059,10 +1059,7 @@ test('locomo native retrieval context F1 matches whitespace token overlap semant
     testOnlyLocomoNativeRetrieval.computeContextTokenF1('fetch,', 'fetch'),
   ).toBe(0);
   expect(
-    testOnlyLocomoNativeRetrieval.computeContextTokenF1(
-      'fetch fetch',
-      'fetch',
-    ),
+    testOnlyLocomoNativeRetrieval.computeContextTokenF1('fetch fetch', 'fetch'),
   ).toBeCloseTo(2 / 3, 6);
 });
 
