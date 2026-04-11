@@ -749,7 +749,11 @@ function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
 
 function isEvalResultsCommandResult(result: GatewayCommandResult): boolean {
   const title = String(result.title || '').trim();
-  return title === 'Terminal-Bench 2.0 Results' || title === 'tau2 Results';
+  return (
+    title === 'Terminal-Bench 2.0 Results' ||
+    title === 'tau2 Results' ||
+    title === 'LOCOMO Results'
+  );
 }
 
 interface TuiSectionCard {
@@ -757,7 +761,268 @@ interface TuiSectionCard {
   rows: string[];
 }
 
-function parseTuiSectionCards(text: string): TuiSectionCard[] {
+function stripAnsiTui(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
+
+function visibleTuiLength(value: string): number {
+  return [...stripAnsiTui(value)].length;
+}
+
+function padAnsiTuiEnd(value: string, width: number): string {
+  return `${value}${' '.repeat(Math.max(0, width - visibleTuiLength(value)))}`;
+}
+
+type TuiAnsiToken =
+  | { kind: 'ansi'; value: string }
+  | { kind: 'char'; value: string };
+
+function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
+  const source = String(value || '');
+  const tokens: TuiAnsiToken[] = [];
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      tokens.push({ kind: 'ansi', value: source.slice(start, index) });
+      continue;
+    }
+    const symbol = [...source.slice(index)][0] || source[index] || '';
+    tokens.push({ kind: 'char', value: symbol });
+    index += symbol.length || 1;
+  }
+  return tokens;
+}
+
+function trimAnsiTuiCell(value: string): string {
+  const tokens = tokenizeAnsiTui(value);
+  const trimmedLeading: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let started = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (started) {
+        trimmedLeading.push(token);
+      } else {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+    if (!started && token.value === ' ') {
+      continue;
+    }
+    if (!started) {
+      trimmedLeading.push(...pendingAnsi);
+      started = true;
+    }
+    trimmedLeading.push(token);
+  }
+
+  const trailingAnsi: TuiAnsiToken[] = [];
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'ansi'
+  ) {
+    trailingAnsi.unshift(trimmedLeading.pop() as TuiAnsiToken);
+  }
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'char' &&
+    trimmedLeading[trimmedLeading.length - 1]?.value === ' '
+  ) {
+    trimmedLeading.pop();
+  }
+  if (trimmedLeading.length === 0) return '';
+  return [...trimmedLeading, ...trailingAnsi]
+    .map((token) => token.value)
+    .join('');
+}
+
+function sliceAnsiTuiVisible(
+  value: string,
+  start: number,
+  width: number,
+): string {
+  if (width <= 0) return '';
+  const end = start + width;
+  const tokens = tokenizeAnsiTui(value);
+  const output: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let visibleIndex = 0;
+  let started = false;
+  let finished = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (finished) {
+        output.push(token);
+        continue;
+      }
+      if (started || visibleIndex >= start) {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+
+    if (visibleIndex >= start && visibleIndex < end) {
+      if (!started) {
+        output.push(...pendingAnsi);
+        pendingAnsi.length = 0;
+        started = true;
+      }
+      output.push(token);
+    } else if (started && visibleIndex >= end) {
+      finished = true;
+      break;
+    }
+    visibleIndex += 1;
+    if (visibleIndex >= end && started) {
+      finished = true;
+    }
+    if (!started) {
+      pendingAnsi.length = 0;
+    }
+  }
+
+  return output.map((token) => token.value).join('');
+}
+
+function truncateAnsiTuiEnd(value: string, width: number): string {
+  if (width <= 0) return '';
+  const source = String(value || '');
+  if (visibleTuiLength(source) <= width) return source;
+  if (width === 1) return '…';
+
+  let output = '';
+  let visibleCount = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      output += source.slice(start, index);
+      continue;
+    }
+    const symbol =
+      [...source.slice(index, index + 2)][0] || source[index] || '';
+    const symbolLength = [...symbol].length || 1;
+    if (visibleCount + 1 >= width) {
+      output += '…';
+      return output.endsWith(RESET) ? output : `${output}${RESET}`;
+    }
+    output += symbol;
+    visibleCount += 1;
+    index += symbolLength;
+  }
+  return output;
+}
+
+function looksLikeTuiTableSection(rows: readonly string[]): boolean {
+  if (rows.length < 2) return false;
+  const headerCells = rows[0]?.split(/ {2,}/).filter(Boolean) || [];
+  if (headerCells.length < 3) return false;
+  return /^[- ]+$/u.test(stripAnsiTui(rows[1] || ''));
+}
+
+function reflowTuiTableSection(
+  rows: readonly string[],
+  innerWidth: number,
+): string[] | null {
+  if (!looksLikeTuiTableSection(rows)) return null;
+  const separator = '  ';
+  const sourceWidths = String(rows[1] || '')
+    .split(/ {2,}/)
+    .filter(Boolean)
+    .map((entry) => entry.length);
+  const columnCount = sourceWidths.length;
+  if (columnCount < 3) return null;
+  const parseRow = (row: string): string[] => {
+    let offset = 0;
+    return sourceWidths.map((width, index) => {
+      const cell = trimAnsiTuiCell(sliceAnsiTuiVisible(row, offset, width));
+      offset += width;
+      if (index < sourceWidths.length - 1) {
+        offset += separator.length;
+      }
+      return cell;
+    });
+  };
+  const headerCells = parseRow(rows[0] || '');
+  const bodyRows = rows.slice(2).map((row) => parseRow(row));
+  if (bodyRows.some((row) => row.length !== columnCount)) {
+    return null;
+  }
+  const tableRows = [headerCells, ...bodyRows];
+
+  const metricWidths = Array.from(
+    { length: columnCount - 1 },
+    (_, metricIndex) =>
+      Math.max(
+        visibleTuiLength(tableRows[0]?.[metricIndex + 1] || ''),
+        ...tableRows.map((row) => visibleTuiLength(row[metricIndex + 1] || '')),
+      ),
+  );
+  const minVariantWidth = Math.max(
+    7,
+    visibleTuiLength(tableRows[0]?.[0] || ''),
+  );
+  const availableVariantWidth =
+    innerWidth -
+    metricWidths.reduce((total, width) => total + width, 0) -
+    separator.length * (columnCount - 1);
+  if (availableVariantWidth < minVariantWidth) {
+    return null;
+  }
+  const variantWidth = Math.min(
+    Math.max(
+      minVariantWidth,
+      ...tableRows.slice(1).map((row) => visibleTuiLength(row[0] || '')),
+    ),
+    availableVariantWidth,
+  );
+
+  return tableRows.flatMap((row, index) => {
+    if (index === 1) {
+      return [
+        [variantWidth, ...metricWidths]
+          .map((width) => '-'.repeat(width))
+          .join(separator),
+      ];
+    }
+    const cells = row.map((cell, cellIndex) => {
+      const width =
+        cellIndex === 0 ? variantWidth : metricWidths[cellIndex - 1];
+      return padAnsiTuiEnd(truncateAnsiTuiEnd(cell, width), width);
+    });
+    return [cells.join(separator)];
+  });
+}
+
+export function parseTuiSectionCards(text: string): TuiSectionCard[] {
   const lines = String(text || '')
     .replace(/\r\n?/g, '\n')
     .split('\n');
@@ -794,14 +1059,12 @@ function parseTuiSectionCards(text: string): TuiSectionCard[] {
   return sections;
 }
 
-function renderTuiEvalResultsPanel(
+export function renderTuiEvalResultsPanel(
   sections: readonly TuiSectionCard[],
   columns: number,
 ): string[] {
   const innerWidth = Math.max(16, Math.floor(columns || 80) - 7);
   const lines: string[] = [];
-  const pad = (value: string) =>
-    value + ' '.repeat(Math.max(0, innerWidth - value.length));
   const pushBorder = (
     left: '╭' | '├' | '╰',
     fill: string,
@@ -812,13 +1075,21 @@ function renderTuiEvalResultsPanel(
     );
   };
   const pushRow = (text = '', color = '') => {
-    const content = color ? `${color}${pad(text)}${RESET}` : pad(text);
+    const padded = padAnsiTuiEnd(text, innerWidth);
+    const content = color ? `${color}${padded}${RESET}` : padded;
     lines.push(`  ${MUTED}│${RESET} ${content} ${MUTED}│${RESET}`);
   };
 
   sections.forEach((section, index) => {
     pushBorder(index === 0 ? '╭' : '├', '─', index === 0 ? '╮' : '┤');
     pushRow(section.title, `${BOLD}${GOLD}`);
+    const tableRows = reflowTuiTableSection(section.rows, innerWidth);
+    if (tableRows) {
+      for (const row of tableRows) {
+        pushRow(row);
+      }
+      return;
+    }
     for (const row of section.rows) {
       for (const wrapped of wrapTuiBlock(row, innerWidth, '').split('\n')) {
         pushRow(wrapped);

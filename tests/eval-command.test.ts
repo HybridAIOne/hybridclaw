@@ -2082,11 +2082,10 @@ test('shows locomo retrieval matrix summary table in results', async () => {
   expect(result.text).toMatch(/Best hit rate\s+0\.747/);
   expect(result.text).not.toMatch(/Query prep\s+/);
   expect(result.text).not.toMatch(/Backend\s+/);
-  expect(result.text).toContain('\x1b[7m');
-  expect(result.text).toContain('\x1b[1;93m');
+  expect(result.text).toContain('\x1b[30;103m');
   const plainText = stripAnsi(result.text);
   expect(plainText).toContain('full-text');
-  expect(plainText).toContain('0.7470');
+  expect(plainText).toContain('0.7470*');
   expect(result.text).toContain('Variant');
   expect(result.text).toContain('HitRate');
 });

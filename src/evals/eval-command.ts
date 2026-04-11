@@ -567,8 +567,8 @@ function renderKeyValueSection(
 }
 
 const ANSI_RESET = '\x1b[0m';
-const ANSI_INVERSE = '\x1b[7m';
-const ANSI_BEST_VALUE = '\x1b[1;93m';
+const ANSI_METRIC_VALUE = '\x1b[93m';
+const ANSI_BEST_VALUE = '\x1b[30;103m';
 
 function stripAnsi(value: string): string {
   let output = '';
@@ -597,24 +597,41 @@ function padAnsiEnd(value: string, width: number): string {
   return `${value}${' '.repeat(missing)}`;
 }
 
+function truncateTextEnd(value: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  const characters = [...String(value || '')];
+  if (characters.length <= width) {
+    return value;
+  }
+  if (width === 1) {
+    return '…';
+  }
+  return `${characters.slice(0, width - 1).join('')}…`;
+}
+
+function resolveEvalRenderColumns(): number {
+  return Math.max(72, process.stdout.columns || 120);
+}
+
 function styleLocomoMatrixCell(
   value: string,
   options?: {
-    inverse?: boolean;
     highlight?: boolean;
+    metric?: boolean;
   },
 ): string {
-  const codes: string[] = [];
-  if (options?.inverse) {
-    codes.push(ANSI_INVERSE);
-  }
   if (options?.highlight) {
-    codes.push(ANSI_BEST_VALUE);
+    return `${ANSI_BEST_VALUE}${value}${ANSI_RESET}`;
   }
-  if (codes.length === 0) {
+  if (options?.metric) {
+    return `${ANSI_METRIC_VALUE}${value}${ANSI_RESET}`;
+  }
+  if (!options) {
     return value;
   }
-  return `${codes.join('')}${value}${ANSI_RESET}`;
+  return value;
 }
 
 function renderSectionCard(title: string, lines: string[]): string {
@@ -2273,77 +2290,91 @@ function renderLocomoVariantComparisonSection(
     highlightStats[0]?.max != null && Number.isFinite(highlightStats[0].max)
       ? highlightStats[0].max
       : null;
-  const rows = variants.map((variant) => {
-    const metrics = [
-      variant.overallScore,
-      variant.contextF1 ?? null,
-      variant.categories['1']?.meanScore ?? null,
-      variant.categories['2']?.meanScore ?? null,
-      variant.categories['3']?.meanScore ?? null,
-      variant.categories['4']?.meanScore ?? null,
-      variant.categories['5']?.meanScore ?? null,
-    ];
-    return [
-      variant.label,
-      ...metrics.map((metric, index) => {
-        const formatted = formatLocomoMatrixMetric(metric);
-        const highlight = highlightStats[index]?.shouldHighlight;
-        const max = highlightStats[index]?.max;
-        if (
-          !highlight ||
-          metric == null ||
-          max == null ||
-          !Number.isFinite(metric) ||
-          !areLocomoMetricValuesEqual(metric, max)
-        ) {
-          return formatted;
-        }
-        return `${formatted}*`;
-      }),
-    ];
-  });
   const header = ['Variant', 'HitRate', 'F1', 'C1', 'C2', 'C3', 'C4', 'C5'];
-  const widths = header.map((entry, index) =>
-    Math.max(
-      visibleLength(entry),
-      ...rows.map((row) => visibleLength(String(row[index] || ''))),
+  const metricColumns = variants.map((variant) => [
+    variant.overallScore,
+    variant.contextF1 ?? null,
+    variant.categories['1']?.meanScore ?? null,
+    variant.categories['2']?.meanScore ?? null,
+    variant.categories['3']?.meanScore ?? null,
+    variant.categories['4']?.meanScore ?? null,
+    variant.categories['5']?.meanScore ?? null,
+  ]);
+  const metricHighlightMatrix = metricColumns.map((metrics) =>
+    metrics.map(
+      (metric, index) =>
+        highlightStats[index]?.shouldHighlight === true &&
+        metric != null &&
+        Number.isFinite(metric) &&
+        areLocomoMetricValuesEqual(metric, highlightStats[index]?.max ?? NaN),
     ),
   );
-  return renderSectionCard(title, [
-    header.map((entry, index) => padAnsiEnd(entry, widths[index])).join('  '),
-    widths.map((width) => '-'.repeat(width)).join('  '),
-    ...rows.map((row, rowIndex) => {
-      const bestHitRateStat = highlightStats[0];
-      const isBestOverall =
-        bestHitRate != null &&
-        Number.isFinite(variants[rowIndex]?.overallScore) &&
-        areLocomoMetricValuesEqual(
-          variants[rowIndex]?.overallScore ?? 0,
-          bestHitRate,
-        );
-      return row
-        .map((entry, index) =>
-          styleLocomoMatrixCell(
-            padAnsiEnd(String(entry), widths[index]),
-            index === 0
-              ? { inverse: isBestOverall }
-              : {
-                  inverse: isBestOverall,
-                  highlight:
-                    bestHitRateStat != null &&
-                    index > 0 &&
-                    highlightStats[index - 1]?.shouldHighlight === true &&
-                    typeof entry === 'string' &&
-                    !entry.startsWith('-') &&
-                    areLocomoMetricValuesEqual(
-                      Number.parseFloat(entry),
-                      highlightStats[index - 1]?.max ?? Number.NaN,
-                    ),
-                },
-          ),
-        )
-        .join('  ');
+  const metricStrings = metricColumns.map((metrics, rowIndex) =>
+    metrics.map((metric, index) => {
+      const formatted = formatLocomoMatrixMetric(metric);
+      return metricHighlightMatrix[rowIndex]?.[index]
+        ? `${formatted}*`
+        : formatted;
     }),
+  );
+  const metricWidths = header
+    .slice(1)
+    .map((entry, index) =>
+      Math.max(
+        visibleLength(entry),
+        ...metricStrings.map((row) => visibleLength(row[index] || '')),
+      ),
+    );
+  const separator = '  ';
+  const totalMetricWidth =
+    metricWidths.reduce((total, width) => total + width, 0) +
+    separator.length * metricWidths.length;
+  const maxContentWidth = Math.max(60, resolveEvalRenderColumns() - 6);
+  const maxVariantWidth = Math.max(
+    visibleLength(header[0]),
+    ...variants.map((variant) => visibleLength(variant.label)),
+  );
+  const variantWidth = Math.max(
+    visibleLength(header[0]),
+    Math.min(maxVariantWidth, maxContentWidth - totalMetricWidth),
+  );
+  const rows = variants.map((variant, rowIndex) => {
+    const metrics = metricColumns[rowIndex];
+    const isBestOverall =
+      bestHitRate != null &&
+      Number.isFinite(variant.overallScore) &&
+      areLocomoMetricValuesEqual(variant.overallScore, bestHitRate);
+    const variantLabel = padAnsiEnd(
+      truncateTextEnd(variant.label, variantWidth),
+      variantWidth,
+    );
+    const metricCells = metrics.map((_metric, index) => {
+      const formatted = padAnsiEnd(
+        metricStrings[rowIndex][index] || '-',
+        metricWidths[index],
+      );
+      const highlight = metricHighlightMatrix[rowIndex]?.[index] === true;
+      return styleLocomoMatrixCell(formatted, {
+        highlight,
+        metric: true,
+      });
+    });
+    return [
+      styleLocomoMatrixCell(variantLabel, { highlight: isBestOverall }),
+      ...metricCells,
+    ];
+  });
+  return renderSectionCard(title, [
+    [
+      padAnsiEnd(header[0], variantWidth),
+      ...header
+        .slice(1)
+        .map((entry, index) => padAnsiEnd(entry, metricWidths[index])),
+    ].join(separator),
+    [variantWidth, ...metricWidths]
+      .map((width) => '-'.repeat(width))
+      .join(separator),
+    ...rows.map((row) => row.join(separator)),
   ]);
 }
 
