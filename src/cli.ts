@@ -1511,6 +1511,11 @@ export async function main(
       await runTerminalBenchNativeCli(subargs);
       break;
     }
+    case '__eval-locomo-native': {
+      const { runLocomoNativeCli } = await import('./evals/locomo-native.js');
+      await runLocomoNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;

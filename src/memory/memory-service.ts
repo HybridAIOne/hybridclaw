@@ -1,5 +1,6 @@
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type {
   SessionExpiryEvaluation,
@@ -61,9 +62,23 @@ import {
   type SemanticRecallFilter,
 } from './db.js';
 import {
+  getDefaultMemoryEmbeddingCacheDir,
+  type MemoryEmbeddingProviderKind,
+  normalizeMemoryEmbeddingProviderKind,
+} from './embeddings.js';
+import {
   MemoryConsolidationEngine,
   type MemoryConsolidationReport,
 } from './memory-consolidation.js';
+import {
+  type MemoryQueryMode,
+  type MemoryRecallBackend,
+  type MemoryRecallRerank,
+  type MemoryRecallTokenizer,
+  normalizeMemoryRecallBackend,
+  prepareMemoryRecallQuery,
+} from './semantic-recall.js';
+import { TransformersJsEmbeddingProvider } from './transformers-embedding-provider.js';
 
 export interface CompactionCandidate {
   cutoffId: number;
@@ -172,9 +187,14 @@ export interface MemoryBackend {
     sessionId: string;
     query: string;
     limit?: number;
+    limitHardCap?: number | null;
     minConfidence?: number;
     queryEmbedding?: number[] | null;
+    backend?: MemoryRecallBackend;
+    rerank?: MemoryRecallRerank;
+    tokenizer?: MemoryRecallTokenizer;
     filter?: SemanticRecallFilter;
+    touch?: boolean;
   }) => SemanticMemoryEntry[];
   forgetSemanticMemory: (id: number) => boolean;
   decaySemanticMemories: (params?: {
@@ -191,6 +211,7 @@ export interface MemoryBackend {
 
 export interface MemoryServiceConfig {
   semanticRecallLimit: number;
+  semanticPromptHardCap: number;
   semanticMinConfidence: number;
   semanticMaxContentChars: number;
   semanticDecayRate: number;
@@ -203,7 +224,11 @@ export interface MemoryServiceConfig {
 }
 
 export interface EmbeddingProvider {
-  embed(text: string): number[] | null;
+  embed?(text: string): number[] | null;
+  embedQuery?(text: string): number[] | null;
+  embedDocument?(text: string): number[] | null;
+  warmup?(): void;
+  dispose?(): void;
 }
 
 export interface StoreTurnParams {
@@ -224,6 +249,7 @@ export interface BuildMemoryPromptParams {
   session: Session;
   query: string;
   semanticLimit?: number;
+  touchSemanticRecall?: boolean;
 }
 
 export interface BuildMemoryPromptResult {
@@ -237,12 +263,20 @@ export interface RecallSemanticMemoriesParams {
   sessionId: string;
   query: string;
   limit?: number;
+  limitHardCap?: number | null;
   minConfidence?: number;
+  queryMode?: MemoryQueryMode;
+  backend?: MemoryRecallBackend;
+  rerank?: MemoryRecallRerank;
+  tokenizer?: MemoryRecallTokenizer;
+  embeddingProvider?: MemoryEmbeddingProviderKind;
   filter?: SemanticRecallFilter;
+  touch?: boolean;
 }
 
 const DEFAULT_CONFIG: MemoryServiceConfig = {
   semanticRecallLimit: 5,
+  semanticPromptHardCap: 12,
   semanticMinConfidence: 0.2,
   semanticMaxContentChars: 1_200,
   semanticDecayRate: 0.1,
@@ -349,21 +383,33 @@ class HashedTokenEmbeddingProvider implements EmbeddingProvider {
       .slice(0, 256);
     if (tokens.length === 0) return null;
 
-    const vector = new Float32Array(this.dimensions);
+    const vector = Array<number>(this.dimensions).fill(0);
     for (const token of tokens) {
       const hash = this.hashToken(token);
       const index = hash % this.dimensions;
       const sign = (hash & 1) === 0 ? 1 : -1;
-      vector[index] += sign * Math.min(4, token.length);
+      vector[index] = (vector[index] || 0) + sign * Math.min(4, token.length);
     }
 
     let norm = 0;
     for (let i = 0; i < vector.length; i += 1) {
-      norm += vector[i] * vector[i];
+      const value = vector[i] || 0;
+      norm += value * value;
     }
     if (norm <= Number.EPSILON) return null;
     const scale = 1 / Math.sqrt(norm);
-    return Array.from(vector, (value) => value * scale);
+    for (let i = 0; i < vector.length; i += 1) {
+      vector[i] = (vector[i] || 0) * scale;
+    }
+    return vector;
+  }
+
+  embedQuery(text: string): number[] | null {
+    return this.embed(text);
+  }
+
+  embedDocument(text: string): number[] | null {
+    return this.embed(text);
   }
 
   private hashToken(token: string): number {
@@ -379,12 +425,15 @@ class HashedTokenEmbeddingProvider implements EmbeddingProvider {
 export class MemoryService {
   private readonly backend: MemoryBackend;
   private readonly config: MemoryServiceConfig;
-  private readonly embeddingProvider: EmbeddingProvider;
+  private readonly defaultEmbeddingProvider: EmbeddingProvider;
+  private readonly fixedEmbeddingProvider: EmbeddingProvider | null;
   private readonly consolidationEngine: MemoryConsolidationEngine;
   private readonly compactionLocks = new Map<
     string,
     Promise<CompactionResult>
   >();
+  private runtimeEmbeddingProviderKey: string | null = null;
+  private runtimeEmbeddingProvider: EmbeddingProvider | null = null;
 
   constructor(
     backend: MemoryBackend = DEFAULT_BACKEND,
@@ -393,9 +442,10 @@ export class MemoryService {
   ) {
     this.backend = backend;
     this.config = { ...DEFAULT_CONFIG, ...(config || {}) };
-    this.embeddingProvider =
-      embeddingProvider ||
-      new HashedTokenEmbeddingProvider(this.config.embeddingDimensions);
+    this.fixedEmbeddingProvider = embeddingProvider || null;
+    this.defaultEmbeddingProvider = new HashedTokenEmbeddingProvider(
+      this.config.embeddingDimensions,
+    );
     this.consolidationEngine = new MemoryConsolidationEngine(this.backend, {
       decayRate: this.config.semanticDecayRate,
       staleAfterDays: this.config.semanticDecayStaleAfterDays,
@@ -579,7 +629,7 @@ export class MemoryService {
               stageTotal,
             }),
         },
-        embed: (text) => this.embeddingProvider.embed(text),
+        embed: (text) => this.embedDocument(text),
         config: {
           maxSummaryChars: SESSION_COMPACTION_SUMMARY_MAX_CHARS,
         },
@@ -595,25 +645,48 @@ export class MemoryService {
   recallSemanticMemories(
     params: RecallSemanticMemoriesParams,
   ): SemanticMemoryEntry[] {
-    const limit = Math.max(
+    const requestedLimit = Math.max(
       1,
-      Math.min(Math.floor(params.limit || this.config.semanticRecallLimit), 50),
+      Math.floor(params.limit || this.config.semanticRecallLimit),
     );
+    const limitHardCap =
+      typeof params.limitHardCap === 'number' &&
+      Number.isFinite(params.limitHardCap)
+        ? Math.max(1, Math.floor(params.limitHardCap))
+        : params.limitHardCap === null
+          ? null
+          : 50;
+    const limit =
+      limitHardCap == null
+        ? requestedLimit
+        : Math.min(requestedLimit, limitHardCap);
     const rawMinConfidence =
       typeof params.minConfidence === 'number' &&
       Number.isFinite(params.minConfidence)
         ? params.minConfidence
         : this.config.semanticMinConfidence;
     const minConfidence = Math.max(0, Math.min(1, rawMinConfidence));
-    const query = params.query.trim();
+    const queryMode = params.queryMode ?? this.resolveSemanticQueryMode();
+    const backend = params.backend ?? this.resolveSemanticRecallBackend();
+    const rerank = params.rerank ?? this.resolveSemanticRecallRerank();
+    const tokenizer = params.tokenizer ?? this.resolveSemanticRecallTokenizer();
+    const query = prepareMemoryRecallQuery(params.query, queryMode);
 
     return this.backend.recallSemanticMemories({
       sessionId: params.sessionId,
       query,
       limit,
+      limitHardCap,
       minConfidence,
-      queryEmbedding: this.embeddingProvider.embed(query),
+      queryEmbedding:
+        backend === 'full-text'
+          ? null
+          : this.embedQuery(query, params.embeddingProvider),
+      backend,
+      rerank,
+      tokenizer,
       filter: params.filter,
+      touch: params.touch,
     });
   }
 
@@ -660,6 +733,33 @@ export class MemoryService {
     );
   }
 
+  storeSemanticMemory(params: {
+    sessionId: string;
+    role: string;
+    source?: string | null;
+    scope?: string | null;
+    metadata?: Record<string, unknown> | string | null;
+    content: string;
+    confidence?: number;
+    embedding?: number[] | null;
+    embeddingProvider?: MemoryEmbeddingProviderKind;
+    sourceMessageId?: number | null;
+  }): number {
+    const content = params.content.trim();
+    if (!content) {
+      throw new Error('Cannot store empty semantic memory content.');
+    }
+
+    return this.backend.storeSemanticMemory({
+      ...params,
+      content,
+      embedding:
+        params.embedding === undefined
+          ? this.embedDocument(content, params.embeddingProvider)
+          : params.embedding,
+    });
+  }
+
   storeTurn(params: StoreTurnParams): {
     userMessageId: number;
     assistantMessageId: number;
@@ -689,7 +789,7 @@ export class MemoryService {
       };
     }
 
-    this.backend.storeSemanticMemory({
+    this.storeSemanticMemory({
       sessionId: params.sessionId,
       role: 'assistant',
       source: 'conversation',
@@ -697,7 +797,7 @@ export class MemoryService {
       metadata: {},
       content: interactionText,
       confidence: 1,
-      embedding: this.embeddingProvider.embed(interactionText),
+      embeddingProvider: undefined,
       sourceMessageId: assistantMessageId,
     });
 
@@ -728,7 +828,7 @@ export class MemoryService {
       1,
       Math.min(
         Math.floor(params.semanticLimit || this.config.semanticRecallLimit),
-        12,
+        this.resolveSemanticPromptHardCap(),
       ),
     );
     const semanticMemories = this.recallSemanticMemories({
@@ -736,6 +836,7 @@ export class MemoryService {
       query: params.query,
       limit: semanticLimit,
       minConfidence: this.config.semanticMinConfidence,
+      touch: params.touchSemanticRecall,
     });
     const citationIndex: MemoryCitation[] = semanticMemories.map(
       (memory, i) => ({
@@ -764,7 +865,7 @@ export class MemoryService {
       sections.push(
         [
           '### Relevant Memory Recall',
-          'Topic-matched context from older turns (vector cosine search).',
+          'Topic-matched context from older turns.',
           'If you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).',
           ...lines,
         ].join('\n'),
@@ -784,6 +885,131 @@ export class MemoryService {
     const compact = content.replace(/\s+/g, ' ').trim();
     if (compact.length <= this.config.semanticMaxContentChars) return compact;
     return compact.slice(0, this.config.semanticMaxContentChars);
+  }
+
+  private embedQuery(
+    text: string,
+    embeddingProvider?: MemoryEmbeddingProviderKind,
+  ): number[] | null {
+    return this.embedWithProvider('query', text, embeddingProvider);
+  }
+
+  warmupEmbeddingProvider(
+    embeddingProvider?: MemoryEmbeddingProviderKind,
+  ): void {
+    const provider = this.resolveEmbeddingProvider(embeddingProvider);
+    provider.warmup?.();
+  }
+
+  private embedDocument(
+    text: string,
+    embeddingProvider?: MemoryEmbeddingProviderKind,
+  ): number[] | null {
+    return this.embedWithProvider('document', text, embeddingProvider);
+  }
+
+  private embedWithProvider(
+    kind: 'query' | 'document',
+    text: string,
+    embeddingProvider?: MemoryEmbeddingProviderKind,
+  ): number[] | null {
+    const provider = this.resolveEmbeddingProvider(embeddingProvider);
+    if (kind === 'query' && typeof provider.embedQuery === 'function') {
+      return provider.embedQuery(text);
+    }
+    if (kind === 'document' && typeof provider.embedDocument === 'function') {
+      return provider.embedDocument(text);
+    }
+    if (typeof provider.embed === 'function') {
+      return provider.embed(text);
+    }
+    throw new Error('Embedding provider does not implement any embed method.');
+  }
+
+  private resolveEmbeddingProvider(
+    embeddingProvider?: MemoryEmbeddingProviderKind,
+  ): EmbeddingProvider {
+    if (this.fixedEmbeddingProvider) {
+      return this.fixedEmbeddingProvider;
+    }
+    if (this.backend !== DEFAULT_BACKEND) {
+      return this.defaultEmbeddingProvider;
+    }
+
+    const runtimeEmbedding = getRuntimeConfig().memory.embedding;
+    const providerKind = normalizeMemoryEmbeddingProviderKind(
+      embeddingProvider ?? runtimeEmbedding.provider,
+      runtimeEmbedding.provider,
+    );
+    if (providerKind !== 'transformers') {
+      this.runtimeEmbeddingProvider?.dispose?.();
+      this.runtimeEmbeddingProvider = null;
+      this.runtimeEmbeddingProviderKey = null;
+      return this.defaultEmbeddingProvider;
+    }
+
+    const providerKey = JSON.stringify(runtimeEmbedding);
+    if (
+      this.runtimeEmbeddingProviderKey === providerKey &&
+      this.runtimeEmbeddingProvider
+    ) {
+      return this.runtimeEmbeddingProvider;
+    }
+
+    this.runtimeEmbeddingProvider?.dispose?.();
+    this.runtimeEmbeddingProvider = new TransformersJsEmbeddingProvider({
+      model: runtimeEmbedding.model,
+      revision: runtimeEmbedding.revision,
+      dtype: runtimeEmbedding.dtype,
+      cacheDir: getDefaultMemoryEmbeddingCacheDir(),
+    });
+    this.runtimeEmbeddingProviderKey = providerKey;
+    return this.runtimeEmbeddingProvider;
+  }
+
+  private resolveSemanticPromptHardCap(): number {
+    const configured = Math.max(
+      1,
+      Math.min(Math.floor(this.config.semanticPromptHardCap), 50),
+    );
+    if (this.backend !== DEFAULT_BACKEND) {
+      return configured;
+    }
+    const runtimeValue = getRuntimeConfig().memory.semanticPromptHardCap;
+    return Math.max(1, Math.min(Math.floor(runtimeValue), 50));
+  }
+
+  private resolveSemanticQueryMode(): MemoryQueryMode {
+    if (this.backend !== DEFAULT_BACKEND) {
+      return 'raw';
+    }
+    return getRuntimeConfig().memory.queryMode === 'no-stopwords'
+      ? 'no-stopwords'
+      : 'raw';
+  }
+
+  private resolveSemanticRecallBackend(): MemoryRecallBackend {
+    if (this.backend !== DEFAULT_BACKEND) {
+      return 'cosine';
+    }
+    return normalizeMemoryRecallBackend(
+      getRuntimeConfig().memory.backend,
+      'cosine',
+    );
+  }
+
+  private resolveSemanticRecallRerank(): MemoryRecallRerank {
+    if (this.backend !== DEFAULT_BACKEND) {
+      return 'none';
+    }
+    return getRuntimeConfig().memory.rerank === 'bm25' ? 'bm25' : 'none';
+  }
+
+  private resolveSemanticRecallTokenizer(): MemoryRecallTokenizer {
+    if (this.backend !== DEFAULT_BACKEND) {
+      return 'unicode61';
+    }
+    return getRuntimeConfig().memory.tokenizer;
   }
 
   private async runCompactionPrompt(params: {

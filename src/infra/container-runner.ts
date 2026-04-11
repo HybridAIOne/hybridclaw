@@ -795,6 +795,7 @@ export async function runContainer(
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
+        channelId: task.channel_id,
         cronExpr: task.cron_expr,
         runAt: task.run_at,
         everyMs: task.every_ms,

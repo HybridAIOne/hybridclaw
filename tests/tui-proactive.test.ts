@@ -11,7 +11,7 @@ test('uses fullauto badge for full-auto proactive messages', () => {
 });
 
 test('suppresses reminder chrome for eval proactive messages', () => {
-  expect(proactiveBadgeLabel('eval')).toBeNull();
+  expect(proactiveBadgeLabel('eval')).toBe('eval');
   expect(proactiveSourceSuffix('eval')).toBe('');
 });
 

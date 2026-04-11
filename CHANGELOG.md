@@ -8,6 +8,12 @@
   BotFather token setup, DM/group policy controls, admin Channels support,
   managed `TELEGRAM_BOT_TOKEN` storage, inbound media handling, and canonical
   outbound `telegram:<chatId>` send targets.
+- **Built-in memory inspection command**: Added local `/memory inspect
+  [sessionId]`, `/memory query <query>`, and `hybridclaw gateway memory inspect
+  [sessionId]` diagnostics to show `MEMORY.md`, today's daily note, recent raw
+  history, `session_summary`, recent semantic-memory rows, canonical
+  cross-session recall state, and the exact prompt-memory block the current
+  session would attach for a query.
 
 ### Changed
 

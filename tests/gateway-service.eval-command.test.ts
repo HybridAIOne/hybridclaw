@@ -53,8 +53,12 @@ test('eval help is available through the gateway command path', async () => {
   expect(result.text).toContain(
     '`/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
   );
+  expect(result.text).toContain(
+    '/eval locomo [setup|run|status|stop|results|logs]',
+  );
   expect(result.text).toContain('/eval tau2 [setup|run|status|stop|results]');
   expect(result.text).toContain('swebench-verified');
+  expect(result.text).toContain('locomo');
   expect(result.text).toContain('terminal-bench-2.0');
   expect(result.text).toContain('agentbench');
   expect(result.text).toContain('gaia');

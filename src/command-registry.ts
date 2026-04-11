@@ -83,6 +83,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'rag',
   'model',
   'status',
+  'memory',
   'show',
   'approve',
   'usage',
@@ -220,6 +221,11 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command:
       '/model [<name>|info|list [provider]|set <name>|clear|default [name]]',
     description: 'Inspect or set session/default model',
+  },
+  memory: {
+    command: '/memory inspect [sessionId] | /memory query <query>',
+    description:
+      'Inspect memory layers or preview prompt-time memory attachment',
   },
   plugin: {
     command:
@@ -394,6 +400,14 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'status':
       return ['status'];
 
+    case 'memory': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['memory', 'inspect'];
+      if (sub === 'inspect') return ['memory', 'inspect', ...parts.slice(2)];
+      if (sub === 'query') return ['memory', 'query', ...parts.slice(2)];
+      return ['memory', 'inspect', ...parts.slice(1)];
+    }
+
     case 'auth': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub) return ['auth'];
@@ -561,6 +575,27 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'memory',
+      description:
+        'Inspect memory layers or preview prompt-time memory attachment',
+      localSurfaces: ['tui', 'web'],
+      tuiMenuEntries: [
+        {
+          id: 'memory.inspect',
+          label: '/memory inspect [sessionId]',
+          insertText: '/memory inspect ',
+          description: 'Inspect the built-in memory layers for a session',
+        },
+        {
+          id: 'memory.query',
+          label: '/memory query <query>',
+          insertText: '/memory query ',
+          description:
+            'Preview the exact memory block the current session would attach',
+        },
+      ],
     },
     {
       name: 'show',
@@ -1706,6 +1741,32 @@ function buildSlashCommandCatalogDefinitions(
           label: '/eval swebench-verified',
           insertText: '/eval swebench-verified',
           description: 'Stub entry for a planned SWE-bench Verified runner',
+        },
+        {
+          id: 'eval.locomo',
+          label: '/eval locomo',
+          insertText: '/eval locomo',
+          description: 'Show the native LOCOMO memory benchmark commands',
+        },
+        {
+          id: 'eval.locomo.setup',
+          label: '/eval locomo setup',
+          insertText: '/eval locomo setup',
+          description:
+            'Download the official LOCOMO dataset into the local eval workspace',
+        },
+        {
+          id: 'eval.locomo.run',
+          label: '/eval locomo run --budget 4000 --num-samples 2',
+          insertText: '/eval locomo run --budget 4000 --num-samples 2',
+          description:
+            'Run a small native LOCOMO memory benchmark sample with recent-tail and semantic-recall modes',
+        },
+        {
+          id: 'eval.locomo.results',
+          label: '/eval locomo results',
+          insertText: '/eval locomo results',
+          description: 'Show the latest LOCOMO summary and comparison metrics',
         },
         {
           id: 'eval.terminal-bench-2.0',
