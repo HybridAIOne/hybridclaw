@@ -627,7 +627,6 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
         },
         codex: {
           baseUrl: 'https://chatgpt.com/backend-api/codex',
-          models: ['openai-codex/gpt-5-codex'],
         },
         local: {
           backends: {

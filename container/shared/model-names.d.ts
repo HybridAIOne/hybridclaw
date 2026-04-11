@@ -5,6 +5,11 @@ export declare function hasKnownNonHybridProviderPrefix(model: string): boolean;
 
 export declare function hasDisplayOnlyHybridAIPrefix(model: string): boolean;
 
+export declare function stripProviderPrefix(
+  model: string,
+  prefix: string,
+): string;
+
 export declare function stripHybridAIModelPrefix(model: string): string;
 
 export declare function formatHybridAIModelForCatalog(model: string): string;

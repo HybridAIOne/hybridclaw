@@ -13,7 +13,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Telegram, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -124,7 +124,7 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
@@ -216,6 +216,7 @@ export function printChannelsUsage(): void {
 
 Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+  hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -223,6 +224,9 @@ Commands:
 Notes:
   - Discord setup stores a bot token only when \`--token\` is provided.
   - Discord setup configures command-only mode and keeps guild access restricted by default.
+  - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
+  - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
+  - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
@@ -240,6 +244,7 @@ Notes:
   - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
   - Groups stay disabled by default for iMessage setup.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
+  - Telegram activates automatically when \`telegram.enabled=true\` and a bot token is configured.
   - iMessage activates automatically when \`imessage.enabled=true\`.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
@@ -453,6 +458,7 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <skill-name> <dependency>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -460,10 +466,10 @@ Commands:
   hybridclaw skill history <skill-name>
   hybridclaw skill sync [--skip-skill-scan] <source>
   hybridclaw skill import [--force] [--skip-skill-scan] <source>
-  hybridclaw skill install <skill-name> [install-id]
 
 Notes:
-  - \`list\` shows declared install options from skill frontmatter.
+  - \`list\` shows declared dependency ids from skill frontmatter.
+  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -474,7 +480,7 @@ Notes:
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
+  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
 }
 
 export function printToolUsage(): void {

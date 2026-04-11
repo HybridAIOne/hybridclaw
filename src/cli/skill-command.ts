@@ -360,9 +360,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   if (sub === 'install') {
     const skillName = normalized[1];
     const installId = normalized[2];
-    if (!skillName) {
+    if (!skillName || !installId) {
       printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill install`.');
+      throw new Error(
+        'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+      );
     }
 
     const { installSkillDependency } = await import(

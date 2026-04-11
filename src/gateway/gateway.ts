@@ -19,10 +19,7 @@ import {
   startObservabilityIngest,
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
-import {
-  buildResponseText,
-  formatError,
-} from '../channels/discord/delivery.js';
+import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
 import {
   initDiscord,
@@ -48,6 +45,15 @@ import {
 } from '../channels/imessage/runtime.js';
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
+import {
+  hasTelegramBotToken,
+  initTelegram,
+  sendTelegramMediaToChat,
+  sendToTelegramChat,
+  shutdownTelegram,
+  type TelegramReplyFn,
+} from '../channels/telegram/runtime.js';
+import { isTelegramChannelId } from '../channels/telegram/target.js';
 import {
   getWhatsAppAuthStatus,
   WhatsAppAuthLockError,
@@ -94,14 +100,18 @@ import {
   stopScheduler,
 } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
+import {
+  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
+  formatChannelGatewayFailure,
+} from './channel-gateway-failure.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
-import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
@@ -149,18 +159,32 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
-const WHATSAPP_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const WHATSAPP_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const EMAIL_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const EMAIL_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const IMESSAGE_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const IMESSAGE_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
+
+function equalStringLists(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function hasTelegramConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['telegram'],
+  prev: ReturnType<typeof getConfigSnapshot>['telegram'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.botToken !== prev.botToken ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringLists(next.allowFrom, prev.allowFrom) ||
+    !equalStringLists(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.requireMention !== prev.requireMention ||
+    next.pollIntervalMs !== prev.pollIntervalMs ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.mediaMaxMb !== prev.mediaMaxMb
+  );
+}
 
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
@@ -198,6 +222,7 @@ function logGatewayStartup(params: {
     msteams: boolean;
     email: boolean;
     imessage: boolean;
+    telegram: boolean;
     whatsapp: boolean;
   };
 }): void {
@@ -348,55 +373,6 @@ function simplifyImageAttachmentNarration(
     .trim();
   if (cleaned) return cleaned;
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
-}
-
-function formatWhatsAppGatewayFailure(
-  error: string | null | undefined,
-): string {
-  const detail = String(error || '').trim();
-  if (
-    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
-      detail,
-    )
-  ) {
-    return WHATSAPP_INTERRUPTED_REPLY;
-  }
-  if (detail && classifyGatewayError(detail) === 'transient') {
-    return WHATSAPP_TRANSIENT_FAILURE_REPLY;
-  }
-  return formatError('Agent Error', detail || 'Unknown error');
-}
-
-function formatEmailGatewayFailure(error: string | null | undefined): string {
-  const detail = String(error || '').trim();
-  if (
-    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
-      detail,
-    )
-  ) {
-    return EMAIL_INTERRUPTED_REPLY;
-  }
-  if (detail && classifyGatewayError(detail) === 'transient') {
-    return EMAIL_TRANSIENT_FAILURE_REPLY;
-  }
-  return formatError('Agent Error', detail || 'Unknown error');
-}
-
-function formatIMessageGatewayFailure(
-  error: string | null | undefined,
-): string {
-  const detail = String(error || '').trim();
-  if (
-    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
-      detail,
-    )
-  ) {
-    return IMESSAGE_INTERRUPTED_REPLY;
-  }
-  if (detail && classifyGatewayError(detail) === 'transient') {
-    return IMESSAGE_TRANSIENT_FAILURE_REPLY;
-  }
-  return formatError('Agent Error', detail || 'Unknown error');
 }
 
 function isLocalIMessageSelfChatContext(context: {
@@ -650,6 +626,40 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isTelegramChannelId(channelId)) {
+    const telegramConfig = getConfigSnapshot().telegram;
+    const hasBotToken = hasTelegramBotToken();
+    if (!telegramConfig.enabled || !hasBotToken) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Telegram message suppressed: Telegram channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToTelegramChat(channelId, text);
+      }
+      for (const artifact of artifacts || []) {
+        await sendTelegramMediaToChat({
+          target: channelId,
+          filePath: artifact.path,
+          mimeType: artifact.mimeType,
+          filename: artifact.filename,
+        });
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Telegram chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1269,7 +1279,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatWhatsAppGatewayFailure(result.error));
+            await reply(formatChannelGatewayFailure(result.error));
             return;
           }
 
@@ -1318,7 +1328,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             { error, sessionId, channelId },
             'WhatsApp message handling failed',
           );
-          await reply(formatWhatsAppGatewayFailure(text));
+          await reply(formatChannelGatewayFailure(text));
         }
       },
     );
@@ -1401,7 +1411,7 @@ async function startEmailIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatEmailGatewayFailure(result.error));
+            await reply(formatChannelGatewayFailure(result.error));
             return;
           }
 
@@ -1450,7 +1460,7 @@ async function startEmailIntegration(): Promise<boolean> {
             { error, sessionId, channelId },
             'Email message handling failed',
           );
-          await reply(formatEmailGatewayFailure(text));
+          await reply(formatChannelGatewayFailure(text));
         }
       },
     );
@@ -1460,6 +1470,166 @@ async function startEmailIntegration(): Promise<boolean> {
   }
 
   logger.info('Email integration started inside gateway');
+  return true;
+}
+
+async function startTelegramIntegration(): Promise<boolean> {
+  const telegramConfig = getConfigSnapshot().telegram;
+  const hasInboundPolicy =
+    telegramConfig.dmPolicy !== 'disabled' ||
+    telegramConfig.groupPolicy !== 'disabled';
+  const hasBotToken = hasTelegramBotToken();
+
+  if (!telegramConfig.enabled) {
+    logger.info('Telegram integration disabled: telegram.enabled=false');
+    return false;
+  }
+  if (!hasInboundPolicy) {
+    logger.info('Telegram integration disabled: transport is off');
+    return false;
+  }
+  if (!hasBotToken) {
+    logger.info(
+      'Telegram integration disabled: TELEGRAM_BOT_TOKEN is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initTelegram(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply: TelegramReplyFn,
+        context,
+      ) => {
+        try {
+          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
+            sessionId,
+            userId,
+            content,
+          });
+          if (implicitApprovalArgs) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            await handleTextChannelCommand({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              args: implicitApprovalArgs,
+              reply: bridgedReply,
+            });
+            return;
+          }
+
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: bridgedReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'telegram',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayFailure(result.error));
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            );
+            await reply(responseText);
+          }
+          for (const artifact of artifacts) {
+            try {
+              await sendTelegramMediaToChat({
+                target: channelId,
+                filePath: artifact.path,
+                mimeType: artifact.mimeType,
+                filename: artifact.filename,
+              });
+            } catch (error) {
+              logger.warn(
+                { error, channelId, artifactPath: artifact.path },
+                'Failed to send Telegram artifact',
+              );
+            }
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Telegram message handling failed',
+          );
+          await reply(formatChannelGatewayFailure(text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'Telegram integration failed to start');
+    return false;
+  }
+
+  logger.info('Telegram integration started inside gateway');
   return true;
 }
 
@@ -1486,6 +1656,31 @@ async function refreshEmailIntegrationForConfigChange(
     );
   });
   await startEmailIntegration();
+}
+
+async function refreshTelegramIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasTelegramConfigChanged(next.telegram, prev.telegram)) return;
+
+  logger.info(
+    {
+      enabled: next.telegram.enabled,
+      dmPolicy: next.telegram.dmPolicy,
+      groupPolicy: next.telegram.groupPolicy,
+      pollIntervalMs: next.telegram.pollIntervalMs,
+      requireMention: next.telegram.requireMention,
+    },
+    'Config changed, restarting Telegram integration',
+  );
+  await shutdownTelegram().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Telegram runtime during config-change restart',
+    );
+  });
+  await startTelegramIntegration();
 }
 
 async function startIMessageIntegration(): Promise<boolean> {
@@ -1550,9 +1745,9 @@ async function startIMessageIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            const failureText = formatIMessageGatewayFailure(result.error);
+            const failureText = formatChannelGatewayFailure(result.error);
             if (
-              failureText === IMESSAGE_INTERRUPTED_REPLY &&
+              failureText === DEFAULT_CHANNEL_INTERRUPTED_REPLY &&
               isLocalIMessageSelfChatContext(context)
             ) {
               return;
@@ -1634,6 +1829,12 @@ function setupShutdown(broadcastShutdown: () => void): void {
     });
     await shutdownEmail().catch((error) => {
       logger.debug({ error }, 'Failed to stop email runtime during shutdown');
+    });
+    await shutdownTelegram().catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to stop Telegram runtime during shutdown',
+      );
     });
     await shutdownWhatsApp().catch((error) => {
       logger.debug(
@@ -1865,6 +2066,7 @@ async function main(): Promise<void> {
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
+  const telegramActive = await startTelegramIntegration();
   const whatsappActive = await startWhatsAppIntegration();
   const imessageActive = await startIMessageIntegration();
 
@@ -1884,6 +2086,14 @@ async function main(): Promise<void> {
         'Email integration restart failed after config change',
       );
     });
+    void refreshTelegramIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'Telegram integration restart failed after config change',
+        );
+      },
+    );
 
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
@@ -1966,6 +2176,7 @@ async function main(): Promise<void> {
       msteams: msteamsActive,
       email: emailActive,
       imessage: imessageActive,
+      telegram: telegramActive,
       whatsapp: whatsappActive,
     },
   });

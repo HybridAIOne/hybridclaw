@@ -240,11 +240,17 @@ describe('runtime config migration logging', () => {
     expect(stored.mcpServers.validSse.url).toBe('https://example.com/mcp');
   });
 
-  it('expands the legacy single-entry Codex model list on startup', async () => {
+  it('drops stale Codex model lists on startup', async () => {
     const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir, (config) => {
-      config.codex.models = ['openai-codex/gpt-5-codex'];
-    });
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    writeRuntimeConfig(homeDir);
+    const raw = JSON.parse(
+      fs.readFileSync(configPath, 'utf-8'),
+    ) as RuntimeConfig;
+    (raw.codex as Record<string, unknown>).models = [
+      'openai-codex/gpt-5-codex',
+    ];
+    fs.writeFileSync(configPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf-8');
 
     await importFreshRuntimeConfig(homeDir);
 
@@ -255,16 +261,7 @@ describe('runtime config migration logging', () => {
       ),
     ) as RuntimeConfig;
 
-    expect(stored.codex.models).toEqual([
-      'openai-codex/gpt-5-codex',
-      'openai-codex/gpt-5.3-codex',
-      'openai-codex/gpt-5.4',
-      'openai-codex/gpt-5.3-codex-spark',
-      'openai-codex/gpt-5.2-codex',
-      'openai-codex/gpt-5.1-codex-max',
-      'openai-codex/gpt-5.2',
-      'openai-codex/gpt-5.1-codex-mini',
-    ]);
+    expect(stored.codex).not.toHaveProperty('models');
   });
 
   it('normalizes per-channel disabled skills on startup', async () => {

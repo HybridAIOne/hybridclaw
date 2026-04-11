@@ -4,6 +4,7 @@ import path from 'node:path';
 import { type Attachment, type ParsedMail, simpleParser } from 'mailparser';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
+import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { matchesEmailAllowList, normalizeEmailAddress } from './allowlist.js';
@@ -137,24 +138,18 @@ async function extractAttachments(
   );
   if (accepted.length === 0) return [];
 
-  const tempDir = await fs.mkdtemp(
-    path.join(os.tmpdir(), EMAIL_MEDIA_TMP_PREFIX),
-  );
-
   const media: MediaContextItem[] = [];
   for (let index = 0; index < accepted.length; index += 1) {
     const attachment = accepted[index];
     const filename = buildAttachmentFilename(attachment, index);
-    const filePath = path.join(tempDir, filename);
-    await fs.writeFile(filePath, attachment.content);
-    media.push({
-      path: filePath,
-      url: `file://${filePath}`,
-      originalUrl: `file://${filePath}`,
-      mimeType: attachment.contentType || null,
-      sizeBytes: attachment.size,
-      filename,
-    });
+    media.push(
+      await createUploadedMediaContextItem({
+        attachmentName: filename,
+        buffer: attachment.content,
+        mimeType: attachment.contentType || null,
+        sizeBytes: attachment.size,
+      }),
+    );
   }
   return media;
 }

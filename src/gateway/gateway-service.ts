@@ -1767,6 +1767,31 @@ function resolveGatewayPasswordStatus(params: {
   };
 }
 
+function resolveGatewayTokenStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['telegram']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      tokenConfigured: Boolean(credential.value),
+      tokenSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    tokenConfigured: Boolean(configValue),
+    tokenSource: configValue ? 'config' : null,
+  };
+}
+
 function buildOpenRouterAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
@@ -2687,6 +2712,12 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     tokenConfigured: Boolean(discordCredential.value),
     tokenSource: discordCredential.source,
   } as NonNullable<GatewayStatus['discord']>;
+  const telegram = resolveGatewayTokenStatus({
+    storedSecretName: 'TELEGRAM_BOT_TOKEN',
+    envValues: [process.env.TELEGRAM_BOT_TOKEN],
+    configValue: runtimeConfig.telegram.botToken,
+    storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
+  });
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
     envValues: [process.env.EMAIL_PASSWORD],
@@ -2728,6 +2759,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       jobs: getSchedulerStatus(),
     },
     discord,
+    telegram,
     email,
     imessage,
     whatsapp: {
@@ -7328,6 +7360,8 @@ export async function handleGatewayCommand(
         return await handleSkillCommand({
           args: req.args,
           sessionAgentId: resolveSessionAgentId(session),
+          guildId: req.guildId,
+          channelId: req.channelId,
           badCommand,
           infoCommand: (title, text) => infoCommand(title, text),
           plainCommand,

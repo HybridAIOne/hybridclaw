@@ -1,4 +1,7 @@
-import { stripHybridAIModelPrefix } from '../providers/model-names.js';
+import {
+  stripHybridAIModelPrefix,
+  stripProviderPrefix,
+} from '../providers/model-names.js';
 import {
   isOpenAICompatProviderId,
   type RuntimeProviderId,
@@ -110,11 +113,7 @@ function normalizeOpenAICompatModelName(
 }
 
 function normalizeCodexModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = 'openai-codex/';
-  return trimmed.toLowerCase().startsWith(prefix)
-    ? trimmed.slice(prefix.length) || trimmed
-    : trimmed;
+  return stripProviderPrefix(model, 'openai-codex');
 }
 
 function contentToText(content: ChatMessage['content']): string {

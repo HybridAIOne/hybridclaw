@@ -32,16 +32,28 @@ export function hasDisplayOnlyHybridAIPrefix(model) {
   );
 }
 
-export function stripHybridAIModelPrefix(model) {
+export function stripProviderPrefix(model, prefix) {
   const normalized = String(model || '').trim();
-  if (!normalized.toLowerCase().startsWith(HYBRIDAI_MODEL_PREFIX)) {
+  const normalizedPrefix = `${String(prefix || '')
+    .trim()
+    .replace(/\/+$/g, '')}/`;
+  if (!normalizedPrefix || normalizedPrefix === '/') {
     return normalized;
   }
-  return normalized.slice(HYBRIDAI_MODEL_PREFIX.length).trim();
+  if (!normalized.toLowerCase().startsWith(normalizedPrefix.toLowerCase())) {
+    return normalized;
+  }
+  const upstreamModel = normalized.slice(normalizedPrefix.length).trim();
+  return upstreamModel || normalized;
+}
+
+export function stripHybridAIModelPrefix(model) {
+  return stripProviderPrefix(model, HYBRIDAI_MODEL_PREFIX);
 }
 
 export function formatHybridAIModelForCatalog(model) {
   const normalized = stripHybridAIModelPrefix(model);
+  if (normalized.toLowerCase() === HYBRIDAI_MODEL_PREFIX) return '';
   if (!normalized) return '';
   return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;
 }

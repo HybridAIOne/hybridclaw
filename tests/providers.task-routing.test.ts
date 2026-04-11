@@ -422,7 +422,6 @@ test('warns when no vision fallback is available after OpenRouter discovery refr
     config.openrouter.models = ['openrouter/acme/text-only'];
     config.hybridai.defaultModel = 'gpt-5-nano';
     config.hybridai.models = ['gpt-5-nano'];
-    config.codex.models = ['openai-codex/gpt-5.3-codex-spark'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -486,7 +485,6 @@ test('returns a deferred policy error when fallback credential resolution fails'
     config.openrouter.enabled = false;
     config.hybridai.defaultModel = 'gpt-5-nano';
     config.hybridai.models = ['gpt-5-nano'];
-    config.codex.models = ['openai-codex/gpt-5.1-codex-max'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;

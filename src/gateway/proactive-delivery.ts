@@ -1,5 +1,6 @@
 import { isEmailAddress as isNormalizedEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { QueuedProactiveMessage } from '../memory/db.js';
 
@@ -20,6 +21,7 @@ export function isSupportedProactiveChannelId(channelId: string): boolean {
   if (isDiscordChannelId(trimmed)) return true;
   if (isWhatsAppJid(trimmed)) return true;
   if (isIMessageHandle(trimmed)) return true;
+  if (isTelegramChannelId(trimmed)) return true;
   if (isEmailAddress(trimmed)) return true;
   return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(trimmed);
 }

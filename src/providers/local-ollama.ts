@@ -8,6 +8,7 @@ import {
   resolveLocalModelThinkingFormat,
   resolveOllamaApiBase,
 } from './local-discovery.js';
+import { stripProviderPrefix } from './model-names.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -17,9 +18,7 @@ import type {
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 
 function normalizeOllamaModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  if (!trimmed.toLowerCase().startsWith(OLLAMA_MODEL_PREFIX)) return trimmed;
-  return trimmed.slice(OLLAMA_MODEL_PREFIX.length) || trimmed;
+  return stripProviderPrefix(model, 'ollama');
 }
 
 async function resolveOllamaRuntimeCredentials(

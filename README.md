@@ -9,21 +9,29 @@
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
-<img width="420" height="397" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
+<img width="420" height="397" alt="HybridClaw - Enterprise-ready self-hosted AI assistant runtime" src="docs/hero.png" />
 
 ## All of the Claw, None of the Chaos
-### Your enterprise operating layer for open agents
+### Enterprise-ready self-hosted AI assistant runtime
 
-Self-hosted, controllable, and built for real business workflows.
+HybridClaw is a self-hosted AI assistant runtime for teams that need control,
+security, and operational visibility. It combines sandboxed execution, secure
+credentials, approvals, persistent memory, and admin surfaces behind a single
+gateway.
 
-Most open agent stacks are optimized for experimentation and breadth.
+Connect it to Discord, WhatsApp, Telegram, Microsoft Teams, email, or the web. Run it
+locally, deploy it for business workflows, and keep your agents, secrets, and
+data under your control.
 
-HybridClaw is optimized for enterprise deployment:
-- controlled execution
-- shared knowledge
-- observability
-- repeatable enterprise workflows
-- local-first deployment
+## Coming from OpenClaw or Hermes?
+
+```bash
+hybridclaw migrate openclaw --dry-run
+hybridclaw migrate hermes --dry-run
+```
+
+Preview and import compatible state from OpenClaw or Hermes in minutes.
+Imports compatible skills, memory, config, and optional secrets.
 
 ## HybridAI Platform Advantage
 
@@ -60,16 +68,6 @@ Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives at
 [hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
-## Coming from OpenClaw or Hermes?
-
-```bash
-hybridclaw migrate openclaw --dry-run
-hybridclaw migrate hermes --dry-run
-```
-
-Preview and import compatible state from OpenClaw or Hermes in minutes.
-Imports compatible skills, memory, config, and optional secrets.
-
 ## See it in Action
 
 Once the gateway is running, open HybridClaw locally:
@@ -77,7 +75,7 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Whatsapp, Discord, MS Teams, Email
+- or connect WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## How HybridClaw compares
 
@@ -101,9 +99,10 @@ Once the gateway is running, open HybridClaw locally:
 | Workflow builder vs agent runtime | Agent runtime | Framework for building agent systems | Visual workflow builder |
 | Enterprise controls | ✅ Approvals, audit, sandbox, encrypted secrets | ⚠️ You build them | ⚠️ Workflow-level controls |
 
-## Built for enterprise operations
+## Security and governance built in
 
-- encrypted secrets
+- secure credential storage
+- sandboxed execution
 - approvals
 - audit trails with hash chain
 - config versioning and backup/rollback
@@ -125,7 +124,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Microsoft Teams, iMessage, WhatsApp, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt
@@ -138,35 +137,35 @@ Browse the full manual at
 [hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
 
 - Getting started:
-  [Installation](https://www.hybridclaw.io/docs/development/getting-started/installation),
-  [Authentication](https://www.hybridclaw.io/docs/development/getting-started/authentication), and
-  [Quick Start](https://www.hybridclaw.io/docs/development/getting-started/quickstart)
+  [Installation](https://www.hybridclaw.io/docs/getting-started/installation),
+  [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
+  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/development/internals/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/development/internals/architecture)
+  [Runtime Internals](https://www.hybridclaw.io/docs/internals/runtime) and
+  [Architecture](https://www.hybridclaw.io/docs/internals/architecture)
 - Operations:
-  [Remote Access](https://www.hybridclaw.io/docs/development/guides/remote-access)
+  [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
-  [Commands: Migration](https://www.hybridclaw.io/docs/development/reference/commands#migration) and
-  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
+  [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
+  [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](https://www.hybridclaw.io/docs/development/getting-started/channels),
+  [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
   [iMessage](https://www.hybridclaw.io/docs/imessage), and
   [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
-  [Extensibility](https://www.hybridclaw.io/docs/development/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/development/guides/bundled-skills),
-  [Plugin System](https://www.hybridclaw.io/docs/development/extensibility/plugins),
-  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/honcho-memory-plugin), and
-  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/development/extensibility/mempalace-memory-plugin)
+  [Extensibility](https://www.hybridclaw.io/docs/extensibility),
+  [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
+  [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
 - Configuration:
-  [Configuration Reference](https://www.hybridclaw.io/docs/development/reference/configuration)
+  [Configuration Reference](https://www.hybridclaw.io/docs/reference/configuration)
 - CLI reference:
-  [Commands](https://www.hybridclaw.io/docs/development/reference/commands),
-  [Diagnostics](https://www.hybridclaw.io/docs/development/reference/diagnostics), and
-  [FAQ](https://www.hybridclaw.io/docs/development/reference/faq)
+  [Commands](https://www.hybridclaw.io/docs/reference/commands),
+  [Diagnostics](https://www.hybridclaw.io/docs/reference/diagnostics), and
+  [FAQ](https://www.hybridclaw.io/docs/reference/faq)
 
 ## Contributing
 

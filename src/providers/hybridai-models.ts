@@ -18,6 +18,7 @@ const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
   'gpt-5.2',
   'gpt-5.2-codex',
   'gpt-5.2-pro',
+  'gpt-5.4-mini',
   'gpt-5.3-codex',
   'gpt-5.4',
 
@@ -78,6 +79,7 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5.2-chat-latest': 128_000,
   'gpt-5.2-codex': 400_000,
   'gpt-5.2-pro': 400_000,
+  'gpt-5.4-mini': 272_000,
   'gpt-5.4': 400_000,
   'gpt-5.3-codex': 400_000,
   'gpt-5.3-codex-spark': 128_000,

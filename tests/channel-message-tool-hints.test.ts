@@ -4,6 +4,7 @@ import {
   DISCORD_CAPABILITIES,
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
+  TELEGRAM_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
 } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
@@ -211,6 +212,43 @@ test('resolves Teams hints from explicit Teams context', () => {
     ),
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('post or upload it here'))).toBe(
+    true,
+  );
+});
+
+test('resolves Telegram hints from explicit Telegram context', () => {
+  registerChannel({
+    kind: 'telegram',
+    id: 'telegram',
+    capabilities: TELEGRAM_CAPABILITIES,
+  });
+
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'telegram',
+      channelId: 'telegram:-1001234567890:topic:42',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(
+    hints.some((entry) =>
+      entry.includes(
+        'Current Telegram chat: `telegram:-1001234567890:topic:42`',
+      ),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('Telegram topic targets'))).toBe(
+    true,
+  );
+  expect(
+    hints.some((entry) =>
+      entry.includes(
+        'Do not ask for a phone number when a valid Telegram `telegram:<chatId>` target is already available.',
+      ),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('group or topic thread'))).toBe(
     true,
   );
 });

@@ -216,6 +216,9 @@ test('resolveSessionResetChannelKind infers real channel kinds from channel ids'
   expect(resolveSessionResetChannelKind('491234567890@s.whatsapp.net')).toBe(
     'whatsapp',
   );
+  expect(
+    resolveSessionResetChannelKind('telegram:-1001234567890:topic:42'),
+  ).toBe('telegram');
   expect(resolveSessionResetChannelKind('peer@example.com')).toBe('email');
   expect(resolveSessionResetChannelKind('imessage:peer@example.com')).toBe(
     'imessage',
