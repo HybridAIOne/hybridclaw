@@ -23,7 +23,8 @@ or restore tracked config snapshots.
 ## Runtime Files
 
 - `~/.hybridclaw/config.json` for typed runtime config
-- `~/.hybridclaw/credentials.json` for encrypted runtime secrets
+- `~/.hybridclaw/credentials.json` for encrypted runtime secrets, including
+  Google Workspace OAuth client/token state
 - `~/.hybridclaw/credentials.master.key` for the local owner-only fallback
   master key when no external key source is configured
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
@@ -168,7 +169,8 @@ Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`,
 `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`,
-`IMESSAGE_PASSWORD`, and `MSTEAMS_APP_PASSWORD`.
+`IMESSAGE_PASSWORD`, `MSTEAMS_APP_PASSWORD`, and the stored Google Workspace
+OAuth client/token payloads used by `auth login google-workspace`.
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is

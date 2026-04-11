@@ -218,6 +218,30 @@ async function importFreshCli(options?: {
       expiresAt: number;
     };
   };
+  googleWorkspaceStatus?: {
+    authenticated: boolean;
+    path: string;
+    clientConfigured: boolean;
+    pendingAuthorization: boolean;
+    refreshTokenConfigured: boolean;
+    reloginRequired: boolean;
+    expiresAt: number | null;
+    scopes: string[];
+  };
+  googleWorkspaceClientSecretResult?: {
+    path: string;
+    clientId: string;
+  };
+  googleWorkspaceStartResult?: {
+    path: string;
+    authUrl: string;
+    redirectUri: string;
+  };
+  googleWorkspaceExchangeResult?: {
+    path: string;
+    expiresAt: number;
+    scopes: string[];
+  };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
   gatewayStatusSandboxMode?: 'host' | 'container' | null;
@@ -493,6 +517,44 @@ async function importFreshCli(options?: {
           accountId: 'acct_default',
           expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
         },
+      },
+  );
+  const clearGoogleWorkspaceCredentials = vi.fn(() => '/tmp/credentials.json');
+  const getGoogleWorkspaceAuthStatus = vi.fn(
+    () =>
+      options?.googleWorkspaceStatus || {
+        authenticated: false,
+        path: '/tmp/credentials.json',
+        clientConfigured: false,
+        pendingAuthorization: false,
+        refreshTokenConfigured: false,
+        reloginRequired: false,
+        expiresAt: null,
+        scopes: [],
+      },
+  );
+  const saveGoogleWorkspaceClientSecretFile = vi.fn(
+    () =>
+      options?.googleWorkspaceClientSecretResult || {
+        path: '/tmp/credentials.json',
+        clientId: 'client-id.apps.googleusercontent.com',
+      },
+  );
+  const startGoogleWorkspaceAuth = vi.fn(
+    () =>
+      options?.googleWorkspaceStartResult || {
+        path: '/tmp/credentials.json',
+        authUrl:
+          'https://accounts.google.com/o/oauth2/v2/auth?client_id=client-id.apps.googleusercontent.com',
+        redirectUri: 'http://localhost:1',
+      },
+  );
+  const exchangeGoogleWorkspaceAuthCode = vi.fn(
+    async () =>
+      options?.googleWorkspaceExchangeResult || {
+        path: '/tmp/credentials.json',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        scopes: ['https://www.googleapis.com/auth/calendar'],
       },
   );
   const printUpdateUsage = vi.fn();
@@ -1080,6 +1142,13 @@ async function importFreshCli(options?: {
     getCodexAuthStatus,
     loginCodexInteractive,
   }));
+  vi.doMock('../src/auth/google-workspace-auth.ts', () => ({
+    clearGoogleWorkspaceCredentials,
+    exchangeGoogleWorkspaceAuthCode,
+    getGoogleWorkspaceAuthStatus,
+    saveGoogleWorkspaceClientSecretFile,
+    startGoogleWorkspaceAuth,
+  }));
   vi.doMock('../src/config/cli-flags.ts', () => ({
     findUnsupportedGatewayLifecycleFlag: vi.fn(() => null),
     parseGatewayFlags: vi.fn(() => ({
@@ -1269,10 +1338,15 @@ async function importFreshCli(options?: {
     cli,
     clearHybridAICredentials,
     clearCodexCredentials,
+    clearGoogleWorkspaceCredentials,
+    exchangeGoogleWorkspaceAuthCode,
     getCodexAuthStatus,
+    getGoogleWorkspaceAuthStatus,
     getHybridAIAuthStatus,
     loginCodexInteractive,
     loginHybridAIInteractive,
+    saveGoogleWorkspaceClientSecretFile,
+    startGoogleWorkspaceAuth,
     printUpdateUsage,
     runUpdateCommand,
     runDoctorCli,
@@ -1348,6 +1422,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/auth/codex-auth.ts');
+  vi.doUnmock('../src/auth/google-workspace-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/config/runtime-config.ts');
@@ -3698,6 +3773,32 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('routes auth login google-workspace through the stepwise OAuth flow', async () => {
+    const {
+      cli,
+      exchangeGoogleWorkspaceAuthCode,
+      saveGoogleWorkspaceClientSecretFile,
+      startGoogleWorkspaceAuth,
+    } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'google-workspace',
+      '--client-secret',
+      '/tmp/client_secret.json',
+      '--auth-url',
+    ]);
+
+    expect(saveGoogleWorkspaceClientSecretFile).toHaveBeenCalledWith(
+      '/tmp/client_secret.json',
+    );
+    expect(startGoogleWorkspaceAuth).toHaveBeenCalled();
+    expect(exchangeGoogleWorkspaceAuthCode).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Google Workspace OAuth prepared.');
+  });
+
   it('routes auth login local to local backend configuration', async () => {
     const { cli, updateRuntimeConfig } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -3828,6 +3929,44 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
     expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
+  });
+
+  it('prints Google Workspace status through auth status', async () => {
+    const { cli } = await importFreshCli({
+      googleWorkspaceStatus: {
+        authenticated: true,
+        path: '/tmp/credentials.json',
+        clientConfigured: true,
+        pendingAuthorization: false,
+        refreshTokenConfigured: true,
+        reloginRequired: false,
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        scopes: [
+          'https://www.googleapis.com/auth/calendar',
+          'https://www.googleapis.com/auth/drive.readonly',
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'google-workspace']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Client secret: configured');
+    expect(logSpy).toHaveBeenCalledWith('Refresh token: configured');
+    expect(logSpy).toHaveBeenCalledWith('Granted scopes: 2');
+  });
+
+  it('clears Google Workspace credentials through auth logout', async () => {
+    const { cli, clearGoogleWorkspaceCredentials } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'google-workspace']);
+
+    expect(clearGoogleWorkspaceCredentials).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared Google Workspace OAuth token in /tmp/credentials.json.',
+    );
   });
 
   it('configures OpenRouter from auth login with --api-key', async () => {

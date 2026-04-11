@@ -183,9 +183,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth login <hybridai|codex|google-workspace|openrouter|mistral|huggingface|local|msteams> ...
+  hybridclaw auth status <hybridai|codex|google-workspace|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth logout <hybridai|codex|google-workspace|openrouter|mistral|huggingface|local|msteams>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -193,6 +193,9 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login google-workspace --client-secret /path/to/client_secret.json
+  hybridclaw auth login google-workspace --auth-url
+  hybridclaw auth login google-workspace --auth-code "http://localhost:1/?code=..."
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
@@ -204,8 +207,10 @@ Examples:
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
+  hybridclaw auth status google-workspace
   hybridclaw auth status msteams
   hybridclaw auth logout codex
+  hybridclaw auth logout google-workspace
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout msteams
@@ -214,6 +219,7 @@ Notes:
   - \`auth login\` without a provider runs the normal interactive onboarding flow.
   - \`local logout\` disables configured local backends and clears any saved vLLM API key.
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
+  - \`auth login google-workspace\` stores the OAuth client secret, pending PKCE state, and refreshable token in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
@@ -349,6 +355,21 @@ Notes:
   - \`--tenant-id\` is optional.
   - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
   - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
+}
+
+export function printGoogleWorkspaceUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login google-workspace [--client-secret <path>] [--auth-url|--auth-code <code-or-url>]
+  hybridclaw auth status google-workspace
+  hybridclaw auth logout google-workspace
+
+Notes:
+  - \`--client-secret <path>\` stores a Google OAuth desktop client JSON in ${runtimeSecretsPath()}.
+  - \`--auth-url\` creates a pending PKCE session and prints the Google consent URL.
+  - \`--auth-code <code-or-url>\` exchanges a pasted authorization code or final redirect URL for a refreshable token.
+  - The current built-in scope bundle covers Gmail, Calendar, Drive, Docs, Sheets, and Contacts.
+  - With no flags in an interactive terminal, HybridClaw prompts for the client secret path if needed, prints the auth URL, and then prompts for the pasted redirect URL or code.
+  - \`auth logout google-workspace\` clears the stored OAuth token and pending session but keeps the saved client secret for future re-login.`);
 }
 
 export function printCodexUsage(): void {
@@ -626,6 +647,7 @@ Topics:
   config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
+  google-workspace Help for Google Workspace OAuth setup/status/logout commands
   openrouter  Help for OpenRouter setup/status/logout commands
   mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
@@ -708,6 +730,11 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'msteams':
     case 'teams':
       printMSTeamsUsage();
+      return true;
+    case 'google-workspace':
+    case 'googleworkspace':
+    case 'gws':
+      printGoogleWorkspaceUsage();
       return true;
     case 'local':
       printLocalUsage();

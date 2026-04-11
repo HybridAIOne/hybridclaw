@@ -26,6 +26,7 @@ import {
   isHelpRequest,
   printAuthUsage,
   printCodexUsage,
+  printGoogleWorkspaceUsage,
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
@@ -39,6 +40,7 @@ import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
 type HybridAIAuthApi = typeof import('../auth/hybridai-auth.js');
 type CodexAuthApi = typeof import('../auth/codex-auth.js');
+type GoogleWorkspaceAuthApi = typeof import('../auth/google-workspace-auth.js');
 
 const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
   () => import('../auth/hybridai-auth.js'),
@@ -47,6 +49,10 @@ const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
 const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
+);
+const googleWorkspaceAuthApiState = makeLazyApi<GoogleWorkspaceAuthApi>(
+  () => import('../auth/google-workspace-auth.js'),
+  'Google Workspace auth API accessed before it was initialized. Call ensureGoogleWorkspaceAuthApi() first.',
 );
 const CONFIGURED_SECRET_STATUS = 'configured';
 
@@ -64,6 +70,14 @@ async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
 
 function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
+}
+
+async function ensureGoogleWorkspaceAuthApi(): Promise<GoogleWorkspaceAuthApi> {
+  return googleWorkspaceAuthApiState.ensure();
+}
+
+function getGoogleWorkspaceAuthApi(): GoogleWorkspaceAuthApi {
+  return googleWorkspaceAuthApiState.get();
 }
 
 function parseExclusiveLoginMethodFlag<T extends string>(
@@ -123,6 +137,12 @@ interface ParsedHybridAILoginArgs {
   baseUrl?: string;
 }
 
+interface ParsedGoogleWorkspaceLoginArgs {
+  clientSecretPath: string | null;
+  authCode: string | null;
+  printAuthUrl: boolean;
+}
+
 function extractBaseUrlArg(args: string[]): {
   baseUrl?: string;
   remaining: string[];
@@ -166,6 +186,64 @@ function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
   return {
     method,
     ...(baseUrl ? { baseUrl } : {}),
+  };
+}
+
+function parseGoogleWorkspaceLoginArgs(
+  args: string[],
+): ParsedGoogleWorkspaceLoginArgs {
+  let clientSecretPath: string | null = null;
+  let authCode: string | null = null;
+  let printAuthUrl = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const clientSecretFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--client-secret',
+      placeholder: '<path>',
+      allowEmptyEquals: true,
+    });
+    if (clientSecretFlag) {
+      clientSecretPath = clientSecretFlag.value || null;
+      index = clientSecretFlag.nextIndex;
+      continue;
+    }
+    const authCodeFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--auth-code',
+      placeholder: '<code-or-url>',
+      allowEmptyEquals: true,
+    });
+    if (authCodeFlag) {
+      authCode = authCodeFlag.value || null;
+      index = authCodeFlag.nextIndex;
+      continue;
+    }
+    if (arg === '--auth-url') {
+      printAuthUrl = true;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login google-workspace [--client-secret <path>] [--auth-url|--auth-code <code-or-url>]\`.`,
+    );
+  }
+
+  if (printAuthUrl && authCode) {
+    throw new Error('Use only one of `--auth-url` or `--auth-code <value>`.');
+  }
+
+  return {
+    clientSecretPath,
+    authCode,
+    printAuthUrl,
   };
 }
 
@@ -492,6 +570,7 @@ async function configureHuggingFace(args: string[]): Promise<void> {
 type UnifiedProvider =
   | 'hybridai'
   | 'codex'
+  | 'google-workspace'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -514,6 +593,15 @@ function normalizeUnifiedProvider(
   }
   if (normalized === 'codex' || normalized === 'openai-codex') {
     return 'codex';
+  }
+  if (
+    normalized === 'google-workspace' ||
+    normalized === 'googleworkspace' ||
+    normalized === 'google_workspace' ||
+    normalized === 'gworkspace' ||
+    normalized === 'gws'
+  ) {
+    return 'google-workspace';
   }
   if (normalized === 'openrouter' || normalized === 'or') {
     return 'openrouter';
@@ -562,7 +650,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`google-workspace\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -576,7 +664,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`google-workspace\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -625,6 +713,33 @@ function printOpenRouterStatus(): void {
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
   console.log('Catalog: auto-discovered');
+}
+
+function printGoogleWorkspaceStatus(): void {
+  const status = getGoogleWorkspaceAuthApi().getGoogleWorkspaceAuthStatus();
+
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  console.log(
+    `Client secret: ${status.clientConfigured ? CONFIGURED_SECRET_STATUS : 'not set'}`,
+  );
+  console.log(
+    `Pending auth session: ${status.pendingAuthorization ? 'yes' : 'no'}`,
+  );
+  console.log(
+    `Refresh token: ${status.refreshTokenConfigured ? CONFIGURED_SECRET_STATUS : 'not set'}`,
+  );
+  console.log(`Relogin required: ${status.reloginRequired ? 'yes' : 'no'}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Access token: ${CONFIGURED_SECRET_STATUS}`);
+    if (status.expiresAt) {
+      console.log(`Expires: ${new Date(status.expiresAt).toISOString()}`);
+    }
+    if (status.scopes.length > 0) {
+      console.log(`Granted scopes: ${status.scopes.length}`);
+    }
+  }
 }
 
 function printMistralStatus(): void {
@@ -713,6 +828,15 @@ function clearHuggingFaceCredentials(): void {
   console.log(`Cleared Hugging Face credentials in ${filePath}.`);
   console.log(
     'If HF_TOKEN is still exported in your shell, unset it separately.',
+  );
+}
+
+function clearGoogleWorkspaceCredentials(): void {
+  const filePath =
+    getGoogleWorkspaceAuthApi().clearGoogleWorkspaceCredentials();
+  console.log(`Cleared Google Workspace OAuth token in ${filePath}.`);
+  console.log(
+    'Stored Google Workspace client secret was kept. Re-run `hybridclaw auth login google-workspace` to authorize again.',
   );
 }
 
@@ -858,6 +982,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'codex') {
     printCodexUsage();
+    return;
+  }
+  if (provider === 'google-workspace') {
+    printGoogleWorkspaceUsage();
     return;
   }
   if (provider === 'openrouter') {
@@ -1116,7 +1244,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`google-workspace\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1130,6 +1258,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'codex') {
     await handleCodexCommand(['login', ...parsed.remaining]);
+    return;
+  }
+  if (parsed.provider === 'google-workspace') {
+    await configureGoogleWorkspaceAuth(parsed.remaining);
     return;
   }
   if (parsed.provider === 'openrouter') {
@@ -1247,6 +1379,15 @@ async function dispatchProviderAction(
     await handleCodexCommand([action]);
     return;
   }
+  if (provider === 'google-workspace') {
+    await ensureGoogleWorkspaceAuthApi();
+    if (action === 'status') {
+      printGoogleWorkspaceStatus();
+      return;
+    }
+    clearGoogleWorkspaceCredentials();
+    return;
+  }
   if (provider === 'openrouter') {
     if (action === 'status') {
       printOpenRouterStatus();
@@ -1299,7 +1440,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`google-workspace\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -1541,6 +1682,111 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   console.log(
     `  Expose ${nextConfig.msteams.webhook.path} on your public HTTPS endpoint and register it in the Teams bot channel`,
   );
+}
+
+async function configureGoogleWorkspaceAuth(args: string[]): Promise<void> {
+  await ensureGoogleWorkspaceAuthApi();
+  const parsed = parseGoogleWorkspaceLoginArgs(args);
+  let clientConfigured =
+    getGoogleWorkspaceAuthApi().getGoogleWorkspaceAuthStatus().clientConfigured;
+
+  const saveClientSecretFromPath = (secretPath: string): void => {
+    const result =
+      getGoogleWorkspaceAuthApi().saveGoogleWorkspaceClientSecretFile(
+        secretPath,
+      );
+    clientConfigured = true;
+    console.log(`Saved Google Workspace client secret to ${result.path}.`);
+    console.log(`Client ID: ${result.clientId}`);
+  };
+
+  if (parsed.clientSecretPath) {
+    saveClientSecretFromPath(parsed.clientSecretPath);
+  }
+
+  if (!clientConfigured) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      throw new Error(
+        'Google Workspace client secret is not configured. Pass `--client-secret <path>` first, then use `--auth-url` and `--auth-code <code-or-url>` to finish login.',
+      );
+    }
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const secretPath = await promptWithDefault({
+        rl,
+        question: 'Path to Google OAuth client secret JSON',
+        required: true,
+      });
+      saveClientSecretFromPath(secretPath);
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (parsed.authCode) {
+    const result =
+      await getGoogleWorkspaceAuthApi().exchangeGoogleWorkspaceAuthCode(
+        parsed.authCode,
+      );
+    console.log(`Saved Google Workspace OAuth token to ${result.path}.`);
+    console.log(`Expires: ${new Date(result.expiresAt).toISOString()}`);
+    console.log(`Granted scopes: ${result.scopes.length}`);
+    return;
+  }
+
+  if (parsed.printAuthUrl) {
+    const result = getGoogleWorkspaceAuthApi().startGoogleWorkspaceAuth();
+    console.log('Google Workspace OAuth prepared.');
+    console.log(`Path: ${result.path}`);
+    console.log(`Auth URL: ${result.authUrl}`);
+    console.log(`Redirect URI: ${result.redirectUri}`);
+    console.log('Next:');
+    console.log(
+      '  hybridclaw auth login google-workspace --auth-code "<redirect-url-or-code>"',
+    );
+    return;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log('Next:');
+    console.log('  hybridclaw auth login google-workspace --auth-url');
+    console.log(
+      '  hybridclaw auth login google-workspace --auth-code "<redirect-url-or-code>"',
+    );
+    return;
+  }
+
+  const startResult = getGoogleWorkspaceAuthApi().startGoogleWorkspaceAuth();
+  console.log('Google Workspace OAuth');
+  console.log(`Auth URL: ${startResult.authUrl}`);
+  console.log(`Redirect URI: ${startResult.redirectUri}`);
+  console.log(
+    'Open the URL in your browser, authorize HybridClaw, then paste the final redirect URL or authorization code here.',
+  );
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const authCode = await promptWithDefault({
+      rl,
+      question: 'Authorization code or redirect URL',
+      required: true,
+    });
+    const result =
+      await getGoogleWorkspaceAuthApi().exchangeGoogleWorkspaceAuthCode(
+        authCode,
+      );
+    console.log(`Saved Google Workspace OAuth token to ${result.path}.`);
+    console.log(`Expires: ${new Date(result.expiresAt).toISOString()}`);
+    console.log(`Granted scopes: ${result.scopes.length}`);
+  } finally {
+    rl.close();
+  }
 }
 
 export async function handleHybridAICommand(args: string[]): Promise<void> {

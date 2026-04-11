@@ -12,6 +12,9 @@ HybridClaw uses one provider-focused command surface:
 hybridclaw auth login hybridai --browser
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
+hybridclaw auth login google-workspace --client-secret /path/to/client_secret.json
+hybridclaw auth login google-workspace --auth-url
+hybridclaw auth login google-workspace --auth-code "http://localhost:1/?code=..."
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
@@ -20,6 +23,7 @@ hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
+hybridclaw auth status google-workspace
 hybridclaw auth status openrouter
 hybridclaw auth status mistral
 hybridclaw auth status huggingface
@@ -27,6 +31,7 @@ hybridclaw auth status local
 hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
+hybridclaw auth logout google-workspace
 hybridclaw auth logout openrouter
 hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
@@ -44,6 +49,14 @@ hybridclaw auth whatsapp reset
   and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
+- `hybridclaw auth login google-workspace` uses a Hermes-style stepwise OAuth
+  flow. Save a Google OAuth desktop client JSON with `--client-secret`, print a
+  consent URL with `--auth-url`, then exchange the pasted redirect URL or code
+  with `--auth-code`. In an interactive terminal, running the command with no
+  auth-step flags walks through the same flow and stores the client secret,
+  pending PKCE session, and token in the encrypted runtime secret store. The
+  current built-in scope bundle covers Gmail, Calendar, Drive, Docs, Sheets,
+  and Contacts.
 - `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`, and
   `hybridclaw auth login huggingface` can take `--api-key`, otherwise they fall
   back to `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, or `HF_TOKEN`, or prompt
@@ -67,6 +80,9 @@ hybridclaw auth whatsapp reset
   any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and
   disables the Teams integration in config.
+- `hybridclaw auth logout google-workspace` clears the stored OAuth token and
+  pending Google auth session, but keeps the saved OAuth client secret so you
+  can authorize again later without re-importing the JSON file.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without
   starting a new pairing session.
 - Local TUI and web sessions can store additional named secrets with
@@ -80,9 +96,10 @@ hybridclaw auth whatsapp reset
 
 ## Where Credentials Live
 
-- `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Mistral,
-  Hugging Face, Discord, email, Teams, BlueBubbles iMessage, related runtime
-  secrets, and named `/secret set` values in encrypted form
+- `~/.hybridclaw/credentials.json` stores HybridAI, Google Workspace OAuth
+  client and token state, OpenRouter, Mistral, Hugging Face, Discord, email,
+  Teams, BlueBubbles iMessage, related runtime secrets, and named `/secret set`
+  values in encrypted form
 - `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
   `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
   runtime secrets

@@ -114,6 +114,7 @@ hybridclaw auth login [provider] ...
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
+hybridclaw auth login google-workspace [--client-secret <path>] [--auth-url|--auth-code <code-or-url>]
 hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
 hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
@@ -123,8 +124,8 @@ hybridclaw help mistral
 hybridclaw help huggingface
 ```
 
-`auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, and `msteams`.
+`auth status` supports `hybridai`, `codex`, `google-workspace`,
+`openrouter`, `mistral`, `huggingface`, `local`, and `msteams`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 

@@ -33,6 +33,7 @@ Use this skill for Google Workspace workflows that go beyond HybridClaw's built-
 2. For Calendar, Drive, Docs, or Sheets tasks, **default to browser automation** using the persistent browser profile. Do not ask which method to use — just try the browser first.
 3. If the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
 4. Only fall back to API-based access if the user explicitly requests it or browser automation is unavailable.
+5. When the user wants an API path, prefer HybridClaw's built-in Google Workspace OAuth flow before inventing ad hoc token files.
 
 ## Proactive Behavior
 
@@ -59,8 +60,12 @@ If the user explicitly requests API automation and does not have credentials:
 1. Tell them to create a Google Cloud project.
 2. Enable the APIs they need: Gmail, Calendar, Drive, Docs, Sheets, People.
 3. Create an OAuth desktop client or service account, depending on their environment.
-4. Keep credential files outside the repo and outside version control.
-5. Confirm which scopes are actually needed before proceeding.
+4. Keep the downloaded client secret JSON outside the repo and outside version control.
+5. Use HybridClaw's auth flow:
+   `hybridclaw auth login google-workspace --client-secret /path/to/client_secret.json`
+   `hybridclaw auth login google-workspace --auth-url`
+   `hybridclaw auth login google-workspace --auth-code "<redirect-url-or-code>"`
+6. Tell the user that the current built-in auth flow requests HybridClaw's standard Google Workspace scope bundle (Gmail, Calendar, Drive, Docs, Sheets, Contacts) rather than per-service scopes.
 
 ## Rules
 
