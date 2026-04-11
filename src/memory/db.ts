@@ -2475,6 +2475,53 @@ export function getSessionUsageTotals(sessionId: string): UsageTotals {
   return getSessionUsageTotalsSince(sessionId, null);
 }
 
+export interface RecentSessionUsageEvent {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  totalTokens: number;
+  timestamp: string;
+}
+
+export function getRecentSessionUsageEvents(
+  sessionId: string,
+  limit = 20,
+): RecentSessionUsageEvent[] {
+  ensureDatabaseReady();
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const boundedLimit =
+    typeof limit === 'number' && Number.isFinite(limit)
+      ? Math.max(1, Math.floor(limit))
+      : 20;
+  const rows = queryAll<
+    {
+      session_id: string;
+      agent_id: string;
+      model: string;
+      total_tokens: number;
+      timestamp: string;
+    },
+    [string, number]
+  >(
+    db,
+    `SELECT session_id, agent_id, model, total_tokens, timestamp
+     FROM usage_events
+     WHERE session_id = ?
+     ORDER BY timestamp DESC
+     LIMIT ?`,
+    resolvedSessionId,
+    boundedLimit,
+  );
+
+  return rows.map((row) => ({
+    sessionId: String(row.session_id || '').trim(),
+    agentId: String(row.agent_id || '').trim(),
+    model: String(row.model || '').trim(),
+    totalTokens: normalizeUsageNumber(row.total_tokens),
+    timestamp: String(row.timestamp || '').trim(),
+  }));
+}
+
 export function getSessionUsageTotalsSince(
   sessionId: string,
   sinceTimestamp: string | null,
@@ -3618,6 +3665,7 @@ export function getOrCreateSession(
 }
 
 export function getSessionById(sessionId: string): Session | undefined {
+  ensureDatabaseReady();
   const normalized = String(sessionId || '').trim();
   if (!normalized) return undefined;
   return (
@@ -3625,6 +3673,20 @@ export function getSessionById(sessionId: string): Session | undefined {
     selectCurrentSessionBySessionKey(normalized) ||
     selectCurrentSessionByMainSessionKey(normalized) ||
     selectCurrentSessionByLegacySessionId(normalized)
+  );
+}
+
+export function getSessionsByChannelId(channelId: string): Session[] {
+  ensureDatabaseReady();
+  const normalized = String(channelId || '').trim();
+  if (!normalized) return [];
+  return queryAll<Session, [string]>(
+    db,
+    `SELECT *
+     FROM sessions
+     WHERE channel_id = ?
+     ORDER BY created_at DESC, last_active DESC, id DESC`,
+    normalized,
   );
 }
 
@@ -4461,6 +4523,7 @@ export function getRecentMessages(
   sessionId: string,
   limit?: number,
 ): StoredMessage[] {
+  ensureDatabaseReady();
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const boundedLimit =
     typeof limit === 'number' && Number.isFinite(limit)
@@ -6431,7 +6494,8 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 }
 
 export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
-  const bounded = Math.max(1, Math.min(limit, 200));
+  ensureDatabaseReady();
+  const bounded = Math.max(1, Math.min(limit, 1_000));
   return queryAll<StructuredAuditEntry, [number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
@@ -6456,6 +6520,7 @@ function queryStructuredAuditEntries(params?: {
   const query = String(params?.query || '').trim();
   const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
   const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
+  ensureDatabaseReady();
 
   const clauses: string[] = [];
   const values: Array<string | number> = [];
@@ -6580,9 +6645,10 @@ export function searchStructuredAudit(
   query: string,
   limit = 20,
 ): StructuredAuditEntry[] {
+  ensureDatabaseReady();
   const normalized = query.trim();
   if (!normalized) return [];
-  const bounded = Math.max(1, Math.min(limit, 200));
+  const bounded = Math.max(1, Math.min(limit, 1_000));
   const like = `%${normalized}%`;
   return queryAll<
     StructuredAuditEntry,

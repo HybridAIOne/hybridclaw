@@ -9,6 +9,10 @@ import type {
   AdminConfig,
   AdminConfigResponse,
   AdminCreateSkillPayload,
+  AdminEmailDeleteResponse,
+  AdminEmailFolderResponse,
+  AdminEmailMailboxResponse,
+  AdminEmailMessageResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -193,6 +197,74 @@ export async function fetchSessions(token: string): Promise<AdminSession[]> {
     { token },
   );
   return payload.sessions;
+}
+
+export function fetchAdminEmailMailbox(
+  token: string,
+): Promise<AdminEmailMailboxResponse> {
+  return requestJson<AdminEmailMailboxResponse>('/api/admin/email', { token });
+}
+
+export function fetchAdminEmailFolder(
+  token: string,
+  params: {
+    folder: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<AdminEmailFolderResponse> {
+  const query = new URLSearchParams({ folder: params.folder });
+  if (typeof params.limit === 'number') {
+    query.set('limit', String(params.limit));
+  }
+  if (typeof params.offset === 'number') {
+    query.set('offset', String(params.offset));
+  }
+  return requestJson<AdminEmailFolderResponse>(
+    `/api/admin/email/messages?${query.toString()}`,
+    {
+      token,
+    },
+  );
+}
+
+export function fetchAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailMessageResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailMessageResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+    },
+  );
+}
+
+export function deleteAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailDeleteResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailDeleteResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function deleteSession(

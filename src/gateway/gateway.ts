@@ -27,6 +27,7 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
 import {
   initEmail,
   sendEmailAttachmentTo,
@@ -1430,6 +1431,12 @@ async function startEmailIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
+          const emailMetadata = buildEmailDeliveryMetadata({
+            agentId: result.agentId,
+            model: result.model,
+            provider: result.provider,
+            tokenUsage: result.tokenUsage,
+          });
           if (cleanedResultText.trim()) {
             const responseText = buildResponseText(
               cleanedResultText,
@@ -1437,7 +1444,9 @@ async function startEmailIntegration(): Promise<boolean> {
                 ? result.toolsUsed
                 : undefined,
             );
-            await reply(responseText);
+            await sendToEmail(channelId, responseText, {
+              ...(emailMetadata ? { metadata: emailMetadata } : {}),
+            });
           }
           for (const artifact of artifacts) {
             try {
@@ -1446,6 +1455,7 @@ async function startEmailIntegration(): Promise<boolean> {
                 filePath: artifact.path,
                 mimeType: artifact.mimeType,
                 filename: artifact.filename,
+                ...(emailMetadata ? { metadata: emailMetadata } : {}),
               });
             } catch (error) {
               logger.warn(
