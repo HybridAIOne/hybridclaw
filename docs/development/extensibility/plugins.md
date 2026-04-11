@@ -17,6 +17,9 @@ Use the CLI to install a plugin from a local directory or npm package:
 hybridclaw plugin list
 hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
+hybridclaw plugin install ./plugins/gbrain
+hybridclaw plugin install ./plugins/honcho-memory
+hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install @scope/hybridclaw-plugin-example
@@ -68,6 +71,11 @@ or change one top-level `plugins.list[].config` key without editing
 - `gbrain` shells out to the GBrain CLI, injects search results into prompt
   context, and mirrors the discovered GBrain operations as `gbrain_*` plugin
   tools
+- `honcho-memory` mirrors HybridClaw turns into Honcho, injects prompt-time
+  recall, and exposes direct Honcho tools while keeping built-in memory active
+- `mempalace-memory` layers MemPalace recall on top of native memory, mirrors
+  turns back into MemPalace, and can route prompt-time retrieval through CLI
+  helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
@@ -84,10 +92,10 @@ hybridclaw plugin config brevo-email fromName "HybridClaw Agent"
 ```
 
 When a reply uses plugin-provided prompt context, the TUI shows a footer such
-as `🪼 plugins: qmd-memory`. For deeper verification, inspect
-`~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval appears under
-its own `## Retrieved Context` section instead of being merged into generic
-session memory.
+as `🪼 plugins: gbrain` or `🪼 plugins: qmd-memory`. For deeper verification,
+inspect `~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval
+appears under its own `## Retrieved Context` section instead of being merged
+into generic session memory.
 
 ## How-To
 
