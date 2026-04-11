@@ -83,6 +83,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'rag',
   'model',
   'status',
+  'memory',
   'show',
   'approve',
   'usage',
@@ -221,6 +222,11 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
       '/model [<name>|info|list [provider]|set <name>|clear|default [name]]',
     description: 'Inspect or set session/default model',
   },
+  memory: {
+    command: '/memory inspect [sessionId] | /memory query <query>',
+    description:
+      'Inspect memory layers or preview prompt-time memory attachment',
+  },
   plugin: {
     command:
       '/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]',
@@ -240,8 +246,9 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
-    description: 'Manage skill config, health, runs, amendments, and imports',
+      '/skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+    description:
+      'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
   usage: {
     command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
@@ -392,6 +399,14 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'status':
       return ['status'];
+
+    case 'memory': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['memory', 'inspect'];
+      if (sub === 'inspect') return ['memory', 'inspect', ...parts.slice(2)];
+      if (sub === 'query') return ['memory', 'query', ...parts.slice(2)];
+      return ['memory', 'inspect', ...parts.slice(1)];
+    }
 
     case 'auth': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -560,6 +575,27 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'memory',
+      description:
+        'Inspect memory layers or preview prompt-time memory attachment',
+      localSurfaces: ['tui', 'web'],
+      tuiMenuEntries: [
+        {
+          id: 'memory.inspect',
+          label: '/memory inspect [sessionId]',
+          insertText: '/memory inspect ',
+          description: 'Inspect the built-in memory layers for a session',
+        },
+        {
+          id: 'memory.query',
+          label: '/memory query <query>',
+          insertText: '/memory query ',
+          description:
+            'Preview the exact memory block the current session would attach',
+        },
+      ],
     },
     {
       name: 'show',
@@ -1707,6 +1743,32 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Stub entry for a planned SWE-bench Verified runner',
         },
         {
+          id: 'eval.locomo',
+          label: '/eval locomo',
+          insertText: '/eval locomo',
+          description: 'Show the native LOCOMO memory benchmark commands',
+        },
+        {
+          id: 'eval.locomo.setup',
+          label: '/eval locomo setup',
+          insertText: '/eval locomo setup',
+          description:
+            'Download the official LOCOMO dataset into the local eval workspace',
+        },
+        {
+          id: 'eval.locomo.run',
+          label: '/eval locomo run --budget 4000 --num-samples 2',
+          insertText: '/eval locomo run --budget 4000 --num-samples 2',
+          description:
+            'Run a small native LOCOMO memory benchmark sample with recent-tail and semantic-recall modes',
+        },
+        {
+          id: 'eval.locomo.results',
+          label: '/eval locomo results',
+          insertText: '/eval locomo results',
+          description: 'Show the latest LOCOMO summary and comparison metrics',
+        },
+        {
           id: 'eval.terminal-bench-2.0',
           label: '/eval terminal-bench-2.0',
           insertText: '/eval terminal-bench-2.0',
@@ -1835,7 +1897,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, manage amendments, and import or sync community skills',
+        'Inspect skill dependencies and health, review recent runs, manage amendments, and import or sync community skills',
       tuiOnly: true,
       options: [
         {
@@ -1879,6 +1941,30 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'name',
               description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install one declared dependency for a skill',
+          tuiMenu: {
+            label: '/skill install <skill> <dependency>',
+            insertText: '/skill install ',
+            aliases: ['/skill install <skill> <dependency>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'skill',
+              description: 'Skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'dependency',
+              description: 'Dependency id declared by that skill',
               required: true,
             },
           ],

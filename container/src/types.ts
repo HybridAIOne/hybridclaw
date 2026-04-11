@@ -161,6 +161,7 @@ export interface ContextGuardConfig {
 // CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
 export interface ScheduledTaskInput {
   id: number;
+  channelId: string;
   cronExpr: string;
   runAt: string | null;
   everyMs: number | null;
@@ -329,6 +330,7 @@ export type ScheduleSideEffect =
       runAt?: string;
       everyMs?: number;
       prompt: string;
+      channelId?: string;
     }
   | { action: 'remove'; taskId: number };
 

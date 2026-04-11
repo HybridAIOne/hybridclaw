@@ -36,3 +36,6 @@ docs/development/workplan-*.md
 
 # OS
 .DS_Store
+
+# Temporary files
+*.tmp*

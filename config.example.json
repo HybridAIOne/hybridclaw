@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 21,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -356,7 +356,19 @@
   },
   "memory": {
     "decayRate": 0.1,
-    "consolidationIntervalHours": 24
+    "consolidationIntervalHours": 24,
+    "consolidationLanguage": "en",
+    "semanticPromptHardCap": 12,
+    "embedding": {
+      "provider": "hashed",
+      "model": "onnx-community/embeddinggemma-300m-ONNX",
+      "revision": "75a84c732f1884df76bec365346230e32f582c82",
+      "dtype": "q8"
+    },
+    "queryMode": "no-stopwords",
+    "backend": "hybrid",
+    "rerank": "bm25",
+    "tokenizer": "porter"
   },
   "sessionRouting": {
     "dmScope": "per-channel-peer",

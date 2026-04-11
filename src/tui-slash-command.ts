@@ -70,6 +70,7 @@ export function mapTuiSlashCommandToGatewayArgs(
       sub === 'list' ||
       sub === 'inspect' ||
       sub === 'runs' ||
+      sub === 'install' ||
       sub === 'learn' ||
       sub === 'history' ||
       sub === 'sync' ||

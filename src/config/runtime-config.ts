@@ -15,6 +15,28 @@ import {
 } from '../agents/agent-types.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  MemoryEmbeddingDtype,
+  MemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import {
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+  DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+  DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+  DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+  normalizeMemoryEmbeddingDtype,
+  normalizeMemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import type {
+  MemoryQueryMode,
+  MemoryRecallBackend,
+  MemoryRecallRerank,
+  MemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
+import {
+  normalizeMemoryRecallBackend,
+  normalizeMemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
@@ -55,7 +77,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 18;
+export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_DB_PATH = path.join(
@@ -534,6 +556,17 @@ export interface RuntimeConfig {
     decayRate: number;
     consolidationIntervalHours: number;
     consolidationLanguage: string;
+    semanticPromptHardCap: number;
+    embedding: {
+      provider: MemoryEmbeddingProviderKind;
+      model: string;
+      revision: string;
+      dtype: MemoryEmbeddingDtype;
+    };
+    queryMode: MemoryQueryMode;
+    backend: MemoryRecallBackend;
+    rerank: MemoryRecallRerank;
+    tokenizer: MemoryRecallTokenizer;
   };
   ops: {
     healthHost: string;
@@ -1023,6 +1056,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     decayRate: 0.1,
     consolidationIntervalHours: 24,
     consolidationLanguage: 'en',
+    semanticPromptHardCap: 12,
+    embedding: {
+      provider: DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+      model: DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+      revision: DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+      dtype: DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+    },
+    queryMode: 'no-stopwords',
+    backend: 'hybrid',
+    rerank: 'bm25',
+    tokenizer: 'porter',
   },
   ops: {
     healthHost: '127.0.0.1',
@@ -4140,6 +4184,77 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.memory.consolidationLanguage,
         { allowEmpty: false },
       ).toLowerCase(),
+      semanticPromptHardCap: normalizeInteger(
+        rawMemory.semanticPromptHardCap,
+        DEFAULT_RUNTIME_CONFIG.memory.semanticPromptHardCap,
+        { min: 1, max: 50 },
+      ),
+      embedding: {
+        provider: normalizeMemoryEmbeddingProviderKind(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.provider
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+        ),
+        model: normalizeString(
+          isRecord(rawMemory.embedding) ? rawMemory.embedding.model : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.model,
+          { allowEmpty: false },
+        ),
+        revision: normalizeString(
+          isRecord(rawMemory.embedding)
+            ? rawMemory.embedding.revision
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.revision,
+          { allowEmpty: false },
+        ),
+        dtype: normalizeMemoryEmbeddingDtype(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.dtype
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+        ),
+      },
+      queryMode:
+        normalizeString(
+          rawMemory.queryMode,
+          DEFAULT_RUNTIME_CONFIG.memory.queryMode,
+          { allowEmpty: false },
+        ) === 'no-stopwords'
+          ? 'no-stopwords'
+          : 'raw',
+      backend: normalizeMemoryRecallBackend(
+        normalizeString(
+          rawMemory.backend,
+          DEFAULT_RUNTIME_CONFIG.memory.backend,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.backend,
+      ),
+      rerank:
+        normalizeString(
+          rawMemory.rerank,
+          DEFAULT_RUNTIME_CONFIG.memory.rerank,
+          { allowEmpty: false },
+        ) === 'bm25'
+          ? 'bm25'
+          : 'none',
+      tokenizer: normalizeMemoryRecallTokenizer(
+        normalizeString(
+          rawMemory.tokenizer,
+          DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+      ),
     },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
