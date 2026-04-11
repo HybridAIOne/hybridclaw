@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
@@ -16,7 +16,12 @@ import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
-const VIEW_SWITCH_ITEMS = [
+const VIEW_SWITCH_ITEMS: ReadonlyArray<{
+  href: string;
+  label: string;
+  icon: ComponentType;
+  active?: true;
+}> = [
   { href: '/chat', label: 'Chat', icon: Chat },
   { href: '/agents', label: 'Agents', icon: Agents },
   { href: '/admin', label: 'Admin', icon: Admin, active: true },
@@ -26,7 +31,7 @@ const VIEW_SWITCH_ITEMS = [
     icon: Github,
   },
   { href: '/development', label: 'Docs', icon: Docs },
-] as const;
+];
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
