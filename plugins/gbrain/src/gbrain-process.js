@@ -583,8 +583,9 @@ export function discoverGbrainToolsSync(config) {
       0,
       previewLimit,
     );
-    const stderrPreview = collapseTextWhitespace(String(result.stderr || ''))
-      .slice(0, previewLimit);
+    const stderrPreview = collapseTextWhitespace(
+      String(result.stderr || ''),
+    ).slice(0, previewLimit);
     const parseMessage =
       error instanceof Error ? error.message : String(error || 'Unknown error');
     throw new Error(
