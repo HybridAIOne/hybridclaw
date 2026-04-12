@@ -15,6 +15,7 @@ import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import {
+  DEFAULT_ONE_SHOT_MAX_RETRIES,
   type RuntimeSchedulerJob,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -31,7 +32,6 @@ import type { ScheduledTask } from '../types/scheduler.js';
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;
 const CONFIG_ONESHOT_RETRY_MS = 60_000;
-const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;

@@ -197,4 +197,34 @@ describe('SchedulerPage', () => {
       }),
     );
   });
+
+  it('rejects one-shot retry counts above the backend limit', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [makeConfigJob()],
+    });
+    window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
+
+    renderSchedulerPage();
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('ID') as HTMLInputElement).value).toBe(
+        'release-notes',
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Schedule'), {
+      target: { value: 'one_shot' },
+    });
+    fireEvent.change(screen.getByLabelText('Retries after failure'), {
+      target: { value: '101' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
+
+    await waitFor(() => {
+      expect(saveSchedulerJobMock).not.toHaveBeenCalled();
+      expect(
+        screen.getByText('Pick a valid retry count from 0 to 100.'),
+      ).toBeTruthy();
+    });
+  });
 });

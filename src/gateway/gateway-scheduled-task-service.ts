@@ -2,6 +2,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
+  DEFAULT_ONE_SHOT_MAX_RETRIES,
   getRuntimeConfig,
   parseSchedulerBoardStatus,
   type RuntimeConfig,
@@ -119,7 +120,7 @@ function parseAdminSchedulerJob(
     } else if (String(value.maxRetries || '').trim()) {
       throw new Error('`maxRetries` must be an integer between 0 and 100.');
     } else {
-      maxRetries = 3;
+      maxRetries = DEFAULT_ONE_SHOT_MAX_RETRIES;
     }
   } else {
     expr = String(rawSchedule.expr || '').trim();

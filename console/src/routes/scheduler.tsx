@@ -205,9 +205,10 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     draft.scheduleKind === 'one_shot' &&
     (!Number.isFinite(parsedMaxRetries) ||
       maxRetries == null ||
-      maxRetries < 0)
+      maxRetries < 0 ||
+      maxRetries > 100)
   ) {
-    throw new Error('Pick a valid retry count of 0 or more.');
+    throw new Error('Pick a valid retry count from 0 to 100.');
   }
 
   return {
@@ -545,6 +546,10 @@ function SchedulerJobEditor(props: {
           <label className="field">
             <span>Retries after failure</span>
             <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
               value={draft.maxRetries}
               onChange={(event) =>
                 props.onDraftChange((current) => ({

@@ -143,6 +143,7 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -2883,7 +2884,7 @@ function normalizeSchedulerJobList(
         : '';
     const maxRetries =
       scheduleKind === 'one_shot'
-        ? normalizeInteger(item.maxRetries, 3, {
+        ? normalizeInteger(item.maxRetries, DEFAULT_ONE_SHOT_MAX_RETRIES, {
             min: 0,
             max: 100,
           })
