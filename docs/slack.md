@@ -166,6 +166,56 @@ If this toggle is off, Slack shows an error like:
 HybridClaw cannot work around that setting because Slack blocks the DM before
 the event reaches the gateway.
 
+## Optional: Native Slack Slash Commands
+
+HybridClaw can also handle native Slack slash commands, including `/status`,
+through Socket Mode.
+
+Slack does not auto-create these from the bot token alone. You must register
+the slash commands in the Slack app manifest.
+
+Fastest path:
+
+```bash
+hybridclaw channels slack register-commands \
+  --app-id <A...> \
+  --config-token <xoxe-...>
+```
+
+That command:
+
+- exports the current Slack app manifest
+- adds the `commands` bot scope if needed
+- registers the canonical HybridClaw slash commands
+- updates the existing app manifest in place
+
+You can get:
+
+- the Slack app id from the Slack app settings page
+- the app configuration access token from the Slack app settings page under
+  **Your App Configuration Tokens**
+
+If you prefer to paste the manifest manually:
+
+```bash
+hybridclaw channels slack manifest
+```
+
+Then copy the output into the Slack app's **App Manifest** editor.
+
+Practical rules:
+
+- HybridClaw registers one Slack slash command per top-level HybridClaw command
+  name
+- examples include `/status`, `/help`, `/model`, `/auth`, `/approve`, and
+  `/channel-mode`
+- trailing words are passed through as command arguments
+- example: `/model info` means Slack command `/model` with `info` as the text
+  payload
+
+Native Slack slash command replies are sent as ephemeral responses, matching
+Discord's private guild slash-command behavior.
+
 ## Step 6: Connect The App To HybridClaw
 
 Run:

@@ -21,6 +21,7 @@ async function importFreshSlackRuntime() {
 
   const postMessage = vi.fn(async () => ({ ts: '1710000000.123456' }));
   const update = vi.fn(async () => ({ ok: true }));
+  const deleteMessage = vi.fn(async () => ({ ok: true }));
   const postEphemeral = vi.fn(async () => ({ ok: true }));
   const uploadV2 = vi.fn(
     async (params?: { file?: { destroy?: () => void } }) => {
@@ -35,7 +36,16 @@ async function importFreshSlackRuntime() {
   const usersInfo = vi.fn(async () => ({
     user: { profile: { display_name: 'HybridClaw Dev' } },
   }));
+  const stop = vi.fn(async () => {});
   const eventHandlers = new Map<string, (payload: unknown) => Promise<void>>();
+  const commandHandlers = new Map<
+    string,
+    (payload: {
+      ack: () => Promise<void>;
+      command: Record<string, unknown>;
+      respond: (message: { text: string; response_type: 'ephemeral' }) => Promise<void>;
+    }) => Promise<void>
+  >();
   let approvalActionHandler:
     | null
     | ((payload: {
@@ -46,6 +56,21 @@ async function importFreshSlackRuntime() {
   const event = vi.fn(
     (name: string, handler: (payload: unknown) => Promise<void>) => {
       eventHandlers.set(name, handler);
+    },
+  );
+  const command = vi.fn(
+    (
+      name: string,
+      handler: (payload: {
+        ack: () => Promise<void>;
+        command: Record<string, unknown>;
+        respond: (message: {
+          text: string;
+          response_type: 'ephemeral';
+        }) => Promise<void>;
+      }) => Promise<void>,
+    ) => {
+      commandHandlers.set(name, handler);
     },
   );
   const action = vi.fn(
@@ -74,6 +99,7 @@ async function importFreshSlackRuntime() {
         postMessage,
         postEphemeral,
         update,
+        delete: deleteMessage,
       },
       files: {
         uploadV2,
@@ -83,8 +109,10 @@ async function importFreshSlackRuntime() {
       },
     },
     event,
+    command,
     action,
     start,
+    stop,
   };
 
   const App = vi.fn(function MockSlackApp() {
@@ -117,6 +145,18 @@ async function importFreshSlackRuntime() {
       },
     }),
   }));
+  vi.doMock('../src/channels/slack/slash-commands.js', () => ({
+    getSlackNativeSlashCommandNames: () => ['status'],
+    resolveSlackNativeSlashCommandArgs: (params: {
+      commandName: string;
+      text?: string | null;
+    }) => {
+      if (params.commandName === 'status') {
+        return [['status']];
+      }
+      return null;
+    },
+  }));
   vi.doMock('../src/channels/channel-registry.js', () => ({
     registerChannel,
   }));
@@ -125,6 +165,7 @@ async function importFreshSlackRuntime() {
   }));
   vi.doMock('../src/channels/slack/inbound.js', () => ({
     cleanupSlackInboundMedia: vi.fn(async () => {}),
+    evaluateSlackAccessPolicy: vi.fn(() => true),
     processInboundSlackEvent,
   }));
   vi.doMock('../src/logger.js', () => ({
@@ -142,15 +183,19 @@ async function importFreshSlackRuntime() {
     slackApp,
     postMessage,
     update,
+    deleteMessage,
     postEphemeral,
     uploadV2,
     authTest,
     usersInfo,
     event,
+    command,
     action,
     eventHandlers,
+    commandHandlers,
     approvalActionHandler: () => approvalActionHandler,
     start,
+    stop,
     registerChannel,
     chunkMessage,
     processInboundSlackEvent,
@@ -159,10 +204,12 @@ async function importFreshSlackRuntime() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.doUnmock('@slack/bolt');
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/config/runtime-config.js');
+  vi.doUnmock('../src/channels/slack/slash-commands.js');
   vi.doUnmock('../src/channels/channel-registry.js');
   vi.doUnmock('../src/memory/chunk.js');
   vi.doUnmock('../src/channels/slack/inbound.js');
@@ -214,6 +261,67 @@ describe('slack runtime', () => {
         channel_id: 'C1234567890',
         initial_comment: '*Pending Approval*\nPlease review.',
         thread_ts: '1710000000.123456',
+      }),
+    );
+  });
+
+  test('sends Slack approval prompts through the named helper', async () => {
+    const state = await importFreshSlackRuntime();
+
+    await state.runtime.initSlack(
+      async () => {},
+      async () => {},
+    );
+    const cleanup = await state.runtime.sendSlackApprovalNotification({
+      target: 'slack:C1234567890:1710000000.000001',
+      approval: {
+        approvalId: 'approve123',
+        prompt: [
+          'I need your approval before I contact reuters.com.',
+          'Why: this would contact a new external host',
+          'Approval ID: approve123',
+          'Reply `yes` to approve once.',
+          'Reply `no` to deny.',
+          'Approval expires in 120s.',
+        ].join('\n'),
+        summary:
+          'Approval needed for: contact reuters.com\nWhy: this would contact a new external host\nApproval ID: approve123',
+      },
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'U1234567890',
+    });
+
+    expect(cleanup).not.toBeNull();
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: [
+          '<@U1234567890> I need your approval before I contact reuters.com.',
+          'Why: this would contact a new external host',
+          'Approval ID: approve123',
+          'Approval expires in 120s.',
+        ].join('\n'),
+        mrkdwn: true,
+        thread_ts: '1710000000.000001',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: 'section' }),
+          expect.objectContaining({ type: 'actions' }),
+        ]),
+      }),
+    );
+
+    await cleanup?.disableButtons();
+
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.123456',
+        text: '_Approval request is no longer active._',
       }),
     );
   });
@@ -312,6 +420,108 @@ describe('slack runtime', () => {
         ]),
       }),
     );
+  });
+
+  test('shows and clears a delayed Slack status indicator for slower threaded replies', async () => {
+    vi.useFakeTimers();
+    const state = await importFreshSlackRuntime();
+    state.processInboundSlackEvent.mockResolvedValue({
+      sessionId: 'agent:main:channel:slack:chat:dm:peer:u1234567890',
+      guildId: null,
+      channelId: 'slack:C1234567890:1710000000.000001',
+      userId: 'U1234567890',
+      content: 'hello',
+      media: [],
+      target: 'slack:C1234567890:1710000000.000001',
+      isDm: false,
+      threadTs: '1710000000.000001',
+    });
+
+    const messageHandler = vi.fn(
+      async (_1, _2, _3, _4, _5, _6, _7, reply, context) => {
+        context.emitLifecyclePhase?.('toolUse');
+        await vi.advanceTimersByTimeAsync(800);
+        expect(state.postMessage).toHaveBeenCalledWith({
+          channel: 'C1234567890',
+          text: '_Using tools..._',
+          mrkdwn: true,
+          thread_ts: '1710000000.000001',
+        });
+
+        context.emitLifecyclePhase?.('streaming');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        await reply('Done.');
+      },
+    );
+
+    await state.runtime.initSlack(messageHandler, async () => {});
+    const eventHandler = state.eventHandlers.get('message');
+    await eventHandler?.({
+      event: {
+        channel: 'C1234567890',
+        ts: '1710000000.200000',
+        type: 'message',
+      },
+    });
+
+    expect(state.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.123456',
+      text: '_Writing..._',
+    });
+    expect(state.deleteMessage).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.123456',
+    });
+    expect(state.postMessage).toHaveBeenLastCalledWith({
+      channel: 'C1234567890',
+      text: 'Done.',
+      mrkdwn: true,
+      thread_ts: '1710000000.000001',
+    });
+  });
+
+  test('routes native Slack slash commands through the command handler', async () => {
+    const state = await importFreshSlackRuntime();
+    const commandHandler = vi.fn(async (_1, _2, _3, _4, _5, args, reply) => {
+      expect(args).toEqual(['status']);
+      await reply('**Status**\nAll systems go.');
+    });
+
+    await state.runtime.initSlack(async () => {}, commandHandler);
+    const slashHandler = state.commandHandlers.get('/status');
+    expect(slashHandler).toBeTypeOf('function');
+
+    const ack = vi.fn(async () => {});
+    const respond = vi.fn(async () => {});
+    await slashHandler?.({
+      ack,
+      command: {
+        command: '/status',
+        text: '',
+        user_id: 'U1234567890',
+        channel_id: 'C1234567890',
+        team_id: 'T0315EDR0',
+      },
+      respond,
+    });
+
+    expect(ack).toHaveBeenCalled();
+    expect(commandHandler).toHaveBeenCalledWith(
+      'agent:main:channel:slack:chat:channel:peer:c1234567890:topic:t0315edr0',
+      'T0315EDR0',
+      'slack:C1234567890',
+      'U1234567890',
+      'HybridClaw Dev',
+      ['status'],
+      expect.any(Function),
+    );
+    expect(respond).toHaveBeenCalledWith({
+      text: '*Status*\nAll systems go.',
+      response_type: 'ephemeral',
+    });
   });
 
   test('routes Slack approval button clicks through the command handler and updates the message', async () => {
@@ -421,5 +631,229 @@ describe('slack runtime', () => {
     await pendingApprovals.clearPendingApproval(
       'agent:main:channel:slack:chat:dm:peer:u1234567890',
     );
+  });
+
+  test('reopens a Slack approval after command-handler failure so the user can retry', async () => {
+    const state = await importFreshSlackRuntime();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.rememberPendingApproval({
+      sessionId: 'agent:main:channel:slack:chat:dm:peer:u1234567890',
+      approvalId: 'approve123',
+      prompt: 'Approval required.',
+      userId: 'U1234567890',
+    });
+
+    let shouldFail = true;
+    const commandHandler = vi.fn(async (_1, _2, _3, _4, _5, _6, reply) => {
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error('approval failed');
+      }
+      await reply('Approval recorded.');
+      await pendingApprovals.clearPendingApproval(
+        'agent:main:channel:slack:chat:dm:peer:u1234567890',
+      );
+    });
+
+    await state.runtime.initSlack(async () => {}, commandHandler);
+    const approvalActionHandler = state.approvalActionHandler();
+
+    await approvalActionHandler?.({
+      ack: vi.fn(async () => {}),
+      action: {
+        action_id: 'approve:yes',
+        value: 'approve123',
+      },
+      body: {
+        user: { id: 'U1234567890' },
+        channel: { id: 'C1234567890' },
+        message: {
+          ts: '1710000000.123456',
+          text: '<@U1234567890> Approval required.',
+          thread_ts: '1710000000.000001',
+        },
+      },
+    });
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: expect.stringContaining('*Gateway Error:* approval failed'),
+        thread_ts: '1710000000.000001',
+      }),
+    );
+
+    await approvalActionHandler?.({
+      ack: vi.fn(async () => {}),
+      action: {
+        action_id: 'approve:yes',
+        value: 'approve123',
+      },
+      body: {
+        user: { id: 'U1234567890' },
+        channel: { id: 'C1234567890' },
+        message: {
+          ts: '1710000000.123456',
+          text: '<@U1234567890> Approval required.',
+          thread_ts: '1710000000.000001',
+        },
+      },
+    });
+
+    expect(commandHandler).toHaveBeenCalledTimes(2);
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.123456',
+        text: '*Approved once by HybridClaw Dev.*',
+      }),
+    );
+  });
+
+  test('evicts old Slack display names from the bounded cache', async () => {
+    const state = await importFreshSlackRuntime();
+    const commandHandler = vi.fn(async (_1, _2, _3, _4, _5, _6, reply) => {
+      await reply('ok');
+    });
+    state.usersInfo.mockImplementation(
+      async ({ user }: { user: string }) =>
+        ({
+          user: { profile: { display_name: `User ${user}` } },
+        }) as never,
+    );
+
+    await state.runtime.initSlack(async () => {}, commandHandler);
+    const slashHandler = state.commandHandlers.get('/status');
+    expect(slashHandler).toBeTypeOf('function');
+
+    for (let index = 0; index <= 2_000; index += 1) {
+      const userId = `U${String(index).padStart(10, '0')}`;
+      await slashHandler?.({
+        ack: vi.fn(async () => {}),
+        command: {
+          command: '/status',
+          text: '',
+          user_id: userId,
+          channel_id: 'C1234567890',
+          team_id: 'T0315EDR0',
+        },
+        respond: vi.fn(async () => {}),
+      });
+    }
+
+    expect(state.usersInfo).toHaveBeenCalledTimes(2_001);
+
+    await slashHandler?.({
+      ack: vi.fn(async () => {}),
+      command: {
+        command: '/status',
+        text: '',
+        user_id: 'U0000000000',
+        channel_id: 'C1234567890',
+        team_id: 'T0315EDR0',
+      },
+      respond: vi.fn(async () => {}),
+    });
+
+    expect(state.usersInfo).toHaveBeenCalledTimes(2_002);
+  });
+
+  test('evicts old active Slack sessions and thread keys when the cap is exceeded', async () => {
+    const state = await importFreshSlackRuntime();
+    let activeThreadKeysSnapshot: Set<string> | null = null;
+
+    state.processInboundSlackEvent.mockImplementation(
+      async ({
+        event,
+        activeThreadKeys,
+      }: {
+        event: { ts?: string };
+        activeThreadKeys: Set<string>;
+      }) => {
+        activeThreadKeysSnapshot = activeThreadKeys;
+        const index = Number.parseInt(String(event.ts || ''), 10);
+        const threadTs = `${1_700_000_000 + index}.000001`;
+        const target = `slack:C1234567890:${threadTs}`;
+        return {
+          sessionId: `agent:main:channel:slack:chat:thread:peer:c1234567890:thread:${threadTs}`,
+          guildId: 'T0315EDR0',
+          channelId: target,
+          userId: 'U1234567890',
+          content: 'hello',
+          media: [],
+          target,
+          isDm: false,
+          threadTs,
+        };
+      },
+    );
+
+    await state.runtime.initSlack(async () => {}, async () => {});
+    const eventHandler = state.eventHandlers.get('message');
+    expect(eventHandler).toBeTypeOf('function');
+
+    for (let index = 0; index <= 2_000; index += 1) {
+      await eventHandler?.({
+        event: {
+          channel: 'C1234567890',
+          ts: String(index),
+          type: 'message',
+        },
+      });
+    }
+
+    const oldestSessionId =
+      'agent:main:channel:slack:chat:thread:peer:c1234567890:thread:1700000000.000001';
+    const newestSessionId =
+      'agent:main:channel:slack:chat:thread:peer:c1234567890:thread:1700002000.000001';
+
+    expect(state.runtime.hasActiveSlackSession(oldestSessionId)).toBe(false);
+    expect(state.runtime.hasActiveSlackSession(newestSessionId)).toBe(true);
+    await expect(
+      state.runtime.sendToActiveSlackSession({
+        sessionId: oldestSessionId,
+        text: 'hello',
+      }),
+    ).rejects.toThrow('Slack session is not active.');
+    await expect(
+      state.runtime.sendToActiveSlackSession({
+        sessionId: newestSessionId,
+        text: 'hello',
+      }),
+    ).resolves.toEqual({
+      channelId: 'slack:C1234567890:1700002000.000001',
+      attachmentCount: 0,
+    });
+
+    expect(activeThreadKeysSnapshot).not.toBeNull();
+    expect(activeThreadKeysSnapshot?.size).toBe(2_000);
+    expect(activeThreadKeysSnapshot?.has('C1234567890:1700000000.000001')).toBe(
+      false,
+    );
+    expect(activeThreadKeysSnapshot?.has('C1234567890:1700002000.000001')).toBe(
+      true,
+    );
+  });
+
+  test('resets init state when Slack startup fails so a later retry can succeed', async () => {
+    const state = await importFreshSlackRuntime();
+    state.authTest.mockRejectedValueOnce(new Error('auth failed'));
+
+    await expect(
+      state.runtime.initSlack(async () => {}, async () => {}),
+    ).rejects.toThrow('auth failed');
+
+    expect(state.start).not.toHaveBeenCalled();
+    expect(state.stop).toHaveBeenCalledTimes(1);
+
+    await expect(
+      state.runtime.initSlack(async () => {}, async () => {}),
+    ).resolves.toBeUndefined();
+
+    expect(state.authTest).toHaveBeenCalledTimes(2);
+    expect(state.start).toHaveBeenCalledTimes(1);
   });
 });

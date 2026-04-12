@@ -183,6 +183,17 @@ function equalStringLists(left: string[], right: string[]): boolean {
   return true;
 }
 
+function equalStringSets(left: string[], right: string[]): boolean {
+  if (left.length === 0 && right.length === 0) return true;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size !== rightSet.size) return false;
+  for (const entry of leftSet) {
+    if (!rightSet.has(entry)) return false;
+  }
+  return true;
+}
+
 function hasTelegramConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['telegram'],
   prev: ReturnType<typeof getConfigSnapshot>['telegram'],
@@ -197,6 +208,23 @@ function hasTelegramConfigChanged(
     next.requireMention !== prev.requireMention ||
     next.pollIntervalMs !== prev.pollIntervalMs ||
     next.textChunkLimit !== prev.textChunkLimit ||
+    next.mediaMaxMb !== prev.mediaMaxMb
+  );
+}
+
+function hasSlackConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['slack'],
+  prev: ReturnType<typeof getConfigSnapshot>['slack'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.requireMention !== prev.requireMention ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.replyStyle !== prev.replyStyle ||
     next.mediaMaxMb !== prev.mediaMaxMb
   );
 }
@@ -1459,6 +1487,25 @@ async function startEmailIntegration(): Promise<boolean> {
         context,
       ) => {
         try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
           const result = normalizePlaceholderToolReply(
             await handleGatewayMessage({
               sessionId,
@@ -1746,6 +1793,26 @@ async function startSlackIntegration(): Promise<boolean> {
         context,
       ) => {
         try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
+          let sawTextDelta = false;
           const result = normalizePlaceholderToolReply(
             await handleGatewayMessage({
               sessionId,
@@ -1763,7 +1830,19 @@ async function startSlackIntegration(): Promise<boolean> {
                   message.artifacts,
                 );
               },
-              abortSignal: context.abortSignal,
+              onTextDelta: (delta) => {
+                if (!delta || sawTextDelta) return;
+                sawTextDelta = true;
+                context.emitLifecyclePhase?.('streaming');
+              },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                if (event.phase === 'start') {
+                  context.emitLifecyclePhase?.('toolUse');
+                } else {
+                  context.emitLifecyclePhase?.('thinking');
+                }
+              },
               source: 'slack',
             }),
           );
@@ -1930,7 +2009,7 @@ async function refreshSlackIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
-  if (JSON.stringify(next.slack) === JSON.stringify(prev.slack)) return;
+  if (!hasSlackConfigChanged(next.slack, prev.slack)) return;
 
   logger.info(
     {

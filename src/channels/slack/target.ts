@@ -1,3 +1,5 @@
+import { normalizeTrimmedString as normalizeValue } from '../../utils/normalized-strings.js';
+
 const SLACK_TARGET_PREFIX_RE = /^slack:/i;
 const SLACK_CHANNEL_ID_RE = /^[CDG][A-Z0-9]{8,}$/;
 const SLACK_USER_ID_RE = /^[UW][A-Z0-9]{8,}$/;
@@ -7,10 +9,6 @@ export interface ParsedSlackChannelTarget {
   target: string;
   channelId: string;
   threadTs: string | null;
-}
-
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
 }
 
 export function normalizeSlackChannelId(

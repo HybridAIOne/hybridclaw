@@ -1,6 +1,10 @@
+import { createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type {
   RuntimeSlackConfig,
@@ -15,6 +19,7 @@ import {
 } from '../../media/managed-temp-media.js';
 import { buildSessionKey, parseSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
+import { normalizeTrimmedString as trimValue } from '../../utils/normalized-strings.js';
 import {
   buildSlackChannelTarget,
   normalizeSlackThreadTs,
@@ -27,6 +32,10 @@ const SLACK_ALLOWED_FILE_HOSTS = [
   /\.slack-edge\.com$/i,
   /\.slack-files\.com$/i,
 ] as const;
+const normalizedSlackAllowListCache = new WeakMap<
+  readonly string[],
+  Set<string>
+>();
 
 export interface SlackMessageEvent {
   type?: string;
@@ -51,11 +60,6 @@ export interface SlackFileEvent {
   url_private_download?: string;
 }
 
-export interface SlackAccessDecision {
-  allowed: boolean;
-  isDm: boolean;
-}
-
 export interface SlackInboundRouting {
   sessionId: string;
   channelId: string;
@@ -72,10 +76,6 @@ export interface ProcessedSlackInbound extends SlackInboundRouting {
   media: MediaContextItem[];
 }
 
-function trimValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
-
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }
@@ -87,12 +87,27 @@ function normalizeAllowEntry(value: string): string | null {
   return normalizeSlackUserId(trimmed);
 }
 
+function getNormalizedAllowList(list: readonly string[]): Set<string> {
+  const cached = normalizedSlackAllowListCache.get(list);
+  if (cached) {
+    return cached;
+  }
+
+  const normalized = new Set<string>();
+  for (const entry of list) {
+    const normalizedEntry = normalizeAllowEntry(entry);
+    if (normalizedEntry) {
+      normalized.add(normalizedEntry);
+    }
+  }
+  normalizedSlackAllowListCache.set(list, normalized);
+  return normalized;
+}
+
 function matchesAllowList(list: string[], userId: string): boolean {
-  const normalized = list
-    .map((entry) => normalizeAllowEntry(entry))
-    .filter((entry): entry is string => Boolean(entry));
-  if (normalized.includes('*')) return true;
-  return normalized.includes(userId);
+  const normalized = getNormalizedAllowList(list);
+  if (normalized.has('*')) return true;
+  return normalized.has(userId);
 }
 
 export function isSlackSessionId(value: string | null | undefined): boolean {
@@ -130,57 +145,131 @@ async function downloadSlackInboundMedia(params: {
   if (accepted.length === 0) return [];
 
   let tempDir: string | null = null;
-  const media: MediaContextItem[] = [];
+  let tempDirPromise: Promise<string> | null = null;
 
-  try {
-    for (let index = 0; index < accepted.length; index += 1) {
-      const file = accepted[index];
-      const downloadUrl = trimValue(
-        file.url_private_download || file.url_private,
-      );
-      if (!downloadUrl || !isAllowedSlackFileUrl(downloadUrl)) {
-        continue;
-      }
-
-      const filename = sanitizeFilename(
-        trimValue(file.name) || `slack-attachment-${index + 1}`,
-      );
-      const response = await fetch(downloadUrl, {
-        headers: {
-          authorization: `Bearer ${botToken}`,
-        },
-      });
-      if (!response.ok) {
-        logger.warn(
-          {
-            status: response.status,
-            url: downloadUrl,
-            filename,
-          },
-          'Failed to download Slack attachment',
-        );
-        continue;
-      }
-
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.length > maxBytes) {
-        continue;
-      }
-
-      tempDir ??= await fs.mkdtemp(
+  const getTempDir = async (): Promise<string> => {
+    if (tempDir) {
+      return tempDir;
+    }
+    if (!tempDirPromise) {
+      tempDirPromise = fs.mkdtemp(
         path.join(os.tmpdir(), SLACK_MEDIA_TMP_PREFIX),
       );
-      const filePath = path.join(tempDir, filename);
-      await fs.writeFile(filePath, bytes);
-      media.push({
-        path: filePath,
-        url: downloadUrl,
-        originalUrl: downloadUrl,
-        mimeType: trimValue(file.mimetype) || null,
-        sizeBytes: bytes.length,
-        filename,
-      });
     }
+    tempDir = await tempDirPromise;
+    return tempDir;
+  };
+
+  try {
+    const downloads = await Promise.allSettled(
+      accepted.map(async (file, index) => {
+        const downloadUrl = trimValue(
+          file.url_private_download || file.url_private,
+        );
+        if (!downloadUrl || !isAllowedSlackFileUrl(downloadUrl)) {
+          return null;
+        }
+
+        const filename = sanitizeFilename(
+          trimValue(file.name) || `slack-attachment-${index + 1}`,
+        );
+        const response = await fetch(downloadUrl, {
+          headers: {
+            authorization: `Bearer ${botToken}`,
+          },
+        });
+        if (!response.ok) {
+          logger.warn(
+            {
+              status: response.status,
+              url: downloadUrl,
+              filename,
+            },
+            'Failed to download Slack attachment',
+          );
+          return null;
+        }
+        if (!response.body) {
+          logger.warn(
+            {
+              url: downloadUrl,
+              filename,
+            },
+            'Slack attachment download returned no body',
+          );
+          return null;
+        }
+
+        const targetDir = await getTempDir();
+        const filePath = path.join(targetDir, filename);
+        const output = createWriteStream(filePath, { flags: 'wx' });
+        let sizeBytes = 0;
+
+        try {
+          await pipeline(
+            Readable.fromWeb(response.body as WebReadableStream),
+            new Transform({
+              transform(chunk, _encoding, callback) {
+                const buffer = Buffer.isBuffer(chunk)
+                  ? chunk
+                  : Buffer.from(chunk);
+                sizeBytes += buffer.length;
+                if (sizeBytes > maxBytes) {
+                  callback(new Error('SLACK_ATTACHMENT_MAX_BYTES_EXCEEDED'));
+                  return;
+                }
+                callback(null, buffer);
+              },
+            }),
+            output,
+          );
+        } catch (error) {
+          await fs.rm(filePath, { force: true }).catch(() => undefined);
+          if (
+            error instanceof Error &&
+            error.message === 'SLACK_ATTACHMENT_MAX_BYTES_EXCEEDED'
+          ) {
+            logger.warn(
+              {
+                filename,
+                sizeBytes,
+                maxBytes,
+                url: downloadUrl,
+              },
+              'Slack attachment exceeded max size after download',
+            );
+            return null;
+          }
+          throw error;
+        }
+
+        return {
+          path: filePath,
+          url: downloadUrl,
+          originalUrl: downloadUrl,
+          mimeType: trimValue(file.mimetype) || null,
+          sizeBytes,
+          filename,
+        } satisfies MediaContextItem;
+      }),
+    );
+
+    const rejected = downloads.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (rejected) {
+      throw rejected.reason;
+    }
+
+    const media = downloads.flatMap((result) =>
+      result.status === 'fulfilled' && result.value ? [result.value] : [],
+    );
+    if (tempDir && media.length === 0) {
+      await fs
+        .rm(tempDir, { recursive: true, force: true })
+        .catch(() => undefined);
+    }
+    return media;
   } catch (error) {
     if (tempDir) {
       await fs
@@ -189,14 +278,6 @@ async function downloadSlackInboundMedia(params: {
     }
     throw error;
   }
-
-  if (tempDir && media.length === 0) {
-    await fs
-      .rm(tempDir, { recursive: true, force: true })
-      .catch(() => undefined);
-  }
-
-  return media;
 }
 
 async function removeSlackManagedDirectory(directory: string): Promise<void> {
@@ -272,30 +353,24 @@ export function evaluateSlackAccessPolicy(params: {
   groupAllowFrom: string[];
   userId: string;
   isDm: boolean;
-}): SlackAccessDecision {
+}): boolean {
   if (params.isDm) {
     if (params.dmPolicy === 'disabled') {
-      return { allowed: false, isDm: true };
+      return false;
     }
     if (params.dmPolicy === 'open') {
-      return { allowed: true, isDm: true };
+      return true;
     }
-    return {
-      allowed: matchesAllowList(params.allowFrom, params.userId),
-      isDm: true,
-    };
+    return matchesAllowList(params.allowFrom, params.userId);
   }
 
   if (params.groupPolicy === 'disabled') {
-    return { allowed: false, isDm: false };
+    return false;
   }
   if (params.groupPolicy === 'open') {
-    return { allowed: true, isDm: false };
+    return true;
   }
-  return {
-    allowed: matchesAllowList(params.groupAllowFrom, params.userId),
-    isDm: false,
-  };
+  return matchesAllowList(params.groupAllowFrom, params.userId);
 }
 
 export function buildSlackInboundRouting(params: {
@@ -314,7 +389,7 @@ export function buildSlackInboundRouting(params: {
 
   const teamId = String(params.event.team || '').trim() || null;
   const isDm = isSlackDmEvent(params.event);
-  const access = evaluateSlackAccessPolicy({
+  const isAllowed = evaluateSlackAccessPolicy({
     dmPolicy: params.config.dmPolicy,
     groupPolicy: params.config.groupPolicy,
     allowFrom: params.config.allowFrom,
@@ -322,7 +397,7 @@ export function buildSlackInboundRouting(params: {
     userId,
     isDm,
   });
-  if (!access.allowed) {
+  if (!isAllowed) {
     return null;
   }
 

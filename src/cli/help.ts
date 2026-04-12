@@ -13,7 +13,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Telegram, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -247,6 +247,8 @@ export function printChannelsUsage(): void {
 
 Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -271,6 +273,8 @@ Notes:
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
   - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
+  - \`hybridclaw channels slack manifest\` prints a Slack app manifest fragment for HybridClaw slash commands.
+  - \`hybridclaw channels slack register-commands\` updates an existing Slack app manifest through Slack's app manifest API.
   - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
   - iMessage setup stores \`IMESSAGE_PASSWORD\` only when \`--password\` is provided for the remote relay backend.
   - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
@@ -378,12 +382,17 @@ export function printSlackUsage(): void {
   hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
   hybridclaw auth status slack
   hybridclaw auth logout slack
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
 
 Notes:
   - \`auth login slack\` enables the Slack integration in ${runtimeConfigPath()}.
   - \`auth login slack\` stores \`SLACK_BOT_TOKEN\` and \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - Slack uses Socket Mode, so both a bot token and an app token are required.
-  - If either token is omitted and the terminal is interactive, HybridClaw prompts for the missing value.`);
+  - \`channels slack manifest\` prints a Slack app manifest fragment that adds HybridClaw slash commands plus the \`commands\` bot scope.
+  - \`channels slack register-commands\` exports your app manifest, merges the HybridClaw slash commands, and updates it through Slack's app manifest API.
+  - \`channels slack register-commands\` needs a Slack app configuration access token (\`xoxe-...\`) and the Slack app id (\`A...\`).
+  - If either auth token is omitted during \`auth login slack\` and the terminal is interactive, HybridClaw prompts for the missing value.`);
 }
 
 export function printCodexUsage(): void {

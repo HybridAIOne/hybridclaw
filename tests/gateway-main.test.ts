@@ -179,6 +179,7 @@ function createGatewayMainTestState(options?: {
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
@@ -398,7 +399,7 @@ async function importFreshGatewayMain(options?: {
     initSlack: state.initSlack,
     sendSlackFileToTarget: vi.fn(async () => {}),
     sendToSlackTarget: vi.fn(async () => {}),
-    shutdownSlack: vi.fn(async () => {}),
+    shutdownSlack: state.shutdownSlack,
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: state.initEmail,
@@ -1493,7 +1494,6 @@ describe('gateway bootstrap', () => {
       [],
       reply,
       {
-        abortSignal: new AbortController().signal,
         inbound: {
           target: 'slack:C1234567890:1710000000.123456',
           isDm: false,
@@ -1535,6 +1535,45 @@ describe('gateway bootstrap', () => {
       disableButtons: cleanup.disableButtons,
     });
     await pendingApprovals.clearPendingApproval('session-slack');
+  });
+
+  test('routes Slack slash-text commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890',
+      'U1234567890',
+      'alice',
+      '/status',
+      [],
+      reply,
+      {
+        inbound: {
+          target: 'slack:C1234567890',
+          isDm: false,
+          threadTs: null,
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-slack',
+        channelId: 'slack:C1234567890',
+        args: ['status'],
+        userId: 'U1234567890',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
   });
 
   test('stores Teams pending approvals and advertises numeric replies', async () => {
@@ -2092,6 +2131,74 @@ describe('gateway bootstrap', () => {
         groupPolicy: 'disabled',
         pollIntervalMs: 1_500,
         requireMention: false,
+      }),
+    );
+  });
+
+  test('does not restart Slack integration when Slack allowlists only change order', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+      onState: (draft) => {
+        draft.currentConfig.slack = {
+          ...draft.currentConfig.slack,
+          enabled: true,
+          allowFrom: ['U123', 'U456'],
+          groupAllowFrom: ['U789', 'U000'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        allowFrom: ['U456', 'U123'],
+        groupAllowFrom: ['U000', 'U789'],
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).not.toHaveBeenCalled();
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Slack integration when Slack config changes', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        replyStyle: 'top-level',
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.initSlack).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Slack integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'allowlist',
+        requireMention: true,
+        replyStyle: 'top-level',
       }),
     );
   });

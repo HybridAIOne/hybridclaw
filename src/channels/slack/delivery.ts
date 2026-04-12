@@ -3,14 +3,6 @@ import { chunkMessage } from '../../memory/chunk.js';
 
 const SLACK_PLACEHOLDER_SENTINEL = '\u0000SL';
 
-export function buildResponseText(text: string, toolsUsed?: string[]): string {
-  let body = text;
-  if (toolsUsed && toolsUsed.length > 0) {
-    body = `${body}\n_Tools: ${toolsUsed.join(', ')}_`;
-  }
-  return body;
-}
-
 export function formatSlackMrkdwn(content: string): string {
   if (!content) {
     return content;

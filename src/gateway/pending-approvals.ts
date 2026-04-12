@@ -192,3 +192,25 @@ export function claimPendingApprovalByApprovalId(params: {
   }
   return { status: 'not_found' };
 }
+
+export function rollbackPendingApprovalClaim(params: {
+  sessionId: string;
+  approvalId: string;
+}): boolean {
+  const sessionId = params.sessionId.trim();
+  const approvalId = params.approvalId.trim();
+  if (!sessionId || !approvalId) {
+    return false;
+  }
+
+  const entry = pendingApprovalBySession.get(sessionId);
+  if (!entry) {
+    return false;
+  }
+  if (entry.approvalId !== approvalId || !entry.resolvedAt) {
+    return false;
+  }
+
+  entry.resolvedAt = null;
+  return true;
+}

@@ -22,7 +22,7 @@ import {
 } from '../security/runtime-secrets.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
-import { normalizeArgs } from './common.js';
+import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 import {
   ensureWhatsAppAuthApi,
@@ -1590,6 +1590,217 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
   }
 }
 
+function parseSlackManifestFormat(raw: string): 'yaml' | 'json' {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'yaml' || normalized === 'json') {
+    return normalized;
+  }
+  throw new Error(
+    `Invalid value for \`--format\`: ${raw}. Use \`yaml\` or \`json\`.`,
+  );
+}
+
+function parseSlackManifestArgs(args: string[]): {
+  format: 'yaml' | 'json';
+} {
+  let format: 'yaml' | 'json' = 'yaml';
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const formatFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--format',
+      placeholder: '<yaml|json>',
+    });
+    if (formatFlag) {
+      format = parseSlackManifestFormat(formatFlag.value);
+      index = formatFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels slack manifest [--format <yaml|json>]\`.`,
+    );
+  }
+
+  return { format };
+}
+
+function parseSlackRegisterCommandsArgs(args: string[]): {
+  appId: string | null;
+  configToken: string | null;
+} {
+  let appId: string | null = null;
+  let configToken: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const appIdFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--app-id',
+      placeholder: '<A...>',
+    });
+    if (appIdFlag) {
+      appId = appIdFlag.value.trim() || null;
+      index = appIdFlag.nextIndex;
+      continue;
+    }
+    const configTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--config-token',
+      placeholder: '<xoxe-...>',
+    });
+    if (configTokenFlag) {
+      configToken = configTokenFlag.value.trim() || null;
+      index = configTokenFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]\`.`,
+    );
+  }
+
+  return {
+    appId,
+    configToken,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function printSlackSlashCommandManifest(args: string[]): Promise<void> {
+  const parsed = parseSlackManifestArgs(args);
+  const { renderSlackSlashCommandManifest } = await import(
+    '../channels/slack/slash-commands.js'
+  );
+  console.log(renderSlackSlashCommandManifest(parsed.format));
+}
+
+async function postSlackAppManifestApi(
+  method: 'apps.manifest.export' | 'apps.manifest.update',
+  params: {
+    token: string;
+    body: Record<string, unknown>;
+  },
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${params.token}`,
+      'content-type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify(params.body),
+  });
+  if (!response.ok) {
+    throw new Error(`${method} failed with HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as unknown;
+  const record = asRecord(payload);
+  if (!record) {
+    throw new Error(`${method} returned an invalid response.`);
+  }
+  if (record.ok !== true) {
+    const errorCode =
+      typeof record.error === 'string' && record.error.trim()
+        ? record.error.trim()
+        : 'unknown_error';
+    throw new Error(`${method} failed: ${errorCode}`);
+  }
+  return record;
+}
+
+async function registerSlackSlashCommands(args: string[]): Promise<void> {
+  const parsed = parseSlackRegisterCommandsArgs(args);
+  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+  const rl =
+    interactive && (!parsed.appId || !parsed.configToken)
+      ? readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        })
+      : null;
+
+  try {
+    let appId = parsed.appId;
+    if (!appId && rl) {
+      appId = (await rl.question('Slack app id (A...): ')).trim() || null;
+    }
+    if (!appId) {
+      throw new Error(
+        'Missing value for `--app-id`. Use `hybridclaw channels slack register-commands --app-id <A...> --config-token <xoxe-...>`.',
+      );
+    }
+
+    let configToken = parsed.configToken;
+    if (!configToken && rl) {
+      configToken = await promptForSecretInput({
+        prompt: '🔒 Slack app configuration token (xoxe-...): ',
+        rl,
+      });
+      configToken = configToken.trim() || null;
+    }
+    if (!configToken) {
+      throw new Error(
+        'Missing value for `--config-token`. Use `hybridclaw channels slack register-commands --app-id <A...> --config-token <xoxe-...>`.',
+      );
+    }
+
+    const {
+      buildSlackSlashCommandDefinitions,
+      mergeSlackSlashCommandsIntoManifest,
+    } = await import('../channels/slack/slash-commands.js');
+    const exported = await postSlackAppManifestApi('apps.manifest.export', {
+      token: configToken,
+      body: { app_id: appId },
+    });
+    const manifest = asRecord(exported.manifest);
+    if (!manifest) {
+      throw new Error('apps.manifest.export returned no manifest payload.');
+    }
+
+    const nextManifest = mergeSlackSlashCommandsIntoManifest(manifest);
+    await postSlackAppManifestApi('apps.manifest.update', {
+      token: configToken,
+      body: {
+        app_id: appId,
+        manifest: JSON.stringify(nextManifest),
+      },
+    });
+
+    const commands = buildSlackSlashCommandDefinitions();
+    console.log(`Updated Slack app manifest for ${appId}.`);
+    console.log(`Registered ${commands.length} HybridClaw slash commands.`);
+    console.log(
+      `Commands: ${commands.map((command) => command.command).join(', ')}`,
+    );
+    console.log('Next:');
+    console.log(
+      '  Reinstall the Slack app if Slack reports pending permission changes.',
+    );
+    console.log(
+      '  Reopen Slack and type /status to confirm the command is now suggested.',
+    );
+  } finally {
+    rl?.close();
+  }
+}
+
 export async function handleChannelsCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -1603,10 +1814,11 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
     channel !== 'email' &&
-    channel !== 'imessage'
+    channel !== 'imessage' &&
+    channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`whatsapp\`, \`email\`, \`imessage\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -1635,8 +1847,19 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     await configureWhatsAppChannel(normalized.slice(2));
     return;
   }
+  if (channel === 'slack' && sub === 'manifest') {
+    await printSlackSlashCommandManifest(normalized.slice(2));
+    return;
+  }
+  if (
+    channel === 'slack' &&
+    (sub === 'register-commands' || sub === 'sync-slash-commands')
+  ) {
+    await registerSlackSlashCommands(normalized.slice(2));
+    return;
+  }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, or \`hybridclaw channels imessage setup\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

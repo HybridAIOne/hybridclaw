@@ -5,7 +5,9 @@ import {
 } from '../../memory/db.js';
 import { parseSessionKey } from '../../session/session-key.js';
 import type { Session } from '../../types/session.js';
+import { normalizeTrimmedString as normalizeValue } from '../../utils/normalized-strings.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
+import { isSlackSessionId } from './inbound.js';
 import { hasActiveSlackSession, sendToActiveSlackSession } from './runtime.js';
 import { normalizeSlackUserId, parseSlackChannelTarget } from './target.js';
 
@@ -17,14 +19,6 @@ interface SlackMemberLookupCandidate {
   id: string;
   name: string;
   lastSeenAt: string | null;
-}
-
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
-
-function isSlackSessionId(value: string): boolean {
-  return parseSessionKey(value)?.channelKind === 'slack';
 }
 
 function isLikelySlackRequest(request: DiscordToolActionRequest): boolean {
