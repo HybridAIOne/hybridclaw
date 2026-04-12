@@ -87,7 +87,6 @@ export function AppShell(props: { children: ReactNode }) {
           <div className="topbar">
             <div className="topbar-title">
               <div className="topbar-heading">
-                <SidebarTrigger className="topbar-sidebar-trigger" />
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
@@ -120,6 +119,7 @@ export function AppShell(props: { children: ReactNode }) {
                 );
               })}
             </nav>
+            <SidebarTrigger className="topbar-sidebar-trigger" />
           </div>
           <div className="page-content">{props.children}</div>
         </SidebarInset>
