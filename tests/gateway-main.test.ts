@@ -235,6 +235,8 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
@@ -1411,6 +1413,30 @@ describe('gateway bootstrap', () => {
       context,
     );
 
+    expect(context.sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: '',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'user',
+    });
+    expect(pendingApprovals.getPendingApproval('session')).toMatchObject({
+      approvalId: 'approve123',
+      prompt: 'Hello <@123>\n*Tools: search*',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+    });
+
     const reply = vi.fn(async () => {});
     await state.commandHandler?.(
       'session',
@@ -1428,6 +1454,87 @@ describe('gateway bootstrap', () => {
       expect.any(Array),
     );
     await pendingApprovals.clearPendingApproval('session');
+  });
+
+  test('stores Slack pending approvals via the transport notification hook', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Need approval',
+      toolsUsed: ['web_search'],
+      artifacts: [],
+      pendingApproval: {
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+        intent: 'access reuters.com',
+        reason: 'this would contact a new external host',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: 1_710_000_000_000,
+      },
+    });
+    const cleanup = {
+      disableButtons: vi.fn(async () => {}),
+    };
+    const sendApprovalNotification = vi.fn(async () => cleanup);
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890:1710000000.123456',
+      'U1234567890',
+      'alice',
+      'hello',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        inbound: {
+          target: 'slack:C1234567890:1710000000.123456',
+          isDm: false,
+          threadTs: '1710000000.123456',
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+        sendApprovalNotification,
+      },
+    );
+
+    expect(sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'U1234567890',
+    });
+    expect(reply).not.toHaveBeenCalled();
+    expect(pendingApprovals.getPendingApproval('session-slack')).toMatchObject({
+      approvalId: 'approve123',
+      userId: 'U1234567890',
+      prompt: 'I need your approval before I access reuters.com.',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      disableButtons: cleanup.disableButtons,
+    });
+    await pendingApprovals.clearPendingApproval('session-slack');
   });
 
   test('stores Teams pending approvals and advertises numeric replies', async () => {
@@ -1481,6 +1588,12 @@ describe('gateway bootstrap', () => {
     ).toMatchObject({
       approvalId: 'approve123',
       userId: 'user-aad-id',
+      presentation: {
+        mode: 'text',
+        showText: true,
+        showButtons: false,
+        showReplyText: true,
+      },
     });
     expect(stream.finalize).toHaveBeenCalledWith(
       expect.stringContaining('Reply `1` to allow once'),

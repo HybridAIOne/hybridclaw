@@ -18,6 +18,13 @@ test('buildApprovalActionRow creates the expected approval buttons', () => {
     'approve:all:abc123',
     'approve:no:abc123',
   ]);
+  expect(row.components.map((component) => component.label)).toEqual([
+    'Once',
+    'Session',
+    'Agent',
+    'Always',
+    'Deny',
+  ]);
 });
 
 test('parseApprovalCustomId accepts valid ids and rejects invalid ones', () => {

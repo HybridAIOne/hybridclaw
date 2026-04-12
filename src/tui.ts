@@ -17,6 +17,7 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from './config/config.js';
+import { createApprovalPresentation } from './gateway/approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
   fetchGatewayAdminSkills,
@@ -326,6 +327,7 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
 );
 const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
+const TUI_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
@@ -527,6 +529,35 @@ async function promptApprovalSelection(
     );
   }
   return command;
+}
+
+async function handleTuiPendingApproval(
+  pendingApproval: TuiApprovalDetails,
+  rl: readline.Interface,
+): Promise<void> {
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  tuiPendingApproval = {
+    requestId: pendingApproval.approvalId,
+    summary,
+    intent: pendingApproval.intent,
+    reason: pendingApproval.reason,
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  };
+  if (TUI_APPROVAL_PRESENTATION.showText) {
+    printResponse(summary);
+  }
+  const approvalCommand = await promptApprovalSelection(
+    rl,
+    pendingApproval.approvalId,
+    pendingApproval.allowSession,
+    pendingApproval.allowAgent,
+    pendingApproval.allowAll,
+  );
+  if (approvalCommand) {
+    await submitApprovalReplay(approvalCommand, rl);
+  }
 }
 
 function printBanner(
@@ -1694,27 +1725,7 @@ async function runGatewayCommand(
     const pendingApproval =
       result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
     if (pendingApproval) {
-      const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-        allowAll: pendingApproval.allowAll,
-      };
-      printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
-        rl,
-        pendingApproval.approvalId,
-        pendingApproval.allowSession,
-        pendingApproval.allowAgent,
-        pendingApproval.allowAll,
-      );
-      if (approvalCommand) {
-        await submitApprovalReplay(approvalCommand, rl);
-      }
+      await handleTuiPendingApproval(pendingApproval, rl);
       return;
     }
     printGatewayCommandResult(result);
@@ -2208,27 +2219,7 @@ async function processMessage(
     }
 
     if (pendingApproval) {
-      const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-        allowAll: pendingApproval.allowAll,
-      };
-      printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
-        rl,
-        pendingApproval.approvalId,
-        pendingApproval.allowSession,
-        pendingApproval.allowAgent,
-        pendingApproval.allowAll,
-      );
-      if (approvalCommand) {
-        await submitApprovalReplay(approvalCommand, rl);
-      }
+      await handleTuiPendingApproval(pendingApproval, rl);
     } else {
       if (isApprovalResponseContent(content)) {
         tuiPendingApproval = null;
@@ -2306,27 +2297,7 @@ async function processFullAutoSteeringMessage(
       }
       const pendingApproval = resolvePendingApproval(result, null);
       if (pendingApproval) {
-        const summary = formatTuiApprovalSummary(pendingApproval);
-        tuiPendingApproval = {
-          requestId: pendingApproval.approvalId,
-          summary,
-          intent: pendingApproval.intent,
-          reason: pendingApproval.reason,
-          allowSession: pendingApproval.allowSession,
-          allowAgent: pendingApproval.allowAgent,
-          allowAll: pendingApproval.allowAll,
-        };
-        printResponse(summary);
-        const approvalCommand = await promptApprovalSelection(
-          rl,
-          pendingApproval.approvalId,
-          pendingApproval.allowSession,
-          pendingApproval.allowAgent,
-          pendingApproval.allowAll,
-        );
-        if (approvalCommand) {
-          await submitApprovalReplay(approvalCommand, rl);
-        }
+        await handleTuiPendingApproval(pendingApproval, rl);
         return;
       }
       printResponse(result.result || 'No response.');

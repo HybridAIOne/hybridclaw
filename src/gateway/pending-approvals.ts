@@ -1,3 +1,8 @@
+import {
+  type ApprovalPresentation,
+  createApprovalPresentation,
+} from './approval-presentation.js';
+
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 
 export interface PendingApprovalCommandAction {
@@ -13,6 +18,7 @@ export interface PendingApprovalCommandAction {
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
+  presentation?: ApprovalPresentation | null;
   createdAt: number;
   expiresAt: number;
   userId: string;
@@ -49,12 +55,16 @@ export async function setPendingApproval(
   sessionId: string,
   entry: PendingApprovalPrompt,
 ): Promise<void> {
+  const nextEntry: PendingApprovalPrompt = {
+    ...entry,
+    presentation: entry.presentation ?? createApprovalPresentation('text'),
+  };
   const existing = pendingApprovalBySession.get(sessionId) || null;
   if (existing) {
     pendingApprovalBySession.delete(sessionId);
     await disposePendingApprovalEntry(existing, { disableButtons: true });
   }
-  pendingApprovalBySession.set(sessionId, entry);
+  pendingApprovalBySession.set(sessionId, nextEntry);
 }
 
 export async function rememberPendingApproval(params: {
@@ -63,6 +73,7 @@ export async function rememberPendingApproval(params: {
   prompt: string;
   userId: string;
   expiresAt?: number | null;
+  presentation?: ApprovalPresentation;
   commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
 }): Promise<void> {
@@ -74,6 +85,7 @@ export async function rememberPendingApproval(params: {
   const entry: PendingApprovalPrompt = {
     approvalId: params.approvalId,
     prompt: params.prompt,
+    presentation: params.presentation ?? createApprovalPresentation('text'),
     createdAt,
     expiresAt,
     userId: params.userId,

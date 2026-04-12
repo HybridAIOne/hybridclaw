@@ -116,6 +116,11 @@ import {
   DEFAULT_CHANNEL_INTERRUPTED_REPLY,
   formatChannelGatewayFailure,
 } from './channel-gateway-failure.js';
+import {
+  createApprovalPresentation,
+  getApprovalPromptText,
+  getApprovalVisibleText,
+} from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -195,6 +200,21 @@ function hasTelegramConfigChanged(
     next.mediaMaxMb !== prev.mediaMaxMb
   );
 }
+const WHATSAPP_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const WHATSAPP_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
+const EMAIL_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const EMAIL_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
+const IMESSAGE_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const IMESSAGE_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
+const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
+const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
+const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
@@ -934,24 +954,30 @@ async function startDiscordIntegration(): Promise<boolean> {
             result.memoryCitations,
           );
           if (pendingApproval) {
+            const storedPrompt = getApprovalPromptText(
+              pendingApproval,
+              responseText,
+            );
+            const approvalPresentation = context.sendApprovalNotification
+              ? DISCORD_APPROVAL_PRESENTATION
+              : createApprovalPresentation('text');
             let cleanup: { disableButtons: () => Promise<void> } | null = null;
             if (context.sendApprovalNotification) {
               cleanup = await context.sendApprovalNotification({
-                text: 'Approval required — use buttons below or `/approve` to respond.',
-                approvalId: pendingApproval.approvalId,
+                approval: pendingApproval,
+                presentation: approvalPresentation,
                 userId,
               });
             } else {
-              await context.stream.finalize(
-                `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
-              );
+              await context.stream.finalize(`<@${userId}> ${storedPrompt}`);
             }
             await rememberPendingApproval({
               sessionId: effectiveSessionId,
               approvalId: pendingApproval.approvalId,
-              prompt: pendingApproval.prompt || responseText,
+              prompt: storedPrompt,
               userId,
               expiresAt: pendingApproval.expiresAt,
+              presentation: approvalPresentation,
               disableButtons: cleanup?.disableButtons ?? null,
             });
             if (cleanup) {
@@ -1171,15 +1197,25 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
+          const storedPrompt = getApprovalPromptText(
+            pendingApproval,
+            responseText,
+          );
+          const visiblePrompt = getApprovalVisibleText(
+            pendingApproval,
+            TEAMS_APPROVAL_PRESENTATION,
+            responseText,
+          );
           await rememberPendingApproval({
             sessionId: effectiveSessionId,
             approvalId: pendingApproval.approvalId,
-            prompt: pendingApproval.prompt || responseText,
+            prompt: storedPrompt,
             userId,
             expiresAt: pendingApproval.expiresAt,
+            presentation: TEAMS_APPROVAL_PRESENTATION,
           });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
+            `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
           return;
         }
@@ -1765,6 +1801,7 @@ async function startSlackIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
+          const pendingApproval = extractGatewayChatApprovalEvent(result);
           const responseText = cleanedResultText.trim()
             ? buildResponseText(
                 cleanedResultText,
@@ -1773,6 +1810,35 @@ async function startSlackIntegration(): Promise<boolean> {
                   : undefined,
               )
             : '';
+          if (pendingApproval) {
+            const storedPrompt = getApprovalPromptText(
+              pendingApproval,
+              responseText,
+            );
+            const approvalPresentation = context.sendApprovalNotification
+              ? SLACK_APPROVAL_PRESENTATION
+              : createApprovalPresentation('text');
+            let cleanup: { disableButtons: () => Promise<void> } | null = null;
+            if (context.sendApprovalNotification) {
+              cleanup = await context.sendApprovalNotification({
+                approval: pendingApproval,
+                presentation: approvalPresentation,
+                userId,
+              });
+            } else {
+              await reply(storedPrompt);
+            }
+            await rememberPendingApproval({
+              sessionId: effectiveSessionId,
+              approvalId: pendingApproval.approvalId,
+              prompt: storedPrompt,
+              userId,
+              expiresAt: pendingApproval.expiresAt,
+              presentation: approvalPresentation,
+              disableButtons: cleanup?.disableButtons ?? null,
+            });
+            return;
+          }
           if (responseText) {
             await reply(responseText);
           }
@@ -1788,6 +1854,26 @@ async function startSlackIntegration(): Promise<boolean> {
           logger.error(
             { error, sessionId, channelId },
             'Slack message handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+      async (sessionId, guildId, channelId, userId, username, args, reply) => {
+        try {
+          await handleTextChannelCommand({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            args,
+            reply,
+          });
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId, args },
+            'Slack command handling failed',
           );
           await reply(formatError('Gateway Error', text));
         }
