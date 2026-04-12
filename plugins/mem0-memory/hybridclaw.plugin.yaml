@@ -1,0 +1,71 @@
+id: mem0-memory
+name: Mem0 Memory
+version: 0.1.0
+kind: memory
+memoryProvider: true
+description: Mirror HybridClaw turns into Mem0 cloud memory, inject prompt-time recall, and expose direct Mem0 memory tools.
+entrypoint: src/index.js
+credentials:
+  - MEM0_API_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    host:
+      type: string
+      default: https://api.mem0.ai
+    organizationId:
+      type: string
+    projectId:
+      type: string
+    appId:
+      type: string
+      default: hybridclaw
+    userId:
+      type: string
+    agentId:
+      type: string
+    apiVersion:
+      type: string
+      enum: [v1, v2]
+      default: v2
+    searchLimit:
+      type: number
+      default: 5
+      minimum: 1
+      maximum: 20
+    profileLimit:
+      type: number
+      default: 10
+      minimum: 1
+      maximum: 50
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 20000
+    messageMaxChars:
+      type: number
+      default: 4000
+      minimum: 200
+      maximum: 20000
+    timeoutMs:
+      type: number
+      default: 15000
+      minimum: 1000
+      maximum: 60000
+    prefetchRerank:
+      type: boolean
+      default: true
+    includeProfile:
+      type: boolean
+      default: true
+    includeSearch:
+      type: boolean
+      default: true
+    syncTurns:
+      type: boolean
+      default: true
+    mirrorNativeMemoryWrites:
+      type: boolean
+      default: true

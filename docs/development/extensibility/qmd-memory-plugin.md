@@ -219,6 +219,25 @@ benefit from discussions in earlier ones.
 - `/qmd embed` is an explicit passthrough command and can run much longer than
   the short background-search timeout.
 
+## Troubleshooting
+
+- QMD loads but prompt recall stays empty:
+  confirm the target docs are actually indexed, then inspect
+  `~/.hybridclaw/data/last_prompt.jsonl` to distinguish "plugin loaded but no
+  hits" from "plugin never ran".
+- `/qmd status` works but retrieval quality is poor:
+  switch between `query`, `search`, and `vsearch` deliberately instead of
+  assuming the default mode fits the collection you built.
+- Background retrieval times out:
+  increase `timeoutMs`, reduce the size of the indexed corpus, or use explicit
+  `/qmd ...` commands for longer-running operations.
+- Repo edits do not affect the installed plugin:
+  run `/plugin reinstall ./plugins/qmd-memory` and then `/plugin reload`;
+  reload alone only reuses the installed copy under `~/.hybridclaw/plugins/`.
+- Searches miss exact terms you know exist:
+  try `/qmd search <term>` first. If lexical search fails too, the issue is
+  likely indexing rather than prompt wording.
+
 ## Verifying Retrieval
 
 To verify that the plugin is both loaded and actively contributing context:
