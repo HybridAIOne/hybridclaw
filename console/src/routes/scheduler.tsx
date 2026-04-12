@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
+  deleteSchedulerJob,
   fetchChannels,
   fetchConfig,
-  deleteSchedulerJob,
   fetchScheduler,
   saveSchedulerJob,
   setSchedulerJobPaused,
@@ -288,13 +288,19 @@ function buildSchedulerTargetControl(params: {
       value,
     };
   }
-  if ((params.channel === 'discord' || params.channel === 'msteams') && options.length === 1) {
+  if (
+    (params.channel === 'discord' || params.channel === 'msteams') &&
+    options.length === 1
+  ) {
     return {
       kind: 'none',
       value,
     };
   }
-  if ((params.channel === 'discord' || params.channel === 'msteams') && options.length > 1) {
+  if (
+    (params.channel === 'discord' || params.channel === 'msteams') &&
+    options.length > 1
+  ) {
     return {
       kind: 'select',
       value,

@@ -131,7 +131,9 @@ describe('JobsPage', () => {
       expect(screen.getAllByText('Release in 10 minutes.').length).toBe(2);
     });
     expect(screen.getByText('Outputs')).toBeTruthy();
-    expect(screen.queryByText('No outputs captured for this job yet.')).toBeNull();
+    expect(
+      screen.queryByText('No outputs captured for this job yet.'),
+    ).toBeNull();
     expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('never')).toBeNull();
   });

@@ -271,10 +271,8 @@ test('admin scheduler saves one-shot config jobs with retry settings', async () 
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const {
-    getGatewayAdminScheduler,
-    upsertGatewayAdminSchedulerJob,
-  } = await import('../src/gateway/gateway-scheduled-task-service.ts');
+  const { getGatewayAdminScheduler, upsertGatewayAdminSchedulerJob } =
+    await import('../src/gateway/gateway-scheduled-task-service.ts');
 
   initDatabase({ quiet: true });
 
@@ -384,7 +382,8 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
 
   runAgentMock.mockResolvedValue({
     status: 'success',
-    result: 'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    result:
+      'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
     toolExecutions: [],
     artifacts: [],
   });
