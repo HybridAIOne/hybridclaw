@@ -19,24 +19,12 @@
 - **Admin console dialog and toast UX**: Replaced inline banners with
   accessible dialog/toast primitives, tightened scheduler and jobs feedback
   flows, and refined the mobile topbar/sidebar interaction.
-- **Per-agent skill filtering**: Agent `skills` settings now narrow the
+- **Per-agent skill filtering**: Agent `skills` settings narrow the
   globally enabled skill set, while omitting `skills` keeps the existing
   global scope for backward compatibility.
 - **Approval presentation across channels**: Gateway approval copy and channel
-  actions now render more consistently, preserve approval ids correctly, and
-  align Discord and Slack approval flows more closely.
-
-### Fixed
-
-- **Slack slash-command ergonomics**: Slack slash commands use shorter
-  `/hc-*` names, keep runtime command coverage aligned with the shipped
-  manifest, and avoid review regressions in channel setup/documentation flows.
-- **Scheduler delivery state reporting**: One-shot deliveries now report retry
-  and review outcomes more clearly instead of leaving ambiguous scheduler state
-  after gateway or console handoff.
-- **Console accessibility edge cases**: Toast and dialog flows now keep
-  backdrops interactive, ignore closed dialogs in Escape-key handling, and
-  harden focus/visibility coordination during layered UI interactions.
+  actions render more consistently across Discord, Slack, and
+  gateway-managed approval surfaces.
 
 ## [0.12.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.3)
 
