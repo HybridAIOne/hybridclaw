@@ -1008,7 +1008,6 @@ function SchedulerJobEditor(props: {
             </button>
           ) : null}
         </div>
-
       </div>
     </Panel>
   );
