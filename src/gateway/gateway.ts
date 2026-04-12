@@ -200,18 +200,6 @@ function hasTelegramConfigChanged(
     next.mediaMaxMb !== prev.mediaMaxMb
   );
 }
-const WHATSAPP_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const WHATSAPP_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const EMAIL_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const EMAIL_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
-const IMESSAGE_INTERRUPTED_REPLY =
-  'The request was interrupted before I could reply. Please send it again.';
-const IMESSAGE_TRANSIENT_FAILURE_REPLY =
-  'The model request failed before I could reply. Please try again.';
 const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
