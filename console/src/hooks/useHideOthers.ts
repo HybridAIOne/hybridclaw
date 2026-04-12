@@ -1,13 +1,35 @@
 import { type RefObject, useEffect } from 'react';
 
 /**
- * While `active`, sets `aria-hidden="true"` on every direct child of
- * `document.body` that is not — and does not contain — the element referenced
- * by `containerRef`. This prevents assistive technology from interacting with
- * background content while a modal / drawer is open.
- *
- * Restores each element's previous `aria-hidden` value (or removes the
- * attribute entirely if it wasn't present) on cleanup.
+ * Module-level reference count per element.  When count > 0 the element is
+ * inert; when it drops back to 0, inert is removed.  This lets concurrent
+ * modals (Dialog + Sheet, nested dialogs, etc.) compose correctly — each
+ * caller is independent and the last one to deactivate restores the element.
+ */
+const inertCount = new WeakMap<Element, number>();
+
+function markInert(el: Element): void {
+  const count = (inertCount.get(el) ?? 0) + 1;
+  inertCount.set(el, count);
+  if (count === 1) {
+    (el as HTMLElement).inert = true;
+  }
+}
+
+function unmarkInert(el: Element): void {
+  const count = (inertCount.get(el) ?? 1) - 1;
+  if (count <= 0) {
+    inertCount.delete(el);
+    (el as HTMLElement).inert = false;
+  } else {
+    inertCount.set(el, count);
+  }
+}
+
+/**
+ * While `active`, marks every direct child of `document.body` — except the
+ * one containing `containerRef` — as `inert`.  Reference-counted so
+ * concurrent/nested modals compose correctly.
  */
 export function useHideOthers(
   containerRef: RefObject<HTMLElement | null>,
@@ -18,21 +40,17 @@ export function useHideOthers(
     const container = containerRef.current;
     if (!container) return;
 
-    const previous = new Map<Element, string | null>();
+    const marked: Element[] = [];
 
     for (const child of document.body.children) {
       if (child === container || child.contains(container)) continue;
-      previous.set(child, child.getAttribute('aria-hidden'));
-      child.setAttribute('aria-hidden', 'true');
+      markInert(child);
+      marked.push(child);
     }
 
     return () => {
-      for (const [el, prev] of previous) {
-        if (prev === null) {
-          el.removeAttribute('aria-hidden');
-        } else {
-          el.setAttribute('aria-hidden', prev);
-        }
+      for (const el of marked) {
+        unmarkInert(el);
       }
     };
   }, [active, containerRef]);

@@ -9,6 +9,7 @@ import {
   useSortableRows,
 } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -89,7 +90,7 @@ export function DashboardPage() {
   if (overviewQuery.isError && !overview) {
     return (
       <div className="empty-state error">
-        {(overviewQuery.error as Error).message}
+        {getErrorMessage(overviewQuery.error)}
       </div>
     );
   }

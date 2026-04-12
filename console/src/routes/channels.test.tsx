@@ -7,8 +7,8 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
@@ -109,6 +109,17 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],
     },
+    slack: {
+      enabled: false,
+      groupPolicy: 'allowlist',
+      dmPolicy: 'allowlist',
+      allowFrom: [],
+      groupAllowFrom: [],
+      requireMention: true,
+      textChunkLimit: 12000,
+      replyStyle: 'thread',
+      mediaMaxMb: 20,
+    },
     telegram: {
       enabled: false,
       botToken: '',
@@ -202,7 +213,9 @@ function renderChannelsPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChannelsPage />
+      <ToastProvider>
+        <ChannelsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -218,6 +231,12 @@ describe('ChannelsPage', () => {
       discord: {
         tokenConfigured: false,
         tokenSource: null,
+      },
+      slack: {
+        botTokenConfigured: false,
+        botTokenSource: null,
+        appTokenConfigured: false,
+        appTokenSource: null,
       },
       telegram: {
         tokenConfigured: false,
@@ -347,6 +366,50 @@ describe('ChannelsPage', () => {
     });
     expect(discordButton.textContent || '').toContain('available');
     expect(discordButton.textContent || '').not.toContain('active');
+  });
+
+  it('shows Slack as active only when both Socket Mode tokens are configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        slack: {
+          ...makeConfig().slack,
+          enabled: true,
+        },
+      }),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      slack: {
+        botTokenConfigured: true,
+        botTokenSource: 'runtime-secrets',
+        appTokenConfigured: true,
+        appTokenSource: 'runtime-secrets',
+      },
+    });
+
+    renderChannelsPage();
+
+    const slackButton = await screen.findByRole('button', {
+      name: /Slack/i,
+    });
+    expect(slackButton.textContent || '').toContain('active');
+
+    fireEvent.click(slackButton);
+    expect(
+      screen.getByRole('heading', { name: 'Slack settings' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Bot token')).toBeTruthy();
+    expect(screen.getByText('App token')).toBeTruthy();
   });
 
   it('shows Discord as active in command-only mode when the token is configured', async () => {
@@ -919,7 +982,7 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 
   it('shows change password when passwordConfigured is true without a source', async () => {
@@ -1066,6 +1129,6 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 });

@@ -15,7 +15,9 @@ import {
 } from '../api/client';
 import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
@@ -74,7 +76,9 @@ function deriveColumn(
   if (session?.status === 'active') return 'in_progress';
   if (
     job.lastStatus === 'success' &&
-    (job.schedule.kind === 'at' || !job.nextRunAt)
+    (job.schedule.kind === 'at' ||
+      job.schedule.kind === 'one_shot' ||
+      !job.nextRunAt)
   ) {
     return 'done';
   }
@@ -93,6 +97,7 @@ function deriveTone(column: JobColumnId): JobBoardItem['tone'] {
 function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
   if (isJobPaused(job)) return 'paused';
   if (column === 'in_progress') return 'running';
+  if (column === 'review' && job.lastStatus === 'error') return 'failed';
   if (column === 'backlog' || column === 'cancelled') return 'queued';
   return 'ready';
 }
@@ -200,9 +205,13 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
       value: normalized,
     });
   };
+  const pushDate = (label: string, raw: string | null | undefined): void => {
+    if (!String(raw || '').trim()) return;
+    push(label, formatDateTime(raw || null));
+  };
 
-  push('Created', formatDateTime(item.job.createdAt));
-  push('Last run', formatDateTime(item.job.lastRun));
+  pushDate('Created', item.job.createdAt || item.session?.startedAt || null);
+  pushDate('Last run', item.job.lastRun);
   push(
     'Last status',
     item.job.lastStatus
@@ -213,14 +222,22 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
   );
   push(
     'Next run',
-    item.job.schedule.kind !== 'at' ? formatDateTime(item.job.nextRunAt) : null,
+    item.job.schedule.kind !== 'at' && item.job.schedule.kind !== 'one_shot'
+      ? item.job.nextRunAt
+      : null,
   );
   push(
     'Consecutive errors',
     item.job.consecutiveErrors > 0 ? String(item.job.consecutiveErrors) : null,
   );
-  push('Session started', formatDateTime(item.session?.startedAt || null));
-  push('Session last active', formatDateTime(item.session?.lastActive || null));
+  push(
+    'Retries after failure',
+    item.job.schedule.kind === 'one_shot' && item.job.maxRetries != null
+      ? String(item.job.maxRetries)
+      : null,
+  );
+  pushDate('Session started', item.session?.startedAt || null);
+  pushDate('Session last active', item.session?.lastActive || null);
 
   return entries;
 }
@@ -229,7 +246,12 @@ function collectJobOutputs(item: JobBoardItem): string[] {
   const values =
     item.session?.output && item.session.output.length > 0
       ? item.session.output
-      : [item.session?.lastAnswer || ''];
+      : item.session?.lastAnswer
+        ? [item.session.lastAnswer]
+        : item.job.action.kind === 'system_event' &&
+            item.job.lastStatus === 'success'
+          ? [item.job.action.message]
+          : [''];
   const seen = new Set<string>();
   const outputs: string[] = [];
   for (const rawValue of values) {
@@ -385,7 +407,8 @@ function JobDetailCard(props: {
               {props.item.job.channelId || props.item.job.delivery.to || 'n/a'}
             </strong>
           </div>
-          {props.item.job.schedule.kind !== 'at' ? (
+          {props.item.job.schedule.kind !== 'at' &&
+          props.item.job.schedule.kind !== 'one_shot' ? (
             <div>
               <span>Next run</span>
               <strong>{formatDateTime(props.item.job.nextRunAt)}</strong>
@@ -469,6 +492,7 @@ function JobDetailCard(props: {
 export function JobsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
@@ -512,10 +536,11 @@ export function JobsPage() {
       );
       return { previous };
     },
-    onError: (_error, _job, context) => {
+    onError: (error, _job, context) => {
       if (context?.previous) {
         queryClient.setQueryData(['scheduler', auth.token], context.previous);
       }
+      toast.error('Save failed', getErrorMessage(error));
     },
     onSuccess: (payload) => {
       queryClient.setQueryData(['scheduler', auth.token], payload);
@@ -535,6 +560,9 @@ export function JobsPage() {
       }),
     onSuccess: (payload) => {
       queryClient.setQueryData(['scheduler', auth.token], payload);
+    },
+    onError: (error) => {
+      toast.error('Move failed', getErrorMessage(error));
     },
   });
 
@@ -670,7 +698,7 @@ export function JobsPage() {
   if (schedulerQuery.isError && !schedulerQuery.data) {
     return (
       <div className="empty-state error">
-        {(schedulerQuery.error as Error).message}
+        {getErrorMessage(schedulerQuery.error)}
       </div>
     );
   }
@@ -694,19 +722,11 @@ export function JobsPage() {
         }
       />
 
+      {/* Query errors stay as inline banners (not toasts) — they represent a
+          persistent broken state, not a one-time operation failure. */}
       {jobsContextQuery.isError ? (
         <p className="error-banner">
-          {(jobsContextQuery.error as Error).message}
-        </p>
-      ) : null}
-      {saveJobMutation.isError ? (
-        <p className="error-banner">
-          {(saveJobMutation.error as Error).message}
-        </p>
-      ) : null}
-      {moveJobMutation.isError ? (
-        <p className="error-banner">
-          {(moveJobMutation.error as Error).message}
+          {getErrorMessage(jobsContextQuery.error)}
         </p>
       ) : null}
 

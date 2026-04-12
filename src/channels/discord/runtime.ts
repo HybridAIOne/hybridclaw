@@ -36,7 +36,12 @@ import {
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
 } from '../../config/config.js';
+import {
+  type ApprovalPresentation,
+  getApprovalVisibleText,
+} from '../../gateway/approval-presentation.js';
 import { parseConciergeChoiceCustomId } from '../../gateway/concierge-choice.js';
+import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import {
@@ -158,8 +163,11 @@ export interface MessageRunContext {
   mentionLookup: MentionLookup;
   emitLifecyclePhase: (phase: LifecyclePhase) => void;
   sendApprovalNotification?: (params: {
-    text: string;
-    approvalId: string;
+    approval: Pick<
+      GatewayChatApprovalEvent,
+      'approvalId' | 'prompt' | 'summary'
+    >;
+    presentation: ApprovalPresentation;
     userId: string;
   }) => Promise<{ disableButtons: () => Promise<void> } | null>;
 }
@@ -1745,14 +1753,28 @@ export async function initDiscord(
             stream,
             mentionLookup,
             emitLifecyclePhase,
-            sendApprovalNotification: async ({ text, approvalId, userId }) => {
-              const row = buildApprovalActionRow(approvalId);
+            sendApprovalNotification: async ({
+              approval,
+              presentation,
+              userId,
+            }) => {
+              const row = buildApprovalActionRow(approval.approvalId);
+              const visibleText = getApprovalVisibleText(
+                approval,
+                presentation,
+              );
+              const components = presentation.showButtons ? [row] : [];
               const sent = await withDiscordRetry('approval-notification', () =>
                 sourceMessage.reply({
-                  content: `<@${userId}> ${text}`,
-                  components: [row],
+                  content: visibleText
+                    ? `<@${userId}> ${visibleText}`
+                    : `<@${userId}>`,
+                  ...(components.length > 0 ? { components } : {}),
                 }),
               );
+              if (!presentation.showButtons) {
+                return null;
+              }
               return {
                 disableButtons: () => disableApprovalButtons(sent),
               };
@@ -2142,14 +2164,25 @@ export async function initDiscord(
           stream,
           mentionLookup,
           emitLifecyclePhase,
-          sendApprovalNotification: async ({ text, approvalId, userId }) => {
-            const row = buildApprovalActionRow(approvalId);
+          sendApprovalNotification: async ({
+            approval,
+            presentation,
+            userId,
+          }) => {
+            const row = buildApprovalActionRow(approval.approvalId);
+            const visibleText = getApprovalVisibleText(approval, presentation);
+            const components = presentation.showButtons ? [row] : [];
             const sent = await withDiscordRetry('approval-notification', () =>
               msg.reply({
-                content: `<@${userId}> ${text}`,
-                components: [row],
+                content: visibleText
+                  ? `<@${userId}> ${visibleText}`
+                  : `<@${userId}>`,
+                ...(components.length > 0 ? { components } : {}),
               }),
             );
+            if (!presentation.showButtons) {
+              return null;
+            }
             return {
               disableButtons: () => disableApprovalButtons(sent),
             };

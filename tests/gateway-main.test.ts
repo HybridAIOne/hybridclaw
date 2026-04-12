@@ -30,6 +30,9 @@ function createGatewayMainTestState(options?: {
   emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  slackInitError?: Error;
+  hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -41,6 +44,7 @@ function createGatewayMainTestState(options?: {
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    slackMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     telegramMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -67,6 +71,17 @@ function createGatewayMainTestState(options?: {
         imapSecure: true,
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+      },
+      slack: {
+        enabled: options?.slackEnabled ?? false,
+        groupPolicy: 'allowlist',
+        dmPolicy: 'allowlist',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        textChunkLimit: 12_000,
+        replyStyle: 'thread',
+        mediaMaxMb: 20,
       },
       telegram: {
         enabled: false,
@@ -148,6 +163,7 @@ function createGatewayMainTestState(options?: {
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initSlack: vi.fn(),
     initTelegram: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
@@ -163,6 +179,7 @@ function createGatewayMainTestState(options?: {
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
@@ -219,6 +236,8 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
@@ -263,6 +282,12 @@ async function importFreshGatewayMain(options?: {
   state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
+  });
+  state.initSlack.mockImplementation((messageHandler) => {
+    if (options?.slackInitError) {
+      throw options.slackInitError;
+    }
+    state.slackMessageHandler = messageHandler;
   });
   state.initTelegram.mockImplementation((messageHandler) => {
     state.telegramMessageHandler = messageHandler;
@@ -370,6 +395,12 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
+  vi.doMock('../src/channels/slack/runtime.js', () => ({
+    initSlack: state.initSlack,
+    sendSlackFileToTarget: vi.fn(async () => {}),
+    sendToSlackTarget: vi.fn(async () => {}),
+    shutdownSlack: state.shutdownSlack,
+  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
@@ -397,6 +428,10 @@ async function importFreshGatewayMain(options?: {
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-password',
+    SLACK_APP_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'slack-app-token',
+    SLACK_BOT_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
@@ -537,6 +572,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/telegram/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
+  vi.doUnmock('../src/channels/slack/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/auth.js');
@@ -1378,6 +1414,30 @@ describe('gateway bootstrap', () => {
       context,
     );
 
+    expect(context.sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: '',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'user',
+    });
+    expect(pendingApprovals.getPendingApproval('session')).toMatchObject({
+      approvalId: 'approve123',
+      prompt: 'Hello <@123>\n*Tools: search*',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+    });
+
     const reply = vi.fn(async () => {});
     await state.commandHandler?.(
       'session',
@@ -1395,6 +1455,125 @@ describe('gateway bootstrap', () => {
       expect.any(Array),
     );
     await pendingApprovals.clearPendingApproval('session');
+  });
+
+  test('stores Slack pending approvals via the transport notification hook', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Need approval',
+      toolsUsed: ['web_search'],
+      artifacts: [],
+      pendingApproval: {
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+        intent: 'access reuters.com',
+        reason: 'this would contact a new external host',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: 1_710_000_000_000,
+      },
+    });
+    const cleanup = {
+      disableButtons: vi.fn(async () => {}),
+    };
+    const sendApprovalNotification = vi.fn(async () => cleanup);
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890:1710000000.123456',
+      'U1234567890',
+      'alice',
+      'hello',
+      [],
+      reply,
+      {
+        inbound: {
+          target: 'slack:C1234567890:1710000000.123456',
+          isDm: false,
+          threadTs: '1710000000.123456',
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+        sendApprovalNotification,
+      },
+    );
+
+    expect(sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'U1234567890',
+    });
+    expect(reply).not.toHaveBeenCalled();
+    expect(pendingApprovals.getPendingApproval('session-slack')).toMatchObject({
+      approvalId: 'approve123',
+      userId: 'U1234567890',
+      prompt: 'I need your approval before I access reuters.com.',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      disableButtons: cleanup.disableButtons,
+    });
+    await pendingApprovals.clearPendingApproval('session-slack');
+  });
+
+  test('routes Slack slash-text commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890',
+      'U1234567890',
+      'alice',
+      '/status',
+      [],
+      reply,
+      {
+        inbound: {
+          target: 'slack:C1234567890',
+          isDm: false,
+          threadTs: null,
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-slack',
+        channelId: 'slack:C1234567890',
+        args: ['status'],
+        userId: 'U1234567890',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
   });
 
   test('stores Teams pending approvals and advertises numeric replies', async () => {
@@ -1448,6 +1627,12 @@ describe('gateway bootstrap', () => {
     ).toMatchObject({
       approvalId: 'approve123',
       userId: 'user-aad-id',
+      presentation: {
+        mode: 'text',
+        showText: true,
+        showButtons: false,
+        showReplyText: true,
+      },
     });
     expect(stream.finalize).toHaveBeenCalledWith(
       expect.stringContaining('Reply `1` to allow once'),
@@ -1946,6 +2131,74 @@ describe('gateway bootstrap', () => {
         groupPolicy: 'disabled',
         pollIntervalMs: 1_500,
         requireMention: false,
+      }),
+    );
+  });
+
+  test('does not restart Slack integration when Slack allowlists only change order', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+      onState: (draft) => {
+        draft.currentConfig.slack = {
+          ...draft.currentConfig.slack,
+          enabled: true,
+          allowFrom: ['U123', 'U456'],
+          groupAllowFrom: ['U789', 'U000'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        allowFrom: ['U456', 'U123'],
+        groupAllowFrom: ['U000', 'U789'],
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).not.toHaveBeenCalled();
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Slack integration when Slack config changes', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        replyStyle: 'top-level',
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.initSlack).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Slack integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'allowlist',
+        requireMention: true,
+        replyStyle: 'top-level',
       }),
     );
   });

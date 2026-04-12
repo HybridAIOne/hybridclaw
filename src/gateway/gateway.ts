@@ -27,6 +27,7 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
 import {
   initEmail,
   sendEmailAttachmentTo,
@@ -45,6 +46,13 @@ import {
 } from '../channels/imessage/runtime.js';
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
+import {
+  initSlack,
+  sendSlackFileToTarget,
+  sendToSlackTarget,
+  shutdownSlack,
+} from '../channels/slack/runtime.js';
+import { isSlackChannelTarget } from '../channels/slack/target.js';
 import {
   hasTelegramBotToken,
   initTelegram,
@@ -75,6 +83,8 @@ import {
   MSTEAMS_APP_PASSWORD,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
+  SLACK_APP_TOKEN,
+  SLACK_BOT_TOKEN,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
@@ -102,6 +112,11 @@ import {
 import type { ArtifactMetadata } from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
+import {
+  createApprovalPresentation,
+  getApprovalPromptText,
+  getApprovalVisibleText,
+} from './approval-presentation.js';
 import {
   DEFAULT_CHANNEL_INTERRUPTED_REPLY,
   formatChannelGatewayFailure,
@@ -168,6 +183,17 @@ function equalStringLists(left: string[], right: string[]): boolean {
   return true;
 }
 
+function equalStringSets(left: string[], right: string[]): boolean {
+  if (left.length === 0 && right.length === 0) return true;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size !== rightSet.size) return false;
+  for (const entry of leftSet) {
+    if (!rightSet.has(entry)) return false;
+  }
+  return true;
+}
+
 function hasTelegramConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['telegram'],
   prev: ReturnType<typeof getConfigSnapshot>['telegram'],
@@ -185,6 +211,26 @@ function hasTelegramConfigChanged(
     next.mediaMaxMb !== prev.mediaMaxMb
   );
 }
+
+function hasSlackConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['slack'],
+  prev: ReturnType<typeof getConfigSnapshot>['slack'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.requireMention !== prev.requireMention ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.replyStyle !== prev.replyStyle ||
+    next.mediaMaxMb !== prev.mediaMaxMb
+  );
+}
+const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
+const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
+const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
@@ -220,6 +266,7 @@ function logGatewayStartup(params: {
   channels: {
     discord: boolean;
     msteams: boolean;
+    slack: boolean;
     email: boolean;
     imessage: boolean;
     telegram: boolean;
@@ -632,6 +679,41 @@ async function sendProactiveMessageNow(
     return;
   }
 
+  if (isSlackChannelTarget(channelId)) {
+    const slackConfigured =
+      getConfigSnapshot().slack.enabled &&
+      Boolean(trimValue(SLACK_BOT_TOKEN)) &&
+      Boolean(trimValue(SLACK_APP_TOKEN));
+    if (!slackConfigured) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Slack message suppressed: Slack is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToSlackTarget(channelId, text);
+      }
+      for (const artifact of artifacts || []) {
+        await sendSlackFileToTarget({
+          target: channelId,
+          filePath: artifact.path,
+          filename: artifact.filename,
+        });
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Slack conversation',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
   if (isTelegramChannelId(channelId)) {
     const telegramConfig = getConfigSnapshot().telegram;
     const hasBotToken = hasTelegramBotToken();
@@ -888,24 +970,30 @@ async function startDiscordIntegration(): Promise<boolean> {
             result.memoryCitations,
           );
           if (pendingApproval) {
+            const storedPrompt = getApprovalPromptText(
+              pendingApproval,
+              responseText,
+            );
+            const approvalPresentation = context.sendApprovalNotification
+              ? DISCORD_APPROVAL_PRESENTATION
+              : createApprovalPresentation('text');
             let cleanup: { disableButtons: () => Promise<void> } | null = null;
             if (context.sendApprovalNotification) {
               cleanup = await context.sendApprovalNotification({
-                text: 'Approval required — use buttons below or `/approve` to respond.',
-                approvalId: pendingApproval.approvalId,
+                approval: pendingApproval,
+                presentation: approvalPresentation,
                 userId,
               });
             } else {
-              await context.stream.finalize(
-                `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
-              );
+              await context.stream.finalize(`<@${userId}> ${storedPrompt}`);
             }
             await rememberPendingApproval({
               sessionId: effectiveSessionId,
               approvalId: pendingApproval.approvalId,
-              prompt: pendingApproval.prompt || responseText,
+              prompt: storedPrompt,
               userId,
               expiresAt: pendingApproval.expiresAt,
+              presentation: approvalPresentation,
               disableButtons: cleanup?.disableButtons ?? null,
             });
             if (cleanup) {
@@ -1125,15 +1213,25 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
+          const storedPrompt = getApprovalPromptText(
+            pendingApproval,
+            responseText,
+          );
+          const visiblePrompt = getApprovalVisibleText(
+            pendingApproval,
+            TEAMS_APPROVAL_PRESENTATION,
+            responseText,
+          );
           await rememberPendingApproval({
             sessionId: effectiveSessionId,
             approvalId: pendingApproval.approvalId,
-            prompt: pendingApproval.prompt || responseText,
+            prompt: storedPrompt,
             userId,
             expiresAt: pendingApproval.expiresAt,
+            presentation: TEAMS_APPROVAL_PRESENTATION,
           });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
+            `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
           return;
         }
@@ -1389,6 +1487,25 @@ async function startEmailIntegration(): Promise<boolean> {
         context,
       ) => {
         try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
           const result = normalizePlaceholderToolReply(
             await handleGatewayMessage({
               sessionId,
@@ -1430,6 +1547,12 @@ async function startEmailIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
+          const emailMetadata = buildEmailDeliveryMetadata({
+            agentId: result.agentId,
+            model: result.model,
+            provider: result.provider,
+            tokenUsage: result.tokenUsage,
+          });
           if (cleanedResultText.trim()) {
             const responseText = buildResponseText(
               cleanedResultText,
@@ -1437,7 +1560,9 @@ async function startEmailIntegration(): Promise<boolean> {
                 ? result.toolsUsed
                 : undefined,
             );
-            await reply(responseText);
+            await sendToEmail(channelId, responseText, {
+              ...(emailMetadata ? { metadata: emailMetadata } : {}),
+            });
           }
           for (const artifact of artifacts) {
             try {
@@ -1446,6 +1571,7 @@ async function startEmailIntegration(): Promise<boolean> {
                 filePath: artifact.path,
                 mimeType: artifact.mimeType,
                 filename: artifact.filename,
+                ...(emailMetadata ? { metadata: emailMetadata } : {}),
               });
             } catch (error) {
               logger.warn(
@@ -1633,6 +1759,202 @@ async function startTelegramIntegration(): Promise<boolean> {
   return true;
 }
 
+function trimValue(value: string | null | undefined): string {
+  return String(value || '').trim();
+}
+
+async function startSlackIntegration(): Promise<boolean> {
+  const slackConfig = getConfigSnapshot().slack;
+  const hasCredentials =
+    Boolean(trimValue(SLACK_BOT_TOKEN)) && Boolean(trimValue(SLACK_APP_TOKEN));
+
+  if (!slackConfig.enabled) {
+    logger.info('Slack integration disabled');
+    return false;
+  }
+  if (!hasCredentials) {
+    logger.info(
+      'Slack integration disabled: SLACK_BOT_TOKEN or SLACK_APP_TOKEN is missing',
+    );
+    return false;
+  }
+
+  try {
+    await initSlack(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
+          let sawTextDelta = false;
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              onTextDelta: (delta) => {
+                if (!delta || sawTextDelta) return;
+                sawTextDelta = true;
+                context.emitLifecyclePhase?.('streaming');
+              },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                if (event.phase === 'start') {
+                  context.emitLifecyclePhase?.('toolUse');
+                } else {
+                  context.emitLifecyclePhase?.('thinking');
+                }
+              },
+              source: 'slack',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(
+              formatError('Agent Error', result.error || 'Unknown error'),
+            );
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          const pendingApproval = extractGatewayChatApprovalEvent(result);
+          const responseText = cleanedResultText.trim()
+            ? buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+              )
+            : '';
+          if (pendingApproval) {
+            const storedPrompt = getApprovalPromptText(
+              pendingApproval,
+              responseText,
+            );
+            const approvalPresentation = context.sendApprovalNotification
+              ? SLACK_APPROVAL_PRESENTATION
+              : createApprovalPresentation('text');
+            let cleanup: { disableButtons: () => Promise<void> } | null = null;
+            if (context.sendApprovalNotification) {
+              cleanup = await context.sendApprovalNotification({
+                approval: pendingApproval,
+                presentation: approvalPresentation,
+                userId,
+              });
+            } else {
+              await reply(storedPrompt);
+            }
+            await rememberPendingApproval({
+              sessionId: effectiveSessionId,
+              approvalId: pendingApproval.approvalId,
+              prompt: storedPrompt,
+              userId,
+              expiresAt: pendingApproval.expiresAt,
+              presentation: approvalPresentation,
+              disableButtons: cleanup?.disableButtons ?? null,
+            });
+            return;
+          }
+          if (responseText) {
+            await reply(responseText);
+          }
+          for (const artifact of artifacts) {
+            await sendSlackFileToTarget({
+              target: context.inbound.target,
+              filePath: artifact.path,
+              filename: artifact.filename,
+            });
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Slack message handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+      async (sessionId, guildId, channelId, userId, username, args, reply) => {
+        try {
+          await handleTextChannelCommand({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            args,
+            reply,
+          });
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId, args },
+            'Slack command handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.error({ error }, 'Slack integration failed to start');
+    return false;
+  }
+
+  logger.info('Slack integration started inside gateway');
+  return true;
+}
+
 async function refreshEmailIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -1681,6 +2003,31 @@ async function refreshTelegramIntegrationForConfigChange(
     );
   });
   await startTelegramIntegration();
+}
+
+async function refreshSlackIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasSlackConfigChanged(next.slack, prev.slack)) return;
+
+  logger.info(
+    {
+      enabled: next.slack.enabled,
+      dmPolicy: next.slack.dmPolicy,
+      groupPolicy: next.slack.groupPolicy,
+      requireMention: next.slack.requireMention,
+      replyStyle: next.slack.replyStyle,
+    },
+    'Config changed, restarting Slack integration',
+  );
+  await shutdownSlack().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Slack runtime during config-change restart',
+    );
+  });
+  await startSlackIntegration();
 }
 
 async function startIMessageIntegration(): Promise<boolean> {
@@ -1829,6 +2176,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     });
     await shutdownEmail().catch((error) => {
       logger.debug({ error }, 'Failed to stop email runtime during shutdown');
+    });
+    await shutdownSlack().catch((error) => {
+      logger.debug({ error }, 'Failed to stop Slack runtime during shutdown');
     });
     await shutdownTelegram().catch((error) => {
       logger.debug(
@@ -2065,6 +2415,7 @@ async function main(): Promise<void> {
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
+  const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
   const whatsappActive = await startWhatsAppIntegration();
@@ -2094,6 +2445,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshSlackIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Slack integration restart failed after config change',
+      );
+    });
 
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
@@ -2174,6 +2531,7 @@ async function main(): Promise<void> {
     channels: {
       discord: discordActive,
       msteams: msteamsActive,
+      slack: slackActive,
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,

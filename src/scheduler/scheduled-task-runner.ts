@@ -8,6 +8,7 @@ import {
 import { getChannel } from '../channels/channel-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
+import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import {
@@ -15,6 +16,7 @@ import {
   isLegacySessionKey,
   migrateLegacySessionKey,
 } from '../session/session-key.js';
+import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
@@ -161,6 +163,35 @@ export async function runIsolatedScheduledTask(params: {
     });
 
     if (output.status === 'success' && output.result) {
+      memoryService.storeTurn({
+        sessionId: activeSessionId,
+        user: {
+          userId: 'scheduler',
+          username: 'scheduler',
+          content: prompt,
+        },
+        assistant: {
+          userId: 'assistant',
+          username: null,
+          content: output.result,
+        },
+      });
+      appendSessionTranscript(agentId, {
+        sessionId: activeSessionId,
+        channelId,
+        role: 'user',
+        userId: 'scheduler',
+        username: 'scheduler',
+        content: prompt,
+      });
+      appendSessionTranscript(agentId, {
+        sessionId: activeSessionId,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content: output.result,
+      });
       await onResult({
         text: output.result,
         artifacts: output.artifacts,

@@ -48,6 +48,12 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import {
+  deleteLiveAdminEmailMessage,
+  fetchLiveAdminEmailFolder,
+  fetchLiveAdminEmailMailbox,
+  fetchLiveAdminEmailMessage,
+} from '../channels/email/admin-mailbox.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
@@ -314,6 +320,10 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminEmailDeleteResponse,
+  type GatewayAdminEmailFolderResponse,
+  type GatewayAdminEmailMailboxResponse,
+  type GatewayAdminEmailMessageResponse,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
@@ -2992,6 +3002,22 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     tokenConfigured: Boolean(discordCredential.value),
     tokenSource: discordCredential.source,
   } as NonNullable<GatewayStatus['discord']>;
+  const slackBotCredential = resolveRuntimeCredentialStatus(
+    'SLACK_BOT_TOKEN',
+    [process.env.SLACK_BOT_TOKEN],
+    storedSecrets.SLACK_BOT_TOKEN,
+  );
+  const slackAppCredential = resolveRuntimeCredentialStatus(
+    'SLACK_APP_TOKEN',
+    [process.env.SLACK_APP_TOKEN],
+    storedSecrets.SLACK_APP_TOKEN,
+  );
+  const slack = {
+    botTokenConfigured: Boolean(slackBotCredential.value),
+    botTokenSource: slackBotCredential.source,
+    appTokenConfigured: Boolean(slackAppCredential.value),
+    appTokenSource: slackAppCredential.source,
+  } as NonNullable<GatewayStatus['slack']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
     envValues: [process.env.TELEGRAM_BOT_TOKEN],
@@ -3039,6 +3065,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       jobs: getSchedulerStatus(),
     },
     discord,
+    slack,
     telegram,
     email,
     imessage,
@@ -3361,6 +3388,93 @@ export function getGatewayAdminSessions(): GatewayAdminSession[] {
   return getAllSessions().map(mapAdminSession);
 }
 
+function resolveGatewayAdminEmailPassword(
+  runtimeConfig: RuntimeConfig,
+): string {
+  const credential = resolveRuntimeCredentialStatus('EMAIL_PASSWORD', [
+    process.env.EMAIL_PASSWORD,
+  ]);
+  return credential.value || String(runtimeConfig.email.password || '').trim();
+}
+
+function assertGatewayAdminEmailMailboxConfigured(
+  runtimeConfig: RuntimeConfig,
+): {
+  config: RuntimeConfig['email'];
+  password: string;
+} {
+  if (!runtimeConfig.email.enabled) {
+    throw new Error('Email channel is not enabled.');
+  }
+  if (!runtimeConfig.email.address.trim()) {
+    throw new Error('Email address is not configured.');
+  }
+  if (!runtimeConfig.email.imapHost.trim()) {
+    throw new Error('Email IMAP host is not configured.');
+  }
+  const password = resolveGatewayAdminEmailPassword(runtimeConfig);
+  if (!password) {
+    throw new Error('Email password is not configured.');
+  }
+  return {
+    config: runtimeConfig.email,
+    password,
+  };
+}
+
+export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMailboxResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  if (!runtimeConfig.email.enabled) {
+    return {
+      enabled: false,
+      address: runtimeConfig.email.address,
+      folders: [],
+      defaultFolder: null,
+    };
+  }
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  const mailbox = await fetchLiveAdminEmailMailbox(config, password);
+
+  return {
+    enabled: true,
+    address: mailbox.address,
+    folders: mailbox.folders,
+    defaultFolder: mailbox.defaultFolder,
+  };
+}
+
+export async function getGatewayAdminEmailFolder(params: {
+  folder: string;
+  limit?: number;
+  offset?: number;
+}): Promise<GatewayAdminEmailFolderResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailFolder(config, password, params);
+}
+
+export async function getGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailMessageResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailMessage(config, password, params);
+}
+
+export async function deleteGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailDeleteResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return deleteLiveAdminEmailMessage(config, password, params);
+}
+
 export function deleteGatewayAdminSession(
   sessionId: string,
 ): GatewayAdminDeleteSessionResult {
@@ -3422,6 +3536,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     defaultRateLimitPerUser: runtimeConfig.discord.rateLimitPerUser,
     defaultMaxConcurrentPerChannel:
       runtimeConfig.discord.maxConcurrentPerChannel,
+    slack: {
+      enabled: runtimeConfig.slack.enabled,
+      groupPolicy: runtimeConfig.slack.groupPolicy,
+      dmPolicy: runtimeConfig.slack.dmPolicy,
+      defaultRequireMention: runtimeConfig.slack.requireMention,
+      defaultReplyStyle: runtimeConfig.slack.replyStyle,
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,
