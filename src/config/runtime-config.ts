@@ -60,7 +60,10 @@ import {
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
-import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedStringSet,
+} from '../utils/normalized-strings.js';
 import {
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
@@ -1541,11 +1544,17 @@ function normalizeAgentConfig(
     typeof value.enableRag === 'boolean'
       ? value.enableRag
       : fallback?.enableRag;
+  const skills = Object.hasOwn(value, 'skills')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.skills)
+    : fallback?.skills
+      ? [...fallback.skills]
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),

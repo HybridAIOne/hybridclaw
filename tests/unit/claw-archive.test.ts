@@ -229,6 +229,7 @@ describe('.claw archive support', () => {
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
           model: 'gpt-5-mini',
+          skills: ['custom-skill'],
           enableRag: false,
         },
       ],
@@ -270,6 +271,7 @@ describe('.claw archive support', () => {
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
           model: 'gpt-5-mini',
+          skills: ['custom-skill'],
           enableRag: false,
         },
       ];
@@ -304,6 +306,7 @@ describe('.claw archive support', () => {
       imageAsset: 'avatars/main.png',
     });
     expect(inspection.manifest.agent?.model).toBe('gpt-5-mini');
+    expect(inspection.manifest.agent?.skills).toEqual(['custom-skill']);
     expect(inspection.manifest.agent?.enableRag).toBe(false);
     expect(inspection.manifest.skills?.bundled).toEqual(['custom-skill']);
     expect(inspection.manifest.plugins?.bundled).toEqual(['demo-plugin']);
@@ -338,6 +341,7 @@ describe('.claw archive support', () => {
       name: 'Main Agent',
       displayName: 'Captain Claw',
       imageAsset: 'avatars/main.png',
+      skills: ['custom-skill'],
     });
     expect(
       fs.readFileSync(

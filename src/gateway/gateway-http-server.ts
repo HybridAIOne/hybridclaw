@@ -65,6 +65,7 @@ import {
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -2292,15 +2293,35 @@ async function handleApiAdminAgents(
     id?: unknown;
     name?: unknown;
     model?: unknown;
+    skills?: unknown;
     chatbotId?: unknown;
     enableRag?: unknown;
     workspace?: unknown;
   };
 
+  if (
+    body.skills !== undefined &&
+    body.skills !== null &&
+    !Array.isArray(body.skills)
+  ) {
+    sendJson(res, 400, {
+      error: 'Expected `skills` to be an array or null.',
+    });
+    return;
+  }
+
+  const skills =
+    body.skills === null
+      ? null
+      : Array.isArray(body.skills)
+        ? normalizeTrimmedUniqueStringArray(body.skills)
+        : undefined;
+
   const payload = {
     id: String(body.id || '').trim(),
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
+    skills,
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
@@ -2334,6 +2355,7 @@ async function handleApiAdminAgents(
         updateGatewayAdminAgent(agentId, {
           name: payload.name,
           model: payload.model,
+          skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
           workspace: payload.workspace,

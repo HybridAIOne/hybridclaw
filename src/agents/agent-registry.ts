@@ -16,6 +16,7 @@ import {
   isDatabaseInitialized,
 } from '../memory/db.js';
 import type { Session } from '../types/session.js';
+import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -156,11 +157,15 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     typeof (value as { enableRag?: unknown }).enableRag === 'boolean'
       ? (value as { enableRag: boolean }).enableRag
       : undefined;
+  const skills = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { skills?: unknown }).skills,
+  );
   return {
     id,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -201,6 +206,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
 
 function applyDefaults(agent: AgentConfig): AgentConfig {
   const model = cloneModelConfig(agent.model ?? configuredDefaults.model);
+  const skills = agent.skills ? [...agent.skills] : undefined;
   const chatbotId = normalizeString(
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
@@ -210,6 +216,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.name ? { name: agent.name } : {}),
     ...buildOptionalAgentPresentation(agent.displayName, agent.imageAsset),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -255,6 +262,7 @@ function syncConfiguredAgentsToDatabase(): void {
     displayName: mainAgent.displayName,
     imageAsset: mainAgent.imageAsset,
     model: cloneModelConfig(mainAgent.model),
+    skills: mainAgent.skills,
     workspace: mainAgent.workspace,
     chatbotId: mainAgent.chatbotId,
     enableRag: mainAgent.enableRag,
@@ -267,6 +275,7 @@ function syncConfiguredAgentsToDatabase(): void {
       displayName: agent.displayName,
       imageAsset: agent.imageAsset,
       model: cloneModelConfig(agent.model),
+      skills: agent.skills,
       workspace: agent.workspace,
       chatbotId: agent.chatbotId,
       enableRag: agent.enableRag,

@@ -81,6 +81,7 @@ import type {
   UsageWindow,
 } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   buildMemoryFtsDocument,
   buildMemoryFtsMatchQuery,
@@ -97,7 +98,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 17;
+export const DATABASE_SCHEMA_VERSION = 18;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const STRUCTURED_AUDIT_SELECT_COLUMNS = [
   'id',
@@ -128,6 +129,7 @@ type AgentRow = {
   display_name: string | null;
   image_asset: string | null;
   model: string | null;
+  skills: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
@@ -990,6 +992,7 @@ function migrateV6(
         display_name TEXT,
         image_asset TEXT,
         model TEXT,
+        skills TEXT,
         chatbot_id TEXT,
         enable_rag INTEGER DEFAULT 1,
         workspace TEXT,
@@ -1603,6 +1606,22 @@ function migrateV17(
   );
 }
 
+function migrateV18(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'skills',
+    ddl: 'skills TEXT',
+    quiet,
+  });
+
+  recordMigration(database, 18, 'Persist per-agent skill allowlists');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1641,6 +1660,7 @@ function runMigrations(
   if (currentVersion < 15) migrateV15(database);
   if (currentVersion < 16) migrateV16(database);
   if (currentVersion < 17) migrateV17(database, opts);
+  if (currentVersion < 18) migrateV18(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1735,11 +1755,37 @@ function parseAgentModelConfig(
   return normalized;
 }
 
+function parseAgentSkillsConfig(
+  rawSkills: string | null,
+): string[] | undefined {
+  const normalized = rawSkills?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+
+    return normalizeTrimmedUniqueStringArray(parsed);
+  } catch {
+    logger.warn(
+      { rawSkills: normalized },
+      'Failed to parse persisted agent skills configuration',
+    );
+    return undefined;
+  }
+}
+
+function serializeAgentSkillsConfig(skills?: string[]): string | null {
+  if (!Array.isArray(skills)) return null;
+  return JSON.stringify(normalizeTrimmedUniqueStringArray(skills));
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
   const model = parseAgentModelConfig(row.model);
+  const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
   return {
@@ -1748,6 +1794,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(workspace ? { workspace } : {}),
     ...(typeof row.enable_rag === 'number'
@@ -1761,7 +1808,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
   if (!normalizedAgentId) return null;
   const row = queryOne<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
      FROM agents
      WHERE id = ?`,
     normalizedAgentId,
@@ -1772,7 +1819,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
 export function listAgents(): AgentConfig[] {
   const rows = queryAll<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
      FROM agents
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
     DEFAULT_AGENT_ID,
@@ -1789,6 +1836,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
   const normalizedModel = serializeAgentModelConfig(agent.model);
+  const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
   const enableRag =
@@ -1800,17 +1848,19 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        display_name,
        image_asset,
        model,
+       skills,
        chatbot_id,
        enable_rag,
        workspace,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
        image_asset = excluded.image_asset,
        model = excluded.model,
+       skills = excluded.skills,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
        workspace = excluded.workspace,
@@ -1821,6 +1871,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedDisplayName,
     normalizedImageAsset,
     normalizedModel,
+    normalizedSkills,
     normalizedChatbotId,
     enableRag,
     normalizedWorkspace,

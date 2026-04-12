@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
@@ -21,6 +22,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -1777,10 +1779,18 @@ export function loadSkills(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
+  const configuredSkills = resolveAgentConfig(agentId).skills;
+  const allowedSkills =
+    configuredSkills === undefined
+      ? null
+      : new Set(normalizeTrimmedUniqueStringArray(configuredSkills));
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter(
-    (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
+    (skill) =>
+      checkEligibility(skill).available &&
+      !disabled.has(skill.name) &&
+      (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
   pruneStaleSyncedSkills(guarded, workspaceDir);

@@ -156,6 +156,120 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
   });
 });
 
+test('agent skill allowlists persist through runtime config normalization and the registry', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getAgentById, initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'writer',
+        name: 'Writer Agent',
+        skills: [' draft-outline ', 'copy-edit', 'draft-outline'],
+      },
+      {
+        id: 'silent',
+        name: 'Silent Agent',
+        skills: [],
+      },
+    ];
+  });
+  initAgentRegistry({
+    list: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'writer',
+        name: 'Writer Agent',
+        skills: [' draft-outline ', 'copy-edit', 'draft-outline'],
+      },
+      {
+        id: 'silent',
+        name: 'Silent Agent',
+        skills: [],
+      },
+    ],
+  });
+
+  expect(resolveAgentConfig('writer').skills).toEqual([
+    'draft-outline',
+    'copy-edit',
+  ]);
+  expect(getAgentById('writer')?.skills).toEqual([
+    'draft-outline',
+    'copy-edit',
+  ]);
+  expect(resolveAgentConfig('silent').skills).toEqual([]);
+  expect(getAgentById('silent')?.skills).toEqual([]);
+});
+
+test('warns and ignores malformed persisted agent skill allowlists', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: warnMock,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      child: vi.fn(() => ({
+        warn: warnMock,
+        info: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+        fatal: vi.fn(),
+        trace: vi.fn(),
+      })),
+    },
+  }));
+
+  const dbPath = path.join(homeDir, 'data', 'hybridclaw.db');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+
+  initDatabase({ quiet: true, dbPath });
+  const rawDb = new Database(dbPath);
+  rawDb
+    .prepare(
+      `INSERT INTO agents (id, name, skills, created_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+    )
+    .run('writer', 'Writer Agent', '{broken-json');
+  rawDb.close();
+
+  const agent = getAgentById('writer');
+  expect(agent).toMatchObject({
+    id: 'writer',
+    name: 'Writer Agent',
+  });
+  expect(agent?.skills).toBeUndefined();
+  expect(warnMock).toHaveBeenCalledWith(
+    { rawSkills: '{broken-json' },
+    'Failed to parse persisted agent skills configuration',
+  );
+});
+
 test('initAgentRegistry migrates the first legacy workspace to main', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -442,6 +556,7 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
   expect(agentColumns.some((column) => column.name === 'image_asset')).toBe(
     true,
   );
+  expect(agentColumns.some((column) => column.name === 'skills')).toBe(true);
 
   const sessionRow = migratedDb
     .prepare('SELECT agent_id FROM sessions WHERE id = ?')

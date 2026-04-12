@@ -719,6 +719,13 @@ export function formatClawArchiveSummary(
     ...(typeof inspection.manifest.agent?.enableRag === 'boolean'
       ? [`RAG: ${inspection.manifest.agent.enableRag ? 'enabled' : 'disabled'}`]
       : []),
+    ...(inspection.manifest.agent?.skills !== undefined
+      ? [
+          inspection.manifest.agent.skills.length > 0
+            ? `Agent skills: ${inspection.manifest.agent.skills.join(', ')}`
+            : 'Agent skills: disabled',
+        ]
+      : []),
     `Bundled skills: ${bundledSkills.length}`,
     `Skill imports: ${importedSkills.length}`,
     `Bundled plugins: ${bundledPlugins.length}`,
@@ -1008,6 +1015,7 @@ export async function packAgent(
       : {}),
     agent: {
       ...(resolved.model ? { model: resolved.model } : {}),
+      ...(resolved.skills !== undefined ? { skills: resolved.skills } : {}),
       ...(typeof resolved.enableRag === 'boolean'
         ? { enableRag: resolved.enableRag }
         : {}),
@@ -1242,6 +1250,9 @@ export async function unpackAgent(
         ? { imageAsset: manifest.presentation.imageAsset }
         : {}),
       ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
+      ...(manifest.agent?.skills !== undefined
+        ? { skills: manifest.agent.skills }
+        : {}),
       ...(typeof manifest.agent?.enableRag === 'boolean'
         ? { enableRag: manifest.agent.enableRag }
         : {}),
