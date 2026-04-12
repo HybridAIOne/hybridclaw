@@ -15,7 +15,9 @@ import {
 } from '../api/client';
 import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
@@ -490,6 +492,7 @@ function JobDetailCard(props: {
 export function JobsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
@@ -533,10 +536,11 @@ export function JobsPage() {
       );
       return { previous };
     },
-    onError: (_error, _job, context) => {
+    onError: (error, _job, context) => {
       if (context?.previous) {
         queryClient.setQueryData(['scheduler', auth.token], context.previous);
       }
+      toast.error('Save failed', getErrorMessage(error));
     },
     onSuccess: (payload) => {
       queryClient.setQueryData(['scheduler', auth.token], payload);
@@ -556,6 +560,9 @@ export function JobsPage() {
       }),
     onSuccess: (payload) => {
       queryClient.setQueryData(['scheduler', auth.token], payload);
+    },
+    onError: (error) => {
+      toast.error('Move failed', getErrorMessage(error));
     },
   });
 
@@ -691,7 +698,7 @@ export function JobsPage() {
   if (schedulerQuery.isError && !schedulerQuery.data) {
     return (
       <div className="empty-state error">
-        {(schedulerQuery.error as Error).message}
+        {getErrorMessage(schedulerQuery.error)}
       </div>
     );
   }
@@ -717,17 +724,7 @@ export function JobsPage() {
 
       {jobsContextQuery.isError ? (
         <p className="error-banner">
-          {(jobsContextQuery.error as Error).message}
-        </p>
-      ) : null}
-      {saveJobMutation.isError ? (
-        <p className="error-banner">
-          {(saveJobMutation.error as Error).message}
-        </p>
-      ) : null}
-      {moveJobMutation.isError ? (
-        <p className="error-banner">
-          {(moveJobMutation.error as Error).message}
+          {getErrorMessage(jobsContextQuery.error)}
         </p>
       ) : null}
 

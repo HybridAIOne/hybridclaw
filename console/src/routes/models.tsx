@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
+import { getErrorMessage } from '../lib/error-message';
 import {
   PageHeader,
   Panel,
@@ -144,6 +146,7 @@ function formatModelMetadata(model: ModelEntry): string {
 export function ModelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
 
@@ -161,6 +164,10 @@ export function ModelsPage() {
       queryClient.setQueryData(['models', auth.token], payload);
       setDraft(createDraft(payload));
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      toast.success(`Default model is now ${payload.defaultModel}.`);
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -295,16 +302,6 @@ export function ModelsPage() {
                 </button>
               </div>
 
-              {saveMutation.isSuccess ? (
-                <p className="success-banner">
-                  Default model is now {saveMutation.data.defaultModel}.
-                </p>
-              ) : null}
-              {saveMutation.isError ? (
-                <p className="error-banner">
-                  {(saveMutation.error as Error).message}
-                </p>
-              ) : null}
             </div>
           )}
         </Panel>

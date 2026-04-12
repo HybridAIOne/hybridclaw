@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 
 interface McpDraft {
   originalName: string | null;
@@ -96,6 +98,7 @@ function normalizeDraft(draft: McpDraft): {
 export function McpPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpDraft>(createDraft());
 
@@ -113,6 +116,10 @@ export function McpPage() {
         (entry) => entry.name === draft.name.trim(),
       );
       setDraft(createDraft(selected));
+      toast.success(`Saved MCP server ${draft.name.trim()}.`);
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -122,6 +129,10 @@ export function McpPage() {
       queryClient.setQueryData(['mcp', auth.token], payload);
       setSelectedName(null);
       setDraft(createDraft());
+      toast.success('MCP server deleted.');
+    },
+    onError: (error) => {
+      toast.error('Delete failed', getErrorMessage(error));
     },
   });
 
@@ -361,21 +372,6 @@ export function McpPage() {
               </div>
             ) : null}
 
-            {saveMutation.isError ? (
-              <p className="error-banner">
-                {(saveMutation.error as Error).message}
-              </p>
-            ) : null}
-            {deleteMutation.isError ? (
-              <p className="error-banner">
-                {(deleteMutation.error as Error).message}
-              </p>
-            ) : null}
-            {saveMutation.isSuccess ? (
-              <p className="success-banner">
-                Saved MCP server {draft.name.trim()}.
-              </p>
-            ) : null}
           </div>
         </Panel>
       </div>

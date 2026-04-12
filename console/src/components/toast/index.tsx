@@ -162,7 +162,10 @@ export function ToastProvider(props: {
       setToasts((prev) => {
         let last: ToastEntry | undefined;
         for (let i = prev.length - 1; i >= 0; i--) {
-          if (!prev[i].exiting) { last = prev[i]; break; }
+          if (!prev[i].exiting) {
+            last = prev[i];
+            break;
+          }
         }
         if (!last) return prev;
         return prev.map((t) =>
@@ -247,7 +250,10 @@ function ToastItem(props: {
     };
   }, [toast.id, toast.duration, toast.exiting, paused, onDismiss]);
 
-  const handleRemove = useCallback(() => onRemove(toast.id), [onRemove, toast.id]);
+  const handleRemove = useCallback(
+    () => onRemove(toast.id),
+    [onRemove, toast.id],
+  );
   useExitAnimation(elementRef, toast.exiting, handleRemove);
 
   return (

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchOverview } from '../api/client';
 import { useAuth } from '../auth';
+import { getErrorMessage } from '../lib/error-message';
 import {
   MetricCard,
   PageHeader,
@@ -89,7 +90,7 @@ export function DashboardPage() {
   if (overviewQuery.isError && !overview) {
     return (
       <div className="empty-state error">
-        {(overviewQuery.error as Error).message}
+        {getErrorMessage(overviewQuery.error)}
       </div>
     );
   }

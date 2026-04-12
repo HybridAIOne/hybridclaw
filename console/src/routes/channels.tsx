@@ -9,7 +9,9 @@ import {
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { ChannelLogo } from '../components/channel-logo';
+import { useToast } from '../components/toast';
 import { BooleanField, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
   buildChannelCatalog,
@@ -107,6 +109,7 @@ function ManagedSecretField(props: {
   const actionLabel = hasExistingPassword
     ? `Change ${props.secretLabel}`
     : `Set ${props.secretLabel}`;
+  const toast = useToast();
   const saveSecretMutation = useMutation({
     mutationFn: async (value: string) => {
       return setRuntimeSecret(props.token, props.secretName, value);
@@ -116,6 +119,10 @@ function ManagedSecretField(props: {
       props.onSecretSaved();
       setIsEditing(false);
       setNextValue('');
+      toast.success(`${props.label} updated in encrypted runtime secrets.`);
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -177,18 +184,6 @@ function ManagedSecretField(props: {
         </div>
       ) : null}
 
-      {saveSecretMutation.isSuccess ? (
-        <p className="success-banner">
-          {`${capitalizeLabel(props.secretLabel)} updated in encrypted runtime secrets.`}
-        </p>
-      ) : null}
-      {saveSecretMutation.isError ? (
-        <p className="error-banner">
-          {saveSecretMutation.error instanceof Error
-            ? saveSecretMutation.error.message
-            : `Failed to update ${props.secretLabel}.`}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -2058,6 +2053,7 @@ function renderSelectedEditor(
 export function ChannelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [selectedKind, setSelectedKind] = useState<ChannelKind | null>(null);
 
@@ -2079,6 +2075,10 @@ export function ChannelsPage() {
     onSuccess: (payload) => {
       queryClient.setQueryData(['config', auth.token], payload);
       setDraft(cloneConfig(payload.config));
+      toast.success('Channel settings saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -2237,14 +2237,6 @@ export function ChannelsPage() {
               </button>
             </div>
 
-            {saveMutation.isSuccess ? (
-              <p className="success-banner">Channel settings saved.</p>
-            ) : null}
-            {saveMutation.isError ? (
-              <p className="error-banner">
-                {(saveMutation.error as Error).message}
-              </p>
-            ) : null}
           </div>
         </Panel>
       </div>

@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ToastProvider } from '../components/toast';
 import {
   fireEvent,
   render,
@@ -213,7 +214,9 @@ function renderChannelsPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChannelsPage />
+      <ToastProvider>
+        <ChannelsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -980,7 +983,7 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 
   it('shows change password when passwordConfigured is true without a source', async () => {
@@ -1127,6 +1130,6 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 });

@@ -17,6 +17,8 @@ import type {
   AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
+import { getErrorMessage } from '../lib/error-message';
 import {
   BooleanField,
   BooleanPill,
@@ -235,6 +237,7 @@ function createEmptyDraft(): SkillDraft {
 export function SkillsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [filter, setFilter] = useState('');
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -265,6 +268,9 @@ export function SkillsPage() {
     onSuccess: (payload) => {
       queryClient.setQueryData(['skills', auth.token], payload);
     },
+    onError: (error) => {
+      toast.error('Toggle failed', getErrorMessage(error));
+    },
   });
 
   const reviewMutation = useMutation({
@@ -291,6 +297,9 @@ export function SkillsPage() {
           ],
         }),
       ]);
+    },
+    onError: (error) => {
+      toast.error('Review failed', getErrorMessage(error));
     },
   });
 
@@ -320,6 +329,9 @@ export function SkillsPage() {
       setShowCreate(false);
       setDraft(createEmptyDraft());
     },
+    onError: (error) => {
+      toast.error('Create failed', getErrorMessage(error));
+    },
   });
 
   const uploadMutation = useMutation({
@@ -331,6 +343,9 @@ export function SkillsPage() {
       queryClient.setQueryData(['skills', auth.token], payload);
       setShowCreate(false);
       setZipFile(null);
+    },
+    onError: (error) => {
+      toast.error('Upload failed', getErrorMessage(error));
     },
   });
 
@@ -509,11 +524,6 @@ export function SkillsPage() {
                   {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
                 </button>
               </div>
-              {uploadMutation.isError ? (
-                <p className="error-banner">
-                  {(uploadMutation.error as Error).message}
-                </p>
-              ) : null}
             </div>
           ) : (
             <div className="stack-form">
@@ -741,11 +751,6 @@ export function SkillsPage() {
                 </button>
               </div>
 
-              {createMutation.isError ? (
-                <p className="error-banner">
-                  {(createMutation.error as Error).message}
-                </p>
-              ) : null}
             </div>
           )}
         </Panel>
@@ -914,11 +919,6 @@ export function SkillsPage() {
             </table>
           </div>
         )}
-        {toggleMutation.isError ? (
-          <p className="error-banner">
-            {(toggleMutation.error as Error).message}
-          </p>
-        ) : null}
       </Panel>
 
       <div className="two-column-grid">
@@ -1097,11 +1097,6 @@ export function SkillsPage() {
               ))}
             </div>
           )}
-          {reviewMutation.isError ? (
-            <p className="error-banner">
-              {(reviewMutation.error as Error).message}
-            </p>
-          ) : null}
         </Panel>
       </div>
 

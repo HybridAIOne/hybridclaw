@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ToastProvider } from '../components/toast';
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminModelsResponse } from '../api/types';
@@ -74,7 +75,9 @@ function renderModelsPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ModelsPage />
+      <ToastProvider>
+        <ModelsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

@@ -4,8 +4,8 @@ import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { getErrorMessage } from '../lib/error-message';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);

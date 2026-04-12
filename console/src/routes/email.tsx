@@ -13,7 +13,9 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { useAppShellConfig } from '../components/app-shell';
+import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 const MAILBOX_MESSAGE_LIMIT = 40;
@@ -311,6 +313,7 @@ export function EmailPage() {
   const auth = useAuth();
   const shellConfig = useAppShellConfig();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [messageOffset, setMessageOffset] = useState(0);
@@ -450,6 +453,9 @@ export function EmailPage() {
         }),
       ]);
     },
+    onError: (error) => {
+      toast.error('Delete failed', getErrorMessage(error));
+    },
     onSettled: () => {
       setDeletingMessageId(null);
     },
@@ -471,7 +477,7 @@ export function EmailPage() {
   if (mailboxQuery.isError && !mailboxQuery.data) {
     return (
       <div className="empty-state error">
-        {(mailboxQuery.error as Error).message}
+        {getErrorMessage(mailboxQuery.error)}
       </div>
     );
   }
@@ -511,9 +517,6 @@ export function EmailPage() {
   const selectedMessage = messageDetailQuery.data?.message || null;
   const selectedThread = messageDetailQuery.data?.thread || [];
   const isMessageOpen = selectedMessageSummary !== null;
-  const deleteError =
-    deleteMutation.error instanceof Error ? deleteMutation.error.message : null;
-
   return (
     <div className="page-stack">
       <PageHeader
@@ -632,9 +635,6 @@ export function EmailPage() {
                   </div>
                 </div>
               </div>
-              {deleteError ? (
-                <div className="mailbox-inline-error">{deleteError}</div>
-              ) : null}
 
               <div className="mailbox-thread-list">
                 {folderMessagesQuery.isLoading && !folderMessagesQuery.data ? (
@@ -643,7 +643,7 @@ export function EmailPage() {
                   </div>
                 ) : folderMessagesQuery.isError ? (
                   <div className="empty-state error">
-                    {(folderMessagesQuery.error as Error).message}
+                    {getErrorMessage(folderMessagesQuery.error)}
                   </div>
                 ) : filteredMessages.length === 0 ? (
                   <div className="empty-state">
@@ -756,9 +756,6 @@ export function EmailPage() {
                   <span>Delete</span>
                 </button>
               </div>
-              {deleteError ? (
-                <div className="mailbox-inline-error">{deleteError}</div>
-              ) : null}
 
               {messageDetailQuery.isLoading && !messageDetailQuery.data ? (
                 <div className="empty-state mailbox-detail-empty">
@@ -766,7 +763,7 @@ export function EmailPage() {
                 </div>
               ) : messageDetailQuery.isError ? (
                 <div className="empty-state error mailbox-detail-empty">
-                  {(messageDetailQuery.error as Error).message}
+                  {getErrorMessage(messageDetailQuery.error)}
                 </div>
               ) : !selectedMessage ? (
                 <div className="empty-state mailbox-detail-empty">
