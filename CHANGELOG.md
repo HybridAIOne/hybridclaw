@@ -28,7 +28,7 @@
 
 ### Fixed
 
-- **Slack slash-command ergonomics**: Slack slash commands now use shorter
+- **Slack slash-command ergonomics**: Slack slash commands use shorter
   `/hc-*` names, keep runtime command coverage aligned with the shipped
   manifest, and avoid review regressions in channel setup/documentation flows.
 - **Scheduler delivery state reporting**: One-shot deliveries now report retry
