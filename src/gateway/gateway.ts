@@ -113,14 +113,14 @@ import type { ArtifactMetadata } from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
-  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
-  formatChannelGatewayFailure,
-} from './channel-gateway-failure.js';
-import {
   createApprovalPresentation,
   getApprovalPromptText,
   getApprovalVisibleText,
 } from './approval-presentation.js';
+import {
+  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
+  formatChannelGatewayFailure,
+} from './channel-gateway-failure.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
