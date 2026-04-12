@@ -103,8 +103,12 @@ export function ToastProvider(props: {
 
   // Single listener for window focus state, shared by all toasts.
   useEffect(() => {
-    function onBlur() { setWindowBlurred(true); }
-    function onFocus() { setWindowBlurred(false); }
+    function onBlur() {
+      setWindowBlurred(true);
+    }
+    function onFocus() {
+      setWindowBlurred(false);
+    }
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
     return () => {
@@ -191,7 +195,12 @@ export function ToastProvider(props: {
         return;
       }
       if (e.key !== 'Escape') return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]:not([data-state="closed"])')) return;
+      if (
+        document.querySelector(
+          '[role="dialog"][aria-modal="true"]:not([data-state="closed"])',
+        )
+      )
+        return;
       const target = e.target as HTMLElement | null;
       if (
         target?.tagName === 'INPUT' ||

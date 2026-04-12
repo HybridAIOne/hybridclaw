@@ -131,6 +131,7 @@ export function DialogContent(props: {
   preventCloseOnOutsideClick?: boolean;
 }) {
   const ctx = useDialogContext();
+  const portalRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const { open, onOpenChange, titleId, descriptionId } = ctx;
   const [exiting, setExiting] = useState(false);
@@ -152,7 +153,7 @@ export function DialogContent(props: {
   useScrollLock(open);
   useFocusTrap(panelRef, open, props.initialFocus);
   useEscapeKeydown(() => onOpenChange(false), open);
-  useHideOthers(panelRef, open);
+  useHideOthers(portalRef, open);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' && open) {
@@ -174,7 +175,7 @@ export function DialogContent(props: {
         : undefined;
 
   return createPortal(
-    <>
+    <div ref={portalRef}>
       <div
         className={cx(styles.backdrop, exiting && styles.exiting)}
         aria-hidden="true"
@@ -200,7 +201,7 @@ export function DialogContent(props: {
           {props.children}
         </div>
       </div>
-    </>,
+    </div>,
     document.body,
   );
 }
