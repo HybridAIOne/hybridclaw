@@ -186,8 +186,10 @@ export function ToastProvider(props: {
     [add],
   );
 
-  // Escape dismisses the most recent toast, unless a dialog is open or focus
-  // is in a form input. F8 moves focus to the toast viewport (Radix convention).
+  // Escape dismisses the most recent toast only when focus is inside the
+  // toast viewport (Base UI pattern). When a modal is open its inert marking
+  // prevents the viewport from receiving focus, so no cross-component
+  // coordination is needed. F8 moves focus to the viewport (Radix convention).
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'F8') {
@@ -196,17 +198,8 @@ export function ToastProvider(props: {
       }
       if (e.key !== 'Escape') return;
       if (
-        document.querySelector(
-          '[role="dialog"][aria-modal="true"]:not([data-state="closed"])',
-        )
-      )
-        return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.tagName === 'SELECT' ||
-        target?.isContentEditable
+        !viewportRef.current ||
+        !viewportRef.current.contains(document.activeElement)
       )
         return;
       setToasts((prev) => {

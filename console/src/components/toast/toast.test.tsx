@@ -167,7 +167,7 @@ describe('Toast', () => {
     vi.useRealTimers();
   });
 
-  it('dismisses the most recent toast on Escape', () => {
+  it('dismisses the most recent toast on Escape when viewport is focused', () => {
     setup();
     act(() => {
       screen.getByRole('button', { name: 'Success' }).click();
@@ -177,10 +177,27 @@ describe('Toast', () => {
     expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByText('FYI')).toBeTruthy();
 
+    // Focus the toast viewport (simulates pressing F8).
+    const viewport = screen.getByText('FYI').closest('[tabindex="-1"]');
+    expect(viewport).toBeTruthy();
+    act(() => (viewport as HTMLElement).focus());
+
     fireEvent.keyDown(document, { key: 'Escape' });
 
     // Most recent (FYI) should be dismissed; Saved should remain.
     expect(screen.queryByText('FYI')).toBeNull();
+    expect(screen.getByText('Saved')).toBeTruthy();
+  });
+
+  it('does not dismiss toast on Escape when focus is elsewhere', () => {
+    setup();
+    act(() => {
+      screen.getByRole('button', { name: 'Success' }).click();
+    });
+
+    expect(screen.getByText('Saved')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByText('Saved')).toBeTruthy();
   });
 
