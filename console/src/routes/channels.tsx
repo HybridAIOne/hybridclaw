@@ -43,6 +43,10 @@ function isWhatsAppEnabled(config: AdminConfig): boolean {
   );
 }
 
+function isSlackEnabled(config: AdminConfig): boolean {
+  return config.slack.enabled;
+}
+
 function isTelegramInboundEnabled(config: AdminConfig): boolean {
   return (
     config.telegram.dmPolicy !== 'disabled' ||
@@ -80,6 +84,8 @@ function ManagedSecretField(props: {
   label: string;
   secretName:
     | 'DISCORD_TOKEN'
+    | 'SLACK_BOT_TOKEN'
+    | 'SLACK_APP_TOKEN'
     | 'TELEGRAM_BOT_TOKEN'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD';
@@ -1444,6 +1450,209 @@ function TeamsChannelEditor(props: {
   );
 }
 
+function SlackChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  botTokenConfigured: boolean;
+  botTokenSource: SecretSource;
+  appTokenConfigured: boolean;
+  appTokenSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isSlackEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            slack: {
+              ...current.slack,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <ManagedSecretField
+        label="Bot token"
+        secretName="SLACK_BOT_TOKEN"
+        secretLabel="token"
+        configured={props.botTokenConfigured}
+        source={props.botTokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
+      />
+
+      <ManagedSecretField
+        label="App token"
+        secretName="SLACK_APP_TOKEN"
+        secretLabel="token"
+        configured={props.appTokenConfigured}
+        source={props.appTokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.slack.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  dmPolicy: event.target
+                    .value as AdminConfig['slack']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.slack.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  groupPolicy: event.target
+                    .value as AdminConfig['slack']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <BooleanField
+          label="Require mention"
+          value={props.draft.slack.requireMention}
+          trueLabel="on"
+          falseLabel="off"
+          onChange={(requireMention) =>
+            props.updateDraft((current) => ({
+              ...current,
+              slack: {
+                ...current.slack,
+                requireMention,
+              },
+            }))
+          }
+        />
+        <label className="field">
+          <span>Reply style</span>
+          <select
+            value={props.draft.slack.replyStyle}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  replyStyle: event.target
+                    .value as AdminConfig['slack']['replyStyle'],
+                },
+              }))
+            }
+          >
+            <option value="thread">thread</option>
+            <option value="top-level">top-level</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed DM Slack user IDs"
+        value={props.draft.slack.allowFrom}
+        rows={4}
+        placeholder="comma or newline separated"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            slack: {
+              ...current.slack,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed channel Slack user IDs"
+        value={props.draft.slack.groupAllowFrom}
+        rows={4}
+        placeholder="comma or newline separated"
+        onChange={(groupAllowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            slack: {
+              ...current.slack,
+              groupAllowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.slack.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Media max MB</span>
+          <input
+            type="number"
+            value={String(props.draft.slack.mediaMaxMb)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  mediaMaxMb: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <p className="muted-copy">
+        Slack runs through Socket Mode. HybridClaw needs both a bot token and an
+        app token before the gateway can connect.
+      </p>
+    </>
+  );
+}
+
 function IMessageChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
@@ -1749,6 +1958,12 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    slack: {
+      botConfigured: boolean;
+      botSource: SecretSource;
+      appConfigured: boolean;
+      appSource: SecretSource;
+    };
     telegram: {
       configured: boolean;
       source: SecretSource;
@@ -1787,6 +2002,19 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
+        />
+      );
+    case 'slack':
+      return (
+        <SlackChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          botTokenConfigured={secretStatus.slack.botConfigured}
+          botTokenSource={secretStatus.slack.botSource}
+          appTokenConfigured={secretStatus.slack.appConfigured}
+          appTokenSource={secretStatus.slack.appSource}
+          token={token}
+          onSecretSaved={onSecretSaved}
         />
       );
     case 'telegram':
@@ -1862,6 +2090,8 @@ export function ChannelsPage() {
   const catalog = draft
     ? buildChannelCatalog(draft, {
         discordTokenConfigured: statusQuery.data?.discord?.tokenConfigured,
+        slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
+        slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
@@ -1901,6 +2131,12 @@ export function ChannelsPage() {
     discord: {
       configured: statusQuery.data?.discord?.tokenConfigured ?? false,
       source: statusQuery.data?.discord?.tokenSource ?? null,
+    },
+    slack: {
+      botConfigured: statusQuery.data?.slack?.botTokenConfigured ?? false,
+      botSource: statusQuery.data?.slack?.botTokenSource ?? null,
+      appConfigured: statusQuery.data?.slack?.appTokenConfigured ?? false,
+      appSource: statusQuery.data?.slack?.appTokenSource ?? null,
     },
     telegram: {
       configured: statusQuery.data?.telegram?.tokenConfigured ?? false,

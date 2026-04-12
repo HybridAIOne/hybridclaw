@@ -54,6 +54,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slack?: {
+    botTokenConfigured: boolean;
+    botTokenSource: 'env' | 'runtime-secrets' | null;
+    appTokenConfigured: boolean;
+    appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -300,6 +306,13 @@ export interface AdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  slack: {
+    enabled: boolean;
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    defaultRequireMention: boolean;
+    defaultReplyStyle: 'thread' | 'top-level';
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
@@ -410,6 +423,17 @@ export interface AdminConfig {
     dangerouslyAllowNameMatching: boolean;
     mediaAllowHosts: string[];
     mediaAuthAllowHosts: string[];
+  };
+  slack: {
+    enabled: boolean;
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    requireMention: boolean;
+    textChunkLimit: number;
+    replyStyle: 'thread' | 'top-level';
+    mediaMaxMb: number;
   };
   telegram: {
     enabled: boolean;

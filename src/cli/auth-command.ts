@@ -32,6 +32,7 @@ import {
   printMistralUsage,
   printMSTeamsUsage,
   printOpenRouterUsage,
+  printSlackUsage,
   printWhatsAppUsage,
 } from './help.js';
 import { ensureOnboardingApi } from './onboarding-api.js';
@@ -496,7 +497,8 @@ type UnifiedProvider =
   | 'mistral'
   | 'huggingface'
   | 'local'
-  | 'msteams';
+  | 'msteams'
+  | 'slack';
 
 function normalizeUnifiedProvider(
   rawProvider: string | undefined,
@@ -539,6 +541,9 @@ function normalizeUnifiedProvider(
   ) {
     return 'msteams';
   }
+  if (normalized === 'slack') {
+    return 'slack';
+  }
   return null;
 }
 
@@ -562,7 +567,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -576,7 +581,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -805,6 +810,52 @@ function printMSTeamsStatus(): void {
   console.log(`Group policy: ${config.msteams.groupPolicy}`);
 }
 
+function printSlackStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedBotToken = readStoredRuntimeSecret('SLACK_BOT_TOKEN');
+  const storedAppToken = readStoredRuntimeSecret('SLACK_APP_TOKEN');
+  const envBotToken = process.env.SLACK_BOT_TOKEN?.trim() || '';
+  const envAppToken = process.env.SLACK_APP_TOKEN?.trim() || '';
+  const botToken = envBotToken || storedBotToken || '';
+  const appToken = envAppToken || storedAppToken || '';
+  const botSource = envBotToken
+    ? storedBotToken && envBotToken === storedBotToken
+      ? 'runtime-secrets'
+      : 'env'
+    : storedBotToken
+      ? 'runtime-secrets'
+      : null;
+  const appSource = envAppToken
+    ? storedAppToken && envAppToken === storedAppToken
+      ? 'runtime-secrets'
+      : 'env'
+    : storedAppToken
+      ? 'runtime-secrets'
+      : null;
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${botToken && appToken ? 'yes' : 'no'}`);
+  if (botSource) {
+    console.log(`Bot token source: ${botSource}`);
+  }
+  if (appSource) {
+    console.log(`App token source: ${appSource}`);
+  }
+  if (botToken) {
+    console.log(`Bot token: ${CONFIGURED_SECRET_STATUS}`);
+  }
+  if (appToken) {
+    console.log(`App token: ${CONFIGURED_SECRET_STATUS}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.slack.enabled ? 'yes' : 'no'}`);
+  console.log(`DM policy: ${config.slack.dmPolicy}`);
+  console.log(`Group policy: ${config.slack.groupPolicy}`);
+  console.log(`Require mention: ${config.slack.requireMention ? 'yes' : 'no'}`);
+  console.log(`Reply style: ${config.slack.replyStyle}`);
+}
+
 function clearMSTeamsCredentials(): void {
   ensureRuntimeConfigFile();
   const filePath = saveRuntimeSecrets({ MSTEAMS_APP_PASSWORD: null });
@@ -821,6 +872,26 @@ function clearMSTeamsCredentials(): void {
   );
   console.log(
     'If MSTEAMS_APP_ID, MSTEAMS_APP_PASSWORD, or MSTEAMS_TENANT_ID are still exported in your shell, unset them separately.',
+  );
+}
+
+function clearSlackCredentials(): void {
+  ensureRuntimeConfigFile();
+  const filePath = saveRuntimeSecrets({
+    SLACK_BOT_TOKEN: null,
+    SLACK_APP_TOKEN: null,
+  });
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.slack.enabled = false;
+  });
+
+  console.log(`Cleared Slack credentials in ${filePath}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(
+    `Slack integration: ${nextConfig.slack.enabled ? 'enabled' : 'disabled'}`,
+  );
+  console.log(
+    'If SLACK_BOT_TOKEN or SLACK_APP_TOKEN are still exported in your shell, unset them separately.',
   );
 }
 
@@ -874,6 +945,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'msteams') {
     printMSTeamsUsage();
+    return;
+  }
+  if (provider === 'slack') {
+    printSlackUsage();
     return;
   }
   printLocalUsage();
@@ -1116,7 +1191,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1146,6 +1221,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'msteams') {
     await configureMSTeamsAuth(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'slack') {
+    await configureSlackAuth(parsed.remaining);
     return;
   }
   configureLocalBackend(parsed.remaining);
@@ -1279,6 +1358,14 @@ async function dispatchProviderAction(
     clearMSTeamsCredentials();
     return;
   }
+  if (provider === 'slack') {
+    if (action === 'status') {
+      printSlackStatus();
+      return;
+    }
+    clearSlackCredentials();
+    return;
+  }
   if (action === 'status') {
     printLocalStatus();
     return;
@@ -1299,7 +1386,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -1541,6 +1628,129 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   console.log(
     `  Expose ${nextConfig.msteams.webhook.path} on your public HTTPS endpoint and register it in the Teams bot channel`,
   );
+}
+
+function parseSlackLoginArgs(args: string[]): {
+  botToken: string | null;
+  appToken: string | null;
+} {
+  let botToken: string | null = null;
+  let appToken: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const botTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--bot-token',
+      placeholder: '<xoxb...>',
+      allowEmptyEquals: true,
+    });
+    if (botTokenFlag) {
+      botToken = botTokenFlag.value || null;
+      index = botTokenFlag.nextIndex;
+      continue;
+    }
+    const appTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--app-token',
+      placeholder: '<xapp...>',
+      allowEmptyEquals: true,
+    });
+    if (appTokenFlag) {
+      appToken = appTokenFlag.value || null;
+      index = appTokenFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]\`.`,
+    );
+  }
+
+  return {
+    botToken,
+    appToken,
+  };
+}
+
+async function resolveInteractiveSlackLogin(params: {
+  botToken: string;
+  appToken: string;
+}): Promise<{
+  botToken: string;
+  appToken: string;
+}> {
+  let botToken = params.botToken;
+  let appToken = params.appToken;
+
+  if (botToken && appToken) {
+    return { botToken, appToken };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Slack credentials. Pass `--bot-token <xoxb...>` and `--app-token <xapp...>`, set `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN`, or run this command in an interactive terminal to be prompted.',
+    );
+  }
+
+  botToken =
+    botToken ||
+    (await promptForSecretInput({
+      prompt: 'Slack bot token (xoxb-...): ',
+    }));
+  appToken =
+    appToken ||
+    (await promptForSecretInput({
+      prompt: 'Slack app token (xapp-...): ',
+    }));
+  return { botToken, appToken };
+}
+
+async function configureSlackAuth(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseSlackLoginArgs(args);
+  const currentConfig = getRuntimeConfig().slack;
+  const resolved = await resolveInteractiveSlackLogin({
+    botToken:
+      parsed.botToken ||
+      process.env.SLACK_BOT_TOKEN?.trim() ||
+      readStoredRuntimeSecret('SLACK_BOT_TOKEN') ||
+      '',
+    appToken:
+      parsed.appToken ||
+      process.env.SLACK_APP_TOKEN?.trim() ||
+      readStoredRuntimeSecret('SLACK_APP_TOKEN') ||
+      '',
+  });
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.slack.enabled = true;
+  });
+  const secretsPath = saveRuntimeSecrets({
+    SLACK_BOT_TOKEN: resolved.botToken,
+    SLACK_APP_TOKEN: resolved.appToken,
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Saved Slack tokens to ${secretsPath}.`);
+  console.log(
+    `Slack mode: ${nextConfig.slack.enabled ? 'enabled' : 'disabled'}`,
+  );
+  console.log(`DM policy: ${currentConfig.dmPolicy}`);
+  console.log(`Group policy: ${currentConfig.groupPolicy}`);
+  console.log(
+    `Require mention: ${currentConfig.requireMention ? 'yes' : 'no'}`,
+  );
+  console.log(`Reply style: ${currentConfig.replyStyle}`);
+  console.log('Next:');
+  console.log('  hybridclaw gateway restart --foreground');
+  console.log('  hybridclaw gateway status');
 }
 
 export async function handleHybridAICommand(args: string[]): Promise<void> {

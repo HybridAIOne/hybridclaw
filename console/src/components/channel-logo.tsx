@@ -1,5 +1,12 @@
 export function ChannelLogo(props: {
-  kind: 'discord' | 'telegram' | 'whatsapp' | 'email' | 'msteams' | 'imessage';
+  kind:
+    | 'discord'
+    | 'telegram'
+    | 'whatsapp'
+    | 'email'
+    | 'slack'
+    | 'msteams'
+    | 'imessage';
 }) {
   switch (props.kind) {
     case 'discord':
@@ -64,6 +71,46 @@ export function ChannelLogo(props: {
               stroke="#93C5FD"
               strokeWidth="1.4"
               strokeLinecap="round"
+            />
+          </svg>
+        </span>
+      );
+    case 'slack':
+      return (
+        <span className="channel-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <rect x="3" y="3" width="26" height="26" rx="8" fill="#FFFFFF" />
+            <path
+              fill="#E01E5A"
+              d="M13 6.5a2.5 2.5 0 1 1 0 5H10.5A2.5 2.5 0 1 1 10.5 6H13v.5Z"
+            />
+            <path
+              fill="#36C5F0"
+              d="M25.5 13A2.5 2.5 0 1 1 20.5 13V10.5A2.5 2.5 0 1 1 25 10.5V13h.5Z"
+            />
+            <path
+              fill="#2EB67D"
+              d="M19 25.5a2.5 2.5 0 1 1 0-5h2.5a2.5 2.5 0 1 1 0 5H19v-.5Z"
+            />
+            <path
+              fill="#ECB22E"
+              d="M6.5 19A2.5 2.5 0 1 1 11.5 19v2.5A2.5 2.5 0 1 1 7 21.5V19h-.5Z"
+            />
+            <path
+              fill="#E01E5A"
+              d="M11.7 7.7A2.5 2.5 0 0 1 16 9.5V16a2.5 2.5 0 1 1-5 0V9.5c0-.7.3-1.3.7-1.8Z"
+            />
+            <path
+              fill="#36C5F0"
+              d="M24.3 11.7A2.5 2.5 0 0 1 22.5 16H16a2.5 2.5 0 1 1 0-5h6.5c.7 0 1.3.3 1.8.7Z"
+            />
+            <path
+              fill="#2EB67D"
+              d="M20.3 24.3A2.5 2.5 0 0 1 16 22.5V16a2.5 2.5 0 1 1 5 0v6.5c0 .7-.3 1.3-.7 1.8Z"
+            />
+            <path
+              fill="#ECB22E"
+              d="M7.7 20.3A2.5 2.5 0 0 1 9.5 16H16a2.5 2.5 0 1 1 0 5H9.5c-.7 0-1.3-.3-1.8-.7Z"
             />
           </svg>
         </span>

@@ -1,6 +1,6 @@
 ---
 title: Channel Setup
-description: Step-by-step setup commands for Discord, Telegram, email, WhatsApp, iMessage, and Microsoft Teams.
+description: Step-by-step setup commands for Discord, Slack, Telegram, email, WhatsApp, iMessage, and Microsoft Teams.
 sidebar_position: 5
 ---
 
@@ -16,15 +16,17 @@ other users.
 | Channel | Primary setup command |
 | --- | --- |
 | Discord | `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` |
+| Slack | `hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]` |
 | Telegram | `hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id\|@username\|*>]... [--group-allow-from <user-id\|@username\|*>]... [--dm-policy <open\|allowlist\|disabled>] [--group-policy <open\|allowlist\|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention\|--no-require-mention]` |
 | Email | `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure\|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure\|--no-smtp-secure] [--folder <name>]... [--allow-from <email\|*@domain\|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` |
 | WhatsApp | `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` |
 | iMessage | `hybridclaw channels imessage setup [--backend <local\|remote>] [--allow-from <phone\|email\|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]` |
 | Microsoft Teams | `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` |
 
-Microsoft Teams uses `auth login` instead of `channels setup` because it uses
-app credentials and a webhook instead of a pairing flow. Saved secrets,
-defaults, and verification steps are documented in each section below.
+Slack and Microsoft Teams use `auth login` instead of `channels setup`
+because they use app credentials instead of a single token or pairing flow.
+Saved secrets, defaults, and verification steps are documented in each
+section below.
 
 ## From The TUI Or Web Chat
 
@@ -78,11 +80,12 @@ flow.
 The Channels page can:
 
 - show each transport as `active`, `configured`, or `available`
-- edit Discord, Telegram, WhatsApp, email, Microsoft Teams, and iMessage
+- edit Discord, Slack, Telegram, WhatsApp, email, Microsoft Teams, and
+  iMessage
   settings from one place
-- save `DISCORD_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and
-  `IMESSAGE_PASSWORD` through the same encrypted runtime secret store used by
-  the CLI
+- save `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+  `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and `IMESSAGE_PASSWORD` through the
+  same encrypted runtime secret store used by the CLI
 - show the live WhatsApp pairing QR when the transport is enabled but not
   linked yet
 

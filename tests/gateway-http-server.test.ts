@@ -843,6 +843,13 @@ async function importFreshHealth(options?: {
     defaultAckReaction: 'eyes',
     defaultRateLimitPerUser: 0,
     defaultMaxConcurrentPerChannel: 2,
+    slack: {
+      enabled: false,
+      groupPolicy: 'allowlist',
+      dmPolicy: 'allowlist',
+      defaultRequireMention: true,
+      defaultReplyStyle: 'thread',
+    },
     channels: [],
   }));
   const getGatewayAdminConfig = vi.fn(() => ({

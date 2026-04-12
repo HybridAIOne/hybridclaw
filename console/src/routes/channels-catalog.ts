@@ -2,6 +2,7 @@ import type { AdminConfig } from '../api/types';
 
 export type ChannelKind =
   | 'discord'
+  | 'slack'
   | 'telegram'
   | 'whatsapp'
   | 'email'
@@ -18,6 +19,8 @@ export interface ChannelCatalogItem {
 
 interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
+  slackBotTokenConfigured?: boolean;
+  slackAppTokenConfigured?: boolean;
   telegramTokenConfigured?: boolean;
   whatsappLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -150,6 +153,41 @@ function describeTelegram(
   };
 }
 
+function describeSlack(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const botTokenConfigured = options.slackBotTokenConfigured === true;
+  const appTokenConfigured = options.slackAppTokenConfigured === true;
+  const active =
+    config.slack.enabled && botTokenConfigured && appTokenConfigured;
+  const configured =
+    active ||
+    config.slack.enabled ||
+    botTokenConfigured ||
+    appTokenConfigured ||
+    config.slack.allowFrom.length > 0 ||
+    config.slack.groupAllowFrom.length > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'slack',
+    label: 'Slack',
+    summary: `DM ${config.slack.dmPolicy} · channels ${config.slack.groupPolicy}`,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
 function describeEmail(
   config: AdminConfig,
   options: ChannelCatalogOptions,
@@ -263,6 +301,7 @@ export function buildChannelCatalog(
 ): ChannelCatalogItem[] {
   return [
     describeDiscord(config, options),
+    describeSlack(config, options),
     describeTelegram(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),
