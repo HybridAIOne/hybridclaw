@@ -48,6 +48,16 @@ function setup() {
 }
 
 describe('Toast', () => {
+  it('throws when useToast is called outside ToastProvider', () => {
+    function Bare() {
+      useToast();
+      return null;
+    }
+    expect(() => render(<Bare />)).toThrow(
+      'useToast must be used within <ToastProvider>.',
+    );
+  });
+
   it('shows a success toast', () => {
     setup();
     act(() => {
@@ -200,6 +210,23 @@ describe('Toast', () => {
     expect(screen.queryByText('With action')).toBeNull();
 
     document.removeEventListener('test-action', handler);
+  });
+
+  it('error toasts do not auto-dismiss', () => {
+    vi.useFakeTimers();
+    setup();
+
+    act(() => {
+      screen.getByRole('button', { name: 'Error' }).click();
+    });
+    expect(screen.getByText('Failed')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText('Failed')).toBeTruthy();
+
+    vi.useRealTimers();
   });
 
   it('does not auto-dismiss when duration is 0', () => {

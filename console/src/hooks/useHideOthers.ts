@@ -1,13 +1,13 @@
 import { type RefObject, useEffect } from 'react';
 
 /**
- * While `active`, sets `aria-hidden="true"` on every direct child of
+ * While `active`, sets the `inert` attribute on every direct child of
  * `document.body` that is not — and does not contain — the element referenced
- * by `containerRef`. This prevents assistive technology from interacting with
- * background content while a modal / drawer is open.
+ * by `containerRef`. `inert` both hides elements from assistive technology
+ * and makes them non-focusable / non-clickable, providing stronger modal
+ * isolation than `aria-hidden` alone.
  *
- * Restores each element's previous `aria-hidden` value (or removes the
- * attribute entirely if it wasn't present) on cleanup.
+ * Restores each element's previous state on cleanup.
  */
 export function useHideOthers(
   containerRef: RefObject<HTMLElement | null>,
@@ -18,21 +18,17 @@ export function useHideOthers(
     const container = containerRef.current;
     if (!container) return;
 
-    const previous = new Map<Element, string | null>();
+    const previous = new Map<Element, boolean>();
 
     for (const child of document.body.children) {
       if (child === container || child.contains(container)) continue;
-      previous.set(child, child.getAttribute('aria-hidden'));
-      child.setAttribute('aria-hidden', 'true');
+      previous.set(child, (child as HTMLElement).inert ?? false);
+      (child as HTMLElement).inert = true;
     }
 
     return () => {
-      for (const [el, prev] of previous) {
-        if (prev === null) {
-          el.removeAttribute('aria-hidden');
-        } else {
-          el.setAttribute('aria-hidden', prev);
-        }
+      for (const [el, wasInert] of previous) {
+        (el as HTMLElement).inert = wasInert;
       }
     };
   }, [active, containerRef]);

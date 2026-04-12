@@ -19,10 +19,12 @@
 
 import {
   createContext,
+  forwardRef,
   type ReactNode,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -65,6 +67,8 @@ interface ToastManager {
   success: (title: string, description?: string) => string;
   error: (title: string, description?: string) => string;
   info: (title: string, description?: string) => string;
+  /** Update an existing toast's content. Non-provided fields are unchanged. */
+  update: (id: string, options: Partial<ToastOptions>) => void;
   dismiss: (id: string) => void;
 }
 
@@ -80,6 +84,7 @@ export function useToast(): ToastManager {
 // Provider
 // ---------------------------------------------------------------------------
 
+// Module-level counter for unique toast IDs. Not suitable for SSR.
 let nextId = 0;
 
 export function ToastProvider(props: {
@@ -89,6 +94,7 @@ export function ToastProvider(props: {
 }) {
   const limit = props.limit ?? 3;
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const remove = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -108,7 +114,7 @@ export function ToastProvider(props: {
         title: options.title,
         description: options.description,
         type: options.type ?? 'default',
-        duration: options.duration ?? 5000,
+        duration: Math.max(0, options.duration ?? 5000),
         action: options.action,
         exiting: false,
       };
@@ -128,6 +134,26 @@ export function ToastProvider(props: {
     [limit],
   );
 
+  const update = useCallback((id: string, options: Partial<ToastOptions>) => {
+    setToasts((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        return {
+          ...t,
+          ...(options.title !== undefined && { title: options.title }),
+          ...(options.description !== undefined && {
+            description: options.description,
+          }),
+          ...(options.type !== undefined && { type: options.type }),
+          ...(options.duration !== undefined && {
+            duration: Math.max(0, options.duration),
+          }),
+          ...(options.action !== undefined && { action: options.action }),
+        };
+      }),
+    );
+  }, []);
+
   const success = useCallback(
     (title: string, description?: string) =>
       add({ title, description, type: 'success' }),
@@ -136,7 +162,7 @@ export function ToastProvider(props: {
 
   const error = useCallback(
     (title: string, description?: string) =>
-      add({ title, description, type: 'error' }),
+      add({ title, description, type: 'error', duration: 0 }),
     [add],
   );
 
@@ -146,9 +172,14 @@ export function ToastProvider(props: {
     [add],
   );
 
-  // Escape dismisses the most recent toast, unless a dialog is open or focus is in a form input.
+  // Escape dismisses the most recent toast, unless a dialog is open or focus
+  // is in a form input. F8 moves focus to the toast viewport (Radix convention).
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'F8') {
+        viewportRef.current?.focus({ preventScroll: true });
+        return;
+      }
       if (e.key !== 'Escape') return;
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const target = e.target as HTMLElement | null;
@@ -177,7 +208,10 @@ export function ToastProvider(props: {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const manager: ToastManager = { add, success, error, info, dismiss };
+  const manager = useMemo<ToastManager>(
+    () => ({ add, success, error, info, update, dismiss }),
+    [add, success, error, info, update, dismiss],
+  );
 
   return (
     <ToastContext.Provider value={manager}>
@@ -185,6 +219,7 @@ export function ToastProvider(props: {
       {typeof document !== 'undefined' &&
         createPortal(
           <ToastViewport
+            ref={viewportRef}
             toasts={toasts}
             onDismiss={dismiss}
             onRemove={remove}
@@ -199,18 +234,21 @@ export function ToastProvider(props: {
 // Viewport (renders the toast stack)
 // ---------------------------------------------------------------------------
 
-function ToastViewport(props: {
-  toasts: ToastEntry[];
-  onDismiss: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  if (props.toasts.length === 0) return null;
-
+const ToastViewport = forwardRef<
+  HTMLDivElement,
+  {
+    toasts: ToastEntry[];
+    onDismiss: (id: string) => void;
+    onRemove: (id: string) => void;
+  }
+>(function ToastViewport(props, ref) {
   return (
     <div
+      ref={ref}
       className={styles.viewport}
-      aria-live="polite"
-      aria-relevant="additions"
+      // No aria-live here — each toast item carries its own aria-live value
+      // so error toasts use "assertive" while others use "polite".
+      tabIndex={-1}
     >
       {props.toasts.map((toast) => (
         <ToastItem
@@ -222,7 +260,7 @@ function ToastViewport(props: {
       ))}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Individual toast
@@ -236,11 +274,31 @@ function ToastItem(props: {
   const { toast, onDismiss, onRemove } = props;
   const elementRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [windowBlurred, setWindowBlurred] = useState(false);
   const remainingRef = useRef(toast.duration);
   const startRef = useRef(0);
 
+  const suspended = paused || focused || windowBlurred;
+
+  // Pause auto-dismiss when the browser window loses focus.
   useEffect(() => {
-    if (toast.duration <= 0 || toast.exiting || paused) return;
+    function onBlur() {
+      setWindowBlurred(true);
+    }
+    function onFocus() {
+      setWindowBlurred(false);
+    }
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (toast.duration <= 0 || toast.exiting || suspended) return;
     startRef.current = Date.now();
     const timer = setTimeout(() => onDismiss(toast.id), remainingRef.current);
     return () => {
@@ -248,7 +306,7 @@ function ToastItem(props: {
       remainingRef.current -= Date.now() - startRef.current;
       if (remainingRef.current < 0) remainingRef.current = 0;
     };
-  }, [toast.id, toast.duration, toast.exiting, paused, onDismiss]);
+  }, [toast.id, toast.duration, toast.exiting, suspended, onDismiss]);
 
   const handleRemove = useCallback(
     () => onRemove(toast.id),
@@ -269,8 +327,12 @@ function ToastItem(props: {
       )}
       data-type={toast.type}
       role={toast.type === 'error' ? 'alert' : 'status'}
+      aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+      aria-atomic="true"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
     >
       <div className={styles.body}>
         <p className={styles.title}>{toast.title}</p>
@@ -284,7 +346,11 @@ function ToastItem(props: {
             type="button"
             className={styles.actionButton}
             onClick={() => {
-              toast.action?.onClick();
+              try {
+                toast.action?.onClick();
+              } catch (e) {
+                console.error('Toast action callback failed:', e);
+              }
               onDismiss(toast.id);
             }}
           >

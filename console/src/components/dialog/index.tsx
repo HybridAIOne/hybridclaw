@@ -29,6 +29,7 @@ import {
   type ButtonHTMLAttributes,
   createContext,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -124,6 +125,10 @@ export function DialogContent(props: {
   className?: string;
   /** Width variant: "sm" (~360px), "default" (~440px), "lg" (~560px). */
   size?: 'sm' | 'default' | 'lg';
+  /** Element to focus on open. Defaults to first focusable element. */
+  initialFocus?: RefObject<HTMLElement | null>;
+  /** When true, clicking the backdrop does not close the dialog. */
+  preventCloseOnOutsideClick?: boolean;
 }) {
   const ctx = useDialogContext();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -131,6 +136,9 @@ export function DialogContent(props: {
   const [exiting, setExiting] = useState(false);
   const prevOpenRef = useRef(open);
 
+  // Track open->closed transitions to keep the panel mounted during the CSS
+  // exit animation. Once the animation completes, useExitAnimation calls
+  // clearExiting and the portal unmounts.
   useEffect(() => {
     if (prevOpenRef.current && !open) {
       setExiting(true);
@@ -142,9 +150,19 @@ export function DialogContent(props: {
   useExitAnimation(panelRef, exiting, clearExiting);
 
   useScrollLock(open);
-  useFocusTrap(panelRef, open);
+  useFocusTrap(panelRef, open, props.initialFocus);
   useEscapeKeydown(() => onOpenChange(false), open);
   useHideOthers(panelRef, open);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production' && open) {
+      if (!document.getElementById(titleId)) {
+        console.warn(
+          'Dialog: no <DialogTitle> found. Add one for accessible labelling (aria-labelledby).',
+        );
+      }
+    }
+  }, [open, titleId]);
 
   if (typeof document === 'undefined' || (!open && !exiting)) return null;
 
@@ -160,7 +178,9 @@ export function DialogContent(props: {
       <div
         className={cx(styles.backdrop, exiting && styles.exiting)}
         aria-hidden="true"
-        onClick={() => !exiting && onOpenChange(false)}
+        onClick={() =>
+          !exiting && !props.preventCloseOnOutsideClick && onOpenChange(false)
+        }
       />
       <div className={styles.viewport}>
         <div

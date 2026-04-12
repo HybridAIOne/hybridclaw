@@ -1057,10 +1057,6 @@ export function SchedulerPage() {
     onSuccess: (payload, nextDraft) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
       setSelectedId(nextDraft.id.trim());
-      const name =
-        payload.jobs.find((job) => job.id === nextDraft.id.trim())?.name ||
-        nextDraft.id.trim();
-      toast.success(`Saved ${name}.`);
       window.location.href = '/admin/jobs';
     },
     onError: (error) => {

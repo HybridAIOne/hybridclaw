@@ -26,6 +26,7 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 export function useFocusTrap(
   containerRef: RefObject<HTMLElement | null>,
   active: boolean,
+  initialFocusRef?: RefObject<HTMLElement | null>,
 ): void {
   useEffect(() => {
     if (!active) return;
@@ -37,7 +38,8 @@ export function useFocusTrap(
     // Defer initial focus one frame so the element is visible after any
     // CSS transition that runs synchronously with the state change.
     const raf = requestAnimationFrame(() => {
-      getFocusable(container)[0]?.focus({ preventScroll: true });
+      const target = initialFocusRef?.current ?? getFocusable(container)[0];
+      target?.focus({ preventScroll: true });
     });
 
     function onKeyDown(e: KeyboardEvent) {
@@ -87,5 +89,5 @@ export function useFocusTrap(
       container.removeEventListener('focusout', onFocusOut);
       previouslyFocused?.focus({ preventScroll: true });
     };
-  }, [active, containerRef]);
+  }, [active, containerRef, initialFocusRef]);
 }

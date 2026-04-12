@@ -8,6 +8,11 @@
   width: 380px;
   max-width: calc(100vw - 48px);
   pointer-events: none;
+  outline: none;
+}
+
+.viewport:empty {
+  display: none;
 }
 
 .toast {

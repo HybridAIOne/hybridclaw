@@ -722,6 +722,8 @@ export function JobsPage() {
         }
       />
 
+      {/* Query errors stay as inline banners (not toasts) — they represent a
+          persistent broken state, not a one-time operation failure. */}
       {jobsContextQuery.isError ? (
         <p className="error-banner">
           {getErrorMessage(jobsContextQuery.error)}
