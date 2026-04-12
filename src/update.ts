@@ -442,4 +442,8 @@ export async function runUpdateCommand(
   }
 
   console.log('Update complete. Re-run `hybridclaw update --check` to verify.');
+  console.log(
+    'If the gateway is already running, restart it to load the new version:',
+  );
+  console.log('  hybridclaw gateway restart');
 }

@@ -73,7 +73,15 @@ Core details:
   browser profiles, and agent workspaces.
 - Startup no longer probes or migrates `./config.json` or `./data` from the
   current working directory, and only reads `./.env` to import supported
-  secrets into `~/.hybridclaw/credentials.json`.
+  secrets into the encrypted `~/.hybridclaw/credentials.json` store.
+- Runtime secrets are encrypted at rest with a separately sourced master key:
+  `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or the local
+  owner-only `~/.hybridclaw/credentials.master.key` fallback.
+- The encrypted secret store accepts both built-in runtime secret keys and
+  named secrets created through `/secret set <NAME> <VALUE>`.
+- Selected runtime config fields can use SecretRefs (`store` or `env`) instead
+  of plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes
+  to gateway-injected secret headers for the `http_request` tool.
 - Some settings still require restart, such as bind host and port.
 - Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
@@ -85,12 +93,18 @@ Core details:
   persist acceptance automatically before credential validation runs.
 - `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
   `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
+- `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` let local clients such as the
+  TUI, eval runner, and gateway command client target a different
+  already-running HybridClaw gateway.
 - `HEALTH_HOST` can override the health server bind address without rewriting
   runtime config, which is useful in containerized or proxied deployments.
 - `mcpServers.*.env` and `mcpServers.*.headers` are persisted in
   `~/.hybridclaw/config.json` exactly as configured today. Treat them as
   plaintext secrets and lock the runtime directory down with
   `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`.
+- `http_request` tool-call logs are redacted before persistence so placeholder
+  or secret-backed headers do not store plaintext credentials in the audit
+  trail.
 - `mcpServers.*` are forwarded into each session runtime and hot-diffed there.
   Stdio servers resolve inside the active sandbox, so host-installed helpers
   like `docker`, `node`, or `npx` require `container.sandboxMode=host` (or a
@@ -100,7 +114,9 @@ Common advanced areas:
 
 - Discord behavior and policy controls: `discord.*` and `discord.guilds.*`
 - Approval policy controls (workspace-local): `./.hybridclaw/policy.yaml`
-- Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
+- Scheduler jobs: `scheduler.jobs[]` with cron, every, at, or `one_shot`
+  delivery targets (`one_shot` jobs run immediately, retry up to
+  `maxRetries`, and land in review on success or terminal failure)
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`
@@ -273,16 +289,17 @@ Runtime diagnostics:
 ## Local LLM Providers
 
 HybridClaw can route agent turns to locally running LLM servers instead of
-(or alongside) cloud providers. Three backends are supported:
+(or alongside) cloud providers. Four backends are supported:
 
 - **Ollama** — default base URL `http://127.0.0.1:11434`
 - **LM Studio** — default base URL `http://127.0.0.1:1234/v1`
+- **llama.cpp** — default base URL `http://127.0.0.1:8081/v1`
 - **vLLM** — default base URL `http://127.0.0.1:8000/v1`
 
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw local status
 ```
 

@@ -24,8 +24,8 @@ Main docs landing pages:
 
 - [Getting Started](./getting-started/README.md)
 - [Authentication](./getting-started/authentication.md)
+- [Channel Setup](./getting-started/channels.md)
 - [Installation](./getting-started/installation.md)
-- [Microsoft Teams](./getting-started/msteams.md)
 - [Quick Start](./getting-started/quickstart.md)
 
 ## Guides
@@ -33,6 +33,7 @@ Main docs landing pages:
 - [Guides](./guides/README.md)
 - [Bundled Skills](./guides/bundled-skills.md)
 - [Local Providers](./guides/local-providers.md)
+- [Remote Access](./guides/remote-access.md)
 - [Office Dependencies](./guides/office-dependencies.md)
 - [TUI MCP](./guides/tui-mcp.md)
 - [Voice / TTS](./guides/voice-tts.md)
@@ -42,6 +43,8 @@ Main docs landing pages:
 - [Extensibility](./extensibility/README.md)
 - [Adaptive Skills](./extensibility/adaptive-skills.md)
 - [Agent Packages](./extensibility/agent-packages.md)
+- [Honcho Memory Plugin](./extensibility/honcho-memory-plugin.md)
+- [MemPalace Memory Plugin](./extensibility/mempalace-memory-plugin.md)
 - [OTEL Plugin](./extensibility/otel-plugin.md)
 - [Plugins](./extensibility/plugins.md)
 - [QMD Memory Plugin](./extensibility/qmd-memory-plugin.md)
@@ -52,6 +55,7 @@ Main docs landing pages:
 - [Internals](./internals/README.md)
 - [Architecture](./internals/architecture.md)
 - [Runtime](./internals/runtime.md)
+- [Memory](./internals/memory.md)
 - [Session Routing](./internals/session-routing.md)
 
 ## Reference

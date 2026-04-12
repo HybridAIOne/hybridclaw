@@ -18,7 +18,110 @@ afterEach(() => {
   context?.cleanup();
   context = null;
   vi.doUnmock('../src/skills/skills-import.js');
+  vi.doUnmock('../src/skills/skills-install.js');
+  vi.doUnmock('../src/skills/skills.js');
   vi.resetModules();
+});
+
+test('skill list groups skills by category in the gateway command output', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'apple-music',
+        description:
+          'Control Apple Music playback with a deliberately long description that should be truncated in the skill list output.',
+        category: 'apple',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Play music on Apple Music.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/apple-music/SKILL.md',
+        baseDir: '/tmp/apple-music',
+        source: 'bundled',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+      {
+        name: 'obsidian',
+        description: 'Read and organize notes.',
+        category: 'memory',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Read and organize notes.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/obsidian/SKILL.md',
+        baseDir: '/tmp/obsidian',
+        source: 'codex',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
+      {
+        name: 'pdf',
+        description: 'Extract text from PDFs.',
+        category: 'office',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Extract text from PDFs.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/pdf/SKILL.md',
+        baseDir: '/tmp/pdf',
+        source: 'bundled',
+        available: false,
+        enabled: true,
+        missing: ['bin:node'],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: context.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'list'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skills');
+  expect(result.text).toContain('Apple:\n  apple-music [available]');
+  expect(result.text).toContain('Play music on Apple Music.');
+  expect(result.text).not.toContain('deliberately long description');
+  expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
+  expect(result.text).toContain('Office:\n  pdf [bin:node]');
+  expect(result.text).toContain('* foreign skill source');
 });
 
 test('skill inspect command reports observed skill health', async () => {
@@ -95,6 +198,86 @@ test('skill runs command reports recent execution observations', async () => {
   expect(result.text).toContain('Tools: 1/3 failed');
   expect(result.text).toContain('Feedback: negative');
   expect(result.text).toContain('Error detail: approval denied');
+});
+
+test('skill install installs one declared dependency from a local TUI/web session', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const installSkillDependencyMock = vi.fn().mockResolvedValue({
+    ok: true,
+    message: 'Installed pdf via brew-poppler',
+    stdout: 'brew installed poppler',
+    stderr: '',
+    code: 0,
+  });
+  vi.doMock('../src/skills/skills-install.js', () => ({
+    installSkillDependency: installSkillDependencyMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'install', 'pdf', 'brew-poppler'],
+  });
+
+  expect(installSkillDependencyMock).toHaveBeenCalledWith({
+    skillName: 'pdf',
+    installId: 'brew-poppler',
+  });
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Installed');
+  expect(result.text).toContain('Installed pdf via brew-poppler');
+  expect(result.text).toContain('stdout:');
+  expect(result.text).toContain('brew installed poppler');
+});
+
+test('skill install requires both a skill and dependency id', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install-usage',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'install', 'pdf'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Usage');
+  expect(result.text).toContain('skill install <skill> <dependency>');
+});
+
+test('skill install is rejected outside local TUI/web sessions', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-install-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['skill', 'install', 'pdf'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Install Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
 test('skill learn and history commands stage and show amendments', async () => {

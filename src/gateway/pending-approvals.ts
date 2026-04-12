@@ -1,10 +1,29 @@
+import {
+  type ApprovalPresentation,
+  createApprovalPresentation,
+} from './approval-presentation.js';
+
+const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+
+export interface PendingApprovalCommandAction {
+  approveArgs: string[];
+  actionKey?: string;
+  allowSession?: boolean;
+  allowAgent?: boolean;
+  allowAll?: boolean;
+  denyTitle?: string;
+  denyText?: string;
+}
+
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
+  presentation?: ApprovalPresentation | null;
   createdAt: number;
   expiresAt: number;
   userId: string;
   resolvedAt?: number | null;
+  commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
   disableTimeout?: ReturnType<typeof setTimeout> | null;
 }
@@ -36,12 +55,52 @@ export async function setPendingApproval(
   sessionId: string,
   entry: PendingApprovalPrompt,
 ): Promise<void> {
+  const nextEntry: PendingApprovalPrompt = {
+    ...entry,
+    presentation: entry.presentation ?? createApprovalPresentation('text'),
+  };
   const existing = pendingApprovalBySession.get(sessionId) || null;
   if (existing) {
     pendingApprovalBySession.delete(sessionId);
     await disposePendingApprovalEntry(existing, { disableButtons: true });
   }
-  pendingApprovalBySession.set(sessionId, entry);
+  pendingApprovalBySession.set(sessionId, nextEntry);
+}
+
+export async function rememberPendingApproval(params: {
+  sessionId: string;
+  approvalId: string;
+  prompt: string;
+  userId: string;
+  expiresAt?: number | null;
+  presentation?: ApprovalPresentation;
+  commandAction?: PendingApprovalCommandAction | null;
+  disableButtons?: (() => Promise<void>) | null;
+}): Promise<void> {
+  const createdAt = Date.now();
+  const expiresAt =
+    typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
+      ? Math.max(createdAt + 15_000, params.expiresAt)
+      : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
+  const entry: PendingApprovalPrompt = {
+    approvalId: params.approvalId,
+    prompt: params.prompt,
+    presentation: params.presentation ?? createApprovalPresentation('text'),
+    createdAt,
+    expiresAt,
+    userId: params.userId,
+    resolvedAt: null,
+    commandAction: params.commandAction ?? null,
+    disableButtons: params.disableButtons ?? null,
+    disableTimeout: null,
+  };
+  entry.disableTimeout = setTimeout(
+    () => {
+      void clearPendingApproval(params.sessionId, { disableButtons: true });
+    },
+    Math.max(0, expiresAt - Date.now()),
+  );
+  await setPendingApproval(params.sessionId, entry);
 }
 
 export async function clearPendingApproval(
@@ -132,4 +191,26 @@ export function claimPendingApprovalByApprovalId(params: {
     return { status: 'claimed', sessionId, entry };
   }
   return { status: 'not_found' };
+}
+
+export function rollbackPendingApprovalClaim(params: {
+  sessionId: string;
+  approvalId: string;
+}): boolean {
+  const sessionId = params.sessionId.trim();
+  const approvalId = params.approvalId.trim();
+  if (!sessionId || !approvalId) {
+    return false;
+  }
+
+  const entry = pendingApprovalBySession.get(sessionId);
+  if (!entry) {
+    return false;
+  }
+  if (entry.approvalId !== approvalId || !entry.resolvedAt) {
+    return false;
+  }
+
+  entry.resolvedAt = null;
+  return true;
 }

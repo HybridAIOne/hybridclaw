@@ -10,25 +10,16 @@ interface LiveState {
 }
 
 export function useLiveEvents(token: string): LiveState {
+  const trimmedToken = token.trim();
   const [state, setState] = useState<LiveState>({
-    connection: token ? 'connecting' : 'idle',
+    connection: 'connecting',
     overview: null,
     status: null,
     lastEventAt: null,
   });
 
   useEffect(() => {
-    if (!token) {
-      setState({
-        connection: 'idle',
-        overview: null,
-        status: null,
-        lastEventAt: null,
-      });
-      return;
-    }
-
-    const source = new EventSource(adminEventsUrl(token));
+    const source = new EventSource(adminEventsUrl(trimmedToken));
     setState((current) => ({
       ...current,
       connection: 'connecting',
@@ -75,7 +66,7 @@ export function useLiveEvents(token: string): LiveState {
     return () => {
       source.close();
     };
-  }, [token]);
+  }, [trimmedToken]);
 
   return state;
 }

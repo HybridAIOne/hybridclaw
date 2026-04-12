@@ -1,16 +1,22 @@
-import fs from 'node:fs';
 import readline from 'node:readline/promises';
 
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
+  setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import {
+  isLocalBackendType,
+  LOCAL_BACKEND_IDS,
+} from '../providers/provider-ids.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -26,6 +32,7 @@ import {
   printMistralUsage,
   printMSTeamsUsage,
   printOpenRouterUsage,
+  printSlackUsage,
   printWhatsAppUsage,
 } from './help.js';
 import { ensureOnboardingApi } from './onboarding-api.js';
@@ -42,6 +49,7 @@ const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
 );
+const CONFIGURED_SECRET_STATUS = 'configured';
 
 async function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
   return hybridAIAuthApiState.ensure();
@@ -350,7 +358,7 @@ interface RouterProviderConfigFlowOptions {
   providerId: 'openrouter' | 'mistral' | 'huggingface';
   providerLabel: 'OpenRouter' | 'Mistral' | 'Hugging Face';
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
-  getCurrentProviderConfig: () => { baseUrl: string; models: string[] };
+  getCurrentProviderConfig: () => { baseUrl: string };
   defaultModel: string;
   normalizeModelId: (modelId: string) => string;
   normalizeBaseUrl: (baseUrl: string) => string;
@@ -370,8 +378,12 @@ async function configureRouterProvider(
   ensureRuntimeConfigFile();
   const parsed = options.parseArgs(options.args);
   const currentProviderConfig = options.getCurrentProviderConfig();
+  const currentDefaultModel = getRuntimeConfig().hybridai.defaultModel.trim();
   const configuredModel =
-    parsed.modelId || currentProviderConfig.models[0] || options.defaultModel;
+    parsed.modelId ||
+    (resolveModelProvider(currentDefaultModel) === options.providerId
+      ? currentDefaultModel
+      : options.defaultModel);
   const fullModelName = options.normalizeModelId(configuredModel);
   if (!fullModelName) {
     throw new Error(`${options.providerLabel} model ID cannot be empty.`);
@@ -418,16 +430,11 @@ async function configureOpenRouter(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeOpenRouterBaseUrl,
     resolveApiKey: resolveOpenRouterApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.OPENROUTER_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.openrouter.enabled = true;
         draft.openrouter.baseUrl = normalizedBaseUrl;
-        draft.openrouter.models = Array.from(
-          new Set([fullModelName, ...draft.openrouter.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -447,16 +454,11 @@ async function configureMistral(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeMistralBaseUrl,
     resolveApiKey: resolveMistralApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.MISTRAL_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.mistral.enabled = true;
         draft.mistral.baseUrl = normalizedBaseUrl;
-        draft.mistral.models = Array.from(
-          new Set([fullModelName, ...draft.mistral.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -476,17 +478,11 @@ async function configureHuggingFace(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeHuggingFaceBaseUrl,
     resolveApiKey: resolveHuggingFaceApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ HF_TOKEN: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.HF_TOKEN = apiKey;
-      process.env.HUGGINGFACE_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.huggingface.enabled = true;
         draft.huggingface.baseUrl = normalizedBaseUrl;
-        draft.huggingface.models = Array.from(
-          new Set([fullModelName, ...draft.huggingface.models]),
-        );
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -501,7 +497,8 @@ type UnifiedProvider =
   | 'mistral'
   | 'huggingface'
   | 'local'
-  | 'msteams';
+  | 'msteams'
+  | 'slack';
 
 function normalizeUnifiedProvider(
   rawProvider: string | undefined,
@@ -544,6 +541,9 @@ function normalizeUnifiedProvider(
   ) {
     return 'msteams';
   }
+  if (normalized === 'slack') {
+    return 'slack';
+  }
   return null;
 }
 
@@ -567,7 +567,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -581,7 +581,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -597,38 +597,8 @@ function parseUnifiedProviderArgs(args: string[]): {
   };
 }
 
-function readStoredRuntimeSecret(
-  secretKey:
-    | 'OPENROUTER_API_KEY'
-    | 'MISTRAL_API_KEY'
-    | 'HF_TOKEN'
-    | 'MSTEAMS_APP_PASSWORD',
-): string | null {
-  const filePath = runtimeSecretsPath();
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const value = parsed[secretKey];
-    if (typeof value !== 'string') return null;
-    const normalized = value.trim();
-    return normalized || null;
-  } catch {
-    return null;
-  }
-}
-
-function maskSecret(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) return '';
-  if (normalized.length <= 8) {
-    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
-  }
-  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
-}
-
 function isLocalProviderModel(modelName: string): boolean {
-  return /^(ollama|lmstudio|vllm)\//i.test(modelName.trim());
+  return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
 }
 
 function printOpenRouterStatus(): void {
@@ -651,7 +621,7 @@ function printOpenRouterStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
@@ -659,9 +629,7 @@ function printOpenRouterStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function printMistralStatus(): void {
@@ -684,7 +652,7 @@ function printMistralStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`);
@@ -692,9 +660,7 @@ function printMistralStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.mistral.models.length > 0 ? config.mistral.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function printHuggingFaceStatus(): void {
@@ -720,7 +686,7 @@ function printHuggingFaceStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`);
@@ -728,14 +694,11 @@ function printHuggingFaceStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log(
-    `Models: ${config.huggingface.models.length > 0 ? config.huggingface.models.join(', ') : '(none configured)'}`,
-  );
+  console.log('Catalog: auto-discovered');
 }
 
 function clearOpenRouterCredentials(): void {
   const filePath = saveRuntimeSecrets({ OPENROUTER_API_KEY: null });
-  delete process.env.OPENROUTER_API_KEY;
   console.log(`Cleared OpenRouter credentials in ${filePath}.`);
   console.log(
     'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
@@ -744,7 +707,6 @@ function clearOpenRouterCredentials(): void {
 
 function clearMistralCredentials(): void {
   const filePath = saveRuntimeSecrets({ MISTRAL_API_KEY: null });
-  delete process.env.MISTRAL_API_KEY;
   console.log(`Cleared Mistral credentials in ${filePath}.`);
   console.log(
     'If MISTRAL_API_KEY is still exported in your shell, unset it separately.',
@@ -753,8 +715,6 @@ function clearMistralCredentials(): void {
 
 function clearHuggingFaceCredentials(): void {
   const filePath = saveRuntimeSecrets({ HF_TOKEN: null });
-  delete process.env.HF_TOKEN;
-  delete process.env.HUGGINGFACE_API_KEY;
   console.log(`Cleared Hugging Face credentials in ${filePath}.`);
   console.log(
     'If HF_TOKEN is still exported in your shell, unset it separately.',
@@ -789,7 +749,7 @@ function printHybridAIStatus(): void {
   console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
   if (status.authenticated) {
     console.log(`Source: ${status.source}`);
-    console.log(`API key: ${status.maskedApiKey}`);
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Base URL: ${config.hybridai.baseUrl}`);
@@ -839,7 +799,7 @@ function printMSTeamsStatus(): void {
     console.log(`Source: ${source}`);
   }
   if (appPassword) {
-    console.log(`App password: ${maskSecret(appPassword)}`);
+    console.log(`App password: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`);
@@ -850,10 +810,55 @@ function printMSTeamsStatus(): void {
   console.log(`Group policy: ${config.msteams.groupPolicy}`);
 }
 
+function printSlackStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedBotToken = readStoredRuntimeSecret('SLACK_BOT_TOKEN');
+  const storedAppToken = readStoredRuntimeSecret('SLACK_APP_TOKEN');
+  const envBotToken = process.env.SLACK_BOT_TOKEN?.trim() || '';
+  const envAppToken = process.env.SLACK_APP_TOKEN?.trim() || '';
+  const botToken = envBotToken || storedBotToken || '';
+  const appToken = envAppToken || storedAppToken || '';
+  const botSource = envBotToken
+    ? storedBotToken && envBotToken === storedBotToken
+      ? 'runtime-secrets'
+      : 'env'
+    : storedBotToken
+      ? 'runtime-secrets'
+      : null;
+  const appSource = envAppToken
+    ? storedAppToken && envAppToken === storedAppToken
+      ? 'runtime-secrets'
+      : 'env'
+    : storedAppToken
+      ? 'runtime-secrets'
+      : null;
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${botToken && appToken ? 'yes' : 'no'}`);
+  if (botSource) {
+    console.log(`Bot token source: ${botSource}`);
+  }
+  if (appSource) {
+    console.log(`App token source: ${appSource}`);
+  }
+  if (botToken) {
+    console.log(`Bot token: ${CONFIGURED_SECRET_STATUS}`);
+  }
+  if (appToken) {
+    console.log(`App token: ${CONFIGURED_SECRET_STATUS}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.slack.enabled ? 'yes' : 'no'}`);
+  console.log(`DM policy: ${config.slack.dmPolicy}`);
+  console.log(`Group policy: ${config.slack.groupPolicy}`);
+  console.log(`Require mention: ${config.slack.requireMention ? 'yes' : 'no'}`);
+  console.log(`Reply style: ${config.slack.replyStyle}`);
+}
+
 function clearMSTeamsCredentials(): void {
   ensureRuntimeConfigFile();
   const filePath = saveRuntimeSecrets({ MSTEAMS_APP_PASSWORD: null });
-  delete process.env.MSTEAMS_APP_PASSWORD;
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.msteams.enabled = false;
     draft.msteams.appId = '';
@@ -870,17 +875,39 @@ function clearMSTeamsCredentials(): void {
   );
 }
 
+function clearSlackCredentials(): void {
+  ensureRuntimeConfigFile();
+  const filePath = saveRuntimeSecrets({
+    SLACK_BOT_TOKEN: null,
+    SLACK_APP_TOKEN: null,
+  });
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.slack.enabled = false;
+  });
+
+  console.log(`Cleared Slack credentials in ${filePath}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(
+    `Slack integration: ${nextConfig.slack.enabled ? 'enabled' : 'disabled'}`,
+  );
+  console.log(
+    'If SLACK_BOT_TOKEN or SLACK_APP_TOKEN are still exported in your shell, unset them separately.',
+  );
+}
+
 function clearLocalBackends(): void {
   ensureRuntimeConfigFile();
+  saveRuntimeSecrets({ VLLM_API_KEY: null });
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends.ollama.enabled = false;
     draft.local.backends.lmstudio.enabled = false;
+    draft.local.backends.llamacpp.enabled = false;
     draft.local.backends.vllm.enabled = false;
     draft.local.backends.vllm.apiKey = '';
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, vllm.');
+  console.log('Disabled local backends: ollama, lmstudio, llamacpp, vllm.');
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
     console.log(
       `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
@@ -920,11 +947,11 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
     printMSTeamsUsage();
     return;
   }
+  if (provider === 'slack') {
+    printSlackUsage();
+    return;
+  }
   printLocalUsage();
-}
-
-function isLocalBackendType(value: string): value is LocalBackendType {
-  return value === 'ollama' || value === 'lmstudio' || value === 'vllm';
 }
 
 function normalizeLocalModelId(
@@ -936,7 +963,7 @@ function normalizeLocalModelId(
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
   }
-  if (/^(ollama|lmstudio|vllm)\//i.test(trimmed)) {
+  if (/^(ollama|lmstudio|llamacpp|vllm)\//i.test(trimmed)) {
     throw new Error(
       `Model "${trimmed}" already includes a different local provider prefix.`,
     );
@@ -952,6 +979,7 @@ function normalizeLocalBaseUrl(
   if (!trimmed) {
     if (backend === 'ollama') return 'http://127.0.0.1:11434';
     if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
+    if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
     return 'http://127.0.0.1:8000/v1';
   }
   if (backend === 'ollama') {
@@ -962,7 +990,7 @@ function normalizeLocalBaseUrl(
 
 interface ParsedLocalConfigureArgs {
   backend: LocalBackendType;
-  modelId: string;
+  modelId?: string;
   baseUrl?: string;
   apiKey?: string;
   setDefault: boolean;
@@ -973,15 +1001,18 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let setDefault = true;
+  let setDefaultExplicit = false;
 
   for (let index = 0; index < remaining.length; index += 1) {
     const arg = remaining[index] || '';
     if (arg === '--no-default') {
       setDefault = false;
+      setDefaultExplicit = true;
       continue;
     }
     if (arg === '--set-default') {
       setDefault = true;
+      setDefaultExplicit = true;
       continue;
     }
     const apiKeyFlag = parseValueFlag({
@@ -1003,16 +1034,16 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     positional.push(arg);
   }
 
-  if (positional.length < 2) {
+  if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]`',
     );
   }
 
   const backendRaw = (positional[0] || '').trim().toLowerCase();
   if (!isLocalBackendType(backendRaw)) {
     throw new Error(
-      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, or \`vllm\`.`,
+      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, \`llamacpp\`, or \`vllm\`.`,
     );
   }
 
@@ -1020,20 +1051,20 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     throw new Error('`--api-key` is only supported for the `vllm` backend.');
   }
 
-  const modelId = normalizeLocalModelId(
-    backendRaw,
-    positional.slice(1).join(' '),
-  );
-  if (!modelId) {
-    throw new Error('Model ID cannot be empty.');
+  const rawModelId = positional.slice(1).join(' ');
+  const modelId = rawModelId
+    ? normalizeLocalModelId(backendRaw, rawModelId)
+    : undefined;
+  if (setDefaultExplicit && setDefault && !modelId) {
+    throw new Error('`--set-default` requires a model ID.');
   }
 
   return {
     backend: backendRaw,
-    modelId,
+    ...(modelId ? { modelId } : {}),
     baseUrl,
     apiKey,
-    setDefault,
+    setDefault: Boolean(modelId) && setDefault,
   };
 }
 
@@ -1044,7 +1075,7 @@ function printLocalStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
+  for (const backend of LOCAL_BACKEND_IDS) {
     const settings = config.local.backends[backend];
     console.log(
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
@@ -1066,22 +1097,42 @@ function configureLocalBackend(args: string[]): void {
     parsed.backend,
     parsed.baseUrl || currentBackend.baseUrl,
   );
-  const fullModelName = `${parsed.backend}/${parsed.modelId}`;
+  const fullModelName = parsed.modelId
+    ? `${parsed.backend}/${parsed.modelId}`
+    : '';
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends[parsed.backend].enabled = true;
     draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
     if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-      draft.local.backends.vllm.apiKey = parsed.apiKey;
+      draft.local.backends.vllm.apiKey = '';
     }
     if (parsed.setDefault) {
       draft.hybridai.defaultModel = fullModelName;
     }
   });
+  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+    saveRuntimeSecrets({ VLLM_API_KEY: parsed.apiKey });
+    setRuntimeConfigSecretInput(
+      'local.backends.vllm.apiKey',
+      {
+        source: 'store',
+        id: 'VLLM_API_KEY',
+      },
+      {
+        route: 'cli.auth.local.configure-vllm-secret-ref',
+        source: 'user',
+      },
+    );
+  }
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Backend: ${parsed.backend}`);
   console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
-  console.log(`Configured model: ${fullModelName}`);
+  if (fullModelName) {
+    console.log(`Configured model: ${fullModelName}`);
+  } else {
+    console.log('Configured model: none');
+  }
   if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
     console.log('vllm api key: configured');
   }
@@ -1096,7 +1147,12 @@ function configureLocalBackend(args: string[]): void {
   console.log('  hybridclaw gateway restart --foreground --sandbox=host');
   console.log('  hybridclaw gateway status');
   console.log('  hybridclaw tui');
-  console.log(`  /model set ${fullModelName}`);
+  if (fullModelName) {
+    console.log(`  /model set ${fullModelName}`);
+  } else {
+    console.log(`  /model list ${parsed.backend}`);
+    console.log(`  /model set ${parsed.backend}/<model>`);
+  }
 }
 
 export async function handleLocalCommand(args: string[]): Promise<void> {
@@ -1135,7 +1191,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1165,6 +1221,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'msteams') {
     await configureMSTeamsAuth(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'slack') {
+    await configureSlackAuth(parsed.remaining);
     return;
   }
   configureLocalBackend(parsed.remaining);
@@ -1298,6 +1358,14 @@ async function dispatchProviderAction(
     clearMSTeamsCredentials();
     return;
   }
+  if (provider === 'slack') {
+    if (action === 'status') {
+      printSlackStatus();
+      return;
+    }
+    clearSlackCredentials();
+    return;
+  }
   if (action === 'status') {
     printLocalStatus();
     return;
@@ -1318,7 +1386,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -1479,10 +1547,12 @@ async function resolveInteractiveMSTeamsLogin(params: {
     );
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     appId = await promptWithDefault({
@@ -1490,12 +1560,13 @@ async function resolveInteractiveMSTeamsLogin(params: {
       question: 'Microsoft Teams app id',
       defaultValue: appId || undefined,
     });
-    appPassword = await promptWithDefault({
-      rl,
-      question: 'Microsoft Teams app password',
-      defaultValue: appPassword || undefined,
-      secret: true,
-    });
+    rl.close();
+    appPassword =
+      (appPassword || '').trim() ||
+      (await promptForSecretInput({
+        prompt: 'Microsoft Teams app password: ',
+      }));
+    rl = createPromptInterface();
     const tenantId = await promptWithDefault({
       rl,
       question: 'Microsoft Teams tenant id (optional)',
@@ -1538,7 +1609,6 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   const secretsPath = saveRuntimeSecrets({
     MSTEAMS_APP_PASSWORD: resolved.appPassword,
   });
-  process.env.MSTEAMS_APP_PASSWORD = resolved.appPassword;
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Saved Microsoft Teams app password to ${secretsPath}.`);
@@ -1558,6 +1628,129 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   console.log(
     `  Expose ${nextConfig.msteams.webhook.path} on your public HTTPS endpoint and register it in the Teams bot channel`,
   );
+}
+
+function parseSlackLoginArgs(args: string[]): {
+  botToken: string | null;
+  appToken: string | null;
+} {
+  let botToken: string | null = null;
+  let appToken: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const botTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--bot-token',
+      placeholder: '<xoxb...>',
+      allowEmptyEquals: true,
+    });
+    if (botTokenFlag) {
+      botToken = botTokenFlag.value || null;
+      index = botTokenFlag.nextIndex;
+      continue;
+    }
+    const appTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--app-token',
+      placeholder: '<xapp...>',
+      allowEmptyEquals: true,
+    });
+    if (appTokenFlag) {
+      appToken = appTokenFlag.value || null;
+      index = appTokenFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]\`.`,
+    );
+  }
+
+  return {
+    botToken,
+    appToken,
+  };
+}
+
+async function resolveInteractiveSlackLogin(params: {
+  botToken: string;
+  appToken: string;
+}): Promise<{
+  botToken: string;
+  appToken: string;
+}> {
+  let botToken = params.botToken;
+  let appToken = params.appToken;
+
+  if (botToken && appToken) {
+    return { botToken, appToken };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Slack credentials. Pass `--bot-token <xoxb...>` and `--app-token <xapp...>`, set `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN`, or run this command in an interactive terminal to be prompted.',
+    );
+  }
+
+  botToken =
+    botToken ||
+    (await promptForSecretInput({
+      prompt: 'Slack bot token (xoxb-...): ',
+    }));
+  appToken =
+    appToken ||
+    (await promptForSecretInput({
+      prompt: 'Slack app token (xapp-...): ',
+    }));
+  return { botToken, appToken };
+}
+
+async function configureSlackAuth(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseSlackLoginArgs(args);
+  const currentConfig = getRuntimeConfig().slack;
+  const resolved = await resolveInteractiveSlackLogin({
+    botToken:
+      parsed.botToken ||
+      process.env.SLACK_BOT_TOKEN?.trim() ||
+      readStoredRuntimeSecret('SLACK_BOT_TOKEN') ||
+      '',
+    appToken:
+      parsed.appToken ||
+      process.env.SLACK_APP_TOKEN?.trim() ||
+      readStoredRuntimeSecret('SLACK_APP_TOKEN') ||
+      '',
+  });
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.slack.enabled = true;
+  });
+  const secretsPath = saveRuntimeSecrets({
+    SLACK_BOT_TOKEN: resolved.botToken,
+    SLACK_APP_TOKEN: resolved.appToken,
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Saved Slack tokens to ${secretsPath}.`);
+  console.log(
+    `Slack mode: ${nextConfig.slack.enabled ? 'enabled' : 'disabled'}`,
+  );
+  console.log(`DM policy: ${currentConfig.dmPolicy}`);
+  console.log(`Group policy: ${currentConfig.groupPolicy}`);
+  console.log(
+    `Require mention: ${currentConfig.requireMention ? 'yes' : 'no'}`,
+  );
+  console.log(`Reply style: ${currentConfig.replyStyle}`);
+  console.log('Next:');
+  console.log('  hybridclaw gateway restart --foreground');
+  console.log('  hybridclaw gateway status');
 }
 
 export async function handleHybridAICommand(args: string[]): Promise<void> {
@@ -1652,7 +1845,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     if (status.authenticated) {
       console.log(`Source: ${status.source}`);
       console.log(`Account: ${status.accountId}`);
-      console.log(`Access token: ${status.maskedAccessToken}`);
+      console.log(`Access token: ${CONFIGURED_SECRET_STATUS}`);
       console.log(
         `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
       );

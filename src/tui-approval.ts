@@ -7,6 +7,7 @@ export interface TuiApprovalDetails {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
 }
 
 export function formatTuiApprovalSummary(
@@ -47,11 +48,16 @@ export function parseTuiApprovalPrompt(
     approvalId,
     intent,
     reason,
-    allowSession: lines.includes(
-      'Reply `yes for session` to trust this action for this session.',
+    allowSession: lines.some((line) =>
+      /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
+        line,
+      ),
     ),
     allowAgent: lines.includes(
       'Reply `yes for agent` to trust it for this agent.',
+    ),
+    allowAll: lines.includes(
+      'Reply `yes for all` to add this action to the workspace allowlist.',
     ),
   };
 }

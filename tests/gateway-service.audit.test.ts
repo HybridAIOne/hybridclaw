@@ -85,7 +85,7 @@ test('admin tools exposes recent tool error summaries', async () => {
   const { getGatewayAdminTools } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  const result = getGatewayAdminTools();
+  const result = await getGatewayAdminTools();
   const readTool = result.groups
     .flatMap((group) => group.tools)
     .find((tool) => tool.name === 'read');
@@ -162,7 +162,9 @@ test('bot set records a structured audit event for observability export', async 
   expect(getSessionById('session-bot-set-audit')?.chatbot_id).toBe(
     'bot-research',
   );
-  expect(getSessionById('session-bot-set-audit')?.model).toBe('gpt-4o-mini');
+  expect(getSessionById('session-bot-set-audit')?.model).toBe(
+    'hybridai/gpt-4o-mini',
+  );
 });
 
 test('bot set leaves the session model unchanged when the bot exposes no model', async () => {
@@ -274,7 +276,7 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -353,7 +355,7 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -431,7 +433,7 @@ test('handleGatewayMessage skips request logs when request logging is disabled',
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -482,7 +484,7 @@ test('handleGatewayMessage warns once and disables request logs for invalid env 
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

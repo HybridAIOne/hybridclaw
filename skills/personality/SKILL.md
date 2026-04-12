@@ -4,8 +4,11 @@ description: Switch persona modes with `/personality` and persist the active mod
 user-invocable: true
 disable-model-invocation: true
 always: false
+metadata:
+  hybridclaw:
+    category: memory
+    short_description: "Persona mode switching."
 ---
-
 # Personality Switcher
 
 Use this skill to switch the assistant between specialist identities and style-based personalities without runtime code changes.

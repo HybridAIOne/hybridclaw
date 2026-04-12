@@ -5,8 +5,14 @@ import type {
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
+  AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
+  AdminCreateSkillPayload,
+  AdminEmailDeleteResponse,
+  AdminEmailFolderResponse,
+  AdminEmailMailboxResponse,
+  AdminEmailMessageResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -68,10 +74,13 @@ async function requestJson<T>(
 
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;
+    text?: string;
   };
   if (!response.ok) {
     const message =
-      payload.error || `${response.status} ${response.statusText}`;
+      payload.error ||
+      payload.text ||
+      `${response.status} ${response.statusText}`;
     if (response.status === 401 && options.onAuthError !== 'ignore') {
       dispatchAuthRequired(message);
     }
@@ -121,6 +130,15 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export function restartGateway(
+  token: string,
+): Promise<{ status: 'ok'; message: string }> {
+  return requestJson<{ status: 'ok'; message: string }>('/api/admin/restart', {
+    token,
+    method: 'POST',
+  });
 }
 
 export function startAdminTerminal(
@@ -179,6 +197,74 @@ export async function fetchSessions(token: string): Promise<AdminSession[]> {
     { token },
   );
   return payload.sessions;
+}
+
+export function fetchAdminEmailMailbox(
+  token: string,
+): Promise<AdminEmailMailboxResponse> {
+  return requestJson<AdminEmailMailboxResponse>('/api/admin/email', { token });
+}
+
+export function fetchAdminEmailFolder(
+  token: string,
+  params: {
+    folder: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<AdminEmailFolderResponse> {
+  const query = new URLSearchParams({ folder: params.folder });
+  if (typeof params.limit === 'number') {
+    query.set('limit', String(params.limit));
+  }
+  if (typeof params.offset === 'number') {
+    query.set('offset', String(params.offset));
+  }
+  return requestJson<AdminEmailFolderResponse>(
+    `/api/admin/email/messages?${query.toString()}`,
+    {
+      token,
+    },
+  );
+}
+
+export function fetchAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailMessageResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailMessageResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+    },
+  );
+}
+
+export function deleteAdminEmailMessage(
+  token: string,
+  params: {
+    folder: string;
+    uid: number;
+  },
+): Promise<AdminEmailDeleteResponse> {
+  const query = new URLSearchParams({
+    folder: params.folder,
+    uid: String(params.uid),
+  });
+  return requestJson<AdminEmailDeleteResponse>(
+    `/api/admin/email/message?${query.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function deleteSession(
@@ -246,6 +332,30 @@ export function saveConfig(
   });
 }
 
+function runAdminCommand(
+  token: string,
+  args: string[],
+): Promise<AdminCommandResult> {
+  return requestJson<AdminCommandResult>('/api/command', {
+    token,
+    method: 'POST',
+    body: {
+      sessionId: 'web-admin-secrets',
+      guildId: null,
+      channelId: 'web',
+      args,
+    },
+  });
+}
+
+export function setRuntimeSecret(
+  token: string,
+  secretName: string,
+  secretValue: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
+}
+
 export function fetchModels(token: string): Promise<AdminModelsResponse> {
   return requestJson<AdminModelsResponse>('/api/admin/models', { token });
 }
@@ -254,8 +364,6 @@ export function saveModels(
   token: string,
   payload: {
     defaultModel: string;
-    hybridaiModels?: string[];
-    codexModels?: string[];
   },
 ): Promise<AdminModelsResponse> {
   return requestJson<AdminModelsResponse>('/api/admin/models', {
@@ -385,6 +493,43 @@ export function fetchAudit(
 
 export function fetchSkills(token: string): Promise<AdminSkillsResponse> {
   return requestJson<AdminSkillsResponse>('/api/admin/skills', { token });
+}
+
+export function createSkill(
+  token: string,
+  payload: AdminCreateSkillPayload,
+): Promise<AdminSkillsResponse> {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function uploadSkillZip(
+  token: string,
+  file: File,
+): Promise<AdminSkillsResponse> {
+  const response = await fetch('/api/admin/skills/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+      'Content-Type': 'application/zip',
+    },
+    body: file,
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+  };
+  if (!response.ok) {
+    const message =
+      payload.error || `${response.status} ${response.statusText}`;
+    if (response.status === 401) {
+      dispatchAuthRequired(message);
+    }
+    throw new Error(message);
+  }
+  return payload as AdminSkillsResponse;
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

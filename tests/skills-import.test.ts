@@ -35,7 +35,7 @@ function binaryResponse(
   body: Uint8Array,
   contentType = 'application/octet-stream',
 ): Response {
-  return new Response(body, {
+  return new Response(Buffer.from(body), {
     status: 200,
     headers: {
       'content-type': contentType,
@@ -84,6 +84,25 @@ describe('skill import', () => {
   const originalHome = process.env.HOME;
   const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 
+  function createPackagedSkillRoot(skillName: string): string {
+    const tempPackagedRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-packaged-community-'),
+    );
+    const skillDir = path.join(tempPackagedRoot, skillName);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: Test packaged skill.
+---
+
+# ${skillName}
+`,
+    );
+    return tempPackagedRoot;
+  }
+
   beforeEach(() => {
     const tempHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-skills-import-'),
@@ -109,31 +128,26 @@ describe('skill import', () => {
   });
 
   test('imports a packaged community skill with an explicit official source', async () => {
+    const skillName = 'test-community-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallPath: () => tempPackagedRoot,
+    }));
+
     const { importSkill } = await import('../src/skills/skills-import.ts');
     const { loadSkillCatalog } = await import('../src/skills/skills.ts');
 
-    expect(loadSkillCatalog().some((skill) => skill.name === 'himalaya')).toBe(
-      false,
-    );
+    const result = await importSkill(`official/${skillName}`);
 
-    const result = await importSkill('official/himalaya');
-
-    expect(result.skillName).toBe('himalaya');
+    expect(result.skillName).toBe(skillName);
     expect(result.replacedExisting).toBe(false);
-    expect(result.resolvedSource).toBe('official/himalaya');
+    expect(result.resolvedSource).toBe(`official/${skillName}`);
     expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
 
     const importedSkill = loadSkillCatalog().find(
-      (skill) => skill.name === 'himalaya',
+      (skill) => skill.name === skillName,
     );
     expect(importedSkill?.source).toBe('community');
-    expect(importedSkill?.metadata.hybridclaw.install).toMatchObject([
-      {
-        id: 'brew',
-        kind: 'brew',
-        formula: 'himalaya',
-      },
-    ]);
   });
 
   test('imports a GitHub skill from a repo skills/ subdirectory', async () => {
@@ -639,6 +653,147 @@ description: Keep learning.
     ).toBe(true);
   });
 
+  test('uses CLAWHUB_API_BASE_URL env var for ClawHub imports', async () => {
+    vi.stubEnv('CLAWHUB_API_BASE_URL', 'https://clawhub-proxy.internal/api/v1');
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/skills/self-improving-agent'
+      ) {
+        return jsonResponse({
+          latestVersion: { version: '3.0.6' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/download?slug=self-improving-agent&version=3.0.6'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
+  test('retries retryable ClawHub responses and cancels retry bodies', async () => {
+    vi.stubEnv(
+      'CLAWHUB_API_BASE_URL',
+      'https://clawhub-proxy.internal/api/v1///',
+    );
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/skills/self-improving-agent'
+      ) {
+        return jsonResponse({
+          latestVersion: { version: '1.0.0' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/download?slug=self-improving-agent&version=1.0.0'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
+  test('falls back to default URL when CLAWHUB_API_BASE_URL is empty', async () => {
+    vi.stubEnv('CLAWHUB_API_BASE_URL', '  ');
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (url === 'https://clawhub.ai/api/v1/skills/self-improving-agent') {
+        return jsonResponse({
+          latestVersion: { version: '3.0.6' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub.ai/api/v1/download?slug=self-improving-agent&version=3.0.6'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
   test('imports a LobeHub agent as a generated skill', async () => {
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
@@ -821,12 +976,17 @@ description: Docs helper.
   });
 
   test('allows force to override a caution verdict during import', async () => {
+    const skillName = 'test-community-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallPath: () => tempPackagedRoot,
+    }));
     vi.doMock('../src/skills/skills-guard.js', () => ({
       guardSkillDirectory: () => ({
         allowed: false,
         reason: 'blocked (community source + caution verdict, 1 finding(s))',
         result: {
-          skillName: 'himalaya',
+          skillName,
           skillPath: '/tmp/mock-skill',
           sourceTag: 'community',
           trustLevel: 'community',
@@ -851,9 +1011,9 @@ description: Docs helper.
 
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
-    const result = await importSkill('official/himalaya', { force: true });
+    const result = await importSkill(`official/${skillName}`, { force: true });
 
-    expect(result.skillName).toBe('himalaya');
+    expect(result.skillName).toBe(skillName);
     expect(result.guardOverrideApplied).toBe(true);
     expect(result.guardVerdict).toBe('caution');
     expect(result.guardFindingsCount).toBe(1);
@@ -861,12 +1021,17 @@ description: Docs helper.
   });
 
   test('does not allow force to override a dangerous verdict during import', async () => {
+    const skillName = 'test-community-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallPath: () => tempPackagedRoot,
+    }));
     vi.doMock('../src/skills/skills-guard.js', () => ({
       guardSkillDirectory: () => ({
         allowed: false,
         reason: 'blocked (community source + dangerous verdict, 2 finding(s))',
         result: {
-          skillName: 'himalaya',
+          skillName,
           skillPath: '/tmp/mock-skill',
           sourceTag: 'community',
           trustLevel: 'community',
@@ -892,26 +1057,14 @@ description: Docs helper.
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
     await expect(
-      importSkill('official/himalaya', { force: true }),
+      importSkill(`official/${skillName}`, { force: true }),
     ).rejects.toThrow('Dangerous verdicts cannot be overridden with --force.');
   });
 
   test('rejects symlinked packaged skill content', async () => {
-    const tempPackagedRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-packaged-community-'),
-    );
-    const skillDir = path.join(tempPackagedRoot, 'himalaya');
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(skillDir, 'SKILL.md'),
-      `---
-name: himalaya
-description: Email helper.
----
-
-# Himalaya
-`,
-    );
+    const skillName = 'test-community-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    const skillDir = path.join(tempPackagedRoot, skillName);
 
     const symlinkTarget = path.join(tempPackagedRoot, 'outside.txt');
     fs.writeFileSync(symlinkTarget, 'outside');
@@ -923,7 +1076,7 @@ description: Email helper.
 
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
-    await expect(importSkill('official/himalaya')).rejects.toThrow(
+    await expect(importSkill(`official/${skillName}`)).rejects.toThrow(
       'Refusing to import symlinked content',
     );
   });

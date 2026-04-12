@@ -8,7 +8,10 @@ import {
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
+import { formatError } from '../../utils/text-format.js';
 import { sendMSTeamsActivityWithRetry } from './retry.js';
+
+export { formatError };
 
 export interface MSTeamsChunkedActivity {
   text: string;
@@ -29,10 +32,6 @@ export function buildResponseText(text: string, toolsUsed?: string[]): string {
     body = `${body}\n*Tools: ${toolsUsed.join(', ')}*`;
   }
   return body;
-}
-
-export function formatError(title: string, detail: string): string {
-  return `**${title}:** ${detail}`;
 }
 
 export function buildAdaptiveCardAttachment(

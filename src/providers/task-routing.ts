@@ -10,16 +10,22 @@ import {
   type TaskModelPolicies,
   type TaskModelPolicy,
 } from '../types/models.js';
-import { resolveModelRuntimeCredentials } from './factory.js';
+import {
+  resolveModelProvider,
+  resolveModelRuntimeCredentials,
+} from './factory.js';
 import {
   findVisionCapableModel,
+  getAvailableModelList,
   isModelVisionCapable,
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
+import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
 export type AuxiliaryTask = TaskModelKey;
 
-type RuntimeProvider = NonNullable<TaskModelPolicy['provider']>;
+type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
 type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
@@ -36,6 +42,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   huggingface: 'huggingface/',
   ollama: 'ollama/',
   lmstudio: 'lmstudio/',
+  llamacpp: 'llamacpp/',
   vllm: 'vllm/',
 };
 
@@ -50,17 +57,7 @@ function normalizeTaskProviderSelection(
   value: string | undefined,
 ): RuntimeAuxiliaryProviderSelection | undefined {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return undefined;
@@ -130,6 +127,7 @@ export function detectRuntimeProviderPrefix(
   if (normalized.startsWith('huggingface/')) return 'huggingface';
   if (normalized.startsWith('ollama/')) return 'ollama';
   if (normalized.startsWith('lmstudio/')) return 'lmstudio';
+  if (normalized.startsWith('llamacpp/')) return 'llamacpp';
   if (normalized.startsWith('vllm/')) return 'vllm';
   return undefined;
 }
@@ -146,41 +144,57 @@ export function resolveDefaultAuxiliaryModelForProvider(
   provider: RuntimeProvider,
 ): string | undefined {
   const config = getRuntimeConfig();
+  const currentDefaultModel = config.hybridai.defaultModel.trim();
+  const currentDefaultProvider = currentDefaultModel
+    ? resolveModelProvider(currentDefaultModel)
+    : undefined;
+  const discoveredModels = getAvailableModelList(
+    provider === 'openai-codex' ? 'codex' : provider,
+  );
 
   if (provider === 'hybridai') {
     return selectFirstNonEmpty([
-      config.hybridai.defaultModel,
-      ...config.hybridai.models,
+      currentDefaultProvider === 'hybridai' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'gpt-4.1-mini',
     ]);
   }
 
   if (provider === 'openai-codex') {
-    return selectFirstNonEmpty(config.codex.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'openai-codex' ? currentDefaultModel : '',
+      ...discoveredModels,
+    ]);
   }
 
   if (provider === 'openrouter') {
     if (!config.openrouter.enabled) return undefined;
-    return selectFirstNonEmpty(config.openrouter.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'openrouter' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'openrouter/anthropic/claude-sonnet-4',
+    ]);
   }
 
   if (provider === 'mistral') {
     if (!config.mistral.enabled) return undefined;
-    return selectFirstNonEmpty(config.mistral.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'mistral' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'mistral/mistral-large-latest',
+    ]);
   }
 
   if (provider === 'huggingface') {
     if (!config.huggingface.enabled) return undefined;
-    return selectFirstNonEmpty(config.huggingface.models);
+    return selectFirstNonEmpty([
+      currentDefaultProvider === 'huggingface' ? currentDefaultModel : '',
+      ...discoveredModels,
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ]);
   }
 
-  return selectFirstNonEmpty(
-    [config.hybridai.defaultModel, ...config.hybridai.models].filter((model) =>
-      model
-        .trim()
-        .toLowerCase()
-        .startsWith(RUNTIME_PROVIDER_PREFIXES[provider]),
-    ),
-  );
+  return selectFirstNonEmpty(discoveredModels);
 }
 
 export function normalizeAuxiliaryProviderModel(params: {
@@ -270,7 +284,10 @@ export async function resolveTaskModelPolicy(
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
-              maxTokens,
+              maxTokens: resolveProviderRequestMaxTokens({
+                model: fallback,
+                discoveredMaxTokens: resolved.maxTokens,
+              }),
             };
           } catch (err) {
             logger.warn(
@@ -352,7 +369,10 @@ export async function resolveTaskModelPolicy(
       thinkingFormat: resolved.thinkingFormat,
       model,
       chatbotId: resolved.chatbotId,
-      maxTokens,
+      maxTokens: resolveProviderRequestMaxTokens({
+        model,
+        discoveredMaxTokens: resolved.maxTokens,
+      }),
     };
   } catch (err) {
     logger.warn(

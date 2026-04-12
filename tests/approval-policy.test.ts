@@ -43,6 +43,22 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('green');
   });
 
+  test('pip install is classified as dependency installation', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'pip install pgmpy' }),
+      latestUserPrompt: 'Install pgmpy',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.actionKey).toBe('bash:install-deps');
+    expect(evaluation.reason).toBe('this changes the local dependency state');
+  });
+
   test('message read-only actions are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -219,6 +235,23 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.requestId).toBeUndefined();
   });
 
+  test('full-auto mode auto-approves yellow mutating actions without interruption delay', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setFullAutoOptions({ enabled: true });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({ path: 'app/ars.R', contents: 'test' }),
+      latestUserPrompt: 'Write the file',
+    });
+
+    expect(evaluation.baseTier).toBe('yellow');
+    expect(evaluation.decision).toBe('approved_fullauto');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+  });
+
   test('full-auto mode still requires approval for tools on the never-approve list', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -306,6 +339,16 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(approved.implicitDelayMs).toBeUndefined();
   });
 
+  test('bare yes without a pending approval is treated as a normal prompt', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const prelude = runtime.handleApprovalResponse([userMessage('Yes')]);
+
+    expect(prelude).toBeNull();
+  });
+
   test('yes for session persists trust for repeated action key', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -321,6 +364,32 @@ describe('TrustedCoworkerApprovalRuntime', () => {
 
     const prelude = runtime.handleApprovalResponse([
       userMessage('yes for session'),
+    ]);
+    expect(prelude?.approvalMode).toBe('session');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.decision).toBe('approved_session');
+  });
+
+  test('"/approve always" preserves the legacy session-scoped trust behavior', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Fetch from example.com';
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('/approve always'),
     ]);
     expect(prelude?.approvalMode).toBe('session');
 
@@ -359,6 +428,24 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('yellow');
   });
 
+  test('http_request uses the same host-scoped network approval classification', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://hybridai.one/v1/completions',
+        method: 'POST',
+      }),
+      latestUserPrompt: 'Call the completions API',
+    });
+
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.actionKey).toBe('network:hybridai.one');
+  });
+
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -380,15 +467,19 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const agentIdx = prompt.indexOf(
       'Reply `yes for agent` to trust it for this agent.',
     );
+    const allIdx = prompt.indexOf(
+      'Reply `yes for all` to add this action to the workspace allowlist.',
+    );
     const denyIdx = prompt.indexOf('Reply `no` to deny.');
 
     expect(onceIdx).toBeGreaterThanOrEqual(0);
     expect(sessionIdx).toBeGreaterThan(onceIdx);
     expect(agentIdx).toBeGreaterThan(sessionIdx);
-    expect(denyIdx).toBeGreaterThan(agentIdx);
+    expect(allIdx).toBeGreaterThan(agentIdx);
+    expect(denyIdx).toBeGreaterThan(allIdx);
   });
 
-  test('approval prompt marks session/agent trust unavailable for pinned actions', () => {
+  test('approval prompt marks session/agent/all trust unavailable for pinned actions', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -407,6 +498,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     );
     expect(prompt).toContain(
       'Reply `yes for agent` is unavailable for pinned-sensitive actions.',
+    );
+    expect(prompt).toContain(
+      'Reply `yes for all` is unavailable for pinned-sensitive actions.',
     );
   });
 
@@ -594,6 +688,50 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(third.decision).toBe('approved_agent');
   });
 
+  test('yes for all persists trust across runtime restarts via the workspace allowlist store', () => {
+    const agentTrustStorePath = tempTrustStorePath('agent-trust');
+    const allTrustStorePath = tempTrustStorePath('all-trust');
+    const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
+    const prompt = 'Fetch from example.com';
+    const argsJson = JSON.stringify({ url: 'https://example.com' });
+
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+    );
+    const first = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for all'),
+    ]);
+    expect(prelude?.approvalMode).toBe('all');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(second.decision).toBe('approved_all');
+
+    const restarted = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+    );
+    const third = restarted.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(third.decision).toBe('approved_all');
+  });
+
   test('pinned red cannot be agent-trusted across restarts', () => {
     const trustStorePath = tempTrustStorePath('pinned-agent');
     const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
@@ -636,7 +774,52 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(third.decision).toBe('required');
   });
 
-  test('default host-mode trust store persists under the actual workspace root', async () => {
+  test('pinned red cannot be allowlisted for all across restarts', () => {
+    const agentTrustStorePath = tempTrustStorePath('pinned-agent');
+    const allTrustStorePath = tempTrustStorePath('pinned-all');
+    const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
+    const prompt = 'Write .env';
+    const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
+
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+    );
+    const first = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(first.decision).toBe('required');
+    expect(first.pinned).toBe(true);
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for all'),
+    ]);
+    expect(prelude?.approvalMode).toBe('once');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(second.decision).toBe('approved_once');
+
+    const restarted = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+    );
+    const third = restarted.evaluateToolCall({
+      toolName: 'write',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(third.decision).toBe('required');
+  });
+
+  test('default host-mode workspace allowlist persists under the actual workspace root', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-approval-workspace-'),
     );
@@ -647,7 +830,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
 
     const prompt = 'Open example.com';
     const argsJson = JSON.stringify({ url: 'https://example.com' });
-    const trustStorePath = path.join(stateDir, 'approval-trust.json');
+    const trustStorePath = path.join(workspaceRoot, 'approval-trust.json');
 
     const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
       await import('../container/src/approval-policy.js');
@@ -661,15 +844,15 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(first.decision).toBe('required');
 
     const prelude = runtime.handleApprovalResponse([
-      userMessage('yes for agent'),
+      userMessage('yes for all'),
     ]);
-    expect(prelude?.approvalMode).toBe('agent');
+    expect(prelude?.approvalMode).toBe('all');
     expect(fs.existsSync(trustStorePath)).toBe(true);
 
     const persisted = JSON.parse(fs.readFileSync(trustStorePath, 'utf-8')) as {
-      trustedActions?: string[];
+      allowlistedActions?: string[];
     };
-    expect(persisted.trustedActions).toContain('network:example.com');
+    expect(persisted.allowlistedActions).toContain('network:example.com');
 
     const restarted = new HostModeApprovalRuntime();
     const second = restarted.evaluateToolCall({
@@ -677,7 +860,29 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       argsJson,
       latestUserPrompt: prompt,
     });
-    expect(second.decision).toBe('approved_agent');
+    expect(second.decision).toBe('approved_all');
+  });
+
+  test('bash workspace fence accepts the configured display root for task-container evals', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-approval-display-root-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.resetModules();
+
+    const { TrustedCoworkerApprovalRuntime: DisplayRootApprovalRuntime } =
+      await import('../container/src/approval-policy.js');
+
+    const runtime = new DisplayRootApprovalRuntime();
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'touch /app/ars.R' }),
+      latestUserPrompt: 'Create the R file',
+    });
+
+    expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
+    expect(evaluation.tier).toBe('yellow');
   });
 
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {

@@ -1,4 +1,5 @@
 import type { BaseMessageOptions } from 'discord.js';
+import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
@@ -50,7 +51,11 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  agentId?: string;
+  model?: string;
+  provider?: string;
   memoryCitations?: MemoryCitation[];
+  components?: GatewayMessageComponents;
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;
@@ -75,6 +80,7 @@ export interface GatewayChatResult {
       | 'approved_once'
       | 'approved_session'
       | 'approved_agent'
+      | 'approved_all'
       | 'approved_fullauto'
       | 'promoted'
       | 'required'
@@ -112,6 +118,7 @@ export type GatewayMediaItem = MediaContextItem;
 
 export interface GatewayChatApprovalEvent extends PendingApproval {
   type: 'approval';
+  summary?: string;
 }
 
 export interface GatewayChatStreamResultEvent {
@@ -142,6 +149,22 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayChatRequest {
   sessionId: GatewayChatRequestBody['sessionId'];
+  executionSessionId?: string;
+  executorModeOverride?: 'host' | 'container';
+  autoApproveTools?: boolean;
+  neverAutoApproveTools?: string[];
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  maxTokens?: number;
+  maxWallClockMs?: number | null;
+  inactivityTimeoutMs?: number | null;
+  bashProxy?:
+    | {
+        mode: 'docker-exec';
+        containerName: string;
+        cwd?: string;
+      }
+    | undefined;
   sessionMode?: GatewayChatRequestBody['sessionMode'];
   guildId: GatewayChatRequestBody['guildId'];
   channelId: GatewayChatRequestBody['channelId'];
@@ -153,6 +176,9 @@ export interface GatewayChatRequest {
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
+  promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -306,6 +332,10 @@ export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
   pid?: number;
+  lifecycle?: {
+    restartSupported: boolean;
+    restartReason: string | null;
+  };
   version: string;
   uptime: number;
   sessions: number;
@@ -337,6 +367,7 @@ export interface GatewayStatus {
     mountAllowlistPath: string;
     additionalMountsConfigured: number;
     activeSessions: number;
+    activeSessionIds?: string[];
     warning: string | null;
   };
   observability?: {
@@ -353,6 +384,34 @@ export interface GatewayStatus {
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
   };
+  discord?: {
+    tokenConfigured: boolean;
+    tokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  slack?: {
+    botTokenConfigured: boolean;
+    botTokenSource: 'env' | 'runtime-secrets' | null;
+    appTokenConfigured: boolean;
+    appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  telegram?: {
+    tokenConfigured: boolean;
+    tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  email?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  imessage?: {
+    passwordConfigured: boolean;
+    passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  whatsapp?: {
+    linked: boolean;
+    jid: string | null;
+    pairingQrText: string | null;
+    pairingUpdatedAt: string | null;
+  };
   providerHealth?: Partial<
     Record<
       | 'hybridai'
@@ -362,13 +421,14 @@ export interface GatewayStatus {
       | 'huggingface'
       | 'ollama'
       | 'lmstudio'
+      | 'llamacpp'
       | 'vllm',
       GatewayProviderHealthEntry
     >
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'vllm',
+      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
       {
         reachable: boolean;
         latencyMs: number;
@@ -396,6 +456,86 @@ export interface GatewayAdminSession {
   taskCount: number;
   createdAt: string;
   lastActive: string;
+}
+
+export interface GatewayAdminEmailFolder {
+  path: string;
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unseen: number;
+}
+
+export interface GatewayAdminEmailMessageSummary {
+  folder: string;
+  uid: number;
+  messageId: string | null;
+  subject: string;
+  fromAddress: string | null;
+  fromName: string | null;
+  preview: string | null;
+  receivedAt: string | null;
+  seen: boolean;
+  flagged: boolean;
+  answered: boolean;
+  hasAttachments: boolean;
+}
+
+export interface GatewayAdminEmailParticipant {
+  name: string | null;
+  address: string | null;
+}
+
+export interface GatewayAdminEmailAttachment {
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface GatewayAdminEmailMessageMetadata {
+  agentId: string | null;
+  model: string | null;
+  provider: string | null;
+  totalTokens: number | null;
+  tokenSource: 'api' | 'estimated' | null;
+}
+
+export interface GatewayAdminEmailMessageDetail
+  extends GatewayAdminEmailMessageSummary {
+  to: GatewayAdminEmailParticipant[];
+  cc: GatewayAdminEmailParticipant[];
+  bcc: GatewayAdminEmailParticipant[];
+  replyTo: GatewayAdminEmailParticipant[];
+  text: string | null;
+  attachments: GatewayAdminEmailAttachment[];
+  metadata: GatewayAdminEmailMessageMetadata | null;
+}
+
+export interface GatewayAdminEmailMailboxResponse {
+  enabled: boolean;
+  address: string;
+  folders: GatewayAdminEmailFolder[];
+  defaultFolder: string | null;
+}
+
+export interface GatewayAdminEmailFolderResponse {
+  folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
+  messages: GatewayAdminEmailMessageSummary[];
+}
+
+export interface GatewayAdminEmailMessageResponse {
+  message: GatewayAdminEmailMessageDetail | null;
+  thread: GatewayAdminEmailMessageDetail[];
+}
+
+export interface GatewayAdminEmailDeleteResponse {
+  deleted: true;
+  targetFolder: string | null;
+  permanent: boolean;
 }
 
 export interface GatewayAdminUsageSummary {
@@ -567,6 +707,13 @@ export interface GatewayAdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  slack: {
+    enabled: boolean;
+    groupPolicy: RuntimeConfig['slack']['groupPolicy'];
+    dmPolicy: RuntimeConfig['slack']['dmPolicy'];
+    defaultRequireMention: boolean;
+    defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -598,10 +745,8 @@ export interface GatewayAdminConfigResponse {
 
 export interface GatewayAdminModelCatalogEntry {
   id: string;
-  configuredInHybridai: boolean;
-  configuredInCodex: boolean;
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
   isReasoning: boolean;
@@ -614,8 +759,6 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
-  hybridaiModels: string[];
-  codexModels: string[];
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }
@@ -627,6 +770,7 @@ export interface GatewayAdminSchedulerJob {
   description: string | null;
   agentId: string | null;
   boardStatus: NonNullable<RuntimeSchedulerJob['boardStatus']> | null;
+  maxRetries: number | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];
@@ -680,6 +824,8 @@ export interface GatewayAdminAuditResponse {
 export interface GatewayAdminSkill {
   name: string;
   description: string;
+  category: string;
+  shortDescription?: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -727,7 +873,7 @@ export interface GatewayAdminPluginsResponse {
 export interface GatewayAdminToolCatalogEntry {
   name: string;
   group: string;
-  kind: 'builtin' | 'mcp' | 'other';
+  kind: 'builtin' | 'plugin' | 'mcp' | 'other';
   recentCalls: number;
   recentErrors: number;
   lastUsedAt: string | null;
@@ -769,5 +915,5 @@ export interface GatewayAdminToolsResponse {
 
 export function renderGatewayCommand(result: GatewayCommandResult): string {
   if (!result.title) return result.text;
-  return `${result.title}\n${result.text}`;
+  return `${result.title}\n\n${result.text}`;
 }

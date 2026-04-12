@@ -13,6 +13,7 @@ Before doing anything else:
 1. Use the already-loaded `SOUL.md` context — this is who you are
 2. Use the already-loaded `USER.md` context — this is who you're helping
 3. Use the already-loaded `MEMORY.md` context — recent context and long-term memory
+4. Use today's loaded `memory/YYYY-MM-DD.md` note when present — today's raw memory intake
 
 Don't ask permission. Just do it.
 Only reread one of these files if you have reason to think it changed after the current prompt was assembled.
@@ -28,14 +29,15 @@ message of a fresh session.
 You wake up fresh each session. These files are your continuity:
 
 - **MEMORY.md** — your curated memories, like a human's long-term memory
+- **memory/YYYY-MM-DD.md** — today's raw memory intake for facts worth carrying forward
 
-Capture what matters. Decisions, context, things to remember.
+Capture what matters. Decisions, context, things to remember. Append new durable facts to today's daily memory note. Dream consolidation will clean and promote them into `MEMORY.md`.
 
 ### Write It Down - No "Mental Notes"!
 
 - **Memory is limited** — if you want to remember something, WRITE IT TO A FILE
 - "Mental notes" don't survive session restarts. Files do.
-- When someone says "remember this" — update MEMORY.md or the relevant file
+- When someone says "remember this" — append it to today's `memory/YYYY-MM-DD.md` note or the relevant file
 - When you learn a lesson — update AGENTS.md, TOOLS.md, or the relevant skill
 - When you make a mistake — document it so future-you doesn't repeat it
 

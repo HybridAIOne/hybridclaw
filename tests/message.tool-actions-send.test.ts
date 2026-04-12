@@ -5,9 +5,12 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const sendTelegramMediaToChat = vi.fn(async () => {});
+  const sendToTelegramChat = vi.fn(async () => {});
   const hasActiveMSTeamsSession = vi.fn(
     (sessionId: string) => sessionId === 'teams:dm:user-aad-id',
   );
+  const slackSessionId = 'agent:main:channel:slack:chat:dm:peer:u1234567890';
   const getRecentMessages = vi.fn((sessionId: string, _limit?: number) =>
     sessionId === 'email:ops@example.com'
       ? [
@@ -42,6 +45,27 @@ async function importFreshMessageToolActions() {
               created_at: '2026-03-13 19:00:00',
             },
           ]
+        : sessionId === slackSessionId
+          ? [
+              {
+                id: 401,
+                session_id: sessionId,
+                user_id: 'U1234567890',
+                username: 'Alice',
+                role: 'user',
+                content: 'Slack hello',
+                created_at: '2026-03-13 20:00:00',
+              },
+              {
+                id: 402,
+                session_id: sessionId,
+                user_id: 'assistant',
+                username: null,
+                role: 'assistant',
+                content: 'Slack reply',
+                created_at: '2026-03-13 20:01:00',
+              },
+            ]
         : [],
   );
   const getMemoryValue = vi.fn((sessionId: string, key: string) =>
@@ -64,6 +88,13 @@ async function importFreshMessageToolActions() {
     attachmentCount: 1,
     channelId: 'a:teams-current-conversation',
   }));
+  const hasActiveSlackSession = vi.fn(
+    (sessionId: string) => sessionId === slackSessionId,
+  );
+  const sendToActiveSlackSession = vi.fn(async () => ({
+    attachmentCount: 0,
+    channelId: 'slack:D1234567890',
+  }));
   const runDiscordToolAction = vi.fn(async () => ({
     ok: true,
     action: 'send',
@@ -81,7 +112,16 @@ async function importFreshMessageToolActions() {
       created_at: '2026-03-13T18:00:00.000Z',
     },
   ];
-  const getAllSessions = vi.fn(() => knownTeamsSessions);
+  let knownSlackSessions = [
+    {
+      id: slackSessionId,
+      guild_id: 'T1234567890',
+      channel_id: 'slack:D1234567890',
+      last_active: '2026-03-13T20:00:00.000Z',
+      created_at: '2026-03-13T19:00:00.000Z',
+    },
+  ];
+  const getAllSessions = vi.fn(() => [...knownTeamsSessions, ...knownSlackSessions]);
   const getSessionById = vi.fn((sessionId: string) => {
     if (sessionId === 'wa:test') {
       return { id: sessionId, channel_id: '491234567890@s.whatsapp.net' };
@@ -93,7 +133,9 @@ async function importFreshMessageToolActions() {
       return { id: sessionId, channel_id: 'peer@example.com' };
     }
     return (
-      knownTeamsSessions.find((session) => session.id === sessionId) || null
+      knownTeamsSessions.find((session) => session.id === sessionId) ||
+      knownSlackSessions.find((session) => session.id === sessionId) ||
+      null
     );
   });
   const resolveAgentForRequest = vi.fn(() => ({ agentId: 'main' }));
@@ -106,9 +148,17 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
   }));
+  vi.doMock('../src/channels/telegram/runtime.js', () => ({
+    sendTelegramMediaToChat,
+    sendToTelegramChat,
+  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     hasActiveMSTeamsSession,
     sendToActiveMSTeamsSession,
+  }));
+  vi.doMock('../src/channels/slack/runtime.js', () => ({
+    hasActiveSlackSession,
+    sendToActiveSlackSession,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     sendToWhatsAppChat,
@@ -136,12 +186,17 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    sendTelegramMediaToChat,
+    sendToTelegramChat,
     getRecentMessages,
     getWhatsAppAuthStatus,
     sendToWhatsAppChat,
     sendWhatsAppMediaToChat,
     hasActiveMSTeamsSession,
     sendToActiveMSTeamsSession,
+    hasActiveSlackSession,
+    sendToActiveSlackSession,
+    slackSessionId,
     runDiscordToolAction,
     enqueueProactiveMessage,
     getAllSessions,
@@ -212,6 +267,70 @@ test('send action normalizes WhatsApp phone numbers before delivery', async () =
   });
 });
 
+test('send action routes Telegram targets through Telegram transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'telegram:-1001234567890:topic:42',
+    content: 'hello telegram',
+  });
+
+  expect(state.sendToTelegramChat).toHaveBeenCalledWith(
+    'telegram:-1001234567890:topic:42',
+    'hello telegram',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'telegram:-1001234567890:topic:42',
+    transport: 'telegram',
+  });
+});
+
+test('send action rejects telegram-prefixed usernames for Telegram sends', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'telegram:@benkoehler',
+      content: 'hello telegram username',
+    }),
+  ).rejects.toThrow(
+    'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
+  );
+  expect(state.sendToTelegramChat).not.toHaveBeenCalled();
+  expect(state.sendToEmail).not.toHaveBeenCalled();
+});
+
+test('send action routes Telegram uploads through Telegram media delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'wa:test',
+    channelId: 'telegram:123456789',
+    content: 'caption',
+    filePath: 'notes/image.png',
+  });
+
+  expect(state.sendTelegramMediaToChat).toHaveBeenCalledWith({
+    target: 'telegram:123456789',
+    filePath: '/tmp/hybridclaw-agent-workspace/notes/image.png',
+    caption: 'caption',
+  });
+  expect(state.sendToTelegramChat).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'telegram:123456789',
+    transport: 'telegram',
+    attachmentCount: 1,
+  });
+});
+
 test('send action routes WhatsApp uploads through WhatsApp media delivery', async () => {
   const state = await importFreshMessageToolActions();
 
@@ -273,6 +392,8 @@ test('send action routes email targets through email transport', async () => {
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 
   expect(state.sendToEmail).toHaveBeenCalledWith(
@@ -282,6 +403,8 @@ test('send action routes email targets through email transport', async () => {
       subject: 'Quarterly update',
       cc: ['finance@example.com'],
       bcc: ['audit@example.com'],
+      inReplyTo: '<msg-1@example.com>',
+      references: ['<ref-1@example.com>', '<msg-1@example.com>'],
     },
   );
   expect(result).toMatchObject({
@@ -292,6 +415,8 @@ test('send action routes email targets through email transport', async () => {
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 });
 
@@ -307,6 +432,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 
   expect(state.sendEmailAttachmentTo).toHaveBeenCalledWith({
@@ -316,6 +443,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
   expect(result).toMatchObject({
     ok: true,
@@ -326,6 +455,8 @@ test('send action routes email attachments through email delivery', async () => 
     subject: 'Quarterly update',
     cc: ['finance@example.com'],
     bcc: ['audit@example.com'],
+    inReplyTo: '<msg-1@example.com>',
+    references: ['<ref-1@example.com>', '<msg-1@example.com>'],
   });
 });
 
@@ -536,6 +667,99 @@ test('member-info action resolves the current Teams DM peer from stored referenc
     member: expect.objectContaining({
       id: 'user-aad-id',
       displayName: 'Dr. Benedikt Koehler',
+    }),
+  });
+});
+
+test('send action routes the current Slack session through Slack delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: state.slackSessionId,
+    content: 'hello slack',
+  });
+
+  expect(state.sendToActiveSlackSession).toHaveBeenCalledWith({
+    sessionId: state.slackSessionId,
+    text: 'hello slack',
+    filePath: null,
+    filename: undefined,
+    caption: null,
+  });
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    sessionId: state.slackSessionId,
+    channelId: 'slack:D1234567890',
+    transport: 'slack',
+  });
+});
+
+test('read action routes current Slack sessions through stored Slack history', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    sessionId: state.slackSessionId,
+    limit: 5,
+  });
+
+  expect(state.getRecentMessages).toHaveBeenCalledWith(state.slackSessionId, 5);
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'read',
+    sessionId: state.slackSessionId,
+    channelId: 'slack:D1234567890',
+    transport: 'slack',
+    count: 2,
+  });
+});
+
+test('channel-info action returns Slack session metadata for the current chat', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'channel-info',
+    sessionId: state.slackSessionId,
+  });
+
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'channel-info',
+    transport: 'slack',
+    channel: expect.objectContaining({
+      id: 'slack:D1234567890',
+      sessionId: state.slackSessionId,
+      teamId: 'T1234567890',
+      isDm: true,
+      threadTs: null,
+      active: true,
+    }),
+  });
+});
+
+test('member-info action resolves the current Slack DM peer from stored history', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'member-info',
+    sessionId: state.slackSessionId,
+  });
+
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'member-info',
+    transport: 'slack',
+    userId: 'U1234567890',
+    member: expect.objectContaining({
+      id: 'U1234567890',
+      displayName: 'Alice',
+      handle: '@Alice',
     }),
   });
 });

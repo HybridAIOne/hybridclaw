@@ -2,6 +2,293 @@
 
 ## [Coming up]
 
+## [0.12.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.3)
+
+### Added
+
+- **Telegram Bot API transport**: Added a built-in Telegram channel with
+  BotFather token setup, DM/group policy controls, admin Channels support,
+  managed `TELEGRAM_BOT_TOKEN` storage, inbound media handling, and canonical
+  outbound `telegram:<chatId>` send targets.
+- **Built-in memory inspection command**: Added local `/memory inspect
+  [sessionId]`, `/memory query <query>`, and `hybridclaw gateway memory inspect
+  [sessionId]` diagnostics to show `MEMORY.md`, today's daily note, recent raw
+  history, `session_summary`, recent semantic-memory rows, canonical
+  cross-session recall state, and the exact prompt-memory block the current
+  session would attach for a query.
+- **Admin email mailbox surfaces**: Added admin-console and gateway support for
+  browsing the configured built-in email mailbox, listing folders and message
+  metadata, and composing or replying from the operator UI without leaving the
+  HybridClaw runtime.
+- **Native LOCOMO eval workflow**: Added managed `hybridclaw eval locomo ...`
+  and local `/eval locomo ...` flows with official dataset setup, QA and
+  retrieval modes, detached run logs, and retrieval sweeps across backend,
+  rerank, tokenizer, and embedding settings.
+- **Bundled GBrain plugin**: Added the bundled `gbrain` plugin so HybridClaw
+  can query an external GBrain knowledge brain for prompt-time recall, expose
+  discovered `gbrain_*` tools, and provide `/gbrain ...` passthrough operations
+  from local sessions.
+- **Bundled manim-video skill**: Added a repo-shipped `manim-video` skill with
+  setup helpers, reference packs, and render guidance for scripted explainer
+  videos and animation workflows.
+
+### Changed
+
+- **Model catalog and provider routing**: `/model list` plus selector surfaces
+  now use provider-scoped model catalogs for Codex, OpenRouter, Mistral, and
+  Hugging Face, Codex models use explicit `openai-codex/...` ids, and status
+  output carries discovered model metadata more consistently.
+- **Admin console navigation and channel UX**: The embedded console now uses a
+  structured sidebar taxonomy, a clearer channel catalog, richer channel/email
+  surfaces, and refreshed icons/layout so operators can reach models, channels,
+  plugins, tools, and gateway state from one navigation frame.
+- **Shared inbound media cache**: Email, Telegram, WhatsApp, and Microsoft
+  Teams now stage locally downloaded inbound media under the shared
+  `uploaded-media-cache` runtime directory instead of per-channel temp
+  folders, aligning cleanup and runtime-safe media paths across those
+  transports.
+- **Telegram config reload behavior**: Running gateways now restart the
+  Telegram integration automatically when `telegram.*` config changes land, so
+  most setup edits apply within a few seconds without a full gateway restart.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **HybridAI auxiliary model prefixes**: Auxiliary-model routing now strips the
+  leading provider prefix correctly so HybridAI requests do not fail when the
+  configured model name already carries a provider namespace.
+- **GBrain tool discovery robustness**: The bundled GBrain plugin now times out
+  cleanly when `gbrain --tools-json` hangs and reports parse failures with
+  stdout/stderr previews during discovery.
+
+## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
+
+### Added
+
+- **Honcho memory plugin**: Added a bundled `honcho-memory` plugin so local
+  HybridClaw installs can mirror conversations into Honcho, inject prompt-time
+  recall and direct Honcho tools into later turns, and promote native user
+  profile saves into Honcho conclusions without disabling built-in memory.
+- **MemPalace memory plugin**: Added the bundled `mempalace-memory` plugin so
+  local HybridClaw installs can layer MemPalace recall on top of native memory,
+  expose `/mempalace ...` for manual CLI access, and auto-save turns back into
+  MemPalace through hook-driven transcript mining and native-memory mirroring.
+- **Plugin dependency install and health checks**: Plugin manifests can now
+  declare pip, npm, and external runtime dependencies, `plugin install` /
+  `plugin reinstall` can provision declared dependencies with explicit
+  approval, and `plugin check` reports package, binary, env, and config health
+  for local plugins.
+
+### Changed
+
+- **Admin console tools and gateway UX**: The `/admin/tools` catalog now only
+  shows live built-in and enabled plugin tools, all admin tables support
+  click-to-sort headers, the Tools view now labels usage as `Invocations`,
+  and the Gateway page adds a managed restart action with clearer restart
+  state handling.
+- **Plugin install ergonomics**: Local plugin installs now accept bare plugin
+  ids from the repo `plugins/` directory, prefer plugin-local executables after
+  dependency setup, and reuse the normal local approval flow when dependency
+  installers need permission to modify the plugin environment.
+- **Discord concierge approvals**: Discord concierge prompts now render
+  native urgency buttons, resume the pending request from button clicks,
+  disable the prompt buttons after selection, and keep normal progress
+  reactions visible while the resumed run executes.
+- **MemPalace recall routing**: The bundled MemPalace plugin keeps HybridClaw's
+  built-in memory active, falls back to CLI `wake-up` / `search` recall when no
+  MemPalace MCP server is enabled, and automatically switches prompt-time
+  recall over to a configured `mempalace` MCP server when one is available.
+
+### Fixed
+
+- **Timed reminder prompt timestamps**: Absolute `cron` reminder guidance now
+  tells the model to emit offset-bearing one-shot timestamps that mirror the
+  user's timezone instead of defaulting to UTC-style `Z` timestamps in the
+  prompt examples.
+- **Built-in email config reloads**: Gateway config changes to built-in email
+  transport settings now restart the email integration automatically so SMTP /
+  IMAP updates apply without a full gateway restart.
+- **Provider `maxTokens` policy**: Provider-facing model requests now omit
+  `maxTokens` for non-Anthropic models and always send a discovered Anthropic
+  limit, falling back to `32000` when discovery metadata is unavailable.
+- **Plugin dependency safety**: Manifest-provided external dependency checks no
+  longer execute through a shell, and already-installed plugins now recompute
+  their dependency plan from the installed directory before reinstalling
+  runtime packages.
+
+## [0.12.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.1)
+
+### Added
+
+- **Admin console channel operations**: Added an `/admin` Channels workspace
+  with a transport catalog, browser-based editors for Discord, WhatsApp, email,
+  Microsoft Teams, and iMessage, managed secret fields for channel
+  credentials, and live WhatsApp pairing QR display.
+- **Remote-access runbook**: Added maintainer docs for reaching `/chat`,
+  `/agents`, `/admin`, and remote CLI/TUI clients through SSH tunnels or
+  host-managed Tailscale while keeping the gateway bound to loopback.
+
+### Changed
+
+- **Explicit email thread headers**: The `message` tool/API and the
+  repo-shipped `brevo-email` plugin now accept explicit `inReplyTo` and
+  `references` Message-ID headers so outbound replies can attach to an existing
+  external thread when needed.
+- **Secret-backed email transport config**: Email setup and runtime config now
+  support `email.password` as a SecretRef-backed field, and
+  `hybridclaw channels email setup` keeps stored `EMAIL_PASSWORD` secrets
+  referenced from config instead of falling back to plaintext.
+- **Local slash-command help**: TUI and embedded web `/help` output now comes
+  from the shared command registry, keeping command listings surface-aware,
+  alphabetized, and aligned with slash-menu suggestions.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **Secret-handling UX**: Hidden secret prompts now restore terminal state
+  correctly after earlier readline prompts, and `auth status` surfaces report
+  sensitive credentials as `configured` instead of printing partial tokens or
+  keys.
+
+## [0.12.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.0)
+
+### Added
+
+- **Managed local eval benchmark workflows**: Added top-level `hybridclaw eval` plus
+  local `/eval` support, loopback OpenAI-compatible eval environment helpers,
+  detached benchmark command launching, managed `tau2` lifecycle flows, and a
+  native `terminal-bench-2.0` runner with progress updates and run logs.
+- **Dream memory consolidation controls**: Added local `dream on|off|now`
+  commands with nightly scheduling, startup catch-up after downtime, and
+  on-demand workspace memory consolidation summaries.
+- **Admin skill authoring surfaces**: Added admin-console and HTTP support for
+  creating local skills from a form or uploading ZIP archives, with scanner
+  checks and staged publish flow before writing into project `skills/`.
+- **Brevo email plugin channel**: Added the repo-shipped `brevo-email` plugin
+  for per-agent email addresses, inbound webhook parsing, outbound SMTP relay,
+  address management commands, and configurable `fromName` /
+  `fromAddress` overrides.
+- **Knowledge-management skills**: Added bundled `llm-wiki` and
+  `zettelkasten` skills for persistent wiki maintenance, linked-note capture,
+  and long-lived research workflows.
+- **OpenAI compatible API**: Added an OpenAI compatible API to the gateway.
+
+### Changed
+
+- **Skill catalog and operator UX**: Added normalized category metadata across
+  bundled and community skills, grouped `skill list` output, richer TUI/admin
+  skills views, and refreshed bundled-skill guidance around knowledge and
+  install-helper workflows.
+- **Scheduler and console review flow**: Improved the admin scheduler board so
+  one-shot jobs surface full outputs and review state more reliably, while the
+  embedded console handles compact mobile navigation more cleanly.
+
+## [0.11.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.11.0)
+
+### Added
+
+- **OpenAI-compatible gateway API**: Added loopback-scoped `/v1/models` and
+  `/v1/chat/completions` endpoints so local tools can talk to HybridClaw
+  through an OpenAI-compatible surface with streaming responses and usage
+  reporting.
+- **Workspace approval allowlist controls**: Added a workspace-scoped approval
+  allowlist plus `/approve always` handling so operators can persist trusted
+  approvals more deliberately across chat, TUI, and gateway flows.
+- **Dark-mode console and richer web controls**: Added console dark mode, a
+  reusable dropdown component, extracted icon set, and slash-command
+  suggestions in the web chat UI for faster local operator workflows.
+- **Channel setup how-to documentation**: Added step-by-step channel setup
+  guides for Discord, email, WhatsApp, iMessage, and Microsoft Teams in the
+  maintainer docs.
+- **Release publishing automation**: Added npm publish-on-release automation
+  and switched trusted publishing over to npm OIDC for release workflows.
+
+### Changed
+
+- **Gateway lifecycle behavior**: Improved gateway start, restart, and
+  container replacement flow so runtime refreshes are cleaner, container swap
+  logging is less noisy, and packaged installs prefer public runtime image
+  pulls.
+- **Approval and web chat UX**: Tightened approval wording, aliases, and
+  replay handling while improving mobile chat layout, approval interactions,
+  ordered-list rendering, and keyboard accessibility in the web surfaces.
+- **ClawHub and operator docs surfaces**: Added `CLAWHUB_API_BASE_URL`
+  overrides for skill imports, refreshed docs and setup guidance, and aligned
+  console dark-theme styling with the public documentation shell.
+
+### Fixed
+
+- **Gateway startup and update guidance**: Fixed startup diagnostics, provider
+  auth/model guidance, and post-update restart reminders so operators get more
+  accurate local recovery steps.
+- **Browser and host runtime cleanup**: Fixed browser daemon shutdown handling
+  and host-browser runtime availability so cleanup failures are treated as
+  best-effort instead of breaking the session.
+- **Runtime config and health edge cases**: Fixed config revision
+  synchronization, gateway health payload regressions, favicon fallbacks, and
+  skill import retries under HTTP 429/503 responses.
+
+## [0.10.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.10.0)
+
+### Added
+
+- **OpenClaw and Hermes Agent migration commands**: Added
+  `hybridclaw migrate openclaw` and `hybridclaw migrate hermes` to import
+  compatible workspace files, agent/home config, model settings, and optional
+  secrets into a target HybridClaw agent with `--dry-run`, `--overwrite`,
+  `--agent`, and per-run migration reports under `~/.hybridclaw/migration/`.
+- **Encrypted runtime secret store**: Runtime credentials in
+  `~/.hybridclaw/credentials.json` now use per-secret AES-256-GCM encryption
+  with owner-only permissions, separate master-key sourcing via
+  `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or a local
+  owner-only `credentials.master.key`, and automatic migration from legacy
+  plaintext secret files.
+- **SecretRefs and named secrets**: Selected runtime config fields can now
+  resolve secret-bearing values from `env` or encrypted `store` references,
+  local TUI and web sessions expose `/secret list|set|unset|show|route ...`,
+  and generic named secrets can be stored without adding new top-level env
+  variables.
+- **Secret-backed HTTP requests**: Added the `http_request` tool plus
+  gateway-side auth injection for direct API calls. Requests can use
+  `bearerSecretName`, `secretHeaders`, strict `<secret:NAME>` placeholders, or
+  URL-based auth rules so models can call authenticated APIs without seeing the
+  plaintext credential.
+- **`llama.cpp` local backend**: Added `llamacpp` as a first-class local
+  provider across `auth login local`, provider discovery, reachability checks,
+  model selection surfaces, doctor output, and container/runtime routing.
+
+### Changed
+
+- **Local-provider onboarding flow**: `hybridclaw auth login local` now accepts
+  an optional model id so operators can enable LM Studio, llama.cpp, Ollama,
+  or vLLM first and choose a model later, and interactive onboarding can skip
+  remote-provider auth entirely when the planned setup is local-only.
+- **Secret access model**: Runtime secret reads now prefer explicit environment
+  overrides and otherwise resolve secrets from the encrypted store on demand
+  instead of broadly mirroring decrypted values into ambient `process.env` at
+  startup.
+- **Secret persistence boundaries**: Reserved non-secret runtime config names
+  such as `CONTAINER_IMAGE`, `CONTAINER_MEMORY`, `DISCORD_PREFIX`, `DB_PATH`,
+  and related operational settings are now excluded from encrypted secret
+  migration and rejected by the local `/secret` command surface.
+- **Security documentation and comparison copy**: Updated the README, public
+  docs, comparison tables, and runtime/internal docs to reflect encrypted
+  secret storage, master-key separation, SecretRef-backed API auth injection,
+  trust-first onboarding, and current runtime security principles.
+
+### Fixed
+
+- **Startup onboarding loops**: Gateway and TUI startup no longer keep
+  re-triggering onboarding once trust acceptance, local-provider setup, or
+  existing credentials already satisfy the runtime prerequisites.
+- **TUI model guidance for local backends**: Model-selection prompts now give
+  clearer next steps when a local backend is enabled without a selected model,
+  reducing dead-end startup guidance around local-only setups.
+
 ## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
 
 ### Added

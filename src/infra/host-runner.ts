@@ -16,7 +16,6 @@ import {
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
@@ -35,6 +34,7 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactSecrets } from '../security/redact.js';
@@ -70,13 +70,25 @@ import {
 import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000;
+const HOST_CAPACITY_WAIT_MS = 15_000;
+const HOST_CAPACITY_POLL_MS = 100;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
-function buildHostAllowedRoots(): string[] {
+function resolveExecutorMaxTokens(params: {
+  model: string;
+  discoveredMaxTokens?: number;
+}): number | undefined {
+  return resolveProviderRequestMaxTokens({
+    model: params.model,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+  });
+}
+
+function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
     binds: CONTAINER_BINDS,
     additionalMounts: ADDITIONAL_MOUNTS,
@@ -89,9 +101,38 @@ function buildHostAllowedRoots(): string[] {
       os.homedir(),
       process.cwd(),
       os.tmpdir(),
+      ...extraRoots.map((entry) => path.resolve(entry)),
       ...configured.mounts.map((mount) => path.resolve(mount.hostPath)),
     ]),
   );
+}
+
+function getHostWorkspacePath(params: {
+  sessionId: string;
+  agentId: string;
+  workspacePathOverride?: string;
+}): string {
+  const trimmed = params.workspacePathOverride?.trim();
+  if (trimmed) return path.resolve(trimmed);
+  const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
+  return workspacePath;
+}
+
+function resolveHostAgentBrowserBinary(): string | undefined {
+  const configured = String(process.env.AGENT_BROWSER_BIN || '').trim();
+  if (configured) return configured;
+
+  const installRoot = resolveInstallRoot();
+  const binName =
+    process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser';
+  const candidates = [
+    path.join(installRoot, 'container', 'node_modules', '.bin', binName),
+    path.join(installRoot, 'node_modules', '.bin', binName),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 interface PoolEntry {
@@ -173,6 +214,22 @@ function interruptedHostOutput(): ContainerOutput {
     toolsUsed: [],
     error: 'Interrupted by user.',
   };
+}
+
+async function waitForHostCapacity(
+  sessionId: string,
+  abortSignal?: AbortSignal,
+): Promise<'available' | 'aborted' | 'timed_out'> {
+  const deadline = Date.now() + HOST_CAPACITY_WAIT_MS;
+  while (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
+    if (abortSignal?.aborted) return 'aborted';
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return 'timed_out';
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(HOST_CAPACITY_POLL_MS, remainingMs)),
+    );
+  }
+  return abortSignal?.aborted ? 'aborted' : 'available';
 }
 
 function isStdinWriteInterrupt(
@@ -270,12 +327,13 @@ function parseApprovalProgress(line: string): PendingApproval | null {
       return null;
     }
     return {
-      approvalId: redactSecrets(parsed.approvalId),
+      approvalId: parsed.approvalId,
       prompt: redactSecrets(parsed.prompt),
       intent: redactSecrets(parsed.intent),
       reason: redactSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
+      allowAll: parsed.allowAll === true,
       expiresAt:
         typeof parsed.expiresAt === 'number' &&
         Number.isFinite(parsed.expiresAt)
@@ -346,7 +404,18 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
-function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
+function getOrSpawnHostProcess(
+  params: Pick<
+    ExecutorRequest,
+    | 'sessionId'
+    | 'agentId'
+    | 'workspacePathOverride'
+    | 'workspaceDisplayRootOverride'
+    | 'bashProxy'
+  >,
+): PoolEntry {
+  const sessionId = params.sessionId;
+  const agentId = params.agentId || DEFAULT_AGENT_ID;
   const existing = pool.get(sessionId);
   if (
     existing &&
@@ -361,7 +430,13 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
 
   ensureSessionDirs(sessionId);
   ensureAgentDirs(agentId);
-  const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
+  const { ipcPath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getHostWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
+  fs.mkdirSync(workspacePath, { recursive: true });
   ensureWorkspaceNodeModulesLink(workspacePath);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
@@ -375,6 +450,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   if (!runtime) {
     throw new Error('Host runtime unexpectedly unavailable.');
   }
+  const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HYBRIDAI_BASE_URL,
@@ -398,12 +474,21 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
-    HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(buildHostAllowedRoots()),
+    HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
+      params.workspaceDisplayRootOverride?.trim() || '/workspace',
+    HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(
+      buildHostAllowedRoots([workspacePath]),
+    ),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
     BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
+    AGENT_BROWSER_BIN: agentBrowserBin,
   };
+  if (params.bashProxy?.mode === 'docker-exec') {
+    env.HYBRIDCLAW_BASH_DOCKER_CONTAINER = params.bashProxy.containerName;
+    env.HYBRIDCLAW_BASH_DOCKER_CWD = params.bashProxy.cwd || '/app';
+  }
 
   logger.info(
     { sessionId, command: runtime.command, args: runtime.args },
@@ -535,6 +620,7 @@ export async function runHostProcess(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
+    skipContainerSystemPrompt,
     scheduledTasks,
     allowedTools,
     blockedTools,
@@ -545,9 +631,15 @@ export async function runHostProcess(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    maxWallClockMs,
+    inactivityTimeoutMs,
   } = params;
 
-  const { workspacePath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getHostWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
   const modelRuntime = await resolveModelRuntimeCredentials({
     model,
     chatbotId,
@@ -561,12 +653,18 @@ export async function runHostProcess(
   });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Too many active host agent processes (${pool.size}/${MAX_CONCURRENT_CONTAINERS}). Try again later.`,
-    };
+    const capacityState = await waitForHostCapacity(sessionId, abortSignal);
+    if (capacityState === 'aborted') {
+      return interruptedHostOutput();
+    }
+    if (capacityState === 'timed_out') {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Too many active host agent processes (${pool.size}/${MAX_CONCURRENT_CONTAINERS}) after waiting ${HOST_CAPACITY_WAIT_MS}ms. Try again later.`,
+      };
+    }
   }
 
   cleanupIpc(sessionId);
@@ -590,12 +688,18 @@ export async function runHostProcess(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
-    maxTokens: HYBRIDAI_MAX_TOKENS,
+    skipContainerSystemPrompt,
+    streamTextDeltas: Boolean(onTextDelta),
+    maxTokens: resolveExecutorMaxTokens({
+      model,
+      discoveredMaxTokens: modelRuntime.maxTokens,
+    }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
+        channelId: task.channel_id,
         cronExpr: task.cron_expr,
         runAt: task.run_at,
         everyMs: task.every_ms,
@@ -635,6 +739,9 @@ export async function runHostProcess(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    workspacePathOverride: params.workspacePathOverride,
+    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+    bashProxy: params.bashProxy,
   });
   const existingEntry = pool.get(sessionId);
   if (existingEntry && existingEntry.workerSignature !== workerSignature) {
@@ -653,7 +760,13 @@ export async function runHostProcess(
 
   let entry: PoolEntry;
   try {
-    entry = getOrSpawnHostProcess(sessionId, agentId);
+    entry = getOrSpawnHostProcess({
+      sessionId,
+      agentId,
+      workspacePathOverride: params.workspacePathOverride,
+      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+      bashProxy: params.bashProxy,
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -703,11 +816,18 @@ export async function runHostProcess(
       writeInput(sessionId, input, { omitApiKey: true });
     }
 
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
-      signal: abortSignal,
-      activity,
-      terminalError: () => entry.terminalError,
-    });
+    const output = await readOutput(
+      sessionId,
+      inactivityTimeoutMs === undefined
+        ? CONTAINER_TIMEOUT
+        : inactivityTimeoutMs,
+      {
+        signal: abortSignal,
+        activity,
+        maxWallClockMs,
+        terminalError: () => entry.terminalError,
+      },
+    );
     if (isTimedOutAgentOutput(output)) {
       logger.warn(
         { sessionId },

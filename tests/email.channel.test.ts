@@ -9,10 +9,6 @@ import {
 } from '../src/channels/email/allowlist.js';
 import { createEmailDedupSet } from '../src/channels/email/dedup.js';
 import {
-  cleanupEmailInboundMedia,
-  processInboundEmail,
-} from '../src/channels/email/inbound.js';
-import {
   createOutboundThreadContext,
   createThreadTracker,
   ensureReplySubject,
@@ -33,6 +29,25 @@ const BASE_EMAIL_CONFIG = {
   textChunkLimit: 50000,
   mediaMaxMb: 20,
 };
+
+const inboundDataDirs: string[] = [];
+
+async function importEmailInboundModule() {
+  vi.resetModules();
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-email-inbound-'),
+  );
+  inboundDataDirs.push(dataDir);
+  vi.doMock('../src/config/config.js', () => ({
+    get CONTAINER_SANDBOX_MODE() {
+      return 'host';
+    },
+    get DATA_DIR() {
+      return dataDir;
+    },
+  }));
+  return await import('../src/channels/email/inbound.js');
+}
 
 function buildMultipartEmail(params: {
   from: string;
@@ -67,7 +82,13 @@ function buildMultipartEmail(params: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.doUnmock('../src/config/config.js');
   vi.resetModules();
+  while (inboundDataDirs.length > 0) {
+    const dataDir = inboundDataDirs.pop();
+    if (!dataDir) continue;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 describe('email allowlist helpers', () => {
@@ -129,6 +150,7 @@ describe('email threading helpers', () => {
 
 describe('email inbound parsing', () => {
   test('ignores self-messages and blocked senders', async () => {
+    const { processInboundEmail } = await importEmailInboundModule();
     const raw = [
       'From: Agent <agent@example.com>',
       'To: Agent <agent@example.com>',
@@ -152,6 +174,8 @@ describe('email inbound parsing', () => {
   });
 
   test('parses subject context, threading headers, and attachments', async () => {
+    const { cleanupEmailInboundMedia, processInboundEmail } =
+      await importEmailInboundModule();
     const result = await processInboundEmail(
       buildMultipartEmail({
         from: 'Boss <boss@example.com>',
@@ -177,14 +201,17 @@ describe('email inbound parsing', () => {
     });
     expect(result?.media[0]?.filename).toBe('plan.txt');
     expect(fs.existsSync(result?.media[0]?.path || '')).toBe(true);
+    expect(result?.media[0]?.path || '').toContain('uploaded-media-cache');
 
     if (result) {
       await cleanupEmailInboundMedia(result.media);
-      expect(fs.existsSync(result.media[0]?.path || '')).toBe(false);
+      expect(fs.existsSync(result.media[0]?.path || '')).toBe(true);
     }
   });
 
   test('omits the subject prefix for reply threads', async () => {
+    const { cleanupEmailInboundMedia, processInboundEmail } =
+      await importEmailInboundModule();
     const result = await processInboundEmail(
       buildMultipartEmail({
         from: 'Boss <boss@example.com>',
@@ -409,6 +436,80 @@ describe('email delivery helpers', () => {
     );
   });
 
+  test('builds outbound email delivery metadata from token usage', async () => {
+    const { buildEmailDeliveryMetadata } = await import(
+      '../src/channels/email/metadata.js'
+    );
+
+    expect(
+      buildEmailDeliveryMetadata({
+        agentId: 'main',
+        model: 'hybridai/gpt-5',
+        provider: 'hybridai',
+        tokenUsage: {
+          modelCalls: 1,
+          apiUsageAvailable: false,
+          apiPromptTokens: 0,
+          apiCompletionTokens: 0,
+          apiTotalTokens: 0,
+          apiCacheUsageAvailable: false,
+          apiCacheReadTokens: 0,
+          apiCacheWriteTokens: 0,
+          estimatedPromptTokens: 400,
+          estimatedCompletionTokens: 834,
+          estimatedTotalTokens: 1234,
+        },
+      }),
+    ).toEqual({
+      agentId: 'main',
+      model: 'hybridai/gpt-5',
+      provider: 'hybridai',
+      totalTokens: 1234,
+      tokenSource: 'estimated',
+    });
+  });
+
+  test('adds HybridClaw metadata headers to outbound email sends', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-metadata@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      metadata: {
+        agentId: 'main',
+        model: 'hybridai/gpt-5',
+        provider: 'hybridai',
+        totalTokens: 1234,
+        tokenSource: 'api',
+      },
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: {
+          'X-HybridClaw-Agent-Id': 'main',
+          'X-HybridClaw-LLM': 'hybridai/gpt-5',
+          'X-HybridClaw-Provider': 'hybridai',
+          'X-HybridClaw-Total-Tokens': '1234',
+          'X-HybridClaw-Token-Source': 'api',
+        },
+      }),
+    );
+  });
+
   test('adds reply subject and threading headers on outbound send', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
@@ -449,6 +550,132 @@ describe('email delivery helpers', () => {
       subject: 'Re: Quarterly plan',
       messageId: '<sent-1@example.com>',
       references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    });
+  });
+
+  test('forwards explicit threading headers on outbound send', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-explicit@example.com>',
+      })),
+    };
+
+    const result = await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: '[Subject: Quarterly plan]\n\nHere is the update.',
+      selfAddress: 'agent@example.com',
+      threadContext: {
+        subject: 'Other thread',
+        messageId: '<other@example.com>',
+        references: ['<older@example.com>'],
+      },
+      inReplyTo: '<msg-1@example.com>',
+      references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'agent@example.com',
+        to: 'boss@example.com',
+        subject: 'Quarterly plan',
+        inReplyTo: '<msg-1@example.com>',
+        references: '<ref-1@example.com> <msg-1@example.com>',
+        text: 'Here is the update.',
+        html: expect.stringContaining('<p>Here is the update.</p>'),
+      }),
+    );
+    expect(result.threadContext).toEqual({
+      subject: 'Quarterly plan',
+      messageId: '<sent-explicit@example.com>',
+      references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    });
+  });
+
+  test('normalizes explicit threading headers to the latest referenced parent', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-normalized@example.com>',
+      })),
+    };
+
+    const result = await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: '<root@example.com>',
+      references: ['<root@example.com>', '<latest@example.com>'],
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'agent@example.com',
+        to: 'boss@example.com',
+        subject: 'Quarterly plan',
+        inReplyTo: '<latest@example.com>',
+        references: '<root@example.com> <latest@example.com>',
+        text: 'Here is the update.',
+      }),
+    );
+    expect(result.threadContext).toEqual({
+      subject: 'Quarterly plan',
+      messageId: '<sent-normalized@example.com>',
+      references: ['<root@example.com>', '<latest@example.com>'],
+    });
+  });
+
+  test('defaults explicit references from inReplyTo when omitted', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-explicit-parent@example.com>',
+      })),
+    };
+
+    const result = await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: '<msg-1@example.com>',
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'agent@example.com',
+        to: 'boss@example.com',
+        subject: 'Quarterly plan',
+        inReplyTo: '<msg-1@example.com>',
+        references: '<msg-1@example.com>',
+        text: 'Here is the update.',
+      }),
+    );
+    expect(result.threadContext).toEqual({
+      subject: 'Quarterly plan',
+      messageId: '<sent-explicit-parent@example.com>',
+      references: ['<msg-1@example.com>'],
     });
   });
 
@@ -593,6 +820,100 @@ describe('email delivery helpers', () => {
 });
 
 describe('email runtime', () => {
+  test('appends outbound email copies to the IMAP sent folder', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: 'email-app-password',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: BASE_EMAIL_CONFIG,
+      }),
+    }));
+
+    const sendMail = vi.fn(async () => ({
+      messageId: '<sent-runtime@example.com>',
+    }));
+    const createTransport = vi.fn(() => ({
+      close: vi.fn(async () => {}),
+      verify: vi.fn(async () => {}),
+      sendMail,
+    }));
+    const append = vi.fn(async () => ({
+      destination: 'Sent',
+      uid: 99,
+    }));
+    const list = vi.fn(async () => [
+      {
+        path: 'INBOX',
+        name: 'Inbox',
+        flags: new Set<string>(),
+        specialUse: '\\Inbox',
+      },
+      {
+        path: 'Sent',
+        name: 'Sent',
+        flags: new Set<string>(),
+        specialUse: '\\Sent',
+      },
+    ]);
+    const search = vi.fn(async () => []);
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = { path: 'Sent' };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        list = list;
+        getMailboxLock = vi.fn(async (path: string) => ({
+          path,
+          release: vi.fn(),
+        }));
+        search = search;
+        append = append;
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(() => ({
+        start: vi.fn(async () => {}),
+        stop: vi.fn(async () => {}),
+      })),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(async () => null),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.sendToEmail('boss@example.com', 'hello from the bot');
+
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    const generatedMessageId = String(
+      sendMail.mock.calls[0]?.[0]?.messageId || '',
+    );
+    expect(generatedMessageId).toMatch(/^<.+@example\.com>$/);
+    expect(search).toHaveBeenCalledWith(
+      { header: { 'message-id': generatedMessageId } },
+      { uid: true },
+    );
+    expect(append).toHaveBeenCalledWith(
+      'Sent',
+      expect.any(Buffer),
+      ['\\Seen'],
+      expect.any(Date),
+    );
+  });
+
   test('aborts in-flight handlers during shutdown', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',

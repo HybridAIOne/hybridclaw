@@ -4,6 +4,8 @@ description: Draft outlines and publish-ready blog posts tailored to audience, s
 user-invocable: true
 metadata:
   hybridclaw:
+    category: publishing
+    short_description: "Blog post drafting."
     tags:
       - writing
       - content
@@ -12,7 +14,6 @@ metadata:
     related_skills:
       - feature-planning
 ---
-
 # Write Blog Post
 
 Use this skill to turn a topic, brief, transcript, notes, or source material

@@ -1,6 +1,10 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { OPENROUTER_BASE_URL } from '../config/config.js';
-import { getDiscoveredOpenRouterModelContextWindow } from './openrouter-discovery.js';
+import {
+  discoverOpenRouterModels,
+  getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
+} from './openrouter-discovery.js';
 import {
   buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
@@ -24,6 +28,7 @@ async function resolveOpenRouterRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  await discoverOpenRouterModels();
   return {
     provider: 'openrouter',
     apiKey: readOpenRouterApiKey({ required: true }),
@@ -35,6 +40,7 @@ async function resolveOpenRouterRuntimeCredentials(
     isLocal: false,
     contextWindow:
       getDiscoveredOpenRouterModelContextWindow(params.model) ?? undefined,
+    maxTokens: getDiscoveredOpenRouterModelMaxTokens(params.model) ?? undefined,
   };
 }
 

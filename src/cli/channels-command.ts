@@ -6,20 +6,23 @@ import {
 } from '../channels/email/allowlist.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
 import { assertLocalIMessageBackendReady } from '../channels/imessage/local-prereqs.js';
+import { normalizeTelegramChatId } from '../channels/telegram/target.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   type IMessageBackend,
   runtimeConfigPath,
+  setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
-import { normalizeArgs } from './common.js';
+import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 import {
   ensureWhatsAppAuthApi,
@@ -88,6 +91,228 @@ function parseWhatsAppSetupArgs(args: string[]): {
   return {
     allowFrom: [...new Set(allowFrom)],
     reset,
+  };
+}
+
+function normalizeTelegramAllowEntry(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (trimmed === '*') return '*';
+  return normalizeTelegramChatId(trimmed) ?? null;
+}
+
+function parseTelegramSetupArgs(args: string[]): {
+  token: string | null;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  dmPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  groupPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  pollIntervalMs: number | null;
+  textChunkLimit: number | null;
+  mediaMaxMb: number | null;
+  requireMention: boolean | null;
+} {
+  let token: string | null = null;
+  let dmPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let groupPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let pollIntervalMs: number | null = null;
+  let textChunkLimit: number | null = null;
+  let mediaMaxMb: number | null = null;
+  let requireMention: boolean | null = null;
+  const allowFrom: string[] = [];
+  const groupAllowFrom: string[] = [];
+
+  const parsePolicy = (
+    flagName: string,
+    raw: string,
+  ): 'open' | 'allowlist' | 'disabled' => {
+    const normalized = raw.trim().toLowerCase();
+    if (
+      normalized === 'open' ||
+      normalized === 'allowlist' ||
+      normalized === 'disabled'
+    ) {
+      return normalized;
+    }
+    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
+  };
+
+  const parseAllow = (label: string, raw: string): string => {
+    const normalized = normalizeTelegramAllowEntry(raw);
+    if (!normalized) {
+      throw new Error(
+        `Invalid ${label}: ${raw}. Use a numeric Telegram user id, @username, or *.`,
+      );
+    }
+    return normalized;
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--token') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--token`.');
+      token = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--token=')) {
+      token = arg.slice('--token='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      allowFrom.push(parseAllow('Telegram allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      allowFrom.push(
+        parseAllow(
+          'Telegram allowlist entry',
+          arg.slice('--allow-from='.length),
+        ),
+      );
+      continue;
+    }
+    if (arg === '--group-allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-allow-from`.');
+      groupAllowFrom.push(parseAllow('Telegram group allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-allow-from=')) {
+      groupAllowFrom.push(
+        parseAllow(
+          'Telegram group allowlist entry',
+          arg.slice('--group-allow-from='.length),
+        ),
+      );
+      continue;
+    }
+    if (arg === '--dm-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--dm-policy`.');
+      dmPolicy = parsePolicy('--dm-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--dm-policy=')) {
+      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      continue;
+    }
+    if (arg === '--group-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-policy`.');
+      groupPolicy = parsePolicy('--group-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-policy=')) {
+      groupPolicy = parsePolicy(
+        '--group-policy',
+        arg.slice('--group-policy='.length),
+      );
+      continue;
+    }
+    if (arg === '--poll-interval-ms') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--poll-interval-ms`.');
+      pollIntervalMs = parseIntegerFlagValue('--poll-interval-ms', next, {
+        min: 0,
+        max: 60_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--poll-interval-ms=')) {
+      pollIntervalMs = parseIntegerFlagValue(
+        '--poll-interval-ms',
+        arg.slice('--poll-interval-ms='.length),
+        {
+          min: 0,
+          max: 60_000,
+        },
+      );
+      continue;
+    }
+    if (arg === '--text-chunk-limit') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--text-chunk-limit`.');
+      textChunkLimit = parseIntegerFlagValue('--text-chunk-limit', next, {
+        min: 200,
+        max: 4_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--text-chunk-limit=')) {
+      textChunkLimit = parseIntegerFlagValue(
+        '--text-chunk-limit',
+        arg.slice('--text-chunk-limit='.length),
+        {
+          min: 200,
+          max: 4_000,
+        },
+      );
+      continue;
+    }
+    if (arg === '--media-max-mb') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--media-max-mb`.');
+      mediaMaxMb = parseIntegerFlagValue('--media-max-mb', next, {
+        min: 1,
+        max: 100,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--media-max-mb=')) {
+      mediaMaxMb = parseIntegerFlagValue(
+        '--media-max-mb',
+        arg.slice('--media-max-mb='.length),
+        {
+          min: 1,
+          max: 100,
+        },
+      );
+      continue;
+    }
+    if (arg === '--require-mention') {
+      requireMention = true;
+      continue;
+    }
+    if (arg === '--no-require-mention') {
+      requireMention = false;
+      continue;
+    }
+    if (arg.startsWith('--require-mention=')) {
+      requireMention = parseBooleanFlagValue(
+        '--require-mention',
+        arg.slice('--require-mention='.length),
+      );
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]...\`.`,
+    );
+  }
+
+  return {
+    token,
+    allowFrom: [...new Set(allowFrom)],
+    groupAllowFrom: [...new Set(groupAllowFrom)],
+    dmPolicy,
+    groupPolicy,
+    pollIntervalMs,
+    textChunkLimit,
+    mediaMaxMb,
+    requireMention,
   };
 }
 
@@ -693,9 +918,13 @@ async function resolveInteractiveEmailSetup(params: {
   let imapHost = params.imapHost;
   let smtpHost = params.smtpHost;
   let password = params.password;
+  const hasEnvOrStoredPassword = Boolean(
+    process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD'),
+  );
   let passwordSource: 'explicit' | 'prompt' | 'env' = password
     ? 'explicit'
-    : process.env.EMAIL_PASSWORD?.trim()
+    : hasEnvOrStoredPassword
       ? 'env'
       : 'prompt';
   let allowFrom = params.allowFrom;
@@ -722,10 +951,12 @@ async function resolveInteractiveEmailSetup(params: {
     );
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     address = await promptWithDefault({
@@ -809,11 +1040,11 @@ async function resolveInteractiveEmailSetup(params: {
     });
 
     if (!password) {
-      password = await promptWithDefault({
-        rl,
-        question: 'Email password or app password',
-        secret: true,
+      rl.close();
+      password = await promptForSecretInput({
+        prompt: 'Email password or app password: ',
       });
+      rl = createPromptInterface();
       passwordSource = 'prompt';
     }
 
@@ -919,7 +1150,10 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     imapPort: parsed.imapPort || currentConfig.imapPort,
     imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
     password:
-      parsed.password?.trim() || process.env.EMAIL_PASSWORD?.trim() || '',
+      parsed.password?.trim() ||
+      process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD') ||
+      '',
     smtpHost: parsed.smtpHost || currentConfig.smtpHost,
     smtpPort: parsed.smtpPort || currentConfig.smtpPort,
     smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,
@@ -946,13 +1180,27 @@ async function configureEmailChannel(args: string[]): Promise<void> {
 
   const shouldSavePassword =
     resolved.passwordSource === 'prompt' || Boolean(parsed.password?.trim());
+  const hasStoredPassword = Boolean(readStoredRuntimeSecret('EMAIL_PASSWORD'));
   const secretsPath = shouldSavePassword
     ? saveRuntimeSecrets({ EMAIL_PASSWORD: resolved.password })
     : runtimeSecretsPath();
 
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}`);
+  if (shouldSavePassword || hasStoredPassword) {
+    setRuntimeConfigSecretInput(
+      'email.password',
+      {
+        source: 'store',
+        id: 'EMAIL_PASSWORD',
+      },
+      {
+        route: 'cli.channels.email.setup-secret-ref',
+        source: 'user',
+      },
+    );
+  }
   if (shouldSavePassword) {
-    console.log(`Saved email password to ${secretsPath}.`);
+    console.log(`Saved email password to ${secretsPath}`);
   } else {
     console.log(`Email password unchanged. Secrets path: ${secretsPath}`);
   }
@@ -1055,6 +1303,171 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   await pairWhatsAppChannel();
 }
 
+async function resolveInteractiveTelegramSetup(params: {
+  token: string | null;
+  currentToken: string;
+}): Promise<{
+  token: string;
+  source: 'config' | 'env' | 'explicit' | 'prompt' | 'runtime-secrets';
+}> {
+  const explicit = String(params.token || '').trim();
+  if (explicit) {
+    return { token: explicit, source: 'explicit' };
+  }
+
+  const envToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (envToken) {
+    return { token: envToken, source: 'env' };
+  }
+
+  const storedToken = String(
+    readStoredRuntimeSecret('TELEGRAM_BOT_TOKEN') || '',
+  ).trim();
+  if (storedToken) {
+    return { token: storedToken, source: 'runtime-secrets' };
+  }
+
+  const configToken = String(params.currentToken || '').trim();
+  if (configToken) {
+    return { token: configToken, source: 'config' };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Telegram bot token. Pass `--token <token>`, set TELEGRAM_BOT_TOKEN, or run this command in an interactive terminal to be prompted.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const token = await promptForSecretInput({
+      prompt: 'Telegram bot token: ',
+      rl,
+    });
+    const normalized = token.trim();
+    if (!normalized) {
+      throw new Error('Telegram bot token cannot be empty.');
+    }
+    return { token: normalized, source: 'prompt' };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureTelegramChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseTelegramSetupArgs(args);
+  const currentConfig = getRuntimeConfig().telegram;
+  const resolved = await resolveInteractiveTelegramSetup({
+    token: parsed.token,
+    currentToken: currentConfig.botToken,
+  });
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.telegram.enabled = true;
+    draft.telegram.allowFrom =
+      parsed.allowFrom.length > 0 ? parsed.allowFrom : draft.telegram.allowFrom;
+    draft.telegram.groupAllowFrom =
+      parsed.groupAllowFrom.length > 0
+        ? parsed.groupAllowFrom
+        : draft.telegram.groupAllowFrom;
+    draft.telegram.dmPolicy =
+      parsed.dmPolicy ??
+      (parsed.allowFrom.length > 0 ? 'allowlist' : draft.telegram.dmPolicy);
+    draft.telegram.groupPolicy =
+      parsed.groupPolicy ?? draft.telegram.groupPolicy;
+    if (parsed.pollIntervalMs != null) {
+      draft.telegram.pollIntervalMs = parsed.pollIntervalMs;
+    }
+    if (parsed.textChunkLimit != null) {
+      draft.telegram.textChunkLimit = parsed.textChunkLimit;
+    }
+    if (parsed.mediaMaxMb != null) {
+      draft.telegram.mediaMaxMb = parsed.mediaMaxMb;
+    }
+    if (parsed.requireMention != null) {
+      draft.telegram.requireMention = parsed.requireMention;
+    }
+    if (
+      resolved.source === 'explicit' ||
+      resolved.source === 'prompt' ||
+      resolved.source === 'runtime-secrets'
+    ) {
+      draft.telegram.botToken = '';
+    }
+  });
+
+  const shouldSaveToken =
+    resolved.source === 'explicit' || resolved.source === 'prompt';
+  const shouldSetSecretRef =
+    shouldSaveToken || resolved.source === 'runtime-secrets';
+  const secretsPath = shouldSaveToken
+    ? saveRuntimeSecrets({ TELEGRAM_BOT_TOKEN: resolved.token })
+    : runtimeSecretsPath();
+
+  if (shouldSetSecretRef) {
+    setRuntimeConfigSecretInput(
+      'telegram.botToken',
+      {
+        source: 'store',
+        id: 'TELEGRAM_BOT_TOKEN',
+      },
+      {
+        route: 'cli.channels.telegram.setup-secret-ref',
+        source: 'user',
+      },
+    );
+  }
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (shouldSaveToken) {
+    console.log(`Saved Telegram bot token to ${secretsPath}.`);
+  } else if (shouldSetSecretRef) {
+    console.log(`Telegram bot token unchanged. Secrets path: ${secretsPath}`);
+  } else {
+    console.log(`Telegram bot token source: ${resolved.source}`);
+  }
+  console.log('Telegram mode: enabled');
+  console.log(`DM policy: ${nextConfig.telegram.dmPolicy}`);
+  console.log(`Group policy: ${nextConfig.telegram.groupPolicy}`);
+  console.log(`Require mention: ${nextConfig.telegram.requireMention}`);
+  if (nextConfig.telegram.allowFrom.length > 0) {
+    console.log(
+      `Allowed DM senders: ${nextConfig.telegram.allowFrom.join(', ')}`,
+    );
+  } else {
+    console.log('Allowed DM senders: none (inbound DMs stay disabled)');
+  }
+  if (nextConfig.telegram.groupAllowFrom.length > 0) {
+    console.log(
+      `Allowed group senders: ${nextConfig.telegram.groupAllowFrom.join(', ')}`,
+    );
+  }
+  console.log(`Poll interval: ${nextConfig.telegram.pollIntervalMs}ms`);
+  console.log(`Text chunk limit: ${nextConfig.telegram.textChunkLimit}`);
+  console.log(`Media limit: ${nextConfig.telegram.mediaMaxMb}MB`);
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Telegram settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  if (nextConfig.telegram.allowFrom.length > 0) {
+    console.log(
+      `  Send /start to the bot from ${nextConfig.telegram.allowFrom[0]} to verify inbound routing`,
+    );
+  } else if (nextConfig.telegram.dmPolicy === 'open') {
+    console.log(
+      '  Send /start to the bot from Telegram to verify inbound routing',
+    );
+  } else {
+    console.log(
+      '  Rerun with --allow-from <user-id|@username> or --dm-policy open to allow inbound DMs',
+    );
+  }
+}
+
 async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
@@ -1104,12 +1517,28 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
 
   const shouldSavePassword =
     backend === 'bluebubbles' && Boolean(parsed.password?.trim());
+  const hasStoredPassword =
+    backend === 'bluebubbles' &&
+    Boolean(readStoredRuntimeSecret('IMESSAGE_PASSWORD'));
   const secretsPath = shouldSavePassword
     ? saveRuntimeSecrets({ IMESSAGE_PASSWORD: parsed.password })
     : runtimeSecretsPath();
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   if (backend === 'bluebubbles') {
+    if (shouldSavePassword || hasStoredPassword) {
+      setRuntimeConfigSecretInput(
+        'imessage.password',
+        {
+          source: 'store',
+          id: 'IMESSAGE_PASSWORD',
+        },
+        {
+          route: 'cli.channels.imessage.setup-secret-ref',
+          source: 'user',
+        },
+      );
+    }
     if (shouldSavePassword) {
       console.log(`Saved iMessage password to ${secretsPath}.`);
     } else {
@@ -1161,6 +1590,217 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
   }
 }
 
+function parseSlackManifestFormat(raw: string): 'yaml' | 'json' {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'yaml' || normalized === 'json') {
+    return normalized;
+  }
+  throw new Error(
+    `Invalid value for \`--format\`: ${raw}. Use \`yaml\` or \`json\`.`,
+  );
+}
+
+function parseSlackManifestArgs(args: string[]): {
+  format: 'yaml' | 'json';
+} {
+  let format: 'yaml' | 'json' = 'yaml';
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const formatFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--format',
+      placeholder: '<yaml|json>',
+    });
+    if (formatFlag) {
+      format = parseSlackManifestFormat(formatFlag.value);
+      index = formatFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels slack manifest [--format <yaml|json>]\`.`,
+    );
+  }
+
+  return { format };
+}
+
+function parseSlackRegisterCommandsArgs(args: string[]): {
+  appId: string | null;
+  configToken: string | null;
+} {
+  let appId: string | null = null;
+  let configToken: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const appIdFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--app-id',
+      placeholder: '<A...>',
+    });
+    if (appIdFlag) {
+      appId = appIdFlag.value.trim() || null;
+      index = appIdFlag.nextIndex;
+      continue;
+    }
+    const configTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--config-token',
+      placeholder: '<xoxe-...>',
+    });
+    if (configTokenFlag) {
+      configToken = configTokenFlag.value.trim() || null;
+      index = configTokenFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]\`.`,
+    );
+  }
+
+  return {
+    appId,
+    configToken,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function printSlackSlashCommandManifest(args: string[]): Promise<void> {
+  const parsed = parseSlackManifestArgs(args);
+  const { renderSlackSlashCommandManifest } = await import(
+    '../channels/slack/slash-commands.js'
+  );
+  console.log(renderSlackSlashCommandManifest(parsed.format));
+}
+
+async function postSlackAppManifestApi(
+  method: 'apps.manifest.export' | 'apps.manifest.update',
+  params: {
+    token: string;
+    body: Record<string, unknown>;
+  },
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${params.token}`,
+      'content-type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify(params.body),
+  });
+  if (!response.ok) {
+    throw new Error(`${method} failed with HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as unknown;
+  const record = asRecord(payload);
+  if (!record) {
+    throw new Error(`${method} returned an invalid response.`);
+  }
+  if (record.ok !== true) {
+    const errorCode =
+      typeof record.error === 'string' && record.error.trim()
+        ? record.error.trim()
+        : 'unknown_error';
+    throw new Error(`${method} failed: ${errorCode}`);
+  }
+  return record;
+}
+
+async function registerSlackSlashCommands(args: string[]): Promise<void> {
+  const parsed = parseSlackRegisterCommandsArgs(args);
+  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+  const rl =
+    interactive && (!parsed.appId || !parsed.configToken)
+      ? readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        })
+      : null;
+
+  try {
+    let appId = parsed.appId;
+    if (!appId && rl) {
+      appId = (await rl.question('Slack app id (A...): ')).trim() || null;
+    }
+    if (!appId) {
+      throw new Error(
+        'Missing value for `--app-id`. Use `hybridclaw channels slack register-commands --app-id <A...> --config-token <xoxe-...>`.',
+      );
+    }
+
+    let configToken = parsed.configToken;
+    if (!configToken && rl) {
+      configToken = await promptForSecretInput({
+        prompt: '🔒 Slack app configuration token (xoxe-...): ',
+        rl,
+      });
+      configToken = configToken.trim() || null;
+    }
+    if (!configToken) {
+      throw new Error(
+        'Missing value for `--config-token`. Use `hybridclaw channels slack register-commands --app-id <A...> --config-token <xoxe-...>`.',
+      );
+    }
+
+    const {
+      buildSlackSlashCommandDefinitions,
+      mergeSlackSlashCommandsIntoManifest,
+    } = await import('../channels/slack/slash-commands.js');
+    const exported = await postSlackAppManifestApi('apps.manifest.export', {
+      token: configToken,
+      body: { app_id: appId },
+    });
+    const manifest = asRecord(exported.manifest);
+    if (!manifest) {
+      throw new Error('apps.manifest.export returned no manifest payload.');
+    }
+
+    const nextManifest = mergeSlackSlashCommandsIntoManifest(manifest);
+    await postSlackAppManifestApi('apps.manifest.update', {
+      token: configToken,
+      body: {
+        app_id: appId,
+        manifest: JSON.stringify(nextManifest),
+      },
+    });
+
+    const commands = buildSlackSlashCommandDefinitions();
+    console.log(`Updated Slack app manifest for ${appId}.`);
+    console.log(`Registered ${commands.length} HybridClaw slash commands.`);
+    console.log(
+      `Commands: ${commands.map((command) => command.command).join(', ')}`,
+    );
+    console.log('Next:');
+    console.log(
+      '  Reinstall the Slack app if Slack reports pending permission changes.',
+    );
+    console.log(
+      '  Reopen Slack and type /hc-status to confirm the command is now suggested.',
+    );
+  } finally {
+    rl?.close();
+  }
+}
+
 export async function handleChannelsCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -1170,13 +1810,15 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
 
   const channel = normalized[0].toLowerCase();
   if (
+    channel !== 'telegram' &&
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
     channel !== 'email' &&
-    channel !== 'imessage'
+    channel !== 'imessage' &&
+    channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`whatsapp\`, \`email\`, \`imessage\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -1194,6 +1836,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       await configureEmailChannel(normalized.slice(2));
       return;
     }
+    if (channel === 'telegram') {
+      await configureTelegramChannel(normalized.slice(2));
+      return;
+    }
     if (channel === 'imessage') {
       await configureIMessageChannel(normalized.slice(2));
       return;
@@ -1201,8 +1847,19 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     await configureWhatsAppChannel(normalized.slice(2));
     return;
   }
+  if (channel === 'slack' && sub === 'manifest') {
+    await printSlackSlashCommandManifest(normalized.slice(2));
+    return;
+  }
+  if (
+    channel === 'slack' &&
+    (sub === 'register-commands' || sub === 'sync-slash-commands')
+  ) {
+    await registerSlackSlashCommands(normalized.slice(2));
+    return;
+  }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, or \`hybridclaw channels imessage setup\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

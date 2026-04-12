@@ -4,6 +4,8 @@ description: Read, search, organize, and create notes in the Obsidian vault.
 user-invocable: true
 metadata:
   hybridclaw:
+    category: memory
+    short_description: "Obsidian vault notes."
     tags:
       - obsidian
       - markdown
@@ -14,7 +16,6 @@ metadata:
       - project-manager
       - write-blog-post
 ---
-
 # Obsidian
 
 Obsidian vaults are normal folders on disk. Notes are usually `*.md`. Do not

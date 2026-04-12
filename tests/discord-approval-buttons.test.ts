@@ -10,18 +10,30 @@ import {
 test('buildApprovalActionRow creates the expected approval buttons', () => {
   const row = buildApprovalActionRow('abc123').toJSON();
 
-  expect(row.components).toHaveLength(4);
+  expect(row.components).toHaveLength(5);
   expect(row.components.map((component) => component.custom_id)).toEqual([
     'approve:yes:abc123',
     'approve:session:abc123',
     'approve:agent:abc123',
+    'approve:all:abc123',
     'approve:no:abc123',
+  ]);
+  expect(row.components.map((component) => component.label)).toEqual([
+    'Once',
+    'Session',
+    'Agent',
+    'Always',
+    'Deny',
   ]);
 });
 
 test('parseApprovalCustomId accepts valid ids and rejects invalid ones', () => {
   expect(parseApprovalCustomId('approve:session:abc123')).toEqual({
     action: 'session',
+    approvalId: 'abc123',
+  });
+  expect(parseApprovalCustomId('approve:all:abc123')).toEqual({
+    action: 'all',
     approvalId: 'abc123',
   });
   expect(parseApprovalCustomId('approve:view:abc123')).toBeNull();

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
+import net from 'node:net';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
@@ -46,11 +48,21 @@ import {
 } from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import {
+  isRuntimeSecretName,
+  readStoredRuntimeSecret,
+} from '../security/runtime-secrets.js';
+import { resolveSecretInput } from '../security/secret-refs.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
+import {
+  buildTuiSlashMenuEntries,
+  rankTuiSlashMenuEntries,
+} from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import {
@@ -58,12 +70,16 @@ import {
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
 } from './admin-terminal.js';
+import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   hasSessionAuth,
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -72,14 +88,25 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
+import { requestGatewayRestart } from './gateway-restart.js';
+import {
+  getGatewayAdminScheduler,
+  moveGatewayAdminSchedulerJob,
+  removeGatewayAdminSchedulerJob,
+  setGatewayAdminSchedulerJobPaused,
+  upsertGatewayAdminSchedulerJob,
+} from './gateway-scheduled-task-service.js';
 import {
   createGatewayAdminAgent,
+  createGatewayAdminSkill,
   deleteGatewayAdminAgent,
+  deleteGatewayAdminEmailMessage,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   GatewayRequestError,
@@ -87,11 +114,13 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminEmailFolder,
+  getGatewayAdminEmailMailbox,
+  getGatewayAdminEmailMessage,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
@@ -103,19 +132,15 @@ import {
   getGatewayRecentChatSessions,
   getGatewayStatus,
   handleGatewayCommand,
-  handleGatewayMessage,
-  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
-  removeGatewayAdminSchedulerJob,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
-  setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
+  uploadGatewayAdminSkillZip,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
-  upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type {
   GatewayChatBranchRequestBody,
@@ -126,6 +151,10 @@ import type {
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
+import {
+  handleOpenAICompatibleChatCompletions,
+  handleOpenAICompatibleModelList,
+} from './openai-compatible.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -227,11 +256,67 @@ function parseEmailRecipientListInput(
   }
   return recipients.length > 0 ? recipients : undefined;
 }
+
+function parseOptionalStringInput(
+  value: unknown,
+  label: 'inReplyTo',
+): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`\`${label}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function parseThreadReferenceListInput(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? [normalized] : undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error('`references` must be a string or array of strings.');
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new Error('`references` must be a string or array of strings.');
+    }
+    const candidate = entry.trim();
+    if (!candidate) continue;
+    normalized.push(candidate);
+  }
+
+  if (normalized.length === 0) return undefined;
+  return [...new Set(normalized)];
+}
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
   sessionId?: unknown;
   channelId?: unknown;
+};
+
+type ApiHttpRequestSecretHeaderBody = {
+  name?: unknown;
+  secretName?: unknown;
+  prefix?: unknown;
+};
+
+type ApiHttpRequestBody = {
+  url?: unknown;
+  method?: unknown;
+  headers?: unknown;
+  body?: unknown;
+  json?: unknown;
+  bearerSecretName?: unknown;
+  secretHeaders?: unknown;
+  replaceSecretPlaceholders?: unknown;
+  timeoutMs?: unknown;
+  maxResponseBytes?: unknown;
 };
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -248,6 +333,285 @@ function parsePositiveInteger(value: unknown): number | null {
   if (!/^\d+$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+const HTTP_REQUEST_TIMEOUT_MS = 30_000;
+const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
+const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const REDIRECT_RESPONSE_STATUS_MIN = 300;
+const REDIRECT_RESPONSE_STATUS_MAX = 399;
+
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+    return false;
+  }
+  if (parts[0] === 0) return true;
+  if (parts[0] === 10 || parts[0] === 127) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+  if (parts[0] >= 224) return true;
+  return false;
+}
+
+function isPrivateIpv6(ip: string): boolean {
+  const normalized = ip.trim().toLowerCase();
+  return (
+    normalized === '::1' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe80:')
+  );
+}
+
+function isPrivateIp(ip: string): boolean {
+  const normalized = ip.replace(/^::ffff:/, '');
+  const version = net.isIP(normalized);
+  if (version === 4) return isPrivateIpv4(normalized);
+  if (version === 6) return isPrivateIpv6(normalized);
+  return false;
+}
+
+async function isPrivateHost(hostname: string): Promise<boolean> {
+  const host = hostname.trim().toLowerCase();
+  if (!host) return true;
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local')
+  ) {
+    return true;
+  }
+  if (net.isIP(host) > 0) return isPrivateIp(host);
+  try {
+    const resolved = await lookup(host, { all: true, verbatim: true });
+    if (resolved.length === 0) return false;
+    return resolved.some((entry) => isPrivateIp(entry.address));
+  } catch (error) {
+    logger.warn(
+      { host, error },
+      'DNS lookup failed during SSRF host check; treating host as private/blocked',
+    );
+    return true;
+  }
+}
+
+async function readHttpResponseBuffer(
+  response: Response,
+  maxResponseBytes: number,
+): Promise<Buffer> {
+  if (!response.body) {
+    if (typeof response.arrayBuffer === 'function') {
+      const buffered = Buffer.from(await response.arrayBuffer());
+      if (buffered.length > maxResponseBytes) {
+        throw new HttpRequestError(
+          413,
+          `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
+        );
+      }
+      return buffered;
+    }
+    return Buffer.alloc(0);
+  }
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxResponseBytes) {
+        await reader.cancel();
+        throw new HttpRequestError(
+          413,
+          `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
+        );
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks);
+}
+
+async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
+  const input = String(raw || '').trim();
+  if (!input) {
+    throw new HttpRequestError(400, 'Missing `url` in request body.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new HttpRequestError(400, `Invalid URL: ${input}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new HttpRequestError(
+      400,
+      `Unsupported URL protocol: ${parsed.protocol}`,
+    );
+  }
+
+  if (await isPrivateHost(parsed.hostname)) {
+    throw new HttpRequestError(
+      400,
+      `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
+    );
+  }
+
+  return parsed;
+}
+
+function normalizeHttpRequestMethod(value: unknown): string {
+  const normalized = String(value || 'GET')
+    .trim()
+    .toUpperCase();
+  if (!normalized) return 'GET';
+  if (!/^[A-Z]+$/.test(normalized)) {
+    throw new HttpRequestError(400, `Invalid HTTP method: ${normalized}`);
+  }
+  return normalized;
+}
+
+function normalizeHeaderNameOrThrow(value: string): string {
+  const normalized = value.trim();
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(normalized)) {
+    throw new HttpRequestError(400, `Invalid HTTP header name: ${normalized}`);
+  }
+  return normalized;
+}
+
+function normalizeHttpRequestHeaders(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const headers: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') continue;
+    const normalizedKey = normalizeHeaderNameOrThrow(key);
+    headers[normalizedKey] = entry;
+  }
+  return headers;
+}
+
+function setHeaderValue(
+  headers: Record<string, string>,
+  name: string,
+  value: string,
+): void {
+  const existing = Object.keys(headers).find(
+    (key) => key.toLowerCase() === name.toLowerCase(),
+  );
+  if (existing && existing !== name) {
+    delete headers[existing];
+  }
+  headers[existing || name] = value;
+}
+
+function normalizeHttpRequestSecretHeaders(
+  value: unknown,
+): Array<{ name: string; secretName: string; prefix: string }> {
+  if (!Array.isArray(value)) return [];
+  const headers: Array<{ name: string; secretName: string; prefix: string }> =
+    [];
+  for (const entry of value) {
+    const typed = entry as ApiHttpRequestSecretHeaderBody;
+    const name =
+      typeof typed?.name === 'string'
+        ? normalizeHeaderNameOrThrow(typed.name)
+        : '';
+    const secretName =
+      typeof typed?.secretName === 'string' ? typed.secretName.trim() : '';
+    if (!name || !isRuntimeSecretName(secretName)) continue;
+    const prefix =
+      typeof typed?.prefix === 'string' ? typed.prefix.trim() : 'Bearer';
+    headers.push({
+      name,
+      secretName,
+      prefix: !prefix || prefix.toLowerCase() === 'none' ? '' : prefix,
+    });
+  }
+  return headers;
+}
+
+function withAuthPrefix(secret: string, prefix: string): string {
+  return prefix ? `${prefix} ${secret}` : secret;
+}
+
+function resolveStoredSecretOrThrow(secretName: string): string {
+  if (!isRuntimeSecretName(secretName)) {
+    throw new HttpRequestError(400, `Invalid secret name: ${secretName}`);
+  }
+  const value = readStoredRuntimeSecret(secretName);
+  if (!value) {
+    throw new HttpRequestError(400, `Stored secret ${secretName} is not set.`);
+  }
+  return value;
+}
+
+function replaceSecretPlaceholdersInString(value: string): string {
+  return value.replace(
+    HTTP_REQUEST_SECRET_PLACEHOLDER_RE,
+    (_match, secretName) => resolveStoredSecretOrThrow(secretName),
+  );
+}
+
+function replaceSecretPlaceholders(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return replaceSecretPlaceholdersInString(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => replaceSecretPlaceholders(entry));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        replaceSecretPlaceholders(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
+function resolveHttpRequestRuleAssignments(
+  url: string,
+  config: RuntimeConfig,
+): Array<{ header: string; value: string }> {
+  const matching = config.tools.httpRequest.authRules
+    .map((rule, index) => ({ rule, index }))
+    .filter(({ rule }) => url.startsWith(rule.urlPrefix))
+    .sort(
+      (left, right) =>
+        right.rule.urlPrefix.length - left.rule.urlPrefix.length ||
+        left.index - right.index,
+    );
+
+  const assignments = new Map<string, { header: string; value: string }>();
+  for (const { rule, index } of matching) {
+    const key = rule.header.toLowerCase();
+    if (assignments.has(key)) continue;
+    const secret = resolveSecretInput(rule.secret, {
+      path: `tools.httpRequest.authRules[${index}].secret`,
+      required: true,
+    });
+    assignments.set(key, {
+      header: rule.header,
+      value: withAuthPrefix(String(secret || ''), rule.prefix),
+    });
+  }
+  return Array.from(assignments.values());
 }
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
@@ -1265,6 +1629,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'approval',
       ...approval,
+      summary: formatGatewayChatApprovalSummary(approval),
     });
   };
 
@@ -1394,9 +1759,13 @@ async function handleApiMessageAction(
 
   let cc: string[] | undefined;
   let bcc: string[] | undefined;
+  let inReplyTo: string | undefined;
+  let references: string[] | undefined;
   try {
     cc = parseEmailRecipientListInput(body.cc, 'cc');
     bcc = parseEmailRecipientListInput(body.bcc, 'bcc');
+    inReplyTo = parseOptionalStringInput(body.inReplyTo, 'inReplyTo');
+    references = parseThreadReferenceListInput(body.references);
   } catch (error) {
     sendJson(res, 400, {
       error: error instanceof Error ? error.message : String(error),
@@ -1425,6 +1794,8 @@ async function handleApiMessageAction(
     subject: typeof body.subject === 'string' ? body.subject : undefined,
     cc,
     bcc,
+    inReplyTo,
+    references,
     filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
@@ -1479,6 +1850,145 @@ async function handleApiPluginTool(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+async function handleApiHttpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiHttpRequestBody;
+  const url = await assertHttpRequestUrl(body.url);
+  const method = normalizeHttpRequestMethod(body.method);
+  const timeoutMs =
+    parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
+  const maxResponseBytes =
+    parsePositiveInteger(body.maxResponseBytes) ??
+    HTTP_REQUEST_MAX_RESPONSE_BYTES;
+  const replacePlaceholders = body.replaceSecretPlaceholders !== false;
+  const config = getRuntimeConfig();
+
+  const headers = normalizeHttpRequestHeaders(body.headers);
+  for (const assignment of resolveHttpRequestRuleAssignments(
+    url.toString(),
+    config,
+  )) {
+    setHeaderValue(headers, assignment.header, assignment.value);
+  }
+
+  const bearerSecretName =
+    typeof body.bearerSecretName === 'string'
+      ? body.bearerSecretName.trim()
+      : '';
+  if (bearerSecretName) {
+    setHeaderValue(
+      headers,
+      'Authorization',
+      withAuthPrefix(resolveStoredSecretOrThrow(bearerSecretName), 'Bearer'),
+    );
+  }
+
+  for (const secretHeader of normalizeHttpRequestSecretHeaders(
+    body.secretHeaders,
+  )) {
+    setHeaderValue(
+      headers,
+      secretHeader.name,
+      withAuthPrefix(
+        resolveStoredSecretOrThrow(secretHeader.secretName),
+        secretHeader.prefix,
+      ),
+    );
+  }
+
+  if (replacePlaceholders) {
+    for (const [key, value] of Object.entries(headers)) {
+      headers[key] = replaceSecretPlaceholdersInString(value);
+    }
+  }
+
+  let payloadBody: string | undefined;
+  if (body.json !== undefined) {
+    const jsonValue = replacePlaceholders
+      ? replaceSecretPlaceholders(body.json)
+      : body.json;
+    payloadBody = JSON.stringify(jsonValue);
+    if (
+      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
+    ) {
+      setHeaderValue(headers, 'Content-Type', 'application/json');
+    }
+  } else if (typeof body.body === 'string') {
+    payloadBody = replacePlaceholders
+      ? replaceSecretPlaceholdersInString(body.body)
+      : body.body;
+  } else if (body.body !== undefined) {
+    throw new HttpRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: payloadBody,
+      signal: controller.signal,
+      redirect: 'manual',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new HttpRequestError(502, `Outbound HTTP request failed: ${message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (
+    response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
+    response.status <= REDIRECT_RESPONSE_STATUS_MAX
+  ) {
+    throw new HttpRequestError(
+      400,
+      'Outbound HTTP redirects are blocked by the SSRF guard.',
+    );
+  }
+
+  const contentLength = Number.parseInt(
+    String(response.headers.get('content-length') || ''),
+    10,
+  );
+  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+    throw new HttpRequestError(
+      413,
+      `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
+    );
+  }
+
+  const responseBuffer = await readHttpResponseBuffer(
+    response,
+    maxResponseBytes,
+  );
+
+  const responseText = responseBuffer.toString('utf-8');
+  let responseJson: unknown;
+  try {
+    responseJson = JSON.parse(responseText) as unknown;
+  } catch {
+    responseJson = undefined;
+  }
+
+  sendJson(res, 200, {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    headers: Object.fromEntries(response.headers.entries()),
+    body: responseText,
+    ...(responseJson === undefined ? {} : { json: responseJson }),
+  });
 }
 
 async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
@@ -1575,6 +2085,43 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
   });
 }
 
+let cachedSlashMenuEntries: ReturnType<typeof buildTuiSlashMenuEntries> | null =
+  null;
+let cachedSlashMenuPluginKey = '';
+
+function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
+  const pluginCommands = listLoadedPluginCommands();
+  const pluginKey = pluginCommands
+    .map((c) => `${c.name}\x01${c.description}`)
+    .join('\0');
+  if (cachedSlashMenuEntries && pluginKey === cachedSlashMenuPluginKey) {
+    return cachedSlashMenuEntries;
+  }
+  cachedSlashMenuEntries = buildTuiSlashMenuEntries(
+    pluginCommands.map((command) => ({
+      name: command.name,
+      description: command.description,
+    })),
+    'web',
+  );
+  cachedSlashMenuPluginKey = pluginKey;
+  return cachedSlashMenuEntries;
+}
+
+function handleApiChatCommands(res: ServerResponse, url: URL): void {
+  const query = (url.searchParams.get('q') ?? '').slice(0, 200);
+  const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
+  sendJson(res, 200, {
+    commands: ranked.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      insertText: entry.insertText,
+      description: entry.description,
+      depth: entry.depth,
+    })),
+  });
+}
+
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
@@ -1605,8 +2152,112 @@ function handleApiShutdown(res: ServerResponse): void {
   }, 50);
 }
 
+function handleApiRestart(res: ServerResponse): void {
+  const restart = requestGatewayRestart();
+  if (!restart.restartSupported) {
+    sendJson(res, 409, {
+      error:
+        restart.restartReason || 'Gateway restart is unavailable right now.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway restart requested.',
+  });
+  setTimeout(() => {
+    process.kill(process.pid, 'SIGTERM');
+  }, 50);
+}
+
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminEmailMailbox());
+}
+
+async function handleApiAdminEmailFolder(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const limitRaw = url.searchParams.get('limit')?.trim() || '';
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  if (
+    limitRaw &&
+    (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0)
+  ) {
+    sendJson(res, 400, { error: '`limit` must be a positive integer.' });
+    return;
+  }
+
+  const offsetRaw = url.searchParams.get('offset')?.trim() || '';
+  const offset = offsetRaw ? Number.parseInt(offsetRaw, 10) : undefined;
+  if (
+    offsetRaw &&
+    (typeof offset !== 'number' || !Number.isFinite(offset) || offset < 0)
+  ) {
+    sendJson(res, 400, { error: '`offset` must be a non-negative integer.' });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    await getGatewayAdminEmailFolder({
+      folder,
+      ...(typeof limit === 'number' ? { limit } : {}),
+      ...(typeof offset === 'number' ? { offset } : {}),
+    }),
+  );
+}
+
+async function handleApiAdminEmailMessage(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid === 0) {
+    sendJson(res, 400, { error: '`uid` must be a non-zero integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await getGatewayAdminEmailMessage({ folder, uid }));
+}
+
+async function handleApiAdminEmailMessageDelete(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid <= 0) {
+    sendJson(res, 400, { error: '`uid` must be a positive integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await deleteGatewayAdminEmailMessage({ folder, uid }));
 }
 
 async function handleApiAdminAgents(
@@ -1831,8 +2482,6 @@ async function handleApiAdminModels(
 
   const body = (await readJsonBody(req)) as {
     defaultModel?: unknown;
-    hybridaiModels?: unknown;
-    codexModels?: unknown;
   };
   sendJson(res, 200, await saveGatewayAdminModels(body));
 }
@@ -1883,9 +2532,13 @@ async function handleApiAdminScheduler(
       .trim()
       .toLowerCase();
     if (action === 'move') {
-      let boardStatus = null;
+      let boardStatus: Parameters<
+        typeof moveGatewayAdminSchedulerJob
+      >[0]['boardStatus'];
       try {
-        boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        if ('boardStatus' in body) {
+          boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        }
       } catch (error) {
         sendJson(res, 400, {
           error: error instanceof Error ? error.message : String(error),
@@ -1898,7 +2551,7 @@ async function handleApiAdminScheduler(
         moveGatewayAdminSchedulerJob({
           jobId,
           beforeJobId: String(body.beforeJobId || '').trim() || null,
-          boardStatus,
+          ...('boardStatus' in body ? { boardStatus } : {}),
         }),
       );
       return;
@@ -1970,8 +2623,8 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   );
 }
 
-function handleApiAdminTools(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminTools());
+async function handleApiAdminTools(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminTools());
 }
 
 async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
@@ -1982,11 +2635,101 @@ async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if ((req.method || 'GET') === 'GET') {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminSkills());
     return;
   }
 
+  if (method === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      name?: unknown;
+      description?: unknown;
+      category?: unknown;
+      shortDescription?: unknown;
+      userInvocable?: unknown;
+      disableModelInvocation?: unknown;
+      tags?: unknown;
+      body?: unknown;
+      files?: unknown;
+    };
+    if (body.files != null && !Array.isArray(body.files)) {
+      sendJson(res, 400, {
+        error:
+          'Expected `files` to be an array of objects with string `path` and optional string `content`.',
+      });
+      return;
+    }
+    const files = Array.isArray(body.files)
+      ? body.files.map((file) => {
+          if (
+            file == null ||
+            typeof file !== 'object' ||
+            Array.isArray(file) ||
+            typeof (file as Record<string, unknown>).path !== 'string'
+          ) {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          const content = (file as Record<string, unknown>).content;
+          if (content != null && typeof content !== 'string') {
+            throw new GatewayRequestError(
+              400,
+              'Expected each skill file to be an object with string `path` and optional string `content`.',
+            );
+          }
+          return {
+            path: file.path,
+            content: content ?? '',
+          };
+        })
+      : undefined;
+    if (
+      files?.some((file) => {
+        const filePath = file.path.trim();
+        return (
+          !filePath || filePath.endsWith('/') || filePath.endsWith(path.sep)
+        );
+      })
+    ) {
+      sendJson(res, 400, {
+        error: 'Skill file paths must be non-empty and include a filename.',
+      });
+      return;
+    }
+    sendJson(
+      res,
+      201,
+      createGatewayAdminSkill({
+        name: String(body.name || ''),
+        description: String(body.description || ''),
+        category: String(body.category || ''),
+        shortDescription: String(body.shortDescription || ''),
+        userInvocable:
+          typeof body.userInvocable === 'boolean'
+            ? body.userInvocable
+            : undefined,
+        disableModelInvocation:
+          typeof body.disableModelInvocation === 'boolean'
+            ? body.disableModelInvocation
+            : undefined,
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+        body: String(body.body || ''),
+        files,
+      }),
+    );
+    return;
+  }
+
+  if (method !== 'PUT') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
@@ -2013,6 +2756,46 @@ async function handleApiAdminSkills(
       channel: typeof body.channel === 'string' ? body.channel : undefined,
     }),
   );
+}
+
+const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+async function handleApiAdminSkillUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method !== 'POST') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  try {
+    const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
+    if (buffer.length === 0) {
+      sendJson(res, 400, {
+        error: 'Expected a non-empty skill zip upload body.',
+      });
+      return;
+    }
+    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, {
+        error: error.message,
+      });
+      return;
+    }
+    if (error instanceof HttpRequestError) {
+      const message =
+        error.statusCode === 413
+          ? `Skill zip upload exceeds the maximum size of ${MAX_SKILL_ZIP_UPLOAD_BYTES} bytes.`
+          : error.message;
+      sendJson(res, error.statusCode, { error: message });
+      return;
+    }
+    throw error;
+  }
 }
 
 function decodeApiPathSegment(value: string): string {
@@ -2132,7 +2915,11 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
-function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
+function handleApiEvents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): void {
   const sendEvent = (event: string, payload: unknown): void => {
     if (res.writableEnded) return;
     res.write(`event: ${event}\n`);
@@ -2144,6 +2931,8 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  activeSseResponses.add(res);
 
   const sendSnapshot = async (): Promise<void> => {
     try {
@@ -2161,6 +2950,7 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
 
   req.on('close', () => {
     clearInterval(timer);
+    activeSseResponses.delete(res);
     if (!res.writableEnded) res.end();
   });
 }
@@ -2236,8 +3026,16 @@ function writeUpgradeError(
   socket.destroy();
 }
 
-export function startGatewayHttpServer(): void {
+export interface GatewayHttpServer {
+  broadcastShutdown: () => void;
+  setReady: () => void;
+}
+
+export function startGatewayHttpServer(): GatewayHttpServer {
+  let gatewayReady = false;
+  const gatewayStartMs = Date.now();
   const terminalManager = createAdminTerminalManager();
+  const activeSseResponses = new Set<ServerResponse>();
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
@@ -2254,6 +3052,15 @@ export function startGatewayHttpServer(): void {
           });
         },
       );
+      return;
+    }
+
+    if ((pathname === '/ready' || pathname === '/readyz') && method === 'GET') {
+      const uptimeMs = Date.now() - gatewayStartMs;
+      sendJson(res, gatewayReady ? 200 : 503, {
+        ready: gatewayReady,
+        uptimeMs,
+      });
       return;
     }
 
@@ -2384,7 +3191,7 @@ export function startGatewayHttpServer(): void {
       void (async () => {
         try {
           if (pathname === '/api/events' && method === 'GET') {
-            handleApiEvents(req, res);
+            handleApiEvents(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
@@ -2422,6 +3229,22 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
+            return;
+          }
+          if (pathname === '/api/admin/email' && method === 'GET') {
+            await handleApiAdminEmail(res);
+            return;
+          }
+          if (pathname === '/api/admin/email/messages' && method === 'GET') {
+            await handleApiAdminEmailFolder(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'GET') {
+            await handleApiAdminEmailMessage(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'DELETE') {
+            await handleApiAdminEmailMessageDelete(res, url);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {
@@ -2464,18 +3287,19 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
-            handleApiAdminTools(res);
+            await handleApiAdminTools(res);
             return;
           }
           if (pathname === '/api/admin/plugins' && method === 'GET') {
             await handleApiAdminPlugins(res);
             return;
           }
-          if (
-            pathname === '/api/admin/skills' &&
-            (method === 'GET' || method === 'PUT')
-          ) {
+          if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/skills/upload') {
+            await handleApiAdminSkillUpload(req, res);
             return;
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
@@ -2497,6 +3321,10 @@ export function startGatewayHttpServer(): void {
             handleApiChatRecent(res, url);
             return;
           }
+          if (pathname === '/api/chat/commands' && method === 'GET') {
+            handleApiChatCommands(res, url);
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -2507,6 +3335,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
             handleApiShutdown(res);
+            return;
+          }
+          if (pathname === '/api/admin/restart' && method === 'POST') {
+            handleApiRestart(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
@@ -2533,6 +3365,10 @@ export function startGatewayHttpServer(): void {
             await handleApiPluginTool(req, res);
             return;
           }
+          if (pathname === '/api/http/request' && method === 'POST') {
+            await handleApiHttpRequest(req, res);
+            return;
+          }
           if (pathname === '/api/discord/action' && method === 'POST') {
             await handleApiMessageAction(req, res);
             return;
@@ -2548,6 +3384,52 @@ export function startGatewayHttpServer(): void {
           sendJson(res, statusCode, { error: errorText });
         }
       })();
+      return;
+    }
+
+    if (pathname.startsWith('/v1/')) {
+      if (!hasApiAuth(req, url)) {
+        sendJson(res, 401, {
+          error: {
+            message:
+              'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+            type: 'authentication_error',
+            param: null,
+            code: null,
+          },
+        });
+        return;
+      }
+
+      void (async () => {
+        if (pathname === '/v1/models' && method === 'GET') {
+          await handleOpenAICompatibleModelList(res);
+          return;
+        }
+        if (pathname === '/v1/chat/completions' && method === 'POST') {
+          await handleOpenAICompatibleChatCompletions(req, res);
+          return;
+        }
+        sendJson(res, 404, {
+          error: {
+            message: 'Not Found',
+            type: 'invalid_request_error',
+            param: null,
+            code: null,
+          },
+        });
+      })().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err }, 'OpenAI-compatible API request failed');
+        sendJson(res, 500, {
+          error: {
+            message,
+            type: 'server_error',
+            param: null,
+            code: null,
+          },
+        });
+      });
       return;
     }
 
@@ -2609,4 +3491,29 @@ export function startGatewayHttpServer(): void {
       'Gateway HTTP server started',
     );
   });
+
+  return {
+    setReady(): void {
+      gatewayReady = true;
+    },
+    broadcastShutdown(): void {
+      const shutdownMessage: AdminTerminalServerMessage = {
+        type: 'shutdown',
+        restartExpectedMs: 1500,
+      };
+      const shutdownPayload = JSON.stringify(shutdownMessage);
+      terminalManager.broadcastShutdown(shutdownMessage);
+      for (const sseRes of activeSseResponses) {
+        try {
+          if (!sseRes.writableEnded) {
+            sseRes.write(`event: shutdown\ndata: ${shutdownPayload}\n\n`);
+            sseRes.end();
+          }
+        } catch {
+          // Ignore errors on already-closed responses.
+        }
+      }
+      activeSseResponses.clear();
+    },
+  };
 }

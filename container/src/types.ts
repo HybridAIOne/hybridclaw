@@ -120,6 +120,7 @@ export interface TaskModelPolicy {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   baseUrl?: string;
   apiKey?: string;
@@ -160,6 +161,7 @@ export interface ContextGuardConfig {
 // CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
 export interface ScheduledTaskInput {
   id: number;
+  channelId: string;
   cronExpr: string;
   runAt: string | null;
   everyMs: number | null;
@@ -205,6 +207,7 @@ export interface ContainerInput {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
@@ -216,6 +219,8 @@ export interface ContainerInput {
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
+  skipContainerSystemPrompt?: boolean;
+  streamTextDeltas?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -256,6 +261,7 @@ export interface ToolExecution {
     | 'approved_once'
     | 'approved_session'
     | 'approved_agent'
+    | 'approved_all'
     | 'approved_fullauto'
     | 'promoted'
     | 'required'
@@ -267,6 +273,7 @@ export interface ToolExecution {
   approvalExpiresAt?: number;
   approvalAllowSession?: boolean;
   approvalAllowAgent?: boolean;
+  approvalAllowAll?: boolean;
 }
 
 export interface PendingApproval {
@@ -276,6 +283,7 @@ export interface PendingApproval {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
   expiresAt: number | null;
 }
 
@@ -322,6 +330,7 @@ export type ScheduleSideEffect =
       runAt?: string;
       everyMs?: number;
       prompt: string;
+      channelId?: string;
     }
   | { action: 'remove'; taskId: number };
 

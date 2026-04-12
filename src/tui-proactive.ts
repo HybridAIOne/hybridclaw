@@ -1,10 +1,20 @@
-export function proactiveBadgeLabel(source: string | null | undefined): string {
-  return source === 'fullauto' ? 'fullauto' : 'reminder';
+function isSchedulerJobSource(source: string | null | undefined): boolean {
+  return String(source || '').startsWith('schedule-job:');
+}
+
+export function proactiveBadgeLabel(
+  source: string | null | undefined,
+): string | null {
+  if (isSchedulerJobSource(source)) return null;
+  if (source === 'fullauto') return 'fullauto';
+  if (source === 'eval') return 'eval';
+  return 'reminder';
 }
 
 export function proactiveSourceSuffix(
   source: string | null | undefined,
 ): string {
-  if (!source || source === 'fullauto') return '';
+  if (isSchedulerJobSource(source)) return '';
+  if (!source || source === 'fullauto' || source === 'eval') return '';
   return `(${source})`;
 }

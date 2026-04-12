@@ -14,29 +14,73 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   const labels = entries.map((entry) => entry.label);
 
   expect(labels).toContain('/show tools');
+  expect(labels).toContain('/memory inspect [sessionId]');
+  expect(labels).toContain('/memory query <query>');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/dream <now|on|off>');
+  expect(labels).toContain('/dream now');
+  expect(labels).toContain('/dream on');
+  expect(labels).toContain('/dream off');
+  expect(labels.filter((label) => label === '/dream now')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/dream off')).toHaveLength(1);
   expect(labels).toContain('/auth status hybridai');
-  expect(labels).toContain('/config');
+  expect(labels).toContain('/secret list');
+  expect(labels).toContain('/secret set <name> <value>');
+  expect(labels).toContain('/config [check|reload|set] [key] [value]');
   expect(labels).toContain('/config check');
   expect(labels).toContain('/config reload');
   expect(labels).toContain('/config set <key> <value>');
-  expect(labels.filter((label) => label === '/config')).toHaveLength(1);
+  expect(
+    labels.filter(
+      (label) => label === '/config [check|reload|set] [key] [value]',
+    ),
+  ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
+  expect(labels).toContain('/approve always [approval_id]');
+  expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
-  expect(labels).toContain('/plugin install <path|npm-spec>');
-  expect(labels).toContain('/plugin reinstall <path|npm-spec>');
-  expect(labels).toContain('/skill');
+  expect(labels).toContain('/plugin install <path|plugin-id|npm-spec>');
+  expect(labels).toContain('/plugin reinstall <path|plugin-id|npm-spec>');
+  expect(labels).toContain('/plugin check <plugin-id>');
+  expect(labels).toContain('/eval [list|env|<suite>|<command...>]');
+  expect(labels).toContain('/eval list');
+  expect(labels).toContain('/eval locomo');
+  expect(labels).toContain('/eval tau2');
+  expect(labels).toContain('/eval swebench-verified');
+  expect(labels).not.toContain('/eval tau2-bench');
+  expect(labels).toContain('/skill <config|list|inspect|…>');
   expect(labels).toContain('/skill config');
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');
+  expect(labels).toContain('/skill install <skill> <dependency>');
   expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
   expect(labels).toContain('/skill sync <source>');
   expect(labels).toContain('/skill import <source>');
   expect(labels).toContain('/skill import --force <source>');
+});
+
+test('keeps /model submenu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries()
+    .map((entry) => entry.label)
+    .filter(
+      (label) =>
+        label.startsWith('/model ') || label === '/model <info|list|set|…>',
+    );
+
+  expect(labels).toEqual([
+    '/model <info|list|set|…>',
+    '/model clear',
+    '/model default [name]',
+    '/model info',
+    '/model list [provider]',
+    '/model select',
+    '/model set <name>',
+  ]);
 });
 
 test('does not duplicate concierge slash menu entries', () => {
@@ -45,6 +89,66 @@ test('does not duplicate concierge slash menu entries', () => {
   expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+});
+
+test('does not duplicate slash menu rows that resolve to the same command text', () => {
+  const entries = buildTuiSlashMenuEntries();
+  const counts = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = `${entry.label}\n${entry.insertText.trimEnd()}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const duplicates = Array.from(counts.entries()).filter(
+    ([, count]) => count > 1,
+  );
+  expect(duplicates).toEqual([]);
+});
+
+test('hides TUI-only slash menu entries from the web surface', () => {
+  const labels = buildTuiSlashMenuEntries([], 'web').map(
+    (entry) => entry.label,
+  );
+
+  expect(labels).not.toContain('/exit');
+  expect(labels).not.toContain('/paste');
+});
+
+test('keeps slash menu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+  const compareLabels = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(labels).toEqual([...labels].sort(compareLabels));
+});
+
+test('root entries with subcommands include arg hints in labels', () => {
+  const entries = buildTuiSlashMenuEntries();
+  const rootEntries = entries.filter((entry) => entry.depth === 1);
+
+  // Commands with subcommands show <sub1|sub2|…> in the label.
+  const showEntry = rootEntries.find((entry) => entry.id === 'show');
+  expect(showEntry?.label).toBe('/show <all|thinking|tools|none>');
+
+  // Commands with >4 subcommands truncate with ellipsis.
+  const modelEntry = rootEntries.find((entry) => entry.id === 'model');
+  expect(modelEntry?.label).toMatch(/^\/model <.+\|…>$/);
+
+  // Commands with string options show formatted option suffixes.
+  const configEntry = rootEntries.find((entry) => entry.id === 'config');
+  expect(configEntry?.label).toBe('/config [check|reload|set] [key] [value]');
+
+  // Commands with no options or subcommands have plain labels.
+  const statusEntry = rootEntries.find((entry) => entry.id === 'status');
+  expect(statusEntry?.label).toBe('/status');
+
+  // Commands with a custom tuiMenu.label keep their override.
+  const fullautoEntry = rootEntries.find((entry) => entry.id === 'fullauto');
+  expect(fullautoEntry?.label).toMatch(/^\/fullauto/);
 });
 
 test('keeps /skill import visible in the base skill query results', () => {
@@ -73,7 +177,7 @@ test('resolves slash menu queries only at the end of the active line', () => {
 test('fuzzy ranking prefers the model command for compact queries', () => {
   const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), 'mdl');
 
-  expect(ranked[0]?.label).toBe('/model');
+  expect(ranked[0]?.label).toBe('/model <info|list|set|…>');
   expect(ranked.some((entry) => entry.label === '/model set <name>')).toBe(
     true,
   );

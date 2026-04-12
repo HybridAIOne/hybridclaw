@@ -1,12 +1,19 @@
 import path from 'node:path';
 import { marked } from 'marked';
 import type { Transporter } from 'nodemailer';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import type Mail from 'nodemailer/lib/mailer/index.js';
 import sanitizeHtml from 'sanitize-html';
 import { EMAIL_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
+import { extractInlineEmailSubject } from './inline-subject.js';
+import {
+  buildEmailMetadataHeaders,
+  type EmailDeliveryMetadata,
+} from './metadata.js';
 import {
   createOutboundThreadContext,
   ensureReplySubject,
@@ -14,7 +21,6 @@ import {
 } from './threading.js';
 
 const OUTBOUND_DELAY_MS = 350;
-const SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
 const SINGLE_ASTERISK_BOLD_RE =
   /(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*(?=($|[^\w*]))/g;
 const EMAIL_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -53,6 +59,10 @@ export interface EmailSendResult {
   messageIds: string[];
   subject: string;
   threadContext: ThreadContext | null;
+  sentCopies: Array<{
+    messageId: string | null;
+    raw: Buffer;
+  }>;
 }
 
 export interface EmailSendParams {
@@ -62,8 +72,11 @@ export interface EmailSendParams {
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
+  inReplyTo?: string | null;
+  references?: string[] | null;
   selfAddress: string;
   threadContext: ThreadContext | null;
+  metadata?: EmailDeliveryMetadata | null;
   attachment?:
     | {
         filePath: string;
@@ -71,6 +84,11 @@ export interface EmailSendParams {
         mimeType?: string | null;
       }
     | undefined;
+}
+
+interface ExplicitThreadHeaders {
+  inReplyTo?: string;
+  references: string[];
 }
 
 function clampTextChunkLimit(limit: number): number {
@@ -133,28 +151,66 @@ export function renderEmailHtml(text: string): string | undefined {
   ].join('');
 }
 
-function extractInlineSubject(text: string): {
-  subject: string | null;
-  body: string;
-} {
-  const normalized = String(text || '').replace(/\r\n?/g, '\n');
-  const match = normalized.match(SUBJECT_PREFIX_RE);
-  if (!match?.[1]) {
-    return { subject: null, body: normalized.trim() };
-  }
+function normalizeMessageId(raw: string | null | undefined): string | null {
+  const normalized = String(raw || '').trim();
+  return normalized || null;
+}
 
-  const subject = match[1].trim();
-  const body = normalized.slice(match[0].length).trim();
+function normalizeMessageIdList(raw: string[] | null | undefined): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .map((value) => normalizeMessageId(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+}
+
+function resolveExplicitThreadHeaders(
+  params: EmailSendParams,
+): ExplicitThreadHeaders | null {
+  let inReplyTo = normalizeMessageId(params.inReplyTo);
+  const references = normalizeMessageIdList(params.references);
+  if (references.length > 0) {
+    const lastReference = references[references.length - 1];
+    if (!inReplyTo) {
+      inReplyTo = lastReference;
+    } else if (references.includes(inReplyTo)) {
+      if (lastReference !== inReplyTo) {
+        inReplyTo = lastReference;
+      }
+    } else {
+      references.push(inReplyTo);
+    }
+  } else if (inReplyTo) {
+    references.push(inReplyTo);
+  }
+  if (!inReplyTo && references.length === 0) return null;
   return {
-    subject: subject || null,
-    body,
+    ...(inReplyTo ? { inReplyTo } : {}),
+    references,
   };
 }
 
-function buildThreadHeaders(threadContext: ThreadContext | null): {
+function buildThreadHeaders(
+  threadContext: ThreadContext | null,
+  explicitHeaders?: ExplicitThreadHeaders | null,
+): {
   inReplyTo?: string;
   references?: string;
 } {
+  if (explicitHeaders) {
+    return {
+      ...(explicitHeaders.inReplyTo
+        ? { inReplyTo: explicitHeaders.inReplyTo }
+        : {}),
+      ...(explicitHeaders.references.length > 0
+        ? { references: explicitHeaders.references.join(' ') }
+        : {}),
+    };
+  }
+
   if (!threadContext) return {};
 
   const references = [
@@ -175,7 +231,7 @@ function resolveSubjectAndBody(
   subject: string;
   body: string;
 } {
-  const extracted = extractInlineSubject(text);
+  const extracted = extractInlineEmailSubject(text);
   if (threadContext) {
     return {
       subject: ensureReplySubject(threadContext.subject),
@@ -215,12 +271,29 @@ export function prepareEmailTextChunks(
   return options?.allowEmpty ? [] : ['(no content)'];
 }
 
+async function buildRawMailCopy(mail: Mail.Options): Promise<{
+  messageId: string | null;
+  raw: Buffer;
+}> {
+  const composer = new MailComposer(mail);
+  const message = composer.compile();
+  const messageId = normalizeMessageId(message.messageId());
+  return {
+    messageId,
+    raw: await message.build(),
+  };
+}
+
 export async function sendEmail(
   params: EmailSendParams,
 ): Promise<EmailSendResult> {
+  const explicitThreadHeaders = resolveExplicitThreadHeaders(params);
+  const subjectThreadContext = explicitThreadHeaders
+    ? null
+    : params.threadContext;
   const resolved = resolveSubjectAndBody(
     params.body,
-    params.threadContext,
+    subjectThreadContext,
     params.subject,
   );
   const chunks = prepareEmailTextChunks(resolved.body, {
@@ -234,9 +307,23 @@ export async function sendEmail(
   // Attachment-only sends still need a single outbound message when the body
   // is intentionally empty.
   const effectiveChunks = chunks.length > 0 ? chunks : [''];
+  const metadataHeaders = buildEmailMetadataHeaders(params.metadata);
 
   const messageIds: string[] = [];
-  let nextThreadContext = params.threadContext;
+  const sentCopies: Array<{ messageId: string | null; raw: Buffer }> = [];
+  let nextThreadContext = explicitThreadHeaders
+    ? {
+        subject: resolved.subject,
+        messageId:
+          explicitThreadHeaders.inReplyTo ||
+          explicitThreadHeaders.references[
+            explicitThreadHeaders.references.length - 1
+          ] ||
+          '',
+        references: explicitThreadHeaders.references,
+      }
+    : params.threadContext;
+  let firstChunkHeaders = explicitThreadHeaders;
   for (let index = 0; index < effectiveChunks.length; index += 1) {
     const partPrefix =
       effectiveChunks.length > 1
@@ -244,7 +331,7 @@ export async function sendEmail(
         : '';
     const text = `${partPrefix}${effectiveChunks[index]}`.trim();
     const html = renderEmailHtml(text);
-    const info = (await params.transport.sendMail({
+    const mail: Mail.Options = {
       from: params.selfAddress,
       to: params.to,
       ...(cc ? { cc } : {}),
@@ -252,7 +339,8 @@ export async function sendEmail(
       subject: resolved.subject,
       text: text || undefined,
       html,
-      ...buildThreadHeaders(nextThreadContext),
+      ...(metadataHeaders ? { headers: metadataHeaders } : {}),
+      ...buildThreadHeaders(nextThreadContext, firstChunkHeaders),
       attachments:
         params.attachment && index === 0
           ? [
@@ -265,9 +353,16 @@ export async function sendEmail(
               },
             ]
           : undefined,
+    };
+    const rawCopy = await buildRawMailCopy(mail);
+    sentCopies.push(rawCopy);
+
+    const info = (await params.transport.sendMail({
+      ...mail,
+      ...(rawCopy.messageId ? { messageId: rawCopy.messageId } : {}),
     })) as MailSendInfo;
 
-    const messageId = String(info.messageId || '').trim();
+    const messageId = String(info.messageId || rawCopy.messageId || '').trim();
     const accepted = normalizeRecipientList(info.accepted);
     const rejected = normalizeRecipientList(info.rejected);
     const pending = normalizeRecipientList(info.pending);
@@ -309,6 +404,7 @@ export async function sendEmail(
           resolved.subject,
         ) || nextThreadContext;
     }
+    firstChunkHeaders = null;
 
     if (index < effectiveChunks.length - 1) {
       await sleep(OUTBOUND_DELAY_MS);
@@ -319,5 +415,6 @@ export async function sendEmail(
     messageIds,
     subject: resolved.subject,
     threadContext: nextThreadContext,
+    sentCopies,
   };
 }

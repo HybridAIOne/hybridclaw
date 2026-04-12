@@ -35,8 +35,43 @@ export type PromptHookName =
   | 'runtime'
   | 'session-context';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
+export type WorkspacePromptPartName =
+  | 'agents'
+  | 'soul'
+  | 'identity'
+  | 'user'
+  | 'tools'
+  | 'memory-file'
+  | 'heartbeat'
+  | 'bootstrap-file'
+  | 'opening'
+  | 'boot';
+export type PromptPartName =
+  | ExtendedPromptHookName
+  | WorkspacePromptPartName
+  | 'skills';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
+export const PROMPT_PART_NAMES: PromptPartName[] = [
+  'bootstrap',
+  'memory',
+  'retrieval',
+  'safety',
+  'runtime',
+  'session-context',
+  'proactivity',
+  'skills',
+  'agents',
+  'soul',
+  'identity',
+  'user',
+  'tools',
+  'memory-file',
+  'heartbeat',
+  'bootstrap-file',
+  'opening',
+  'boot',
+];
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;
@@ -58,6 +93,8 @@ export interface PromptHookContext {
   explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
@@ -76,6 +113,89 @@ interface PromptHook {
     context: PromptHookContext,
   ) => boolean;
   run: (context: PromptHookContext) => string;
+}
+
+const WORKSPACE_FILE_PROMPT_PARTS: Record<string, WorkspacePromptPartName> = {
+  'AGENTS.md': 'agents',
+  'SOUL.md': 'soul',
+  'IDENTITY.md': 'identity',
+  'USER.md': 'user',
+  'TOOLS.md': 'tools',
+  'MEMORY.md': 'memory-file',
+  'HEARTBEAT.md': 'heartbeat',
+  'BOOTSTRAP.md': 'bootstrap-file',
+  'OPENING.md': 'opening',
+  'BOOT.md': 'boot',
+};
+
+const BOOTSTRAP_SUBPARTS = new Set<PromptPartName>([
+  'skills',
+  'agents',
+  'soul',
+  'identity',
+  'user',
+  'tools',
+  'memory-file',
+  'heartbeat',
+  'bootstrap-file',
+  'opening',
+  'boot',
+]);
+
+function buildPromptPartSelection(context: PromptHookContext): {
+  include: Set<PromptPartName>;
+  omit: Set<PromptPartName>;
+} {
+  return {
+    include: new Set(context.includePromptParts || []),
+    omit: new Set(context.omitPromptParts || []),
+  };
+}
+
+function selectionHasBootstrapContent(selection: {
+  include: Set<PromptPartName>;
+}): boolean {
+  for (const part of BOOTSTRAP_SUBPARTS) {
+    if (selection.include.has(part)) return true;
+  }
+  return false;
+}
+
+function isBootstrapHookSelected(selection: {
+  include: Set<PromptPartName>;
+  omit: Set<PromptPartName>;
+}): boolean {
+  if (selection.omit.has('bootstrap')) return false;
+  if (selection.include.size === 0) return true;
+  return (
+    selection.include.has('bootstrap') ||
+    selectionHasBootstrapContent(selection)
+  );
+}
+
+function isHookSelected(
+  hookName: ExtendedPromptHookName,
+  context: PromptHookContext,
+): boolean {
+  const selection = buildPromptPartSelection(context);
+  if (hookName === 'bootstrap') {
+    return isBootstrapHookSelected(selection);
+  }
+  if (selection.omit.has(hookName)) return false;
+  if (selection.include.size === 0) return true;
+  return selection.include.has(hookName);
+}
+
+function isBootstrapPartSelected(
+  part: PromptPartName,
+  context: PromptHookContext,
+): boolean {
+  const selection = buildPromptPartSelection(context);
+  if (!isBootstrapHookSelected(selection)) return false;
+  if (selection.omit.has(part)) return false;
+  if (selection.include.size === 0) return true;
+  if (selection.include.has('bootstrap')) return true;
+  return selection.include.has(part);
 }
 
 export function buildSessionSummaryPrompt(
@@ -113,11 +233,16 @@ function buildSkillsSection(skillsPrompt: string): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId);
+  const contextFiles = loadBootstrapFiles(context.agentId).filter((file) => {
+    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+    return part ? isBootstrapPartSelected(part, context) : true;
+  });
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
-    : buildSkillsSection(buildSkillsPrompt(context.skills));
+    : isBootstrapPartSelected('skills', context)
+      ? buildSkillsSection(buildSkillsPrompt(context.skills))
+      : '';
   return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
 }
 
@@ -195,7 +320,7 @@ function buildSafetyHook(context: PromptHookContext): string {
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
     CONTAINER_SANDBOX_MODE === 'host'
-      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, and prefer `/tmp` for temporary artifacts. There is no `/workspace` directory; use the real workspace path from Runtime Metadata.'
+      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, prefer `/tmp` for temporary artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
       : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
@@ -208,7 +333,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
     'For ingested email conversations, `message` with `action="read"` can inspect stored thread history for the current email session or an explicit email address target. It does not query arbitrary mailbox-wide unseen mail.',
     'For send intents like "send message", "post in", "DM", "tell X", "notify X", or "message X", call `message` with `action="send"`.',
-    'For `message` with `action="send"`, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`). `send` supports Discord targets, the current Teams conversation, WhatsApp JIDs/phone numbers, email addresses, and local channels like `tui`.',
+    'For `message` with `action="send"`, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`). `send` supports Discord targets, Telegram `telegram:<chatId>` targets, the current Teams conversation, WhatsApp JIDs/phone numbers, email addresses, and local channels like `tui`.',
     'For local Discord, the current Teams conversation, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
     'If you already created a file earlier in this session and the user asks to post/upload/send it here, reuse that existing `filePath` with `message action="send"` instead of replying with the path alone.',
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
@@ -220,6 +345,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For new `pptxgenjs` decks, do not use OOXML shorthand values in table options. Never set table-cell `valign: "mid"` and never emit raw `anchor: "mid"`. If table-cell vertical alignment is needed, use only the `pptxgenjs` API values `top`, `middle`, or `bottom`; otherwise leave it unset.',
     'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
+    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
     ...(channelMessageToolHints.length > 0
       ? ['', '### Message Tool Hints', ...channelMessageToolHints]
@@ -281,10 +407,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     'Example 2',
     'User: "Remind me tomorrow at 09:00 to submit report"',
-    'Tool call: `cron` {"action":"add","at":"<ISO-8601 timestamp>","prompt":"Reply with: submit report"}',
+    'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
@@ -315,7 +443,7 @@ function buildSafetyHook(context: PromptHookContext): string {
 
   if (context.purpose === 'memory-flush') {
     lines.push(
-      'This is a pre-compaction memory flush turn. Persist only durable memory worth keeping.',
+      "This is a pre-compaction memory flush turn. Persist only durable memory worth keeping into today's daily memory note.",
     );
   }
 
@@ -408,7 +536,7 @@ function buildProactivityHook(context: PromptHookContext): string {
 
   if (context.purpose === 'memory-flush') {
     lines.push(
-      'This is a memory-flush pass. Prioritize preserving durable context over immediate user-facing output.',
+      "This is a memory-flush pass. Prioritize preserving durable context into today's daily memory note over immediate user-facing output.",
     );
   }
 
@@ -569,6 +697,7 @@ export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
 
   for (const hook of PROMPT_HOOKS) {
     if (!isHookAllowedForMode(hook.name, mode)) continue;
+    if (!isHookSelected(hook.name, context)) continue;
     if (!hook.isEnabled(runtime, context)) continue;
     const content = hook.run(context).trim();
     if (!content) continue;

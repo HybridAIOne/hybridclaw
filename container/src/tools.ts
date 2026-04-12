@@ -1,7 +1,11 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  currentDateStampInTimezone,
+  readUserTimezoneFile,
+} from '../shared/workspace-time.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -77,6 +81,7 @@ function guardCommand(command: string): string | null {
 
 type ScheduledTaskInfo = {
   id: number;
+  channelId: string;
   cronExpr: string;
   runAt: string | null;
   everyMs: number | null;
@@ -101,18 +106,25 @@ let currentModelProvider:
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm' = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
 let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
+let currentModelMaxTokens: number | undefined;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
+let memoryTimezoneCache: {
+  userPath: string;
+  mtimeMs: number | null;
+  value: string | undefined;
+} | null = null;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
@@ -171,6 +183,13 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
+const BASH_DOCKER_CONTAINER = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
+).trim();
+const BASH_DOCKER_CWD = String(
+  process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
+).trim();
+const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -185,6 +204,182 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
     out.push(id);
   }
   return out;
+}
+
+function runDockerExecBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-w',
+      BASH_DOCKER_CWD || '/app',
+      BASH_DOCKER_CONTAINER,
+      'bash',
+      '-lc',
+      params.command,
+    ],
+    {
+      timeout: params.timeoutMs,
+      encoding: 'utf-8',
+      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+      env: { ...process.env },
+    },
+  );
+
+  if (result.status === 0) {
+    return formatBashOutput(
+      replaceWorkspaceRootInOutput(result.stdout || '(no output)'),
+    );
+  }
+
+  const combinedOutput = [result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  const timeoutLikely =
+    result.error?.name === 'Error' &&
+    /ETIMEDOUT|timed out/i.test(result.error.message || '');
+  const summary = timeoutLikely
+    ? `Command timed out after ${params.timeoutMs}ms`
+    : result.error?.message ||
+      `docker exec failed with exit code ${result.status ?? 'unknown'}`;
+  if (!combinedOutput) return failTool(`Error: ${summary}`);
+  return failTool(
+    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+  );
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveTaskSandboxPath(userPath: string): string | null {
+  const raw = String(userPath || '').trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/\\/g, '/');
+  const displayRoot = path.posix.normalize(WORKSPACE_ROOT_DISPLAY);
+  if (path.posix.isAbsolute(normalized)) {
+    const absolute = path.posix.normalize(normalized);
+    if (absolute === displayRoot || absolute.startsWith(`${displayRoot}/`)) {
+      return absolute;
+    }
+    return null;
+  }
+
+  let clean = path.posix.normalize(normalized);
+  const displayBaseName = path.posix.basename(displayRoot);
+  if (
+    displayRoot !== '/workspace' &&
+    displayBaseName &&
+    displayBaseName !== '.' &&
+    displayBaseName !== '/' &&
+    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
+  ) {
+    clean =
+      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
+  }
+  if (clean === '..' || clean.startsWith('../')) return null;
+  return clean === '.' ? displayRoot : path.posix.join(displayRoot, clean);
+}
+
+function runTaskSandboxDocker(params: {
+  args: string[];
+  timeoutMs?: number;
+  input?: string;
+}): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+} {
+  const result = spawnSync('docker', params.args, {
+    encoding: 'utf-8',
+    input: params.input,
+    timeout: params.timeoutMs,
+    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+    env: { ...process.env },
+  });
+  return {
+    status: typeof result.status === 'number' ? result.status : null,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.error ?? undefined,
+  };
+}
+
+function ensureTaskSandboxSuccess(
+  result: {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    error?: Error;
+  },
+  fallback: string,
+): void {
+  if (result.status === 0) return;
+  const detail = [result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  failTool(`Error: ${detail || result.error?.message || fallback}`);
+}
+
+function copyTaskSandboxFileToTemp(sandboxPath: string): {
+  tempDir: string;
+  localPath: string;
+} {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-taskfs-'));
+  const localPath = path.join(
+    tempDir,
+    path.posix.basename(sandboxPath) || 'file',
+  );
+  const result = runTaskSandboxDocker({
+    args: ['cp', `${BASH_DOCKER_CONTAINER}:${sandboxPath}`, localPath],
+  });
+  if (result.status !== 0) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    if (/no such file|could not find|not found/i.test(detail)) {
+      failTool(
+        `Error: File not found: ${replaceWorkspaceRootInOutput(sandboxPath)}`,
+      );
+    }
+    failTool(
+      `Error: ${detail.trim() || 'Failed to copy file from task sandbox'}`,
+    );
+  }
+  return { tempDir, localPath };
+}
+
+function writeTempFileToTaskSandbox(
+  localPath: string,
+  sandboxPath: string,
+): void {
+  const parentDir = path.posix.dirname(sandboxPath);
+  ensureTaskSandboxSuccess(
+    runTaskSandboxDocker({
+      args: [
+        'exec',
+        '-i',
+        BASH_DOCKER_CONTAINER,
+        'bash',
+        '-lc',
+        `mkdir -p ${shellEscape(parentDir)}`,
+      ],
+    }),
+    'Failed to prepare task sandbox directory',
+  );
+  ensureTaskSandboxSuccess(
+    runTaskSandboxDocker({
+      args: ['cp', localPath, `${BASH_DOCKER_CONTAINER}:${sandboxPath}`],
+    }),
+    'Failed to copy file into task sandbox',
+  );
 }
 
 function resolveGatewayDiscordChannelFallback(): string {
@@ -303,6 +498,7 @@ export function setModelContext(
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
     | undefined,
   baseUrl: string,
@@ -310,6 +506,7 @@ export function setModelContext(
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
+  maxTokens?: number,
 ): void {
   currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
@@ -317,6 +514,10 @@ export function setModelContext(
   currentModelName = String(model || '').trim();
   currentChatbotId = String(chatbotId || '').trim();
   currentModelHeaders = { ...(requestHeaders || {}) };
+  currentModelMaxTokens =
+    typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
+      ? Math.floor(maxTokens)
+      : undefined;
   setBrowserModelContext(
     provider,
     baseUrl,
@@ -324,6 +525,7 @@ export function setModelContext(
     model,
     chatbotId,
     requestHeaders,
+    currentModelMaxTokens,
   );
 }
 
@@ -551,6 +753,12 @@ function resolveGatewayPluginToolUrl(): string | null {
   return `${base}/api/plugin/tool`;
 }
 
+function resolveGatewayHttpRequestUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/http/request`;
+}
+
 async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
@@ -696,6 +904,61 @@ async function callGatewayPluginTool(
     if (typeof result === 'string') return result;
     if (result != null) return JSON.stringify(result, null, 2);
   }
+  return rawText;
+}
+
+async function callGatewayHttpRequest(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const url = resolveGatewayHttpRequestUrl();
+  if (!url) {
+    return failTool(
+      'Error: http_request is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(args),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: http_request dispatch failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    return failTool(`Error: ${errorText}`);
+  }
+
+  if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText;
 }
 
@@ -1127,17 +1390,51 @@ function normalizeDateStamp(input: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function resolveMemoryTimezone(): string | undefined {
+  try {
+    const userPath = safeJoin('USER.md');
+    let mtimeMs: number | null = null;
+    try {
+      mtimeMs = fs.statSync(userPath).mtimeMs;
+    } catch {
+      mtimeMs = null;
+    }
+
+    if (
+      memoryTimezoneCache &&
+      memoryTimezoneCache.userPath === userPath &&
+      memoryTimezoneCache.mtimeMs === mtimeMs
+    ) {
+      return memoryTimezoneCache.value;
+    }
+
+    const value = mtimeMs == null ? undefined : readUserTimezoneFile(userPath);
+    memoryTimezoneCache = {
+      userPath,
+      mtimeMs,
+      value,
+    };
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 function currentDateStamp(): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const year = parts.find((p) => p.type === 'year')?.value;
-  const month = parts.find((p) => p.type === 'month')?.value;
-  const day = parts.find((p) => p.type === 'day')?.value;
-  if (year && month && day) return `${year}-${month}-${day}`;
-  return new Date().toISOString().slice(0, 10);
+  return currentDateStampInTimezone(resolveMemoryTimezone());
+}
+
+function isMemoryWriteAction(action: string): boolean {
+  return (
+    action === 'append' ||
+    action === 'write' ||
+    action === 'replace' ||
+    action === 'remove'
+  );
+}
+
+function isTodayDailyMemoryPath(relativePath: string): boolean {
+  return relativePath === `memory/${currentDateStamp()}.md`;
 }
 
 function normalizeMemoryFilePath(rawPath: unknown): string | null {
@@ -1396,6 +1693,7 @@ function currentAuxiliaryFallbackContext() {
     model: currentModelName,
     chatbotId: currentChatbotId,
     requestHeaders: { ...currentModelHeaders },
+    maxTokens: currentModelMaxTokens,
   };
 }
 
@@ -1641,7 +1939,19 @@ async function executeToolInternal(
   name: string,
   argsJson: string,
 ): Promise<string> {
-  const args = JSON.parse(argsJson);
+  let parsedArgs: unknown;
+  try {
+    parsedArgs = JSON.parse(argsJson);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return failTool(
+      `Error: tool arguments were malformed JSON (${detail}). Retry with a valid JSON object; for very large file contents, split the work into smaller write/edit calls.`,
+    );
+  }
+  const args =
+    parsedArgs && typeof parsedArgs === 'object'
+      ? (parsedArgs as Record<string, any>)
+      : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
   if (mcpClientManager?.isKnownTool(name)) {
@@ -1670,102 +1980,187 @@ async function executeToolInternal(
       if (typeof args.path !== 'string' || args.path.trim() === '') {
         return failTool('Error: path is required');
       }
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const lines = content.split('\n');
-      const totalFileLines = lines.length;
-
-      const rawOffset =
-        typeof args.offset === 'number' && Number.isFinite(args.offset)
-          ? args.offset
-          : 1;
-      const startLine = Math.max(1, Math.floor(rawOffset));
-      if (startLine > totalFileLines) {
-        return failTool(
-          `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`,
-        );
-      }
-
-      const rawLimit =
-        typeof args.limit === 'number' &&
-        Number.isFinite(args.limit) &&
-        args.limit > 0
-          ? Math.floor(args.limit)
-          : undefined;
-
-      let selected = lines.slice(startLine - 1);
-      let userLimitedLines: number | undefined;
-      if (rawLimit !== undefined) {
-        selected = selected.slice(0, rawLimit);
-        userLimitedLines = selected.length;
-      }
-
-      const selectedContent = selected.join('\n');
-      const truncation = truncateReadContent(selectedContent);
-      if (truncation.firstLineExceedsLimit) {
-        const firstSelectedLine = selected[0] ?? '';
-        const firstLineSize = formatBytes(
-          Buffer.byteLength(firstSelectedLine, 'utf-8'),
-        );
-        return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
-      }
-
-      if (truncation.truncated) {
-        const endLine = startLine + truncation.outputLines - 1;
-        const nextOffset = endLine + 1;
-        if (truncation.truncatedBy === 'lines') {
-          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+      let tempDirToCleanup: string | null = null;
+      try {
+        let content = '';
+        if (TASK_SANDBOX_FS_ENABLED) {
+          const sandboxPath = resolveTaskSandboxPath(args.path);
+          if (!sandboxPath) {
+            return failTool(`Error: Path escapes workspace: ${args.path}`);
+          }
+          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          tempDirToCleanup = copied.tempDir;
+          content = fs.readFileSync(copied.localPath, 'utf-8');
+        } else {
+          const filePath = safeJoin(args.path);
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${args.path}`);
+          content = fs.readFileSync(filePath, 'utf-8');
         }
-        return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
-      }
+        const lines = content.split('\n');
+        const totalFileLines = lines.length;
 
-      if (userLimitedLines !== undefined) {
-        const linesFromStart = startLine - 1 + userLimitedLines;
-        if (linesFromStart < totalFileLines) {
-          const remaining = totalFileLines - linesFromStart;
-          const nextOffset = startLine + userLimitedLines;
-          return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+        const rawOffset =
+          typeof args.offset === 'number' && Number.isFinite(args.offset)
+            ? args.offset
+            : 1;
+        const startLine = Math.max(1, Math.floor(rawOffset));
+        if (startLine > totalFileLines) {
+          return failTool(
+            `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`,
+          );
+        }
+
+        const rawLimit =
+          typeof args.limit === 'number' &&
+          Number.isFinite(args.limit) &&
+          args.limit > 0
+            ? Math.floor(args.limit)
+            : undefined;
+
+        let selected = lines.slice(startLine - 1);
+        let userLimitedLines: number | undefined;
+        if (rawLimit !== undefined) {
+          selected = selected.slice(0, rawLimit);
+          userLimitedLines = selected.length;
+        }
+
+        const selectedContent = selected.join('\n');
+        const truncation = truncateReadContent(selectedContent);
+        if (truncation.firstLineExceedsLimit) {
+          const firstSelectedLine = selected[0] ?? '';
+          const firstLineSize = formatBytes(
+            Buffer.byteLength(firstSelectedLine, 'utf-8'),
+          );
+          return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
+        }
+
+        if (truncation.truncated) {
+          const endLine = startLine + truncation.outputLines - 1;
+          const nextOffset = endLine + 1;
+          if (truncation.truncatedBy === 'lines') {
+            return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+          }
+          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+        }
+
+        if (userLimitedLines !== undefined) {
+          const linesFromStart = startLine - 1 + userLimitedLines;
+          if (linesFromStart < totalFileLines) {
+            const remaining = totalFileLines - linesFromStart;
+            const nextOffset = startLine + userLimitedLines;
+            return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+          }
+        }
+
+        return truncation.content;
+      } finally {
+        if (tempDirToCleanup) {
+          fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
         }
       }
-
-      return truncation.content;
     }
 
     case 'write': {
-      const filePath = safeJoin(args.path);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, args.contents);
+      if (TASK_SANDBOX_FS_ENABLED) {
+        const sandboxPath = resolveTaskSandboxPath(args.path);
+        if (!sandboxPath) {
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        }
+        const tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
+        );
+        const localPath = path.join(
+          tempDir,
+          path.posix.basename(sandboxPath) || 'file',
+        );
+        try {
+          fs.writeFileSync(localPath, args.contents, 'utf-8');
+          writeTempFileToTaskSandbox(localPath, sandboxPath);
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } else {
+        const filePath = safeJoin(args.path);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, args.contents);
+      }
       return `Wrote ${args.contents.length} bytes to ${args.path}`;
     }
 
     case 'edit': {
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      let content = fs.readFileSync(filePath, 'utf-8');
-      const count = args.count || 1;
-      for (let i = 0; i < count; i++) {
-        const idx = content.indexOf(args.old);
-        if (idx === -1) {
-          if (i === 0) return failTool(`Error: Text not found in ${args.path}`);
-          break;
+      let tempDirToCleanup: string | null = null;
+      try {
+        let content = '';
+        let filePath = '';
+        let sandboxPath = '';
+        if (TASK_SANDBOX_FS_ENABLED) {
+          sandboxPath = resolveTaskSandboxPath(args.path) || '';
+          if (!sandboxPath) {
+            return failTool(`Error: Path escapes workspace: ${args.path}`);
+          }
+          const copied = copyTaskSandboxFileToTemp(sandboxPath);
+          tempDirToCleanup = copied.tempDir;
+          filePath = copied.localPath;
+          content = fs.readFileSync(filePath, 'utf-8');
+        } else {
+          filePath = safeJoin(args.path);
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${args.path}`);
+          content = fs.readFileSync(filePath, 'utf-8');
         }
-        content =
-          content.slice(0, idx) +
-          args.new +
-          content.slice(idx + args.old.length);
+
+        const count = args.count || 1;
+        for (let i = 0; i < count; i++) {
+          const idx = content.indexOf(args.old);
+          if (idx === -1) {
+            if (i === 0)
+              return failTool(`Error: Text not found in ${args.path}`);
+            break;
+          }
+          content =
+            content.slice(0, idx) +
+            args.new +
+            content.slice(idx + args.old.length);
+        }
+
+        fs.writeFileSync(filePath, content);
+        if (TASK_SANDBOX_FS_ENABLED) {
+          writeTempFileToTaskSandbox(filePath, sandboxPath);
+        }
+        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
+      } finally {
+        if (tempDirToCleanup) {
+          fs.rmSync(tempDirToCleanup, { recursive: true, force: true });
+        }
       }
-      fs.writeFileSync(filePath, content);
-      return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
     }
 
     case 'delete': {
-      const filePath = safeJoin(args.path);
-      if (!fs.existsSync(filePath))
-        return failTool(`Error: File not found: ${args.path}`);
-      fs.unlinkSync(filePath);
+      if (TASK_SANDBOX_FS_ENABLED) {
+        const sandboxPath = resolveTaskSandboxPath(args.path);
+        if (!sandboxPath) {
+          return failTool(`Error: Path escapes workspace: ${args.path}`);
+        }
+        ensureTaskSandboxSuccess(
+          runTaskSandboxDocker({
+            args: [
+              'exec',
+              '-i',
+              BASH_DOCKER_CONTAINER,
+              'bash',
+              '-lc',
+              `rm -f -- ${shellEscape(sandboxPath)}`,
+            ],
+          }),
+          'Failed to delete file from task sandbox',
+        );
+      } else {
+        const filePath = safeJoin(args.path);
+        if (!fs.existsSync(filePath))
+          return failTool(`Error: File not found: ${args.path}`);
+        fs.unlinkSync(filePath);
+      }
       return `Deleted ${args.path}`;
     }
 
@@ -1787,6 +2182,12 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
+      if (BASH_DOCKER_CONTAINER) {
+        return runDockerExecBash({
+          command: args.command,
+          timeoutMs,
+        });
+      }
       try {
         // Strip secrets from subprocess environment (belt-and-suspenders)
         const cleanEnv = { ...process.env };
@@ -1854,12 +2255,20 @@ async function executeToolInternal(
           'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md',
         );
       }
+      if (
+        isMemoryWriteAction(action) &&
+        !isTodayDailyMemoryPath(relativePath)
+      ) {
+        return failTool(
+          `Error: memory write actions are restricted to today's daily note (memory/${currentDateStamp()}.md). Use MEMORY.md only through dream consolidation.`,
+        );
+      }
 
       const filePath = safeJoin(relativePath);
       if (action === 'list') {
         const files = listMemoryFiles();
         if (files.length === 0) {
-          return 'No memory files found yet. Use action="append" with MEMORY.md or memory/YYYY-MM-DD.md.';
+          return `No memory files found yet. Use action="append" with memory/${currentDateStamp()}.md.`;
         }
         return files.join('\n');
       }
@@ -2070,6 +2479,8 @@ async function executeToolInternal(
           readStringValue(args.subject) || readStringValue(args.title);
         const cc = readStringListValue(args.cc);
         const bcc = readStringListValue(args.bcc);
+        const inReplyTo = readStringValue(args.inReplyTo);
+        const references = readStringListValue(args.references);
         const filePath =
           readStringValue(args.filePath) ||
           readStringValue(args.attachmentPath) ||
@@ -2110,6 +2521,8 @@ async function executeToolInternal(
         if (subject) payload.subject = subject;
         if (cc) payload.cc = cc;
         if (bcc) payload.bcc = bcc;
+        if (inReplyTo) payload.inReplyTo = inReplyTo;
+        if (references) payload.references = references;
         if (filePath) payload.filePath = filePath;
         if (components !== undefined) payload.components = components;
 
@@ -2413,6 +2826,10 @@ async function executeToolInternal(
       return `${lines.join('\n')}\n\n${header}${outputText}`;
     }
 
+    case 'http_request': {
+      return callGatewayHttpRequest(args);
+    }
+
     case 'web_search': {
       const { webSearch } = await import('./web-search.js');
       return await webSearch(
@@ -2475,7 +2892,8 @@ async function executeToolInternal(
             else schedule = `every ${Math.round(secs / 3600)}h`;
           } else schedule = t.cronExpr;
           const status = t.enabled ? 'enabled' : 'disabled';
-          return `#${t.id} [${status}] ${schedule} — ${t.prompt}`;
+          const destination = t.channelId ? ` -> ${t.channelId}` : '';
+          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}`;
         });
         return lines.join('\n');
       }
@@ -2487,6 +2905,8 @@ async function executeToolInternal(
           readStringValue(args.text);
         if (!promptInput) return failTool('Error: prompt is required');
         const prompt = promptInput;
+        const channelId =
+          readStringValue(args.channel) || readStringValue(args.channelId);
         const atSeconds = readPositiveNumberValue(
           args.at_seconds ?? args.atSeconds,
         );
@@ -2509,8 +2929,9 @@ async function executeToolInternal(
             action: 'add',
             runAt: runAt.toISOString(),
             prompt,
+            channelId,
           });
-          return `Scheduled one-shot task at ${runAt.toISOString()}: ${prompt}`;
+          return `Scheduled one-shot task at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.cron) {
@@ -2518,8 +2939,9 @@ async function executeToolInternal(
             action: 'add',
             cronExpr: args.cron,
             prompt,
+            channelId,
           });
-          return `Scheduled recurring task with cron "${args.cron}": ${prompt}`;
+          return `Scheduled recurring task with cron "${args.cron}"${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -2531,8 +2953,9 @@ async function executeToolInternal(
             action: 'add',
             everyMs,
             prompt,
+            channelId,
           });
-          return `Scheduled interval task every ${secs}s: ${prompt}`;
+          return `Scheduled interval task every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         return failTool(
@@ -2558,13 +2981,19 @@ async function executeToolInternal(
         );
       }
 
-      const modeRaw =
+      const rawModeValue =
         typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+      const modeRaw: '' | 'single' | 'parallel' | 'chain' =
+        rawModeValue === 'single' ||
+        rawModeValue === 'parallel' ||
+        rawModeValue === 'chain'
+          ? rawModeValue
+          : '';
       if (
-        modeRaw &&
-        modeRaw !== 'single' &&
-        modeRaw !== 'parallel' &&
-        modeRaw !== 'chain'
+        rawModeValue &&
+        rawModeValue !== 'single' &&
+        rawModeValue !== 'parallel' &&
+        rawModeValue !== 'chain'
       ) {
         return failTool(
           'Error: mode must be one of "single", "parallel", or "chain".',
@@ -2772,8 +3201,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'bash',
-      description:
-        'Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal /workspace paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.',
+      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
       parameters: {
         type: 'object',
         properties: {
@@ -2798,7 +3226,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        'Manage durable agent memory files. Supports MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Actions: read, append, write, replace, remove, list, search. Memory files are char-bounded to prevent unbounded growth. Use this proactively for durable facts/preferences; do not wait to be explicitly asked to remember important context.',
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -2810,7 +3238,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           file_path: {
             type: 'string',
             description:
-              'Target file path. Allowed: MEMORY.md, USER.md, memory/YYYY-MM-DD.md',
+              "Target file path. Read/search/list allow MEMORY.md, USER.md, memory/YYYY-MM-DD.md. Write actions only allow today's memory/YYYY-MM-DD.md.",
           },
           target: {
             type: 'string',
@@ -2873,7 +3301,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channelId: {
             type: 'string',
             description:
-              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
+              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, email addresses, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
           },
           guildId: {
             type: 'string',
@@ -2945,6 +3373,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             },
             description:
               'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+          },
+          inReplyTo: {
+            type: 'string',
+            description:
+              'Optional email Message-ID for the parent message being replied to on action="send" when channelId/to targets an email address. Use the latest message in the thread.',
+          },
+          references: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional ordered email Message-ID chain for the References header on action="send" when channelId/to targets an email address. End the list with the same parent message used for inReplyTo.',
           },
           filePath: {
             type: 'string',
@@ -3018,12 +3459,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           target: {
             type: 'string',
             description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
           to: {
             type: 'string',
             description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
           },
         },
         required: ['action'],
@@ -3129,6 +3570,86 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'http_request',
+      description:
+        'Call an HTTP or HTTPS API through the gateway. Use this for structured API requests instead of `bash` + `curl`, especially when auth is needed. Preferred auth path: set `bearerSecretName` or `secretHeaders` so the gateway injects the real stored secret without exposing it to the model. You may also use strict placeholders like `<secret:MY_API_KEY>` inside headers, `body`, or `json` values. Matching URL auth rules configured in the gateway are applied automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: {
+            type: 'string',
+            description: 'HTTP or HTTPS URL to request.',
+          },
+          method: {
+            type: 'string',
+            description:
+              'HTTP method such as GET, POST, PUT, PATCH, or DELETE. Defaults to GET.',
+          },
+          headers: {
+            type: 'object',
+            description:
+              'Optional request headers. Do not place real secret values here; use bearerSecretName, secretHeaders, or <secret:NAME> placeholders instead.',
+          },
+          body: {
+            type: 'string',
+            description:
+              'Optional raw text request body. Use `json` instead for JSON payloads.',
+          },
+          json: {
+            type: 'object',
+            description:
+              'Optional structured JSON payload. This is serialized automatically and defaults Content-Type to application/json.',
+          },
+          bearerSecretName: {
+            type: 'string',
+            description:
+              'Name of a stored secret to inject as `Authorization: Bearer <secret>`.',
+          },
+          secretHeaders: {
+            type: 'array',
+            description:
+              'Additional secret-backed headers to inject without exposing raw values.',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Header name, for example `X-API-Key`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to inject.',
+                },
+                prefix: {
+                  type: 'string',
+                  description:
+                    'Optional prefix prepended before the secret value, for example `Bearer`. Use `none` for raw secret values.',
+                },
+              },
+              required: ['name', 'secretName'],
+            },
+          },
+          replaceSecretPlaceholders: {
+            type: 'boolean',
+            description:
+              'When true (default), replace `<secret:NAME>` placeholders inside headers, body, and json values.',
+          },
+          timeoutMs: {
+            type: 'number',
+            description: 'Optional timeout in milliseconds.',
+          },
+          maxResponseBytes: {
+            type: 'number',
+            description: 'Optional maximum response size in bytes.',
+          },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'web_search',
       description:
         'Search the web for current information. Returns titles, URLs, and snippets. Use before web_fetch to discover relevant URLs. Providers: auto (default), brave, perplexity, tavily, duckduckgo, searxng.',
@@ -3169,15 +3690,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'vision_analyze',
-      description:
-        'Analyze a current-turn image attachment using vision. Prefer local attachment paths from /workspace, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.',
+      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
-            description:
-              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
@@ -3207,8 +3726,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           image_url: {
             type: 'string',
-            description:
-              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
@@ -3315,9 +3833,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds)\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence).',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself.',
       parameters: {
         type: 'object',
         properties: {
@@ -3349,6 +3867,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description:
               'Interval in seconds for simple recurring schedule (minimum 10)',
+          },
+          channel: {
+            type: 'string',
+            description:
+              'Optional delivery channel override for "add" (for example an email address, Discord channel id, Telegram target, iMessage handle, or "tui")',
           },
           taskId: {
             type: 'number',

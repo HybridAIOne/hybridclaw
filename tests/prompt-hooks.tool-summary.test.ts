@@ -21,7 +21,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
     '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
   );
   expect(summary).toContain(
-    '**Web**: `web_search`, `web_fetch`, `web_extract`',
+    '**Web**: `web_search`, `web_fetch`, `web_extract`, `http_request`',
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
@@ -61,6 +61,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return {
     name: 'pdf',
     description: 'Use this skill for PDF work.',
+    category: 'office',
     userInvocable: true,
     disableModelInvocation: false,
     always: false,
@@ -110,6 +111,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
+  expect(prompt).toContain('<category>office</category>');
   expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
   expect(prompt).toContain(
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
@@ -151,6 +153,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
   );
   expect(prompt).toContain(
+    'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context',
+  );
+  expect(prompt).toContain(
     'Follow the runtime capability hint for Office QA/export steps instead of assuming tools like `soffice` or `pdftoppm` are available.',
   );
   expect(prompt).toContain(
@@ -179,10 +184,19 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'User: "Send this to WhatsApp +491701234567: landed safely"',
   );
   expect(prompt).toContain(
+    'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
+  );
+  expect(prompt).toContain(
     'User: "Pull the key fields from this attached invoice PDF."',
   );
   expect(prompt).toContain(
     'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
+  );
+  expect(prompt).toContain(
+    'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
+  );
+  expect(prompt).toContain(
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',

@@ -20,7 +20,7 @@ operate at different layers, and are designed to complement each other.
 | **Install** | Ship with the codebase | Drop a `SKILL.md` file | `hybridclaw plugin install` or drop a directory |
 | **Hot reload** | Requires rebuild | Immediate (loaded per turn) | `/plugin reload` in session |
 | **Config needed** | Code change | None | `hybridclaw.plugin.yaml` manifest |
-| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `calculator`, `honcho-memory` |
+| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `gbrain`, `honcho-memory` |
 
 ## Tools (Container Runtime)
 
@@ -178,8 +178,8 @@ hybridclaw agent uninstall <agent-id> [--yes]
 # Plugins
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
-hybridclaw plugin install <path|npm-spec>
-hybridclaw plugin reinstall <path|npm-spec>
+hybridclaw plugin install <path|plugin-id|npm-spec>
+hybridclaw plugin reinstall <path|plugin-id|npm-spec>
 hybridclaw plugin uninstall <plugin-id>
 /plugin list                     # in session
 /plugin config <plugin-id> ...   # inspect or change top-level config keys

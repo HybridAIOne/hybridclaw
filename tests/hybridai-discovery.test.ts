@@ -48,8 +48,11 @@ describe('hybridai discovery', () => {
     const discovery = await importFreshDiscovery();
     const store = discovery.createHybridAIDiscoveryStore();
 
-    await expect(store.discoverModels()).resolves.toEqual(['gpt-5-ultra']);
+    await expect(store.discoverModels()).resolves.toEqual([
+      'hybridai/gpt-5-ultra',
+    ]);
     expect(store.getModelContextWindow('gpt-5-ultra')).toBe(512_000);
+    expect(store.getModelContextWindow('hybridai/gpt-5-ultra')).toBe(512_000);
   });
 
   test('ignores speculative HybridAI context window fields', async () => {
@@ -78,7 +81,9 @@ describe('hybridai discovery', () => {
     const discovery = await importFreshDiscovery();
     const store = discovery.createHybridAIDiscoveryStore();
 
-    await expect(store.discoverModels()).resolves.toEqual(['gpt-5-ultra']);
+    await expect(store.discoverModels()).resolves.toEqual([
+      'hybridai/gpt-5-ultra',
+    ]);
     expect(store.getModelContextWindow('gpt-5-ultra')).toBeNull();
   });
 
@@ -107,6 +112,43 @@ describe('hybridai discovery', () => {
     const discovery = await importFreshDiscovery();
     const store = discovery.createHybridAIDiscoveryStore();
 
-    await expect(store.discoverModels()).resolves.toEqual(['gpt-5-ultra']);
+    await expect(store.discoverModels()).resolves.toEqual([
+      'hybridai/gpt-5-ultra',
+    ]);
+  });
+
+  test('prefixes provider-family HybridAI models for the catalog', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'mistral-small',
+                  provider: 'mistral',
+                  context_length: 128_000,
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createHybridAIDiscoveryStore();
+
+    await expect(store.discoverModels()).resolves.toEqual([
+      'hybridai/mistral/mistral-small',
+    ]);
+    expect(store.getModelContextWindow('hybridai/mistral/mistral-small')).toBe(
+      128_000,
+    );
+    expect(store.getModelContextWindow('mistral-small')).toBe(128_000);
   });
 });

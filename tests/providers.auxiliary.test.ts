@@ -9,18 +9,13 @@ afterEach(() => {
   vi.doUnmock('../src/providers/factory.js');
 });
 
-test('host auxiliary caller uses the configured compression task model', async () => {
-  const resolveTaskModelPolicy = vi.fn(async () => ({
-    provider: 'lmstudio' as const,
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    apiKey: '',
-    requestHeaders: {},
-    isLocal: true,
-    model: 'lmstudio/qwen/qwen2.5-instruct',
-    chatbotId: '',
-    maxTokens: 321,
-  }));
-  const resolveModelRuntimeCredentials = vi.fn();
+function setupProviderMocks({
+  resolveTaskModelPolicy,
+  resolveModelRuntimeCredentials,
+}: {
+  resolveTaskModelPolicy: ReturnType<typeof vi.fn>;
+  resolveModelRuntimeCredentials: ReturnType<typeof vi.fn>;
+}): void {
   vi.doMock('../src/providers/task-routing.js', async () => {
     const actual = await vi.importActual<
       typeof import('../src/providers/task-routing.js')
@@ -39,6 +34,24 @@ test('host auxiliary caller uses the configured compression task model', async (
       resolveModelRuntimeCredentials,
     };
   });
+}
+
+test('host auxiliary caller uses the configured compression task model', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    provider: 'lmstudio' as const,
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    apiKey: '',
+    requestHeaders: {},
+    isLocal: true,
+    model: 'lmstudio/qwen/qwen2.5-instruct',
+    chatbotId: '',
+    maxTokens: 321,
+  }));
+  const resolveModelRuntimeCredentials = vi.fn();
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -49,8 +62,8 @@ test('host auxiliary caller uses the configured compression task model', async (
       >;
       expect(body).toMatchObject({
         model: 'qwen/qwen2.5-instruct',
-        max_tokens: 321,
       });
+      expect(body.max_tokens).toBeUndefined();
       return new Response(
         JSON.stringify({
           choices: [
@@ -105,23 +118,9 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
     contextWindow: 32_768,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -133,8 +132,8 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
       >;
       expect(body).toMatchObject({
         model: 'mistral-small',
-        max_tokens: 222,
       });
+      expect(body.max_tokens).toBeUndefined();
       return new Response(
         JSON.stringify({
           choices: [
@@ -178,6 +177,142 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
   });
 });
 
+test('host auxiliary caller strips the HybridAI display prefix from request models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'hybridai-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 2048,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://hybridai.one/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({
+        model: 'gpt-5-nano',
+        chatbot_id: 'bot_123',
+        enable_rag: false,
+        temperature: 0.1,
+      });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'HybridAI cleanup response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: 'main',
+    fallbackModel: 'hybridai/gpt-5-nano',
+    fallbackChatbotId: 'bot_123',
+    maxTokens: 2048,
+    temperature: 0.1,
+    messages: [{ role: 'user', content: 'Rewrite this memory.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'hybridai',
+    model: 'hybridai/gpt-5-nano',
+    content: 'HybridAI cleanup response.',
+  });
+});
+
+test('host auxiliary caller streams Codex responses for auxiliary tasks', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    apiKey: 'codex-key',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: { 'OpenAI-Beta': 'responses=experimental' },
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const streamBody = [
+    'event: response.output_text.delta\r\n',
+    'data: {"type":"response.output_text.delta","delta":"Clean"}\r\n\r\n',
+    'event: response.output_text.delta\r\n',
+    'data: {"type":"response.output_text.delta","delta":" memory"}\r\n\r\n',
+    'event: response.completed\r\n',
+    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}]}}\r\n\r\n',
+  ].join('');
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://chatgpt.com/backend-api/codex/responses');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Accept')).toBe('text/event-stream, application/json');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.stream).toBe(true);
+      expect(body.temperature).toBeUndefined();
+      expect(body.max_output_tokens).toBeUndefined();
+      return new Response(streamBody, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: 'main',
+    fallbackModel: 'openai-codex/gpt-5-codex',
+    fallbackChatbotId: '',
+    maxTokens: 2048,
+    temperature: 0.1,
+    messages: [{ role: 'user', content: 'Rewrite this memory.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5-codex',
+    content: 'Clean memory',
+  });
+});
+
 test('host auxiliary caller supports explicit provider overrides and max_completion_tokens retry', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
@@ -190,25 +325,12 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
     agentId: 'main',
     isLocal: false,
     contextWindow: 200_000,
+    maxTokens: 64_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi
@@ -221,7 +343,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
       >;
       expect(body).toMatchObject({
         model: 'anthropic/claude-sonnet-4',
-        max_tokens: 77,
+        max_tokens: 64_000,
         temperature: 0.25,
         user: 'aux-test',
       });
@@ -236,7 +358,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
         unknown
       >;
       expect(body.max_tokens).toBeUndefined();
-      expect(body.max_completion_tokens).toBe(77);
+      expect(body.max_completion_tokens).toBe(64_000);
       return new Response(
         JSON.stringify({
           choices: [
@@ -294,7 +416,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
   });
 });
 
-test('host auxiliary caller does not retry max_completion_tokens for unrelated unsupported parameters', async () => {
+test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without discovery metadata', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'openrouter' as const,
@@ -308,23 +430,9 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
     contextWindow: 200_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
 
   const fetchMock = vi.fn(
@@ -334,7 +442,71 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
         string,
         unknown
       >;
-      expect(body.max_tokens).toBe(77);
+      expect(body.max_tokens).toBe(32_000);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Fallback max tokens response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    provider: 'openrouter',
+    model: 'anthropic/claude-sonnet-4',
+    maxTokens: 77,
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    content: 'Fallback max tokens response.',
+  });
+});
+
+test('host auxiliary caller does not retry max_completion_tokens for unrelated unsupported parameters', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 48_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.max_tokens).toBe(48_000);
       expect(body.max_completion_tokens).toBeUndefined();
       return new Response('unsupported_parameter: tools', { status: 400 });
     },
@@ -389,23 +561,9 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
     contextWindow: 200_000,
     thinkingFormat: undefined,
   }));
-  vi.doMock('../src/providers/task-routing.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/task-routing.js')
-    >('../src/providers/task-routing.js');
-    return {
-      ...actual,
-      resolveTaskModelPolicy,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
   });
   const warn = vi.fn();
   vi.doMock('../src/logger.js', () => ({

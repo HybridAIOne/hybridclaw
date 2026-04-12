@@ -2,6 +2,7 @@ import {
   HUGGINGFACE_ENABLED,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
+  LOCAL_LLAMACPP_ENABLED,
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_ENABLED,
   LOCAL_VLLM_ENABLED,
@@ -12,7 +13,11 @@ import { anthropicProvider } from './anthropic.js';
 import { huggingfaceProvider } from './huggingface.js';
 import { hybridAIProvider } from './hybridai.js';
 import { ollamaProvider } from './local-ollama.js';
-import { lmstudioProvider, vllmProvider } from './local-openai-compat.js';
+import {
+  llamacppProvider,
+  lmstudioProvider,
+  vllmProvider,
+} from './local-openai-compat.js';
 import { mistralProvider } from './mistral.js';
 import { openAIProvider } from './openai.js';
 import { openrouterProvider } from './openrouter.js';
@@ -32,6 +37,7 @@ function getActiveProviders(): AIProvider[] {
     ...(HUGGINGFACE_ENABLED ? [huggingfaceProvider] : []),
     ...(LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
     ...(LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
+    ...(LOCAL_LLAMACPP_ENABLED ? [llamacppProvider] : []),
     ...(LOCAL_VLLM_ENABLED ? [vllmProvider] : []),
     hybridAIProvider,
   ];

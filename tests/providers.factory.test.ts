@@ -36,13 +36,14 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
-function writeRuntimeSecrets(
+async function writeRuntimeSecrets(
   homeDir: string,
   secrets: Record<string, string>,
-): void {
-  const credentialsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
-  fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
-  fs.writeFileSync(credentialsPath, `${JSON.stringify(secrets, null, 2)}\n`);
+): Promise<void> {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  runtimeSecrets.saveRuntimeSecrets(secrets);
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -147,11 +148,19 @@ test('provider factory resolves HybridAI runtime credentials', async () => {
 test('provider factory includes discovered HybridAI context window metadata', async () => {
   const homeDir = makeTempHome();
   process.env.HYBRIDAI_API_KEY = 'hai-provider-test';
-  vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
-    getDiscoveredHybridAIModelContextWindow: vi.fn((model: string) =>
-      model === 'gpt-5-ultra' ? 512_000 : null,
-    ),
-  }));
+  vi.doMock('../src/providers/hybridai-discovery.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/hybridai-discovery.ts')
+    >('../src/providers/hybridai-discovery.ts');
+    return {
+      ...actual,
+      discoverHybridAIModels: vi.fn(async () => []),
+      getDiscoveredHybridAIModelContextWindow: vi.fn((model: string) =>
+        model === 'gpt-5-ultra' ? 512_000 : null,
+      ),
+      getDiscoveredHybridAIModelMaxTokens: vi.fn(() => null),
+    };
+  });
   const factory = await importFreshFactory(homeDir);
 
   const credentials = await factory.resolveModelRuntimeCredentials({
@@ -168,11 +177,19 @@ test('provider factory includes discovered HybridAI context window metadata', as
 
 test('provider factory resolves OpenRouter runtime credentials', async () => {
   const homeDir = makeTempHome();
-  vi.doMock('../src/providers/openrouter-discovery.ts', () => ({
-    getDiscoveredOpenRouterModelContextWindow: vi.fn((model: string) =>
-      model === 'openrouter/anthropic/claude-sonnet-4' ? 262_144 : null,
-    ),
-  }));
+  vi.doMock('../src/providers/openrouter-discovery.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/openrouter-discovery.ts')
+    >('../src/providers/openrouter-discovery.ts');
+    return {
+      ...actual,
+      discoverOpenRouterModels: vi.fn(async () => []),
+      getDiscoveredOpenRouterModelContextWindow: vi.fn((model: string) =>
+        model === 'openrouter/anthropic/claude-sonnet-4' ? 262_144 : null,
+      ),
+      getDiscoveredOpenRouterModelMaxTokens: vi.fn(() => null),
+    };
+  });
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
     config.openrouter.baseUrl = 'https://openrouter.ai/api/v1/';
@@ -267,7 +284,7 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
     config.huggingface.enabled = true;
   });
   delete process.env.HF_TOKEN;
-  writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-old-token' });
+  await writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-old-token' });
   const factory = await importFreshFactory(homeDir);
 
   const first = await factory.resolveModelRuntimeCredentials({
@@ -279,7 +296,7 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
     apiKey: 'hf-old-token',
   });
 
-  writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-new-token' });
+  await writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-new-token' });
   const second = await factory.resolveModelRuntimeCredentials({
     model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     agentId: 'main',

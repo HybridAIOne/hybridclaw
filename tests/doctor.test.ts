@@ -56,12 +56,10 @@ test('runDoctor fixes insecure credentials permissions and reruns the check', as
   });
 
   const credentialsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
-  fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
-  fs.writeFileSync(
-    credentialsPath,
-    `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-test-1234567890' }, null, 2)}\n`,
-    'utf-8',
-  );
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  runtimeSecrets.saveRuntimeSecrets({
+    HYBRIDAI_API_KEY: 'hai-test-1234567890',
+  });
   fs.chmodSync(credentialsPath, 0o644);
 
   const { runDoctor } = await import('../src/doctor.ts');
@@ -415,9 +413,7 @@ test('checkProviders treats probe failures as provider health failures', async (
         defaultModel: 'gpt-5-nano',
         models: ['gpt-5'],
       },
-      codex: {
-        models: [],
-      },
+      codex: {},
       openrouter: {
         enabled: false,
         models: [],
@@ -796,6 +792,7 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
       {
         name: 'workspace-risk',
         description: 'Workspace skill with a suspicious pattern',
+        category: 'security',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -820,6 +817,7 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
       {
         name: 'safe-skill',
         description: 'Safe skill',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -971,6 +969,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
       {
         name: 'fresh-skill',
         description: 'Recently used',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -995,6 +994,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
       {
         name: 'stale-skill',
         description: 'Used long ago',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,
@@ -1090,6 +1090,7 @@ test('checkSkills warns on enabled skills with zero observations after sessions 
       {
         name: 'never-observed',
         description: 'Never observed',
+        category: 'misc',
         userInvocable: false,
         disableModelInvocation: false,
         always: false,

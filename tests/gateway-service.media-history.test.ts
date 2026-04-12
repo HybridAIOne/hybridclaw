@@ -40,7 +40,7 @@ test('handleGatewayMessage stores user-visible attachment summaries instead of r
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
@@ -124,6 +124,75 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
     expect.objectContaining({
       role: 'assistant',
       content: 'Visible follow-up',
+    }),
+  ]);
+});
+
+test('getGatewayHistory omits stored approval request messages', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'web:approval-history';
+  memoryService.getOrCreateSession(sessionId, null, 'web');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'web',
+    role: 'user',
+    content: 'Fetch example.com',
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: [
+      'I need your approval before I access example.com.',
+      'Why: this would contact a new external host',
+      'Approval ID: be89b4bc',
+      'Reply `yes` to approve once.',
+      'Reply `yes for session` to trust this action for this session.',
+      'Reply `yes for agent` to trust it for this agent.',
+      'Reply `no` to deny.',
+      'Approval expires in 120s.',
+    ].join('\n'),
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: [
+      'Approval needed for: access example.com',
+      'Why: this would contact a new external host',
+      'Approval ID: be89b4bc',
+    ].join('\n'),
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'Summary without contacting the host.',
+  });
+
+  const history = getGatewayHistory(sessionId, 10).history;
+
+  expect(history).toEqual([
+    expect.objectContaining({
+      role: 'user',
+      content: 'Fetch example.com',
+    }),
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Summary without contacting the host.',
     }),
   ]);
 });

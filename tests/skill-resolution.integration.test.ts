@@ -89,7 +89,7 @@ describe('skill resolution integration', () => {
     expect(names).toContain('current-time');
   });
 
-  it('SKILL.md with valid frontmatter parses correctly (name, description, tags)', () => {
+  it('SKILL.md with valid frontmatter parses correctly (name, description, category, tags)', () => {
     const extraDir = path.join(tmpDir, 'extra-skills');
     writeSkill(
       extraDir,
@@ -97,6 +97,7 @@ describe('skill resolution integration', () => {
       `---
 name: test-greet
 description: A greeting skill for testing
+category: memory
 user-invocable: true
 hybridclaw-tags: [greeting, test]
 ---
@@ -117,8 +118,50 @@ Say hello.
     const catalog = skillsMod.loadSkillCatalog();
     const greet = catalog.find((s) => s.name === 'test-greet');
     expect(greet).toBeDefined();
-    expect(greet!.description).toBe('A greeting skill for testing');
-    expect(greet!.source).toBe('extra');
+    expect(greet?.description).toBe('A greeting skill for testing');
+    expect(greet?.category).toBe('memory');
+    expect(greet?.source).toBe('extra');
+  });
+
+  it('SKILL.md parses metadata.hybridclaw category and short description', () => {
+    const extraDir = path.join(tmpDir, 'extra-metadata-skills');
+    writeSkill(
+      extraDir,
+      'test-metadata-skill',
+      `---
+name: test-metadata-skill
+description: Detailed description for the metadata test skill
+metadata:
+  hybridclaw:
+    category: Knowledge Base
+    short_description: Concise metadata summary.
+    tags:
+      - metadata
+      - parser
+---
+
+# Metadata Skill
+
+Validate metadata parsing.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+    });
+
+    const catalog = skillsMod.loadSkillCatalog();
+    const skill = catalog.find((s) => s.name === 'test-metadata-skill');
+    expect(skill).toBeDefined();
+    expect(skill?.description).toBe(
+      'Detailed description for the metadata test skill',
+    );
+    expect(skill?.category).toBe('knowledge-base');
+    expect(skill?.metadata.hybridclaw.shortDescription).toBe(
+      'Concise metadata summary.',
+    );
+    expect(skill?.metadata.hybridclaw.tags).toEqual(['metadata', 'parser']);
   });
 
   it('SKILL.md with invalid YAML frontmatter produces a graceful result (not crash)', () => {
@@ -188,8 +231,8 @@ Community body.
     const skill = catalog.find((s) => s.name === 'shadow-test-skill');
     expect(skill).toBeDefined();
     // Community should shadow extra.
-    expect(skill!.source).toBe('community');
-    expect(skill!.description).toBe('Community version (higher precedence)');
+    expect(skill?.source).toBe('community');
+    expect(skill?.description).toBe('Community version (higher precedence)');
   });
 
   it('skill with missing name field uses directory name', () => {
@@ -213,7 +256,7 @@ Body.
     const catalog = skillsMod.loadSkillCatalog();
     const skill = catalog.find((s) => s.name === 'fallback-dir-name');
     expect(skill).toBeDefined();
-    expect(skill!.description).toBe('A skill without an explicit name');
+    expect(skill?.description).toBe('A skill without an explicit name');
   });
 
   it('multiple skills in different directories are all discovered', () => {
@@ -251,5 +294,62 @@ Beta body.
     const names = catalog.map((s) => s.name);
     expect(names).toContain('multi-alpha');
     expect(names).toContain('multi-beta');
+  });
+
+  it('sorts discovered skills by category and then by name', () => {
+    const extraDir = path.join(tmpDir, 'extra-categories');
+    writeSkill(
+      extraDir,
+      'zeta-note',
+      `---
+name: zeta-note
+description: Zeta memory skill
+category: memory
+---
+
+Zeta body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'alpha-sheet',
+      `---
+name: alpha-sheet
+description: Alpha office skill
+category: office
+---
+
+Alpha body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'beta-note',
+      `---
+name: beta-note
+description: Beta memory skill
+category: memory
+---
+
+Beta body.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+    });
+
+    const catalog = skillsMod
+      .loadSkillCatalog()
+      .filter((skill) =>
+        ['zeta-note', 'alpha-sheet', 'beta-note'].includes(skill.name),
+      );
+
+    expect(catalog.map((skill) => `${skill.category}:${skill.name}`)).toEqual([
+      'memory:beta-note',
+      'memory:zeta-note',
+      'office:alpha-sheet',
+    ]);
   });
 });

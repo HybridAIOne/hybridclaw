@@ -1,6 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
+import {
+  currentDateStampInTimezone,
+  extractUserTimezone,
+} from '../../container/shared/workspace-time.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import {
@@ -10,12 +17,12 @@ import {
 import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
+  stopAllExecutions,
 } from '../agent/executor.js';
-import { processSideEffects } from '../agent/side-effects.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
-  getKnownToolGroupLabel,
   getKnownToolGroups,
   isKnownToolName,
 } from '../agent/tool-summary.js';
@@ -35,19 +42,21 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  emitToolExecutionAuditEvents,
-  makeAuditRunId,
-  recordAuditEvent,
-} from '../audit/audit-events.js';
+import { safeExtractZip } from '../agents/claw-security.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
-  getChannel,
-  getChannelByContextId,
-  normalizeSkillConfigChannelKind,
-} from '../channels/channel-registry.js';
+  deleteLiveAdminEmailMessage,
+  fetchLiveAdminEmailFolder,
+  fetchLiveAdminEmailMailbox,
+  fetchLiveAdminEmailMessage,
+} from '../channels/email/admin-mailbox.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
+import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -56,8 +65,8 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
   MissingRequiredEnvVarError,
@@ -66,18 +75,17 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
-  PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
-  parseSchedulerBoardStatus,
   type RuntimeConfig,
+  type RuntimeHttpRequestAuthRule,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
-  type SchedulerBoardStatus,
   saveRuntimeConfig,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
@@ -86,17 +94,12 @@ import {
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
-import { preprocessContextReferences } from '../context-references/index.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import {
-  isAudioMediaItem,
-  prependAudioTranscriptionsToUserContent,
-} from '../media/audio-transcription.js';
+import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
-import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
@@ -105,10 +108,10 @@ import {
   deleteSessionData,
   deleteTask,
   getAllSessions,
-  getAllTasks,
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
+  getRecentMessages,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -121,11 +124,11 @@ import {
   getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
+  listSemanticMemoriesForSession,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
   listUsageBySession,
-  logAudit,
   pauseTask,
   recordRequestLog,
   recordUsageEvent,
@@ -138,7 +141,16 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
+import {
+  ensurePluginManagerInitialized,
+  listLoadedPluginCommands,
+} from '../plugins/plugin-manager.js';
+import {
+  discoverCodexModels,
+  getDiscoveredCodexModelContextWindow,
+  getDiscoveredCodexModelMaxTokens,
+  getDiscoveredCodexModelNames,
+} from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -146,6 +158,7 @@ import {
 import {
   discoverHuggingFaceModels,
   getDiscoveredHuggingFaceModelContextWindow,
+  getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import {
@@ -155,6 +168,7 @@ import {
 } from '../providers/hybridai-bots.js';
 import {
   getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
 import {
@@ -170,6 +184,7 @@ import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelContextWindow,
+  getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import { readMistralApiKey } from '../providers/mistral-utils.js';
@@ -181,26 +196,30 @@ import {
   refreshAvailableModelCatalogs,
 } from '../providers/model-catalog.js';
 import {
+  formatHybridAIModelForCatalog,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
+  stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
+  getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
-import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
-import {
-  getScheduledTaskNextRunAt,
-  getSchedulerStatus,
-  parseSchedulerTimestampMs,
-  pauseConfigJob,
-  rearmScheduler,
-  resumeConfigJob,
-} from '../scheduler/scheduler.js';
+import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
-import { runtimeSecretsPath } from '../security/runtime-secrets.js';
+import {
+  isReservedNonSecretRuntimeName,
+  isRuntimeSecretName,
+  listStoredRuntimeSecretNames,
+  readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
+  runtimeSecretsPath,
+  saveNamedRuntimeSecrets,
+} from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -225,36 +244,15 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from '../skills/adaptive-skills-types.js';
-import { parseSkillImportArgs } from '../skills/skill-import-args.js';
-import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
-import {
-  expandResolvedSkillInvocation,
-  expandSkillInvocationWithResolution,
-  loadSkillCatalog,
-  resolveObservedSkillName,
-} from '../skills/skills.js';
-import {
-  deriveSkillExecutionOutcome,
-  recordSkillExecution,
-} from '../skills/skills-observation.js';
+import { loadSkillCatalog } from '../skills/skills.js';
+import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  PendingApproval,
-  ToolExecution,
-  ToolProgressEvent,
-} from '../types/execution.js';
+import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
+import type { MemoryCitation, SemanticMemoryEntry } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
-import type { ScheduledTask } from '../types/scheduler.js';
 import type {
-  CanonicalSessionContext,
   ConversationHistoryPage,
   Session,
   StoredMessage,
@@ -264,6 +262,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
 import {
   ensureBootstrapFiles,
@@ -276,27 +275,20 @@ import {
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
 import {
-  buildConciergeExecutionNotice,
-  type ConciergeProfile,
-} from './concierge-routing.js';
-import { resolveConciergeTurn } from './concierge-session.js';
-import {
-  buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
-  clearScheduledFullAutoContinuation,
-  describeFullAutoWorkspaceSummary,
   disableFullAutoSession,
   enableFullAutoSession,
+} from './fullauto.js';
+import {
   getFullAutoRuntimeState,
   isFullAutoEnabled,
-  maybeScheduleFullAutoAfterSuccess,
-  noteFullAutoSupervisedIntervention,
   type ProactiveMessagePayload,
-  preemptRunningFullAutoTurn,
-  resolveFullAutoPrompt,
   resolveSessionRalphIterations,
-  syncFullAutoRuntimeContext,
-} from './fullauto.js';
+} from './fullauto-runtime.js';
+import {
+  describeFullAutoWorkspaceSummary,
+  resolveFullAutoPrompt,
+} from './fullauto-workspace.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
   classifyGatewayError,
@@ -308,16 +300,14 @@ import {
   formatRalphIterations,
 } from './gateway-formatting.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
   handlePluginGatewayCommand,
   reloadPluginRuntime,
-  tryEnsurePluginManagerInitializedForGateway,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
-import {
-  interruptGatewaySessionExecution,
-  registerActiveGatewayRequest,
-} from './gateway-request-runtime.js';
+import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
+import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -330,13 +320,15 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminEmailDeleteResponse,
+  type GatewayAdminEmailFolderResponse,
+  type GatewayAdminEmailMailboxResponse,
+  type GatewayAdminEmailMessageResponse,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
-  type GatewayAdminSchedulerJob,
-  type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
   type GatewayAdminToolCatalogEntry,
@@ -360,14 +352,15 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
-  sessionShowModeShowsTools,
 } from './show-mode.js';
+import { handleSkillCommand } from './skill-commands.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -398,7 +391,7 @@ const ALWAYS_REDACT_TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
 const GATEWAY_REQUEST_LOG_ENABLED_VALUE = '1';
 let lastWarnedGatewayRequestLoggingValue: string | null = null;
 
-function isGatewayRequestLoggingEnabled(): boolean {
+export function isGatewayRequestLoggingEnabled(): boolean {
   const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
   if (!raw) return false;
   if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
@@ -495,7 +488,9 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
   }));
 }
 
-function readSystemPromptMessage(messages: ChatMessage[]): string | null {
+export function readSystemPromptMessage(
+  messages: ChatMessage[],
+): string | null {
   const firstMessage = messages[0];
   if (!firstMessage || firstMessage.role !== 'system') return null;
   return typeof firstMessage.content === 'string' && firstMessage.content.trim()
@@ -518,7 +513,7 @@ function sanitizeRequestLogToolExecutions(
   });
 }
 
-function maybeRecordGatewayRequestLog(params: {
+export function maybeRecordGatewayRequestLog(params: {
   sessionId: string;
   model: string;
   chatbotId: string;
@@ -578,6 +573,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'web_search',
   'web_fetch',
   'web_extract',
+  'http_request',
   'message',
   'browser_navigate',
   'browser_snapshot',
@@ -665,7 +661,7 @@ interface DelegationTaskRunInput {
   task: NormalizedDelegationTask;
 }
 
-function shouldForceNewTuiSession(
+export function shouldForceNewTuiSession(
   req: Pick<
     GatewayChatRequest | GatewayCommandRequest,
     'channelId' | 'sessionMode'
@@ -674,7 +670,7 @@ function shouldForceNewTuiSession(
   return req.channelId === 'tui' && req.sessionMode === 'new';
 }
 
-function resolveChannelType(
+export function resolveChannelType(
   req: Pick<GatewayChatRequest, 'channelId' | 'source'>,
 ): string | undefined {
   const source = String(req.source || '')
@@ -701,14 +697,16 @@ function resolveChannelType(
   return source && source !== 'unknown' ? source : undefined;
 }
 
-function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
+export function resolveSessionAutoResetPolicy(
+  channelId: string,
+): SessionResetPolicy {
   return resolveResetPolicy({
     channelKind: resolveSessionResetChannelKind(channelId),
     config: getRuntimeConfig(),
   });
 }
 
-function resolveCanonicalContextScope(
+export function resolveCanonicalContextScope(
   session: Pick<Session, 'main_session_key' | 'session_key' | 'id'>,
 ): string {
   return (
@@ -837,20 +835,17 @@ function getAdminChannelDisabledSkills(
 
 function buildHybridAIProviderEntry(
   probe: HybridAIHealthResult,
-  runtimeConfig: RuntimeConfig,
 ): GatewayProviderHealthEntry {
-  const configModelCount = dedupeStrings([
-    runtimeConfig.hybridai.defaultModel,
-    ...runtimeConfig.hybridai.models,
-    ...getDiscoveredHybridAIModelNames(),
-  ]).length;
+  const discoveredModelCount = dedupeStrings(
+    getDiscoveredHybridAIModelNames(),
+  ).length;
 
   return {
     kind: 'remote',
     reachable: probe.reachable,
     ...(probe.error ? { error: probe.error } : {}),
     latencyMs: probe.latencyMs,
-    modelCount: probe.modelCount ?? configModelCount,
+    modelCount: probe.modelCount ?? discoveredModelCount,
     detail: probe.reachable
       ? `${probe.latencyMs}ms`
       : probe.error || 'unreachable',
@@ -864,7 +859,7 @@ function buildGatewayProviderHealth(params: {
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth, runtimeConfig),
+    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth),
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -875,7 +870,7 @@ function buildGatewayProviderHealth(params: {
               ? 'Login required'
               : 'Not authenticated',
           }),
-      modelCount: dedupeStrings(runtimeConfig.codex.models).length,
+      modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
       detail:
         params.codex.authenticated && !params.codex.reloginRequired
           ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
@@ -884,6 +879,37 @@ function buildGatewayProviderHealth(params: {
             : 'Not authenticated',
     },
   };
+  const optionalRemoteProviders = [
+    {
+      key: 'openrouter',
+      enabled: runtimeConfig.openrouter.enabled,
+      authenticated: Boolean(readOpenRouterApiKey({ required: false })),
+      modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
+    },
+    {
+      key: 'mistral',
+      enabled: runtimeConfig.mistral.enabled,
+      authenticated: Boolean(readMistralApiKey({ required: false })),
+      modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
+    },
+    {
+      key: 'huggingface',
+      enabled: runtimeConfig.huggingface.enabled,
+      authenticated: Boolean(readHuggingFaceApiKey({ required: false })),
+      modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
+    },
+  ] as const;
+
+  for (const provider of optionalRemoteProviders) {
+    if (!provider.enabled) continue;
+    providerHealth[provider.key] = {
+      kind: 'remote',
+      reachable: provider.authenticated,
+      ...(provider.authenticated ? {} : { error: 'Not authenticated' }),
+      modelCount: provider.modelCount,
+      detail: provider.authenticated ? 'Authenticated' : 'Not authenticated',
+    };
+  }
 
   for (const [name, status] of Object.entries(params.localBackends || {})) {
     providerHealth[name as keyof typeof providerHealth] = {
@@ -946,6 +972,8 @@ function isModelAvailableForCurrentGatewayState(
       return providerHealth?.ollama?.reachable === true;
     case 'lmstudio':
       return providerHealth?.lmstudio?.reachable === true;
+    case 'llamacpp':
+      return providerHealth?.llamacpp?.reachable === true;
     case 'vllm':
       return providerHealth?.vllm?.reachable === true;
     default:
@@ -991,6 +1019,7 @@ function mapModelUsageRow(
 function resolveKnownModelContextWindow(model: string): number | null {
   return (
     resolveLocalModelContextWindow(model) ??
+    getDiscoveredCodexModelContextWindow(model) ??
     getDiscoveredHuggingFaceModelContextWindow(model) ??
     getDiscoveredHybridAIModelContextWindow(model) ??
     getDiscoveredMistralModelContextWindow(model) ??
@@ -1006,6 +1035,51 @@ function resolveDisplayedModelName(model: string): string {
     return resolveDiscoveredMistralModelCanonicalName(normalized);
   }
   return normalized;
+}
+
+function resolveRequestedCatalogModelName(
+  rawModelName: string,
+  availableModels: string[],
+): string {
+  const requested = resolveDisplayedModelName(
+    String(rawModelName || '').trim(),
+  );
+  if (!requested) return requested;
+  if (availableModels.includes(requested)) {
+    return requested;
+  }
+
+  const legacyHybridAIModel = resolveDisplayedModelName(
+    normalizeHybridAIModelForRuntime(requested),
+  );
+  if (availableModels.includes(legacyHybridAIModel)) {
+    return legacyHybridAIModel;
+  }
+
+  const hybridAICatalogModel = resolveDisplayedModelName(
+    formatHybridAIModelForCatalog(legacyHybridAIModel),
+  );
+  if (availableModels.includes(hybridAICatalogModel)) {
+    return hybridAICatalogModel;
+  }
+
+  const matchingHybridAIModels = availableModels.filter((model) => {
+    const normalized = String(model || '')
+      .trim()
+      .toLowerCase();
+    if (!normalized.startsWith('hybridai/')) return false;
+    const upstreamModel = stripHybridAIModelPrefix(model);
+    return (
+      resolveDisplayedModelName(upstreamModel) === legacyHybridAIModel ||
+      resolveDisplayedModelName(upstreamModel.split('/').at(-1) || '') ===
+        legacyHybridAIModel
+    );
+  });
+  if (matchingHybridAIModels.length === 1) {
+    return matchingHybridAIModels[0];
+  }
+
+  return requested;
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
@@ -1035,7 +1109,7 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
+export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
@@ -1070,7 +1144,9 @@ function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   return normalized;
 }
 
-function cloneMediaContextItems(media: MediaContextItem[]): MediaContextItem[] {
+export function cloneMediaContextItems(
+  media: MediaContextItem[],
+): MediaContextItem[] {
   return media.map((item) => ({ ...item }));
 }
 
@@ -1092,7 +1168,7 @@ function buildVisibleMediaSummary(media: MediaContextItem[]): string {
     : `Attached files: ${summary}`;
 }
 
-function buildStoredUserTurnContent(
+export function buildStoredUserTurnContent(
   userContent: string,
   media: MediaContextItem[],
 ): string {
@@ -1105,7 +1181,7 @@ function buildStoredUserTurnContent(
   return text ? `${text}\n\n${mediaSummary}` : mediaSummary;
 }
 
-function buildMediaPromptContext(media: MediaContextItem[]): string {
+export function buildMediaPromptContext(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
   const mediaPaths = media
     .map((item) => item.path)
@@ -1387,7 +1463,7 @@ function formatHybridAIAccountChatbotResolutionError(error: unknown): string {
   return `Failed to resolve the HybridAI account chatbot id: ${failure.message}`;
 }
 
-async function resolveGatewayChatbotId(params: {
+export async function resolveGatewayChatbotId(params: {
   model: string;
   chatbotId: string;
   sessionId: string;
@@ -1485,6 +1561,278 @@ function resolveSessionAgentId(session: { agent_id: string }): string {
   return resolveDefaultAgentId(getRuntimeConfig());
 }
 
+const MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS = 280;
+const MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS = 140;
+const MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS = 180;
+const MEMORY_INSPECT_RECENT_MESSAGE_LIMIT = 4;
+const MEMORY_INSPECT_RECENT_SEMANTIC_LIMIT = 3;
+const MEMORY_INSPECT_CANONICAL_WINDOW = 12;
+const MEMORY_INSPECT_CANONICAL_PREVIEW_LIMIT = 3;
+
+function formatInspectionTimestamp(raw: string | null | undefined): string {
+  const value = String(raw || '').trim();
+  if (!value) return 'none';
+  return `${formatDisplayTimestamp(value)} (${formatRelativeTime(value)})`;
+}
+
+function readInspectionFilePreview(filePath: string): {
+  exists: boolean;
+  chars: number;
+  preview: string | null;
+} {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return {
+        exists: false,
+        chars: 0,
+        preview: null,
+      };
+    }
+    const content = fs.readFileSync(filePath, 'utf-8').trim();
+    return {
+      exists: true,
+      chars: content.length,
+      preview: content
+        ? abbreviateForUser(content, MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS)
+        : '(empty)',
+    };
+  } catch {
+    return {
+      exists: false,
+      chars: 0,
+      preview: null,
+    };
+  }
+}
+
+function formatMemoryInspectMessage(message: {
+  role: string;
+  content: string;
+}): string {
+  return `- ${String(message.role || 'unknown')
+    .trim()
+    .toLowerCase()}: ${abbreviateForUser(
+    String(message.content || ''),
+    MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function formatMemoryInspectSemanticEntry(entry: {
+  id: number;
+  source: string;
+  scope: string;
+  confidence: number;
+  content: string;
+}): string {
+  return `- [${entry.id}] ${entry.source}/${entry.scope} ${Math.round(
+    Math.max(0, Math.min(1, entry.confidence)) * 100,
+  )}%: ${abbreviateForUser(
+    entry.content,
+    MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function formatMemoryInspectCanonicalEntry(entry: {
+  role: string;
+  content: string;
+  session_id: string;
+}): string {
+  return `- ${String(entry.role || 'unknown')
+    .trim()
+    .toLowerCase()} [${entry.session_id}]: ${abbreviateForUser(
+    entry.content,
+    MEMORY_INSPECT_MESSAGE_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function resolveWorkspaceTodayMemoryNote(workspacePath: string): {
+  timezone: string | null;
+  fileName: string;
+  filePath: string;
+} {
+  const userPath = path.join(workspacePath, 'USER.md');
+  let timezone: string | null = null;
+  try {
+    if (fs.existsSync(userPath)) {
+      timezone =
+        extractUserTimezone(fs.readFileSync(userPath, 'utf-8')) || null;
+    }
+  } catch {
+    timezone = null;
+  }
+  const dateStamp = currentDateStampInTimezone(timezone || undefined);
+  const fileName = `memory/${dateStamp}.md`;
+  return {
+    timezone,
+    fileName,
+    filePath: path.join(workspacePath, fileName),
+  };
+}
+
+function buildMemoryInspectReport(params: { session: Session }): string {
+  const targetSession = params.session;
+  const agentId = resolveSessionAgentId(targetSession);
+  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+  const memoryFilePath = path.join(workspacePath, 'MEMORY.md');
+  const memoryFile = readInspectionFilePreview(memoryFilePath);
+  const todayNote = resolveWorkspaceTodayMemoryNote(workspacePath);
+  const todayNotePreview = readInspectionFilePreview(todayNote.filePath);
+  const transcriptPath = path.join(
+    workspacePath,
+    '.session-transcripts',
+    `${targetSession.id}.jsonl`,
+  );
+  const recentMessages = memoryService.getRecentMessages(
+    targetSession.id,
+    MEMORY_INSPECT_RECENT_MESSAGE_LIMIT,
+  );
+  const summaryText = String(targetSession.session_summary || '').trim();
+  const recentSemantic = listSemanticMemoriesForSession(
+    targetSession.id,
+    MEMORY_INSPECT_RECENT_SEMANTIC_LIMIT,
+  );
+  const canonicalScope = resolveCanonicalContextScope(targetSession);
+  const canonicalContext = canonicalScope
+    ? memoryService.getCanonicalContext({
+        agentId,
+        userId: canonicalScope,
+        windowSize: MEMORY_INSPECT_CANONICAL_WINDOW,
+        excludeSessionId: targetSession.id,
+      })
+    : { summary: null, recent_messages: [] };
+  const canonicalPreview = canonicalContext.recent_messages.slice(
+    -MEMORY_INSPECT_CANONICAL_PREVIEW_LIMIT,
+  );
+
+  return [
+    `Session: ${targetSession.id}`,
+    `Agent: ${agentId}`,
+    `Workspace: ${workspacePath}`,
+    `Session key: ${targetSession.session_key || '(none)'}`,
+    `Main session key: ${targetSession.main_session_key || '(none)'}`,
+    '',
+    '1. Workspace memory file (`MEMORY.md`)',
+    `Present: ${memoryFile.exists ? 'yes' : 'no'}`,
+    `Path: ${memoryFilePath}`,
+    `Chars: ${memoryFile.exists ? formatCompactNumber(memoryFile.chars) : '0'}`,
+    `Preview: ${memoryFile.preview || '(missing)'}`,
+    '',
+    `2. Workspace daily note for today (\`${todayNote.fileName}\`)`,
+    `Present: ${todayNotePreview.exists ? 'yes' : 'no'}`,
+    `Timezone: ${todayNote.timezone || 'local default'}`,
+    `Path: ${todayNote.filePath}`,
+    `Chars: ${todayNotePreview.exists ? formatCompactNumber(todayNotePreview.chars) : '0'}`,
+    `Preview: ${todayNotePreview.preview || '(missing)'}`,
+    '',
+    '3. Raw session history',
+    `Active messages: ${formatCompactNumber(targetSession.message_count)}`,
+    `Transcript mirror: ${fs.existsSync(transcriptPath) ? transcriptPath : '(missing)'}`,
+    `Recent tail (${recentMessages.length}):`,
+    ...(recentMessages.length > 0
+      ? recentMessages.map(formatMemoryInspectMessage)
+      : ['- (none)']),
+    '',
+    '4. Compacted session summary',
+    `Stored: ${summaryText ? 'yes' : 'no'}`,
+    `Compactions: ${formatCompactNumber(targetSession.compaction_count)}`,
+    `Summary updated: ${formatInspectionTimestamp(targetSession.summary_updated_at)}`,
+    `Last memory flush: ${formatInspectionTimestamp(targetSession.memory_flush_at)}`,
+    `Preview: ${
+      summaryText
+        ? abbreviateForUser(summaryText, MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS)
+        : '(none)'
+    }`,
+    '',
+    '5. Semantic memory store',
+    'Prompt behavior: query-matched only; stored rows are not injected wholesale.',
+    `Recent stored entries (${recentSemantic.length} shown):`,
+    ...(recentSemantic.length > 0
+      ? recentSemantic.map(formatMemoryInspectSemanticEntry)
+      : ['- (none)']),
+    '',
+    '6. Canonical cross-channel memory',
+    `Scope: ${canonicalScope || '(none)'}`,
+    `Prompt-time summary present: ${canonicalContext.summary ? 'yes' : 'no'}`,
+    `Summary preview: ${
+      canonicalContext.summary
+        ? abbreviateForUser(
+            canonicalContext.summary,
+            MEMORY_INSPECT_FILE_PREVIEW_MAX_CHARS,
+          )
+        : '(none)'
+    }`,
+    `Prompt-time recent messages from other sessions: ${formatCompactNumber(
+      canonicalContext.recent_messages.length,
+    )}`,
+    ...(canonicalPreview.length > 0
+      ? canonicalPreview.map(formatMemoryInspectCanonicalEntry)
+      : ['- (none)']),
+  ].join('\n');
+}
+
+function formatMemoryQueryCitation(
+  citation: MemoryCitation,
+  memory: SemanticMemoryEntry | undefined,
+): string {
+  return `- ${citation.ref} -> memory ${citation.memoryId} (${Math.round(
+    Math.max(0, Math.min(1, citation.confidence)) * 100,
+  )}%): ${abbreviateForUser(
+    memory?.content || citation.content,
+    MEMORY_INSPECT_SEMANTIC_PREVIEW_MAX_CHARS,
+  )}`;
+}
+
+function buildMemoryQueryReport(params: {
+  session: Session;
+  query: string;
+}): string {
+  const targetSession = params.session;
+  const query = params.query.trim();
+  const promptContext = memoryService.buildPromptMemoryContext({
+    session: targetSession,
+    query,
+    touchSemanticRecall: false,
+  });
+  const summaryText = String(targetSession.session_summary || '').trim();
+  const summaryIncluded = summaryText
+    ? Boolean(promptContext.promptSummary?.includes(summaryText))
+    : false;
+  const promptSummary =
+    promptContext.promptSummary || '(nothing would be attached)';
+
+  return [
+    `Session: ${targetSession.id}`,
+    `Query: ${query}`,
+    'Mode: read-only diagnostic (matches prompt assembly without updating semantic recall access metadata)',
+    `Stored session summary: ${summaryText ? 'yes' : 'no'}`,
+    `Summary included: ${summaryText ? (summaryIncluded ? 'yes' : 'no') : 'n/a'}`,
+    `Summary confidence: ${
+      promptContext.summaryConfidence == null
+        ? 'n/a'
+        : `${Math.round(Math.max(0, Math.min(1, promptContext.summaryConfidence)) * 100)}%`
+    }`,
+    `Semantic matches attached: ${formatCompactNumber(
+      promptContext.semanticMemories.length,
+    )}`,
+    `Semantic prompt hard cap: ${formatCompactNumber(
+      getRuntimeConfig().memory.semanticPromptHardCap,
+    )}`,
+    '',
+    'Matched semantic memories:',
+    ...(promptContext.citationIndex.length > 0
+      ? promptContext.citationIndex.map((citation, index) =>
+          formatMemoryQueryCitation(
+            citation,
+            promptContext.semanticMemories[index],
+          ),
+        )
+      : ['- (none)']),
+    '',
+    'Exact attached block:',
+    promptSummary,
+  ].join('\n');
+}
+
 type TraceExportResult = Awaited<
   ReturnType<typeof exportSessionTraceAtifJsonl>
 >;
@@ -1571,7 +1919,7 @@ export function getGatewayAssistantPresentationForSession(
   );
 }
 
-function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
+export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
   if (!tokenUsage) return 0;
   const costCarrier = tokenUsage as unknown as Record<string, unknown>;
   const value = firstNumber([
@@ -1591,7 +1939,7 @@ function buildHybridAIAuthStatusLines(): string[] {
   return [
     `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
     ...(status.authenticated
-      ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
+      ? [`Source: ${status.source}`, 'API key: configured']
       : []),
     `Config: ${runtimeConfigPath()}`,
     `Base URL: ${config.hybridai.baseUrl}`,
@@ -1600,7 +1948,385 @@ function buildHybridAIAuthStatusLines(): string[] {
   ];
 }
 
-function formatCanonicalContextPrompt(params: {
+type GatewayAuthStatusProvider =
+  | 'hybridai'
+  | 'codex'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'local'
+  | 'msteams';
+
+function normalizeGatewayAuthStatusProvider(
+  rawProvider: string | undefined,
+): GatewayAuthStatusProvider | null {
+  const normalized = String(rawProvider || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'hybridai' ||
+    normalized === 'hybrid-ai' ||
+    normalized === 'hybrid'
+  ) {
+    return 'hybridai';
+  }
+  if (normalized === 'codex' || normalized === 'openai-codex') {
+    return 'codex';
+  }
+  if (normalized === 'openrouter' || normalized === 'or') {
+    return 'openrouter';
+  }
+  if (normalized === 'mistral') {
+    return 'mistral';
+  }
+  if (
+    normalized === 'huggingface' ||
+    normalized === 'hf' ||
+    normalized === 'hugging-face' ||
+    normalized === 'huggingface-hub'
+  ) {
+    return 'huggingface';
+  }
+  if (normalized === 'local') {
+    return 'local';
+  }
+  if (
+    normalized === 'msteams' ||
+    normalized === 'teams' ||
+    normalized === 'ms-teams'
+  ) {
+    return 'msteams';
+  }
+  return null;
+}
+
+function resolveRuntimeCredentialStatus(
+  storedSecretName: string,
+  envValues: Array<string | undefined>,
+  storedValue?: string,
+): {
+  value: string;
+  source: 'env' | 'runtime-secrets' | null;
+} {
+  const resolvedStoredValue =
+    typeof storedValue === 'string'
+      ? storedValue.trim()
+      : readStoredRuntimeSecret(storedSecretName);
+  const envValue =
+    envValues
+      .map((value) => String(value || '').trim())
+      .find((value) => value.length > 0) || '';
+  const source = envValue
+    ? resolvedStoredValue && envValue === resolvedStoredValue
+      ? 'runtime-secrets'
+      : 'env'
+    : resolvedStoredValue
+      ? 'runtime-secrets'
+      : null;
+  return {
+    value: envValue || resolvedStoredValue || '',
+    source,
+  };
+}
+
+function resolveGatewayPasswordStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['email']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      passwordConfigured: Boolean(credential.value),
+      passwordSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    passwordConfigured: Boolean(configValue),
+    passwordSource: configValue ? 'config' : null,
+  };
+}
+
+function resolveGatewayTokenStatus(params: {
+  storedSecretName: string;
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): NonNullable<GatewayStatus['telegram']> {
+  const credential = resolveRuntimeCredentialStatus(
+    params.storedSecretName,
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      tokenConfigured: Boolean(credential.value),
+      tokenSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    tokenConfigured: Boolean(configValue),
+    tokenSource: configValue ? 'config' : null,
+  };
+}
+
+function buildOpenRouterAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
+    process.env.OPENROUTER_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value ? ['API key: configured'] : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.openrouter.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Catalog: auto-discovered',
+  ];
+}
+
+function buildMistralAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('MISTRAL_API_KEY', [
+    process.env.MISTRAL_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value ? ['API key: configured'] : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.mistral.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Catalog: auto-discovered',
+  ];
+}
+
+function buildHuggingFaceAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('HF_TOKEN', [
+    process.env.HF_TOKEN,
+    process.env.HUGGINGFACE_API_KEY,
+  ]);
+  return [
+    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value ? ['API key: configured'] : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`,
+    `Base URL: ${config.huggingface.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Catalog: auto-discovered',
+  ];
+}
+
+function buildCodexAuthStatusLines(): string[] {
+  const status = getCodexAuthStatus();
+  return [
+    `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
+    `Relogin required: ${status.reloginRequired ? 'yes' : 'no'}`,
+    ...(status.authenticated
+      ? [
+          `Source: ${status.source}`,
+          `Account: ${status.accountId}`,
+          'Access token: configured',
+          `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
+        ]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+  ];
+}
+
+function buildLocalAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const lines = [
+    `Config: ${runtimeConfigPath()}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  ];
+  for (const [backend, settings] of Object.entries(config.local.backends)) {
+    lines.push(
+      `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
+    );
+    if (backend === 'vllm') {
+      lines.push(`vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`);
+    }
+  }
+  return lines;
+}
+
+function buildMSTeamsAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const credential = resolveRuntimeCredentialStatus('MSTEAMS_APP_PASSWORD', [
+    process.env.MSTEAMS_APP_PASSWORD,
+  ]);
+  const appId =
+    String(process.env.MSTEAMS_APP_ID || '').trim() || config.msteams.appId;
+  const tenantId =
+    String(process.env.MSTEAMS_TENANT_ID || '').trim() ||
+    config.msteams.tenantId;
+  return [
+    `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
+    ...(credential.source ? [`Source: ${credential.source}`] : []),
+    ...(credential.value ? ['App password: configured'] : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`,
+    `App ID: ${appId || '(not set)'}`,
+    `Tenant ID: ${tenantId || '(not set)'}`,
+    `Webhook path: ${config.msteams.webhook.path}`,
+    `DM policy: ${config.msteams.dmPolicy}`,
+    `Group policy: ${config.msteams.groupPolicy}`,
+  ];
+}
+
+function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
+  title: string;
+  lines: string[];
+} {
+  switch (provider) {
+    case 'hybridai':
+      return {
+        title: 'HybridAI Auth Status',
+        lines: buildHybridAIAuthStatusLines(),
+      };
+    case 'codex':
+      return {
+        title: 'Codex Auth Status',
+        lines: buildCodexAuthStatusLines(),
+      };
+    case 'openrouter':
+      return {
+        title: 'OpenRouter Auth Status',
+        lines: buildOpenRouterAuthStatusLines(),
+      };
+    case 'mistral':
+      return {
+        title: 'Mistral Auth Status',
+        lines: buildMistralAuthStatusLines(),
+      };
+    case 'huggingface':
+      return {
+        title: 'Hugging Face Auth Status',
+        lines: buildHuggingFaceAuthStatusLines(),
+      };
+    case 'local':
+      return {
+        title: 'Local Auth Status',
+        lines: buildLocalAuthStatusLines(),
+      };
+    case 'msteams':
+      return {
+        title: 'Microsoft Teams Auth Status',
+        lines: buildMSTeamsAuthStatusLines(),
+      };
+  }
+}
+
+function buildProviderEnableCommand(
+  provider: 'openrouter' | 'mistral' | 'huggingface',
+): string {
+  return `config set ${provider}.enabled true`;
+}
+
+function buildModelListProviderSetupMessage(
+  providerArg: string,
+): string | null {
+  const provider = normalizeModelCatalogProviderFilter(providerArg);
+  const config = getRuntimeConfig();
+  switch (provider) {
+    case 'hybridai': {
+      if (getHybridAIAuthStatus().authenticated) return null;
+      return [
+        'HybridAI is not authorized.',
+        'Authorize it first from a terminal:',
+        '  hybridclaw auth login hybridai',
+        'Then rerun `model list hybridai`.',
+      ].join('\n');
+    }
+    case 'openai-codex': {
+      const status = getCodexAuthStatus();
+      if (status.authenticated && !status.reloginRequired) return null;
+      return [
+        status.reloginRequired
+          ? 'Codex authorization expired.'
+          : 'Codex is not authorized.',
+        'Authorize it first from a terminal:',
+        '  hybridclaw auth login codex',
+        'Then rerun `model list codex`.',
+      ].join('\n');
+    }
+    case 'openrouter': {
+      const authorized = Boolean(readOpenRouterApiKey({ required: false }));
+      if (authorized && config.openrouter.enabled) return null;
+      return [
+        !authorized
+          ? 'OpenRouter is not authorized.'
+          : 'OpenRouter is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login openrouter',
+            ]
+          : []),
+        ...(config.openrouter.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('openrouter')}`]),
+        'Then rerun `model list openrouter`.',
+      ].join('\n');
+    }
+    case 'mistral': {
+      const authorized = Boolean(readMistralApiKey({ required: false }));
+      if (authorized && config.mistral.enabled) return null;
+      return [
+        !authorized ? 'Mistral is not authorized.' : 'Mistral is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login mistral',
+            ]
+          : []),
+        ...(config.mistral.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('mistral')}`]),
+        'Then rerun `model list mistral`.',
+      ].join('\n');
+    }
+    case 'huggingface': {
+      const authorized = Boolean(readHuggingFaceApiKey({ required: false }));
+      if (authorized && config.huggingface.enabled) return null;
+      return [
+        !authorized
+          ? 'Hugging Face is not authorized.'
+          : 'Hugging Face is disabled.',
+        ...(!authorized
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login huggingface',
+            ]
+          : []),
+        ...(config.huggingface.enabled
+          ? []
+          : ['Enable it:', `  ${buildProviderEnableCommand('huggingface')}`]),
+        'Then rerun `model list huggingface`.',
+      ].join('\n');
+    }
+    default:
+      return null;
+  }
+}
+
+export function formatCanonicalContextPrompt(params: {
   summary: string | null;
   recentMessages: Array<{
     role: string;
@@ -1640,7 +2366,7 @@ function formatCanonicalContextPrompt(params: {
   return merged || null;
 }
 
-function formatPluginPromptContext(sections: string[]): string | null {
+export function formatPluginPromptContext(sections: string[]): string | null {
   const normalized = sections
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
@@ -1706,7 +2432,7 @@ function normalizeVersionQuery(raw: string): string {
     .trim();
 }
 
-function isVersionOnlyQuestion(raw: string): boolean {
+export function isVersionOnlyQuestion(raw: string): boolean {
   const text = normalizeVersionQuery(raw);
   if (!text) return false;
   if (text.startsWith('!claw ')) return false;
@@ -1746,13 +2472,14 @@ function isVersionOnlyQuestion(raw: string): boolean {
   return true;
 }
 
-function recordSuccessfulTurn(opts: {
+export function recordSuccessfulTurn(opts: {
   sessionId: string;
   agentId: string;
   chatbotId: string;
   enableRag: boolean;
   model: string;
   channelId: string;
+  promptMode?: PromptMode;
   runId: string;
   turnIndex: number;
   userId: string;
@@ -1762,53 +2489,74 @@ function recordSuccessfulTurn(opts: {
   resultText: string;
   toolCallCount: number;
   startedAt: number;
+  replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;
 } {
-  const storedTurn = memoryService.storeTurn({
-    sessionId: opts.sessionId,
-    user: {
-      userId: opts.userId,
-      username: opts.username,
-      content: opts.userContent,
-    },
-    assistant: {
-      userId: 'assistant',
-      username: null,
-      content: opts.resultText,
-    },
-  });
-  try {
-    if (opts.canonicalScopeId.trim()) {
-      memoryService.appendCanonicalMessages({
-        agentId: opts.agentId,
-        userId: opts.canonicalScopeId,
-        newMessages: [
-          {
+  const storedTurn =
+    opts.replaceBuiltInMemory === true
+      ? {
+          userMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: opts.userId,
+            username: opts.username,
             role: 'user',
             content: opts.userContent,
+          }),
+          assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-          {
+            userId: 'assistant',
+            username: null,
             role: 'assistant',
             content: opts.resultText,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
+          }),
+        }
+      : memoryService.storeTurn({
+          sessionId: opts.sessionId,
+          user: {
+            userId: opts.userId,
+            username: opts.username,
+            content: opts.userContent,
           },
-        ],
-      });
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            content: opts.resultText,
+          },
+        });
+  if (opts.replaceBuiltInMemory !== true) {
+    try {
+      if (opts.canonicalScopeId.trim()) {
+        memoryService.appendCanonicalMessages({
+          agentId: opts.agentId,
+          userId: opts.canonicalScopeId,
+          newMessages: [
+            {
+              role: 'user',
+              content: opts.userContent,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+            {
+              role: 'assistant',
+              content: opts.resultText,
+              sessionId: opts.sessionId,
+              channelId: opts.channelId,
+            },
+          ],
+        });
+      }
+    } catch (err) {
+      logger.debug(
+        {
+          sessionId: opts.sessionId,
+          canonicalScopeId: opts.canonicalScopeId,
+          err,
+        },
+        'Failed to append canonical session memory',
+      );
     }
-  } catch (err) {
-    logger.debug(
-      {
-        sessionId: opts.sessionId,
-        canonicalScopeId: opts.canonicalScopeId,
-        err,
-      },
-      'Failed to append canonical session memory',
-    );
   }
   appendSessionTranscript(opts.agentId, {
     sessionId: opts.sessionId,
@@ -1827,19 +2575,22 @@ function recordSuccessfulTurn(opts: {
     content: opts.resultText,
   });
 
-  void maybeCompactSession({
-    sessionId: opts.sessionId,
-    agentId: opts.agentId,
-    chatbotId: opts.chatbotId,
-    enableRag: opts.enableRag,
-    model: opts.model,
-    channelId: opts.channelId,
-  }).catch((err) => {
-    logger.warn(
-      { sessionId: opts.sessionId, err },
-      'Background session compaction failed',
-    );
-  });
+  if (opts.replaceBuiltInMemory !== true) {
+    void maybeCompactSession({
+      sessionId: opts.sessionId,
+      agentId: opts.agentId,
+      chatbotId: opts.chatbotId,
+      enableRag: opts.enableRag,
+      model: opts.model,
+      channelId: opts.channelId,
+      promptMode: opts.promptMode,
+    }).catch((err) => {
+      logger.warn(
+        { sessionId: opts.sessionId, err },
+        'Background session compaction failed',
+      );
+    });
+  }
 
   recordAuditEvent({
     sessionId: opts.sessionId,
@@ -1868,7 +2619,7 @@ function recordSuccessfulTurn(opts: {
   return storedTurn;
 }
 
-function buildStoredTurnMessages(params: {
+export function buildStoredTurnMessages(params: {
   sessionId: string;
   userId: string;
   username: string | null;
@@ -1929,79 +2680,57 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
-function formatRatioAsPercent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
+function normalizeUrlPrefix(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) {
+    throw new Error('URL prefix is required.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Invalid URL prefix: ${value}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
+  }
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  const pathname = parsed.pathname || '/';
+  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
+  return parsed.toString();
 }
 
-function formatSkillHealthMetrics(metrics: SkillHealthMetrics): string {
-  const lines = [
-    `Skill: ${metrics.skill_name}`,
-    `Executions: ${metrics.total_executions}`,
-    `Success rate: ${formatRatioAsPercent(metrics.success_rate)}`,
-    `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-    `Positive feedback: ${metrics.positive_feedback_count}`,
-    `Negative feedback: ${metrics.negative_feedback_count}`,
-    `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
-  ];
-  if (metrics.degradation_reasons.length > 0) {
-    lines.push(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
+function normalizeSecretRouteHeader(raw: string | undefined): string {
+  const header = String(raw || 'Authorization').trim();
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
+    throw new Error(`Invalid header name: ${header}`);
   }
-  if (metrics.error_clusters.length > 0) {
-    lines.push(
-      `Error clusters: ${metrics.error_clusters
-        .map((cluster) =>
-          cluster.sample_detail
-            ? `${cluster.category}=${cluster.count} (${cluster.sample_detail})`
-            : `${cluster.category}=${cluster.count}`,
-        )
-        .join('; ')}`,
-    );
-  }
-  return lines.join('\n');
+  return header;
 }
 
-function formatSkillAmendment(amendment: SkillAmendment): string {
-  const lines = [
-    `Version: ${amendment.version}`,
-    `Status: ${amendment.status}`,
-    `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
-    `Runs since apply: ${amendment.runs_since_apply}`,
-    `Created: ${amendment.created_at}`,
-  ];
-  if (amendment.reviewed_by) {
-    lines.push(`Reviewed by: ${amendment.reviewed_by}`);
+function normalizeSecretRoutePrefix(raw: string | undefined): string {
+  const normalized = String(raw || 'Bearer').trim();
+  if (!normalized || normalized.toLowerCase() === 'none') {
+    return '';
   }
-  if (amendment.rationale) {
-    lines.push(`Rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    lines.push(`Diff: ${amendment.diff_summary}`);
-  }
-  return lines.join('\n');
+  return normalized;
 }
 
-function formatSkillObservationRun(observation: SkillObservation): string {
-  const lines = [
-    `Run: ${observation.run_id}`,
-    `Outcome: ${observation.outcome}`,
-    `Observed: ${observation.created_at}`,
-    `Duration: ${observation.duration_ms}ms`,
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  ];
-  if (observation.feedback_sentiment) {
-    lines.push(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    lines.push(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    lines.push(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    lines.push(`Error detail: ${observation.error_detail}`);
-  }
-  return lines.join('\n');
+function formatHttpRequestAuthRule(
+  rule: RuntimeHttpRequestAuthRule,
+  index: number,
+): string {
+  const parsedSecret =
+    typeof rule.secret === 'string'
+      ? rule.secret
+      : typeof rule.secret.id === 'string'
+        ? `${rule.secret.source}:${rule.secret.id}`
+        : '<invalid>';
+  const prefix = rule.prefix ? ` ${rule.prefix}` : '';
+  return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
 
 function formatSessionModelOverride(model: string | null | undefined): string {
@@ -2149,7 +2878,7 @@ function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   return pendingSessionResets.get(sessionId) ?? null;
 }
 
-function buildTokenUsageAuditPayload(
+export function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
   tokenUsage?: TokenUsageStats,
@@ -2218,10 +2947,18 @@ function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
-  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
-    localBackendsProbe.get(),
-    hybridAIProbe.get(),
-  ]);
+  const codex = getCodexAuthStatus();
+  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
+    await Promise.allSettled([
+      localBackendsProbe.get(),
+      hybridAIProbe.get(),
+      getWhatsAppAuthStatus(),
+      codex.authenticated && !codex.reloginRequired
+        ? discoverCodexModels()
+        : Promise.resolve([]),
+    ]);
+  const runtimeConfig = getRuntimeConfig();
+  const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
@@ -2230,8 +2967,12 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
       : { reachable: false, error: 'probe failed', latencyMs: 0 };
+  const whatsappAuth =
+    whatsappAuthResult.status === 'fulfilled'
+      ? whatsappAuthResult.value
+      : { linked: false, jid: null };
+  const whatsappPairing = getWhatsAppPairingState();
   const sandbox = getSandboxDiagnostics();
-  const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
       backend,
@@ -2250,15 +2991,59 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     codex,
     hybridaiHealth,
   });
+  const discordCredential = resolveRuntimeCredentialStatus(
+    'DISCORD_TOKEN',
+    [process.env.DISCORD_TOKEN],
+    storedSecrets.DISCORD_TOKEN,
+  );
+  const discord = {
+    tokenConfigured: Boolean(discordCredential.value),
+    tokenSource: discordCredential.source,
+  } as NonNullable<GatewayStatus['discord']>;
+  const slackBotCredential = resolveRuntimeCredentialStatus(
+    'SLACK_BOT_TOKEN',
+    [process.env.SLACK_BOT_TOKEN],
+    storedSecrets.SLACK_BOT_TOKEN,
+  );
+  const slackAppCredential = resolveRuntimeCredentialStatus(
+    'SLACK_APP_TOKEN',
+    [process.env.SLACK_APP_TOKEN],
+    storedSecrets.SLACK_APP_TOKEN,
+  );
+  const slack = {
+    botTokenConfigured: Boolean(slackBotCredential.value),
+    botTokenSource: slackBotCredential.source,
+    appTokenConfigured: Boolean(slackAppCredential.value),
+    appTokenSource: slackAppCredential.source,
+  } as NonNullable<GatewayStatus['slack']>;
+  const telegram = resolveGatewayTokenStatus({
+    storedSecretName: 'TELEGRAM_BOT_TOKEN',
+    envValues: [process.env.TELEGRAM_BOT_TOKEN],
+    configValue: runtimeConfig.telegram.botToken,
+    storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
+  });
+  const email = resolveGatewayPasswordStatus({
+    storedSecretName: 'EMAIL_PASSWORD',
+    envValues: [process.env.EMAIL_PASSWORD],
+    configValue: runtimeConfig.email.password,
+    storedValue: storedSecrets.EMAIL_PASSWORD,
+  });
+  const imessage = resolveGatewayPasswordStatus({
+    storedSecretName: 'IMESSAGE_PASSWORD',
+    envValues: [process.env.IMESSAGE_PASSWORD],
+    configValue: runtimeConfig.imessage.password,
+    storedValue: storedSecrets.IMESSAGE_PASSWORD,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
     pid: process.pid,
+    lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
-    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
+    defaultAgentId: resolveDefaultAgentId(runtimeConfig),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -2276,6 +3061,16 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     observability: getObservabilityIngestState(),
     scheduler: {
       jobs: getSchedulerStatus(),
+    },
+    discord,
+    slack,
+    telegram,
+    email,
+    imessage,
+    whatsapp: {
+      ...whatsappAuth,
+      pairingQrText: whatsappPairing.pairingQrText,
+      pairingUpdatedAt: whatsappPairing.updatedAt,
     },
     providerHealth,
     localBackends,
@@ -2531,13 +3326,13 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       );
     })
     .map((session) => ({
+      output: collectRecentAssistantOutputs(session.sessionId),
       sessionId: session.sessionId,
       agentId: session.agentId,
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
       lastAnswer: session.lastAnswer,
-      output: session.output,
     }));
 
   const agentIds = Array.from(
@@ -2559,8 +3354,115 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   };
 }
 
+function collectRecentAssistantOutputs(
+  sessionId: string,
+  limit = 12,
+): string[] {
+  const outputs: string[] = [];
+  const seen = new Set<string>();
+  const messages = getRecentMessages(sessionId, limit);
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (String(message.role || '').toLowerCase() !== 'assistant') continue;
+    const content = String(message.content || '').trim();
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    outputs.unshift(content);
+  }
+
+  return outputs;
+}
+
 export function getGatewayAdminSessions(): GatewayAdminSession[] {
   return getAllSessions().map(mapAdminSession);
+}
+
+function resolveGatewayAdminEmailPassword(
+  runtimeConfig: RuntimeConfig,
+): string {
+  const credential = resolveRuntimeCredentialStatus('EMAIL_PASSWORD', [
+    process.env.EMAIL_PASSWORD,
+  ]);
+  return credential.value || String(runtimeConfig.email.password || '').trim();
+}
+
+function assertGatewayAdminEmailMailboxConfigured(
+  runtimeConfig: RuntimeConfig,
+): {
+  config: RuntimeConfig['email'];
+  password: string;
+} {
+  if (!runtimeConfig.email.enabled) {
+    throw new Error('Email channel is not enabled.');
+  }
+  if (!runtimeConfig.email.address.trim()) {
+    throw new Error('Email address is not configured.');
+  }
+  if (!runtimeConfig.email.imapHost.trim()) {
+    throw new Error('Email IMAP host is not configured.');
+  }
+  const password = resolveGatewayAdminEmailPassword(runtimeConfig);
+  if (!password) {
+    throw new Error('Email password is not configured.');
+  }
+  return {
+    config: runtimeConfig.email,
+    password,
+  };
+}
+
+export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMailboxResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  if (!runtimeConfig.email.enabled) {
+    return {
+      enabled: false,
+      address: runtimeConfig.email.address,
+      folders: [],
+      defaultFolder: null,
+    };
+  }
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  const mailbox = await fetchLiveAdminEmailMailbox(config, password);
+
+  return {
+    enabled: true,
+    address: mailbox.address,
+    folders: mailbox.folders,
+    defaultFolder: mailbox.defaultFolder,
+  };
+}
+
+export async function getGatewayAdminEmailFolder(params: {
+  folder: string;
+  limit?: number;
+  offset?: number;
+}): Promise<GatewayAdminEmailFolderResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailFolder(config, password, params);
+}
+
+export async function getGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailMessageResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return fetchLiveAdminEmailMessage(config, password, params);
+}
+
+export async function deleteGatewayAdminEmailMessage(params: {
+  folder: string;
+  uid: number;
+}): Promise<GatewayAdminEmailDeleteResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const { config, password } =
+    assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
+  return deleteLiveAdminEmailMessage(config, password, params);
 }
 
 export function deleteGatewayAdminSession(
@@ -2624,6 +3526,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     defaultRateLimitPerUser: runtimeConfig.discord.rateLimitPerUser,
     defaultMaxConcurrentPerChannel:
       runtimeConfig.discord.maxConcurrentPerChannel,
+    slack: {
+      enabled: runtimeConfig.slack.enabled,
+      groupPolicy: runtimeConfig.slack.groupPolicy,
+      dmPolicy: runtimeConfig.slack.dmPolicy,
+      defaultRequireMention: runtimeConfig.slack.requireMention,
+      defaultReplyStyle: runtimeConfig.slack.replyStyle,
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,
@@ -2712,148 +3621,6 @@ export function saveGatewayAdminConfig(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function parseStringArrayInput(
-  value: unknown,
-  fieldName: string,
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw new Error(`Expected array \`${fieldName}\`.`);
-  }
-  return dedupeStrings(value.map((entry) => String(entry || '').trim()));
-}
-
-function parseAdminSchedulerJob(
-  value: unknown,
-): RuntimeConfig['scheduler']['jobs'][number] {
-  if (!isRecord(value)) {
-    throw new Error('Expected object `job`.');
-  }
-
-  const id = String(value.id || '').trim();
-  if (!id) {
-    throw new Error('Scheduler job requires a non-empty `id`.');
-  }
-
-  const name = String(value.name || '').trim();
-  const description = String(value.description || '').trim();
-  const agentId = String(value.agentId || '').trim();
-  const boardStatus = parseSchedulerBoardStatus(value.boardStatus);
-  const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
-  const rawAction = isRecord(value.action) ? value.action : {};
-  const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
-
-  const scheduleKind = String(rawSchedule.kind || 'cron')
-    .trim()
-    .toLowerCase();
-  if (
-    scheduleKind !== 'cron' &&
-    scheduleKind !== 'every' &&
-    scheduleKind !== 'at'
-  ) {
-    throw new Error(
-      'Scheduler schedule kind must be `cron`, `every`, or `at`.',
-    );
-  }
-
-  let at: string | null = null;
-  let everyMs: number | null = null;
-  let expr: string | null = null;
-  if (scheduleKind === 'at') {
-    at = String(rawSchedule.at || '').trim();
-    const parsedAt = new Date(at);
-    if (!at || Number.isNaN(parsedAt.getTime())) {
-      throw new Error('`schedule.at` must be a valid ISO timestamp.');
-    }
-    at = parsedAt.toISOString();
-  } else if (scheduleKind === 'every') {
-    const parsedEveryMs =
-      typeof rawSchedule.everyMs === 'number'
-        ? rawSchedule.everyMs
-        : Number.parseInt(String(rawSchedule.everyMs || ''), 10);
-    if (!Number.isFinite(parsedEveryMs) || parsedEveryMs < 10_000) {
-      throw new Error('`schedule.everyMs` must be at least 10000.');
-    }
-    everyMs = Math.floor(parsedEveryMs);
-  } else {
-    expr = String(rawSchedule.expr || '').trim();
-    if (!expr) {
-      throw new Error('`schedule.expr` is required for cron jobs.');
-    }
-    try {
-      CronExpressionParser.parse(expr);
-    } catch {
-      throw new Error(`\`${expr}\` is not a valid cron expression.`);
-    }
-  }
-
-  const actionKind = String(rawAction.kind || 'agent_turn')
-    .trim()
-    .toLowerCase();
-  if (actionKind !== 'agent_turn' && actionKind !== 'system_event') {
-    throw new Error(
-      'Scheduler action kind must be `agent_turn` or `system_event`.',
-    );
-  }
-  const actionMessage = String(rawAction.message || '').trim() || description;
-  if (!actionMessage) {
-    throw new Error('`action.message` or `description` is required.');
-  }
-
-  const deliveryKind = String(rawDelivery.kind || 'channel')
-    .trim()
-    .toLowerCase();
-  if (
-    deliveryKind !== 'channel' &&
-    deliveryKind !== 'last-channel' &&
-    deliveryKind !== 'webhook'
-  ) {
-    throw new Error(
-      'Scheduler delivery kind must be `channel`, `last-channel`, or `webhook`.',
-    );
-  }
-  const deliveryTo = String(rawDelivery.to || '').trim();
-  const webhookUrl = String(rawDelivery.webhookUrl || '').trim();
-  if (deliveryKind === 'channel' && !deliveryTo) {
-    throw new Error('`delivery.to` is required for channel deliveries.');
-  }
-  if (deliveryKind === 'webhook' && !webhookUrl) {
-    throw new Error(
-      '`delivery.webhookUrl` is required for webhook deliveries.',
-    );
-  }
-
-  return {
-    id,
-    ...(name ? { name } : {}),
-    ...(description ? { description } : {}),
-    ...(agentId ? { agentId } : {}),
-    ...(boardStatus ? { boardStatus } : {}),
-    schedule: {
-      kind: scheduleKind,
-      at,
-      everyMs,
-      expr,
-      tz: String(rawSchedule.tz || '').trim(),
-    },
-    action: {
-      kind: actionKind,
-      message: actionMessage,
-    },
-    delivery: {
-      kind: deliveryKind,
-      channel: String(rawDelivery.channel || 'discord').trim() || 'discord',
-      to: deliveryTo,
-      webhookUrl,
-    },
-    enabled: value.enabled !== false,
-  };
-}
-
 function mapAdminAuditEntry(
   entry: StructuredAuditEntry,
 ): GatewayAdminAuditResponse['entries'][number] {
@@ -2906,7 +3673,7 @@ function mapAdminToolExecution(
   };
 }
 
-export function getGatewayAdminTools(): GatewayAdminToolsResponse {
+export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse> {
   const recentEntries = listStructuredAuditEntries({
     eventType: 'tool.result',
     limit: 200,
@@ -2948,78 +3715,74 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
     usageByTool.set(execution.toolName, current);
   }
 
+  let pluginToolNames: string[] = [];
+  try {
+    const pluginManager = await ensurePluginManagerInitialized();
+    pluginToolNames = pluginManager
+      .getToolDefinitions()
+      .map((tool) => tool.name)
+      .sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    logger.warn({ error }, 'Failed to load plugin tools for admin catalog');
+  }
+
+  const mapTool = (
+    name: string,
+    group: string,
+    kind: GatewayAdminToolCatalogEntry['kind'],
+  ): GatewayAdminToolCatalogEntry => {
+    const usage = usageByTool.get(name);
+    return {
+      name,
+      group,
+      kind,
+      recentCalls: usage?.recentCalls || 0,
+      recentErrors: usage?.recentErrors || 0,
+      lastUsedAt: usage?.lastUsedAt || null,
+      recentErrorSamples: usage?.recentErrorSamples || [],
+    };
+  };
+
   const groups: GatewayAdminToolsResponse['groups'] = getKnownToolGroups()
     .filter((group) => group.tools.length > 0)
     .map((group) => ({
       label: group.label,
-      tools: group.tools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: group.label,
-          kind: 'builtin' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
+      tools: group.tools.map((name) => mapTool(name, group.label, 'builtin')),
     }));
 
-  const recentOnlyTools = Array.from(usageByTool.keys()).filter(
-    (name) => !isKnownToolName(name),
+  if (pluginToolNames.length > 0) {
+    groups.push({
+      label: 'Plugins',
+      tools: pluginToolNames.map((name) => mapTool(name, 'Plugins', 'plugin')),
+    });
+  }
+
+  const enabledMcpNamespaces = new Set(
+    buildMcpServerNamespaces(
+      Object.entries(getRuntimeConfig().mcpServers)
+        .filter(([, config]) => config.enabled !== false)
+        .map(([name]) => name),
+    ).values(),
   );
-  const mcpTools = recentOnlyTools
-    .filter((name) => name.includes('__'))
-    .sort((left, right) => left.localeCompare(right));
-  const otherTools = recentOnlyTools
-    .filter((name) => !name.includes('__'))
+  const mcpTools = Array.from(usageByTool.keys())
+    .filter((name) => !isKnownToolName(name) && name.includes('__'))
+    .filter((name) =>
+      enabledMcpNamespaces.has(name.slice(0, name.indexOf('__'))),
+    )
     .sort((left, right) => left.localeCompare(right));
 
   if (mcpTools.length > 0) {
     groups.push({
       label: 'MCP',
-      tools: mcpTools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: 'MCP',
-          kind: 'mcp' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
-    });
-  }
-
-  if (otherTools.length > 0) {
-    groups.push({
-      label: 'Other',
-      tools: otherTools.map((name) => {
-        const usage = usageByTool.get(name);
-        return {
-          name,
-          group: getKnownToolGroupLabel(name) || 'Other',
-          kind: 'other' as const,
-          recentCalls: usage?.recentCalls || 0,
-          recentErrors: usage?.recentErrors || 0,
-          lastUsedAt: usage?.lastUsedAt || null,
-          recentErrorSamples: usage?.recentErrorSamples || [],
-        };
-      }),
+      tools: mcpTools.map((name) => mapTool(name, 'MCP', 'mcp')),
     });
   }
 
   const builtinTools = groups
-    .filter((group) => group.label !== 'MCP' && group.label !== 'Other')
+    .filter((group) => group.label !== 'Plugins' && group.label !== 'MCP')
     .reduce((sum, group) => sum + group.tools.length, 0);
   const mcpToolCount = groups
     .filter((group) => group.label === 'MCP')
-    .reduce((sum, group) => sum + group.tools.length, 0);
-  const otherToolCount = groups
-    .filter((group) => group.label === 'Other')
     .reduce((sum, group) => sum + group.tools.length, 0);
 
   return {
@@ -3027,7 +3790,7 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
       totalTools: groups.reduce((sum, group) => sum + group.tools.length, 0),
       builtinTools,
       mcpTools: mcpToolCount,
-      otherTools: otherToolCount,
+      otherTools: 0,
       recentExecutions: recentExecutions.length,
       recentErrors: recentExecutions.filter((entry) => entry.isError).length,
     },
@@ -3040,10 +3803,6 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
   const runtimeConfig = getRuntimeConfig();
-  const hybridaiModels = dedupeStrings(runtimeConfig.hybridai.models);
-  const codexModels = dedupeStrings(runtimeConfig.codex.models);
-  const configuredHybridai = new Set(hybridaiModels);
-  const configuredCodex = new Set(codexModels);
   const dailyUsage = new Map(
     listUsageByModel({ window: 'daily' }).map((row) => [row.model, row]),
   );
@@ -3055,28 +3814,92 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     ...getAvailableModelList(),
   ]);
+  const defaultModel = resolveRequestedCatalogModelName(
+    runtimeConfig.hybridai.defaultModel,
+    modelIds,
+  );
   const status = await getGatewayStatus();
+  const providerStatus = Object.fromEntries(
+    Object.entries(status.providerHealth || {}).map(([name, value]) => [
+      name,
+      { ...value },
+    ]),
+  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
+  const modelCountByProvider = new Map<
+    keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
+    number
+  >();
+
+  for (const modelId of modelIds) {
+    const normalized = modelId.trim().toLowerCase();
+    if (!normalized) continue;
+
+    let providerKey: keyof NonNullable<
+      GatewayAdminModelsResponse['providerStatus']
+    > = 'hybridai';
+    if (normalized.startsWith('openai-codex/')) {
+      providerKey = 'codex';
+    } else if (normalized.startsWith('openrouter/')) {
+      providerKey = 'openrouter';
+    } else if (normalized.startsWith('mistral/')) {
+      providerKey = 'mistral';
+    } else if (normalized.startsWith('huggingface/')) {
+      providerKey = 'huggingface';
+    } else if (normalized.startsWith('ollama/')) {
+      providerKey = 'ollama';
+    } else if (normalized.startsWith('lmstudio/')) {
+      providerKey = 'lmstudio';
+    } else if (normalized.startsWith('llamacpp/')) {
+      providerKey = 'llamacpp';
+    } else if (normalized.startsWith('vllm/')) {
+      providerKey = 'vllm';
+    }
+
+    modelCountByProvider.set(
+      providerKey,
+      (modelCountByProvider.get(providerKey) || 0) + 1,
+    );
+  }
+
+  for (const [providerKey, current] of Object.entries(providerStatus || {})) {
+    providerStatus[
+      providerKey as keyof NonNullable<
+        GatewayAdminModelsResponse['providerStatus']
+      >
+    ] = {
+      ...current,
+      modelCount:
+        modelCountByProvider.get(
+          providerKey as keyof NonNullable<
+            GatewayAdminModelsResponse['providerStatus']
+          >,
+        ) || 0,
+    };
+  }
 
   return {
-    defaultModel: runtimeConfig.hybridai.defaultModel,
-    hybridaiModels,
-    codexModels,
-    providerStatus: status.providerHealth,
+    defaultModel,
+    providerStatus,
     models: modelIds
       .map((modelId) => {
+        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiContextWindow =
-          getDiscoveredHybridAIModelContextWindow(modelId);
+        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
+        const openRouterMaxTokens =
+          getDiscoveredOpenRouterModelMaxTokens(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
-          configuredInHybridai: configuredHybridai.has(modelId),
-          configuredInCodex: configuredCodex.has(modelId),
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: info?.contextWindow ?? hybridaiContextWindow ?? null,
-          maxTokens: info?.maxTokens ?? null,
+          contextWindow: resolveKnownModelContextWindow(modelId),
+          maxTokens:
+            info?.maxTokens ??
+            codexMaxTokens ??
+            hybridaiMaxTokens ??
+            openRouterMaxTokens ??
+            null,
           isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
@@ -3091,311 +3914,17 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
 
 export async function saveGatewayAdminModels(input: {
   defaultModel?: unknown;
-  hybridaiModels?: unknown;
-  codexModels?: unknown;
 }): Promise<GatewayAdminModelsResponse> {
   const defaultModel = String(input.defaultModel || '').trim();
   if (!defaultModel) {
     throw new Error('Expected non-empty `defaultModel`.');
   }
 
-  const hybridaiModels = parseStringArrayInput(
-    input.hybridaiModels,
-    'hybridaiModels',
-  );
-  const codexModels = parseStringArrayInput(input.codexModels, 'codexModels');
-  const discoveredDefault = getLocalModelInfo(defaultModel);
-
   updateRuntimeConfig((draft) => {
     draft.hybridai.defaultModel = defaultModel;
-    if (hybridaiModels) {
-      draft.hybridai.models = hybridaiModels;
-    }
-    if (codexModels) {
-      draft.codex.models = codexModels;
-    }
-    if (
-      !draft.hybridai.models.includes(defaultModel) &&
-      !draft.codex.models.includes(defaultModel) &&
-      !discoveredDefault
-    ) {
-      draft.hybridai.models = dedupeStrings([
-        ...draft.hybridai.models,
-        defaultModel,
-      ]);
-    }
   });
 
   return getGatewayAdminModels();
-}
-
-export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
-  const runtimeConfig = getRuntimeConfig();
-  const statuses = new Map(
-    getSchedulerStatus().map((job) => [job.id, job] as const),
-  );
-  const nowMs = Date.now();
-
-  return {
-    jobs: [
-      ...runtimeConfig.scheduler.jobs.map((job) => {
-        const runtime = statuses.get(job.id);
-        return {
-          id: job.id,
-          source: 'config',
-          name:
-            (typeof job.name === 'string' && job.name.trim()) ||
-            runtime?.name ||
-            job.id,
-          description:
-            (typeof job.description === 'string' && job.description.trim()) ||
-            runtime?.description ||
-            null,
-          agentId: job.agentId ?? null,
-          boardStatus: job.boardStatus ?? null,
-          enabled: job.enabled,
-          schedule: job.schedule,
-          action: job.action,
-          delivery: job.delivery,
-          lastRun: runtime?.lastRun || null,
-          lastStatus: runtime?.lastStatus || null,
-          nextRunAt: runtime?.nextRunAt || null,
-          disabled: runtime?.disabled || false,
-          consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: null,
-          sessionId: null,
-          channelId:
-            job.delivery.kind === 'channel'
-              ? job.delivery.to
-              : job.delivery.kind === 'last-channel'
-                ? 'last-channel'
-                : null,
-          taskId: null,
-        } satisfies GatewayAdminSchedulerJob;
-      }),
-      ...getAllTasks()
-        .map((task) => {
-          const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
-          const createdAtMs = parseSchedulerTimestampMs(task.created_at);
-          const lastStatus =
-            task.last_status === 'success' || task.last_status === 'error'
-              ? task.last_status
-              : null;
-
-          return {
-            id: `task:${task.id}`,
-            source: 'task',
-            name:
-              normalizedPrompt.length > 72
-                ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
-                : normalizedPrompt || `Task #${task.id}`,
-            description: `#${task.id}`,
-            agentId: null,
-            boardStatus: null,
-            enabled: Boolean(task.enabled),
-            schedule: task.run_at
-              ? {
-                  kind: 'at',
-                  at: task.run_at,
-                  everyMs: null,
-                  expr: null,
-                  tz: '',
-                }
-              : task.every_ms
-                ? {
-                    kind: 'every',
-                    at: null,
-                    everyMs: task.every_ms,
-                    expr: null,
-                    tz: '',
-                  }
-                : {
-                    kind: 'cron',
-                    at: null,
-                    everyMs: null,
-                    expr: task.cron_expr || null,
-                    tz: '',
-                  },
-            action: {
-              kind: 'agent_turn',
-              message: task.prompt,
-            },
-            delivery: {
-              kind: 'channel',
-              channel: 'session',
-              to: task.channel_id,
-              webhookUrl: '',
-            },
-            lastRun: task.last_run,
-            lastStatus,
-            nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
-            disabled: !task.enabled,
-            consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
-            createdAt:
-              createdAtMs == null
-                ? task.created_at || null
-                : new Date(createdAtMs).toISOString(),
-            sessionId: task.session_id,
-            channelId: task.channel_id,
-            taskId: task.id,
-          } satisfies GatewayAdminSchedulerJob;
-        })
-        .sort(compareGatewayAdminSchedulerJobs),
-    ],
-  };
-}
-
-function compareGatewayAdminSchedulerJobs(
-  left: GatewayAdminSchedulerJob,
-  right: GatewayAdminSchedulerJob,
-): number {
-  if (left.nextRunAt && right.nextRunAt) {
-    const delta =
-      new Date(left.nextRunAt).getTime() - new Date(right.nextRunAt).getTime();
-    if (delta !== 0) return delta;
-  } else if (left.nextRunAt) {
-    return -1;
-  } else if (right.nextRunAt) {
-    return 1;
-  }
-
-  if (left.createdAt && right.createdAt) {
-    const delta =
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    if (delta !== 0) return delta;
-  } else if (left.createdAt) {
-    return -1;
-  } else if (right.createdAt) {
-    return 1;
-  }
-
-  return left.name.localeCompare(right.name);
-}
-
-export function upsertGatewayAdminSchedulerJob(input: {
-  job: unknown;
-}): GatewayAdminSchedulerResponse {
-  const job = parseAdminSchedulerJob(input.job);
-
-  updateRuntimeConfig((draft) => {
-    const existingIndex = draft.scheduler.jobs.findIndex(
-      (entry) => entry.id === job.id,
-    );
-    if (existingIndex >= 0) {
-      draft.scheduler.jobs[existingIndex] = job;
-      return;
-    }
-    draft.scheduler.jobs.push(job);
-  });
-
-  if (job.enabled) {
-    resumeConfigJob(job.id);
-  }
-  rearmScheduler();
-  return getGatewayAdminScheduler();
-}
-
-export function removeGatewayAdminSchedulerJob(
-  jobId: string,
-  source: 'config' | 'task' = 'config',
-): GatewayAdminSchedulerResponse {
-  if (source === 'task') {
-    const taskId = Number.parseInt(jobId, 10);
-    if (!Number.isFinite(taskId) || taskId <= 0) {
-      throw new Error('Expected numeric scheduler `taskId`.');
-    }
-    deleteTask(taskId);
-    rearmScheduler();
-    return getGatewayAdminScheduler();
-  }
-
-  const normalizedJobId = jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs = draft.scheduler.jobs.filter(
-      (job) => job.id !== normalizedJobId,
-    );
-  });
-  rearmScheduler();
-  return getGatewayAdminScheduler();
-}
-
-export function setGatewayAdminSchedulerJobPaused(params: {
-  jobId: string;
-  paused: boolean;
-  source?: 'config' | 'task';
-}): GatewayAdminSchedulerResponse {
-  if (params.source === 'task') {
-    const taskId = Number.parseInt(params.jobId, 10);
-    if (!Number.isFinite(taskId) || taskId <= 0) {
-      throw new Error('Expected numeric scheduler `taskId`.');
-    }
-    if (params.paused) {
-      pauseTask(taskId);
-    } else {
-      resumeTask(taskId);
-    }
-    rearmScheduler();
-    return getGatewayAdminScheduler();
-  }
-
-  const normalizedJobId = params.jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-
-  const ok = params.paused
-    ? pauseConfigJob(normalizedJobId)
-    : resumeConfigJob(normalizedJobId);
-  if (!ok) {
-    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
-  }
-  return getGatewayAdminScheduler();
-}
-
-export function moveGatewayAdminSchedulerJob(params: {
-  jobId: string;
-  beforeJobId?: string | null;
-  boardStatus?: SchedulerBoardStatus | null;
-}): GatewayAdminSchedulerResponse {
-  const normalizedJobId = params.jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-  const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const exists = getRuntimeConfig().scheduler.jobs.some(
-    (job) => job.id === normalizedJobId,
-  );
-  if (!exists) {
-    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
-  }
-
-  updateRuntimeConfig((draft) => {
-    const fromIndex = draft.scheduler.jobs.findIndex(
-      (job) => job.id === normalizedJobId,
-    );
-    if (fromIndex < 0) return;
-    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
-    if (params.boardStatus) {
-      job.boardStatus = params.boardStatus;
-    }
-    let insertIndex = draft.scheduler.jobs.length;
-    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
-      const beforeIndex = draft.scheduler.jobs.findIndex(
-        (candidate) => candidate.id === normalizedBeforeJobId,
-      );
-      if (beforeIndex >= 0) {
-        insertIndex = beforeIndex;
-      }
-    }
-    draft.scheduler.jobs.splice(insertIndex, 0, job);
-  });
-
-  rearmScheduler();
-  return getGatewayAdminScheduler();
 }
 
 export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
@@ -3489,6 +4018,8 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     skills: loadSkillCatalog().map((skill) => ({
       name: skill.name,
       description: skill.description,
+      category: skill.category,
+      shortDescription: skill.metadata.hybridclaw.shortDescription,
       source: String(skill.source),
       available: skill.available,
       enabled: skill.enabled,
@@ -3531,6 +4062,366 @@ export function setGatewayAdminSkillEnabled(input: {
   });
 
   return getGatewayAdminSkills();
+}
+
+function normalizeCreatedSkillCategory(raw: string | undefined): string {
+  const normalized = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'uncategorized';
+}
+
+function assertGatewayAdminSkillAllowed(
+  skillName: string,
+  skillPath: string,
+): void {
+  const guardDecision = guardSkillDirectory({
+    skillName,
+    skillPath,
+    sourceTag: 'workspace',
+  });
+  if (guardDecision.allowed) {
+    return;
+  }
+  throw new GatewayRequestError(
+    400,
+    `Skill \`${skillName}\` was blocked by the security scanner: ${guardDecision.reason}.`,
+  );
+}
+
+export function createGatewayAdminSkill(input: {
+  name: string;
+  description: string;
+  category?: string;
+  shortDescription?: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  tags?: string[];
+  body: string;
+  files?: Array<{ path: string; content: string }>;
+}): GatewayAdminSkillsResponse {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new GatewayRequestError(400, 'Expected non-empty skill `name`.');
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+    throw new GatewayRequestError(
+      400,
+      'Skill name must be lowercase alphanumeric with hyphens (e.g. "my-skill").',
+    );
+  }
+  if (name.length > 64) {
+    throw new GatewayRequestError(
+      400,
+      'Skill name must be 64 characters or fewer.',
+    );
+  }
+  const description = String(input.description || '').trim();
+  if (!description) {
+    throw new GatewayRequestError(
+      400,
+      'Expected non-empty skill `description`.',
+    );
+  }
+  const category = normalizeCreatedSkillCategory(input.category);
+  const shortDescription = String(input.shortDescription || '').trim();
+
+  const projectSkillsDir = path.join(process.cwd(), 'skills');
+  const skillDir = path.join(projectSkillsDir, name);
+
+  if (fs.existsSync(skillDir)) {
+    throw new GatewayRequestError(
+      409,
+      `Skill \`${name}\` already exists at ${skillDir}.`,
+    );
+  }
+
+  const userInvocable =
+    input.userInvocable !== undefined ? input.userInvocable : true;
+  const disableModelInvocation =
+    input.disableModelInvocation !== undefined
+      ? input.disableModelInvocation
+      : false;
+  const tags = Array.isArray(input.tags) ? input.tags : [];
+
+  const frontmatterLines = [
+    '---',
+    `name: ${name}`,
+    `description: ${JSON.stringify(description)}`,
+    `user-invocable: ${userInvocable}`,
+    `disable-model-invocation: ${disableModelInvocation}`,
+  ];
+  if (category || shortDescription || tags.length > 0) {
+    frontmatterLines.push('metadata:');
+    frontmatterLines.push('  hybridclaw:');
+    frontmatterLines.push(`    category: ${JSON.stringify(category)}`);
+    if (shortDescription) {
+      frontmatterLines.push(
+        `    short_description: ${JSON.stringify(shortDescription)}`,
+      );
+    }
+    if (tags.length > 0) {
+      frontmatterLines.push('    tags:');
+      for (const tag of tags) {
+        frontmatterLines.push(`      - ${JSON.stringify(String(tag))}`);
+      }
+    }
+  }
+  frontmatterLines.push('---');
+
+  const body = String(input.body || '').trim();
+  const content = `${frontmatterLines.join('\n')}\n\n${body}\n`;
+
+  // Validate all file paths before writing anything to disk
+  const files = Array.isArray(input.files) ? input.files : [];
+  const resolvedFiles: Array<{ relativePath: string; content: string }> = [];
+  for (const file of files) {
+    const filePath = String(file.path || '').trim();
+    if (!filePath) {
+      throw new GatewayRequestError(
+        400,
+        'Skill file paths must be non-empty and include a filename.',
+      );
+    }
+    if (filePath.endsWith('/') || filePath.endsWith(path.sep)) {
+      throw new GatewayRequestError(
+        400,
+        `File path \`${filePath}\` must include a filename.`,
+      );
+    }
+    const resolved = path.resolve(skillDir, filePath);
+    if (!resolved.startsWith(skillDir + path.sep)) {
+      throw new GatewayRequestError(
+        400,
+        `File path \`${filePath}\` escapes the skill directory.`,
+      );
+    }
+    resolvedFiles.push({
+      relativePath: path.relative(skillDir, resolved),
+      content: file.content || '',
+    });
+  }
+
+  // Stage outside skills/ so catalog scans never see partial skill directories.
+  fs.mkdirSync(projectSkillsDir, { recursive: true });
+  const stagedSkillDir = fs.mkdtempSync(
+    path.join(process.cwd(), `.${name}.create-`),
+  );
+  try {
+    fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
+    for (const file of resolvedFiles) {
+      const stagedFilePath = path.join(stagedSkillDir, file.relativePath);
+      fs.mkdirSync(path.dirname(stagedFilePath), { recursive: true });
+      fs.writeFileSync(stagedFilePath, file.content, 'utf-8');
+    }
+    assertGatewayAdminSkillAllowed(name, stagedSkillDir);
+    try {
+      fs.renameSync(stagedSkillDir, skillDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        code === 'EEXIST' ||
+        code === 'ENOTEMPTY' ||
+        fs.existsSync(skillDir)
+      ) {
+        throw new GatewayRequestError(
+          409,
+          `Skill \`${name}\` already exists at ${skillDir}.`,
+        );
+      }
+      throw error;
+    }
+  } catch (error) {
+    fs.rmSync(stagedSkillDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return getGatewayAdminSkills();
+}
+
+const SKILL_ZIP_MAX_BYTES = 10 * 1024 * 1024;
+const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+const SKILL_ZIP_MAX_FILES = 200;
+const SKILL_ZIP_IGNORED_TOP_LEVEL_FILES = new Set(['.DS_Store', 'Thumbs.db']);
+const SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES = new Set(['__MACOSX']);
+const SKILL_ZIP_SERVER_ERROR_CODES = new Set([
+  'EACCES',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENFILE',
+  'ENOENT',
+  'ENOSPC',
+  'EPERM',
+  'EROFS',
+]);
+
+function toSkillZipArchiveRequestError(error: unknown): GatewayRequestError {
+  if (error instanceof GatewayRequestError) {
+    return error;
+  }
+  const code =
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : '';
+  if (SKILL_ZIP_SERVER_ERROR_CODES.has(code)) {
+    throw error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new GatewayRequestError(
+    400,
+    message.startsWith('ZIP ')
+      ? message
+      : 'Uploaded file is not a valid skill ZIP archive.',
+  );
+}
+
+function isIgnoredSkillZipTopLevelEntry(entry: fs.Dirent): boolean {
+  return entry.isDirectory()
+    ? SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES.has(entry.name)
+    : SKILL_ZIP_IGNORED_TOP_LEVEL_FILES.has(entry.name);
+}
+
+function resolveUploadedSkillZipRoot(extractedDir: string): string {
+  if (fs.existsSync(path.join(extractedDir, 'SKILL.md'))) {
+    return extractedDir;
+  }
+
+  const topEntries = fs
+    .readdirSync(extractedDir, { withFileTypes: true })
+    .filter((entry) => !isIgnoredSkillZipTopLevelEntry(entry));
+
+  if (topEntries.length === 1 && topEntries[0].isDirectory()) {
+    return path.join(extractedDir, topEntries[0].name);
+  }
+
+  return extractedDir;
+}
+
+export async function uploadGatewayAdminSkillZip(
+  zipBuffer: Buffer,
+): Promise<GatewayAdminSkillsResponse> {
+  if (zipBuffer.length === 0) {
+    throw new GatewayRequestError(400, 'Uploaded file is empty.');
+  }
+  if (zipBuffer.length > SKILL_ZIP_MAX_BYTES) {
+    throw new GatewayRequestError(
+      413,
+      `Skill ZIP exceeds the ${SKILL_ZIP_MAX_BYTES} byte limit.`,
+    );
+  }
+
+  // Write buffer to a temp file for yauzl
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
+  const tmpZipPath = path.join(tmpDir, 'upload.zip');
+  const tmpExtractDir = path.join(tmpDir, 'extracted');
+  try {
+    fs.writeFileSync(tmpZipPath, zipBuffer);
+
+    // safeExtractZip handles structural security: symlinks, path traversal,
+    // encrypted entries, null bytes, absolute paths
+    try {
+      await safeExtractZip(tmpZipPath, tmpExtractDir);
+    } catch (error) {
+      throw toSkillZipArchiveRequestError(error);
+    }
+
+    // Enforce skill-specific size and file count limits (safeExtractZip's
+    // 512MB / 10k-entry budget is for CLAW archives — too generous here)
+    let totalBytes = 0;
+    let fileCount = 0;
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name));
+        } else {
+          fileCount += 1;
+          totalBytes += fs.statSync(path.join(dir, entry.name)).size;
+        }
+        if (fileCount > SKILL_ZIP_MAX_FILES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_FILES} file limit.`,
+          );
+        }
+        if (totalBytes > SKILL_ZIP_MAX_UNCOMPRESSED_BYTES) {
+          throw new GatewayRequestError(
+            400,
+            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
+          );
+        }
+      }
+    };
+    walk(tmpExtractDir);
+
+    // ZIP may contain a top-level wrapper directory plus archive metadata
+    // such as __MACOSX/ or .DS_Store — ignore those when unwrapping.
+    const skillRoot = resolveUploadedSkillZipRoot(tmpExtractDir);
+
+    // Validate SKILL.md exists
+    const manifestPath = path.join(skillRoot, 'SKILL.md');
+    if (!fs.existsSync(manifestPath)) {
+      throw new GatewayRequestError(
+        400,
+        'ZIP archive does not contain a SKILL.md file at the root.',
+      );
+    }
+
+    // Extract skill name from frontmatter
+    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+    const nameMatch = manifestContent.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
+    const skillName = nameMatch
+      ? nameMatch[1].trim().replace(/^["']|["']$/g, '')
+      : '';
+    if (!skillName) {
+      throw new GatewayRequestError(
+        400,
+        'SKILL.md is missing a `name` field in its frontmatter.',
+      );
+    }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(skillName)) {
+      throw new GatewayRequestError(
+        400,
+        `Skill name "${skillName}" must be lowercase alphanumeric with hyphens.`,
+      );
+    }
+    if (skillName.length > 64) {
+      throw new GatewayRequestError(
+        400,
+        'Skill name must be 64 characters or fewer.',
+      );
+    }
+    assertGatewayAdminSkillAllowed(skillName, skillRoot);
+
+    const projectSkillsDir = path.join(process.cwd(), 'skills');
+    const targetDir = path.join(projectSkillsDir, skillName);
+    if (fs.existsSync(targetDir)) {
+      throw new GatewayRequestError(
+        409,
+        `Skill \`${skillName}\` already exists at ${targetDir}.`,
+      );
+    }
+
+    // Copy extracted skill to project skills directory (copy instead of
+    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
+    fs.mkdirSync(projectSkillsDir, { recursive: true });
+    fs.cpSync(skillRoot, targetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+
+    return getGatewayAdminSkills();
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 function resolveBootstrapAutostartChannelId(
@@ -3778,6 +4669,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         agentId: resolved.agentId,
         channelId,
+        workspacePath,
       });
       await pluginManager.notifyBeforeAgentStart({
         sessionId: session.id,
@@ -3815,6 +4707,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
+    if (pluginManager) {
+      await pluginManager.notifyMemoryWrites({
+        sessionId: session.id,
+        agentId: resolved.agentId,
+        channelId,
+        toolExecutions: output.toolExecutions || [],
+      });
+    }
     const resultText =
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
@@ -3976,7 +4876,10 @@ export function getGatewayHistory(
   const history = page.history
     .filter((message) => {
       if (message.role !== 'assistant') return true;
-      return !isSilentReply(message.content);
+      return (
+        !isSilentReply(message.content) &&
+        !isApprovalHistoryMessage(message.content)
+      );
     })
     .map((message) => {
       if (message.role !== 'assistant') return message;
@@ -4049,7 +4952,7 @@ export function getGatewayHistorySummary(
   };
 }
 
-function extractDelegationDepth(sessionId: string): number {
+export function extractDelegationDepth(sessionId: string): number {
   const match = sessionId.match(/^delegate:d(\d+):/);
   if (!match) return 0;
   const parsed = Number.parseInt(match[1], 10);
@@ -4154,7 +5057,7 @@ function normalizeDelegationTask(
   };
 }
 
-function normalizeDelegationEffect(
+export function normalizeDelegationEffect(
   effect: DelegationSideEffect,
   fallbackModel: string,
 ): {
@@ -4506,7 +5409,7 @@ async function publishDelegationCompletion(params: {
   );
 }
 
-function enqueueDelegationFromSideEffect(params: {
+export function enqueueDelegationFromSideEffect(params: {
   plan: NormalizedDelegationPlan;
   parentSessionId: string;
   channelId: string;
@@ -4643,7 +5546,7 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
-async function prepareSessionAutoReset(params: {
+export async function prepareSessionAutoReset(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
@@ -4704,1207 +5607,6 @@ async function prepareSessionAutoReset(params: {
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
   return expiryEvaluation;
-}
-
-export async function handleGatewayMessage(
-  req: GatewayChatRequest,
-): Promise<GatewayChatResult> {
-  const startedAt = Date.now();
-  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId: req.agentId,
-    surface: 'chat',
-  });
-  const runId = makeAuditRunId('turn');
-  const source = req.source?.trim() || 'gateway.chat';
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-  const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId: req.agentId,
-    chatbotId: req.chatbotId,
-    model: req.model,
-    enableRag: req.enableRag,
-    policy: sessionResetPolicy,
-  });
-  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
-    policy: sessionResetPolicy,
-    expiryEvaluation,
-  });
-  if (autoResetSession) {
-    const previousSessionId = req.sessionId;
-    req.sessionId = autoResetSession.id;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId,
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId:
-          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
-        channelId: req.channelId,
-        reason: 'auto-reset',
-      });
-    }
-  }
-  let session = memoryService.getOrCreateSession(
-    req.sessionId,
-    req.guildId,
-    req.channelId,
-    req.agentId ?? undefined,
-    { forceNewCurrent: shouldForceNewTuiSession(req) },
-  );
-  if (session.id !== req.sessionId) {
-    req.sessionId = session.id;
-  }
-  const attachSessionIdentity = (
-    result: GatewayChatResult,
-  ): GatewayChatResult => ({
-    ...result,
-    sessionId: req.sessionId,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  if (source !== 'fullauto') {
-    preemptRunningFullAutoTurn(req.sessionId, source);
-    clearScheduledFullAutoContinuation(req.sessionId);
-    if (isFullAutoEnabled(session)) {
-      noteFullAutoSupervisedIntervention({
-        session,
-        content: req.content,
-        source,
-      });
-    }
-  }
-  const activeGatewayRequest = registerActiveGatewayRequest({
-    sessionId: req.sessionId,
-    abortSignal: req.abortSignal,
-  });
-  const resolvedRequest = resolveAgentForRequest({
-    agentId: req.agentId,
-    session,
-    model: req.model,
-    chatbotId: req.chatbotId,
-  });
-  const {
-    agentId,
-    model: resolvedModel,
-    chatbotId: resolvedChatbotId,
-  } = resolvedRequest;
-  const resolvedAgent = resolveAgentConfig(agentId);
-  let model = resolvedModel;
-  let chatbotId = resolvedChatbotId;
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
-  const channelType =
-    resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
-  const channel =
-    (channelType ? getChannel(channelType) : undefined) ||
-    getChannelByContextId(req.channelId) ||
-    undefined;
-  if (session.agent_id !== agentId) {
-    const reboundExpiryEvaluation = await prepareSessionAutoReset({
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      chatbotId,
-      model,
-      enableRag: req.enableRag ?? session.enable_rag === 1,
-      policy: sessionResetPolicy,
-    });
-    const reboundSession = memoryService.resetSessionIfExpired(req.sessionId, {
-      policy: sessionResetPolicy,
-      expiryEvaluation: reboundExpiryEvaluation,
-    });
-    if (reboundSession) {
-      const previousSessionId = req.sessionId;
-      req.sessionId = reboundSession.id;
-      if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId,
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          reason: 'auto-reset',
-        });
-      }
-    }
-    session = memoryService.getOrCreateSession(
-      req.sessionId,
-      req.guildId,
-      req.channelId,
-      agentId,
-      { forceNewCurrent: shouldForceNewTuiSession(req) },
-    );
-    if (session.id !== req.sessionId) {
-      req.sessionId = session.id;
-    }
-  }
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
-  let media = normalizeMediaContextItems(req.media);
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const workspaceBootstrap = ensureBootstrapFiles(agentId);
-  if (
-    workspaceBootstrap.workspaceInitialized &&
-    (session.message_count > 0 || Boolean(session.session_summary))
-  ) {
-    const rotated = createFreshSessionInstance(req.sessionId);
-    req.sessionId = rotated.session.id;
-    session = rotated.session;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId: rotated.previousSession.id,
-        sessionId: rotated.session.id,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        reason: 'workspace-reset',
-      });
-    }
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        previousSessionId: rotated.previousSession.id,
-        sessionKey: session.session_key,
-        agentId,
-        workspacePath: workspaceBootstrap.workspacePath,
-        clearedMessages: rotated.deletedMessages,
-      },
-      'Cleared session history after workspace reset',
-    );
-  }
-  const audioPrelude = await prependAudioTranscriptionsToUserContent({
-    content: req.content,
-    media,
-    workspaceRoot: workspacePath,
-    abortSignal: activeGatewayRequest.signal,
-  });
-  const userTurnContent = audioPrelude.content;
-  const contextReferenceOptions = {
-    cwd: workspacePath,
-    contextLength: 128_000,
-    allowedRoot: workspacePath,
-  };
-  const contextRefResult = await preprocessContextReferences({
-    message: userTurnContent,
-    ...contextReferenceOptions,
-  });
-  let effectiveUserTurnContent = userTurnContent;
-  let effectiveUserTurnContentExpanded = contextRefResult.message;
-  let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
-  const canonicalContextScope = resolveCanonicalContextScope(session);
-  if (isFullAutoEnabled(session)) {
-    syncFullAutoRuntimeContext(req.sessionId, {
-      guildId: req.guildId,
-      userId: req.userId,
-      username: req.username ?? null,
-      chatbotId,
-      model,
-      enableRag,
-      onProactiveMessage: req.onProactiveMessage ?? null,
-    });
-  }
-  const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
-    if (pluginManager) {
-      await pluginManager.notifySessionStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-      });
-    }
-  }
-  const isInteractiveSource =
-    source !== 'fullauto' &&
-    channelType !== 'scheduler' &&
-    channelType !== 'heartbeat';
-  const explicitModelPinned = Boolean(
-    req.model?.trim() ||
-      session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
-  );
-  const conciergeTurn = await resolveConciergeTurn({
-    sessionId: req.sessionId,
-    requestContent: req.content,
-    agentId,
-    chatbotId,
-    currentModel: model,
-    isInteractiveSource,
-    explicitModelPinned,
-    media,
-    effectiveUserTurnContent,
-    effectiveUserTurnContentExpanded,
-    effectiveUserTurnContentStripped,
-    normalizeMediaContextItems,
-    cloneMediaContextItems,
-  });
-  let conciergeExecutionProfile: ConciergeProfile | null = null;
-  if (conciergeTurn.kind === 'respond') {
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: buildStoredUserTurnContent(userTurnContent, media),
-      resultText: conciergeTurn.resultText,
-      toolCallCount: 0,
-      startedAt,
-    });
-    return attachSessionIdentity({
-      status: 'success',
-      result: conciergeTurn.resultText,
-      toolsUsed: [],
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    });
-  }
-  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
-  model = conciergeTurn.model;
-  provider = conciergeTurn.provider;
-  media = conciergeTurn.media;
-  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
-  effectiveUserTurnContentExpanded =
-    conciergeTurn.effectiveUserTurnContentExpanded;
-  effectiveUserTurnContentStripped =
-    conciergeTurn.effectiveUserTurnContentStripped;
-  if (model !== resolvedModel) {
-    chatbotResolution = await resolveGatewayChatbotId({
-      model,
-      chatbotId,
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      trigger: 'chat',
-    });
-    chatbotId = chatbotResolution.chatbotId;
-  }
-  const debugMeta = {
-    sessionId: req.sessionId,
-    guildId: req.guildId,
-    channelId: req.channelId,
-    userId: req.userId,
-    model,
-    provider,
-    turnIndex,
-    mediaCount: media.length,
-    audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: effectiveUserTurnContentExpanded.length,
-    streamingRequested: Boolean(
-      req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
-    ),
-  };
-
-  logger.debug(debugMeta, 'Gateway chat request received');
-
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'session.start',
-      userId: req.userId,
-      channel: req.channelId,
-      cwd: workspacePath,
-      model,
-      source,
-    },
-  });
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'turn.start',
-      turnIndex,
-      userInput: userTurnContent,
-      ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
-      username: req.username,
-      mediaCount: media.length,
-      source,
-    },
-  });
-
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    const error =
-      chatbotResolution.error ||
-      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
-    logger.warn(
-      {
-        ...debugMeta,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        requestChatbotId: req.chatbotId ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        durationMs: Date.now() - startedAt,
-      },
-      'Gateway chat blocked by missing chatbot configuration',
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'configuration',
-        message: error,
-        recoverable: true,
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs: Date.now() - startedAt,
-        },
-      },
-    });
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error,
-    };
-  }
-
-  if (isVersionOnlyQuestion(req.content)) {
-    const resultText = `HybridClaw v${APP_VERSION}`;
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: req.content,
-      resultText,
-      toolCallCount: 0,
-      startedAt,
-    });
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: [],
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    return attachSessionIdentity(result);
-  }
-
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
-  let pluginsUsed: string[] = [];
-  let canonicalContext: CanonicalSessionContext = {
-    summary: null,
-    recent_messages: [],
-  };
-  if (canonicalContextScope) {
-    try {
-      canonicalContext = memoryService.getCanonicalContext({
-        agentId,
-        userId: canonicalContextScope,
-        windowSize: 12,
-        excludeSessionId: req.sessionId,
-      });
-      canonicalContext = {
-        ...canonicalContext,
-        recent_messages: canonicalContext.recent_messages.filter(
-          (message) => !isSilentReply(message.content),
-        ),
-      };
-    } catch (err) {
-      logger.debug(
-        { sessionId: req.sessionId, canonicalContextScope, err },
-        'Failed to load canonical session context',
-      );
-    }
-  }
-  const canonicalPromptSummary = formatCanonicalContextPrompt({
-    summary: canonicalContext.summary,
-    recentMessages: canonicalContext.recent_messages,
-  });
-  const pluginRecentMessages = [...history].reverse();
-  pluginRecentMessages.push({
-    id: 0,
-    session_id: req.sessionId,
-    user_id: req.userId,
-    username: req.username || null,
-    role: 'user',
-    content: contextRefResult.originalMessage,
-    created_at: new Date(startedAt).toISOString(),
-  });
-  const pluginPromptDetails = pluginManager
-    ? await pluginManager.collectPromptContextDetails({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        recentMessages: pluginRecentMessages,
-      })
-    : { sections: [], pluginIds: [] };
-  pluginsUsed = pluginPromptDetails.pluginIds;
-  const pluginPromptSummary = formatPluginPromptContext(
-    pluginPromptDetails.sections,
-  );
-  const memoryContext = memoryService.buildPromptMemoryContext({
-    session,
-    query: effectiveUserTurnContentStripped,
-  });
-  const mergedSessionSummary =
-    [canonicalPromptSummary, memoryContext.promptSummary]
-      .filter(
-        (value): value is string =>
-          typeof value === 'string' && value.trim().length > 0,
-      )
-      .join('\n\n')
-      .trim() || null;
-  const fullAutoOperatingContract = isFullAutoEnabled(session)
-    ? buildFullAutoOperatingContract(
-        session,
-        source === 'fullauto' ? 'background' : 'supervised',
-      )
-    : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
-  const { messages, skills, historyStats } = buildConversationContext({
-    agentId,
-    sessionSummary: mergedSessionSummary,
-    retrievedContext: pluginPromptSummary,
-    history,
-    currentUserContent: effectiveUserTurnContent,
-    extraSafetyText: fullAutoOperatingContract,
-    runtimeInfo: {
-      chatbotId,
-      model,
-      defaultModel: HYBRIDAI_MODEL,
-      channel,
-      channelType,
-      channelId: req.channelId,
-      guildId: req.guildId,
-      sessionContext,
-      workspacePath,
-    },
-    blockedTools: mediaPolicy.blockedTools,
-  });
-  const historyStart =
-    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'context.optimization',
-      historyMessagesOriginal: historyStats.originalCount,
-      historyMessagesIncluded: historyStats.includedCount,
-      historyMessagesDropped: historyStats.droppedCount,
-      historyCharsOriginal: historyStats.originalChars,
-      historyCharsPreBudget: historyStats.preBudgetChars,
-      historyCharsIncluded: historyStats.includedChars,
-      historyCharsDropped: historyStats.droppedChars,
-      historyMaxChars: historyStats.maxTotalChars,
-      historyMaxMessageChars: historyStats.maxMessageChars,
-      perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
-      middleCompressionApplied: historyStats.middleCompressionApplied,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
-        messages.slice(historyStart),
-      ),
-      canonicalSummaryIncluded: Boolean(canonicalPromptSummary),
-      canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
-    },
-  });
-  if (mediaPolicy.prioritizeVisionTool) {
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        mediaCount: media.length,
-        blockedTools: mediaPolicy.blockedTools || [],
-      },
-      'Routing Discord image question to vision_analyze tool',
-    );
-  }
-  const mediaContextBlock = buildMediaPromptContext(media);
-  const skillInvocation = expandSkillInvocationWithResolution(
-    effectiveUserTurnContent,
-    skills,
-  );
-  const skillArgsContext = skillInvocation.invocation
-    ? await preprocessContextReferences({
-        message: skillInvocation.invocation.args,
-        ...contextReferenceOptions,
-      })
-    : null;
-  const expandedUserContent = skillInvocation.invocation
-    ? expandResolvedSkillInvocation(
-        skillInvocation.invocation,
-        skillArgsContext?.message ?? '',
-      )
-    : effectiveUserTurnContentExpanded;
-  const explicitSkillName = skillInvocation.invocation?.skill.name || null;
-  const agentUserContent = mediaContextBlock
-    ? `${expandedUserContent}\n\n${mediaContextBlock}`
-    : expandedUserContent;
-  logger.debug(
-    {
-      ...debugMeta,
-      durationMs: Date.now() - startedAt,
-      historyMessages: history.length,
-      promptMessages: messages.length + 1,
-      skillsLoaded: skills.length,
-      blockedTools: mediaPolicy.blockedTools || [],
-      scheduledTaskHistoryCount: historyStats.includedCount,
-    },
-    'Gateway chat context prepared',
-  );
-  messages.push({
-    role: 'user',
-    content: agentUserContent,
-  });
-  const requestMessages = isGatewayRequestLoggingEnabled()
-    ? messages.slice()
-    : null;
-
-  let agentStage:
-    | 'pre-agent'
-    | 'awaiting-agent-output'
-    | 'processing-agent-output' = 'pre-agent';
-
-  try {
-    const scheduledTasks: ScheduledTask[] = getTasksForSession(req.sessionId);
-    let firstTextDeltaMs: number | null = null;
-    const onTextDelta = (delta: string): void => {
-      if (firstTextDeltaMs == null && delta) {
-        firstTextDeltaMs = Date.now() - startedAt;
-        logger.debug(
-          {
-            ...debugMeta,
-            firstTextDeltaMs,
-            firstDeltaChars: delta.length,
-          },
-          'Gateway chat emitted first text delta',
-        );
-      }
-      req.onTextDelta?.(delta);
-    };
-    const onToolProgress = (event: ToolProgressEvent): void => {
-      logger.debug(
-        {
-          ...debugMeta,
-          toolName: event.toolName,
-          phase: event.phase,
-          toolDurationMs: event.durationMs ?? null,
-          sinceStartMs: Date.now() - startedAt,
-        },
-        'Gateway tool progress',
-      );
-      if (!shouldEmitTools) return;
-      req.onToolProgress?.(event);
-    };
-    const onApprovalProgress = (approval: PendingApproval): void => {
-      logger.debug(
-        {
-          ...debugMeta,
-          approvalId: approval.approvalId,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          sinceStartMs: Date.now() - startedAt,
-        },
-        'Gateway approval progress',
-      );
-      req.onApprovalProgress?.(approval);
-    };
-    logger.debug(
-      {
-        ...debugMeta,
-        scheduledTaskCount: scheduledTasks.length,
-      },
-      'Gateway chat invoking agent',
-    );
-    const conciergeExecutionNotice = conciergeExecutionProfile
-      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
-      : null;
-    if (conciergeExecutionNotice) {
-      req.onTextDelta?.(conciergeExecutionNotice);
-    }
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'agent.start',
-        provider,
-        model,
-        scheduledTaskCount: scheduledTasks.length,
-        promptMessages: messages.length,
-        systemPrompt: readSystemPromptMessage(messages),
-      },
-    });
-    if (pluginManager) {
-      await pluginManager.notifyBeforeAgentStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        model: model || undefined,
-      });
-    }
-    agentStage = 'awaiting-agent-output';
-    const output = await runAgent({
-      sessionId: req.sessionId,
-      messages,
-      chatbotId,
-      enableRag,
-      model,
-      agentId,
-      channelId: req.channelId,
-      ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
-      scheduledTasks,
-      blockedTools: mediaPolicy.blockedTools,
-      onTextDelta,
-      onToolProgress,
-      onApprovalProgress,
-      abortSignal: activeGatewayRequest.signal,
-      media,
-      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-      pluginTools: pluginManager?.getToolDefinitions() ?? [],
-    });
-    agentStage = 'processing-agent-output';
-    const storedUserContent = buildStoredUserTurnContent(
-      userTurnContent,
-      media,
-    );
-    const toolExecutions = output.toolExecutions || [];
-    const observedSkillName = resolveObservedSkillName({
-      explicitSkillName,
-      toolExecutions,
-      skills,
-    });
-    emitToolExecutionAuditEvents({
-      sessionId: req.sessionId,
-      runId,
-      toolExecutions,
-    });
-    const usagePayload = buildTokenUsageAuditPayload(
-      messages,
-      output.result,
-      output.tokenUsage,
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: toolExecutions.length,
-        ...usagePayload,
-      },
-    });
-    recordUsageEvent({
-      sessionId: req.sessionId,
-      agentId,
-      model,
-      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
-      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
-      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
-      toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
-    });
-    if (observedSkillName) {
-      try {
-        recordSkillExecution({
-          skillName: observedSkillName,
-          sessionId: req.sessionId,
-          runId,
-          toolExecutions,
-          outcome: deriveSkillExecutionOutcome({
-            outputStatus: output.status,
-            toolExecutions,
-          }),
-          durationMs: Date.now() - startedAt,
-          errorDetail: output.error,
-        });
-      } catch (error) {
-        logger.warn(
-          { sessionId: req.sessionId, skillName: observedSkillName, error },
-          'Failed to record skill execution observation',
-        );
-      }
-    }
-
-    const parentDepth = extractDelegationDepth(req.sessionId);
-    let acceptedDelegations = 0;
-    processSideEffects(output, req.sessionId, req.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: req.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
-
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
-
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
-      },
-    });
-
-    if (output.status === 'error') {
-      const errorMessage = output.error || 'Unknown agent error.';
-      const durationMs = Date.now() - startedAt;
-      logger.debug(
-        {
-          ...debugMeta,
-          durationMs,
-          toolCallCount: toolExecutions.length,
-          firstTextDeltaMs,
-          artifactCount: output.artifacts?.length || 0,
-        },
-        'Gateway chat completed with agent error',
-      );
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'error',
-          errorType: 'agent',
-          message: errorMessage,
-          recoverable: true,
-          stage: agentStage,
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'turn.end',
-          turnIndex,
-          finishReason: 'error',
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'session.end',
-          reason: 'error',
-          stats: {
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: toolExecutions.length,
-            durationMs,
-          },
-        },
-      });
-      if (requestMessages !== null) {
-        maybeRecordGatewayRequestLog({
-          sessionId: req.sessionId,
-          model,
-          chatbotId,
-          messages: requestMessages,
-          status: 'error',
-          error: errorMessage,
-          toolExecutions,
-          toolsUsed: output.toolsUsed || [],
-          durationMs,
-        });
-      }
-      return attachSessionIdentity({
-        status: 'error',
-        result: null,
-        toolsUsed: output.toolsUsed || [],
-        pluginsUsed,
-        artifacts: output.artifacts,
-        toolExecutions,
-        tokenUsage: output.tokenUsage,
-        error: errorMessage,
-      });
-    }
-
-    const rawResultText = output.result || 'No response from agent.';
-    const resultText = conciergeExecutionNotice
-      ? `${conciergeExecutionNotice}${rawResultText}`
-      : rawResultText;
-    const memoryCitations = extractMemoryCitations(
-      resultText,
-      memoryContext.citationIndex,
-    );
-    if (memoryCitations.length > 0) {
-      output.memoryCitations = memoryCitations;
-    }
-    const durationMs = Date.now() - startedAt;
-    logger.debug(
-      {
-        ...debugMeta,
-        durationMs,
-        toolCallCount: toolExecutions.length,
-        firstTextDeltaMs,
-        artifactCount: output.artifacts?.length || 0,
-      },
-      'Gateway chat completed successfully',
-    );
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: storedUserContent,
-      resultText,
-      toolCallCount: toolExecutions.length,
-      startedAt,
-    });
-    const storedTurnMessages = buildStoredTurnMessages({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      username: req.username,
-      userContent: storedUserContent,
-      resultText,
-    });
-    if (pluginManager) {
-      void pluginManager
-        .notifyTurnComplete({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          messages: storedTurnMessages,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin turn-complete hooks failed',
-          );
-        });
-      void pluginManager
-        .notifyAgentEnd({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          messages: storedTurnMessages,
-          resultText,
-          toolNames: toolExecutions.map((execution) => execution.name),
-          model: model || undefined,
-          durationMs: Date.now() - startedAt,
-          tokenUsage: output.tokenUsage
-            ? {
-                promptTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiPromptTokens
-                  : output.tokenUsage.estimatedPromptTokens,
-                completionTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiCompletionTokens
-                  : output.tokenUsage.estimatedCompletionTokens,
-                totalTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiTotalTokens
-                  : output.tokenUsage.estimatedTotalTokens,
-                modelCalls: output.tokenUsage.modelCalls,
-              }
-            : undefined,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin agent-end hooks failed',
-          );
-        });
-    }
-
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: output.toolsUsed || [],
-      pluginsUsed,
-      memoryCitations: output.memoryCitations,
-      artifacts: output.artifacts,
-      toolExecutions,
-      pendingApproval: output.pendingApproval,
-      tokenUsage: output.tokenUsage,
-      effectiveUserPrompt: output.effectiveUserPrompt,
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    if (requestMessages !== null) {
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'success',
-        response: resultText,
-        toolExecutions,
-        toolsUsed: output.toolsUsed || [],
-        durationMs,
-      });
-    }
-    return attachSessionIdentity(result);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    const durationMs = Date.now() - startedAt;
-    logAudit('error', req.sessionId, { error: errorMsg }, durationMs);
-    logger.error(
-      {
-        ...debugMeta,
-        durationMs,
-        stage: agentStage,
-        err,
-      },
-      'Gateway message handling failed',
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'gateway',
-        message: errorMsg,
-        recoverable: true,
-        stage: agentStage,
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs,
-        },
-      },
-    });
-    if (requestMessages !== null) {
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'error',
-        error: errorMsg,
-        durationMs,
-      });
-    }
-    return attachSessionIdentity({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      pluginsUsed,
-      toolExecutions: undefined,
-      error: errorMsg,
-    });
-  } finally {
-    activeGatewayRequest.release();
-  }
-}
-
-export async function runGatewayScheduledTask(
-  origSessionId: string,
-  channelId: string,
-  prompt: string,
-  taskId: number,
-  onResult: (result: ProactiveMessagePayload) => Promise<void>,
-  onError: (error: unknown) => void,
-  runKey?: string,
-  preferredAgentId?: string,
-): Promise<void> {
-  let currentSessionId = origSessionId;
-  const sessionResetPolicy = {
-    ...resolveSessionAutoResetPolicy(channelId),
-    mode: 'none',
-  } satisfies SessionResetPolicy;
-  const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: currentSessionId,
-    channelId,
-    policy: sessionResetPolicy,
-  });
-  const autoResetSession = memoryService.resetSessionIfExpired(
-    currentSessionId,
-    {
-      policy: sessionResetPolicy,
-      expiryEvaluation,
-    },
-  );
-  if (autoResetSession) {
-    currentSessionId = autoResetSession.id;
-  }
-  const session = memoryService.getOrCreateSession(
-    currentSessionId,
-    null,
-    channelId,
-    preferredAgentId,
-  );
-  if (preferredAgentId && session.agent_id !== preferredAgentId) {
-    updateSessionAgent(session.id, preferredAgentId);
-  }
-  const {
-    agentId,
-    chatbotId: requestedChatbotId,
-    model,
-  } = resolveAgentForRequest({
-    session,
-    agentId: preferredAgentId,
-  });
-  const chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId: requestedChatbotId,
-    sessionId: currentSessionId,
-    channelId,
-    agentId,
-    trigger: 'scheduler',
-    taskId,
-  });
-  const chatbotId = chatbotResolution.chatbotId;
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    logger.warn(
-      {
-        sessionId: currentSessionId,
-        channelId,
-        taskId,
-        model,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        resolutionError: chatbotResolution.error ?? null,
-      },
-      'Scheduled task skipped due to missing chatbot configuration',
-    );
-    return;
-  }
-
-  await runIsolatedScheduledTask({
-    taskId,
-    prompt,
-    channelId,
-    chatbotId,
-    model,
-    agentId,
-    sessionId: session.id,
-    sessionKey: runKey,
-    mainSessionKey: session.main_session_key,
-    onResult,
-    onError,
-  });
 }
 
 export async function handleGatewayCommand(
@@ -6004,9 +5706,13 @@ export async function handleGatewayCommand(
       includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
     });
     const catalogModels = getAvailableModelList();
+    const resolvedModelName = resolveRequestedCatalogModelName(
+      rawModelName,
+      catalogModels,
+    );
     if (
       catalogModels.length > 0 &&
-      !catalogModels.includes(normalizedModelName)
+      !catalogModels.includes(resolvedModelName)
     ) {
       return {
         ok: false,
@@ -6023,7 +5729,7 @@ export async function handleGatewayCommand(
     );
     if (
       availableModels.length > 0 &&
-      !availableModels.includes(normalizedModelName)
+      !availableModels.includes(resolvedModelName)
     ) {
       return {
         ok: false,
@@ -6033,387 +5739,15 @@ export async function handleGatewayCommand(
         ),
       };
     }
-    return { ok: true, model: normalizedModelName };
+    return { ok: true, model: resolvedModelName };
   }
 
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
-        const helpEntries: Array<{
-          command: string;
-          description: string;
-          scope: 'bare' | 'slash' | 'both';
-        }> = [
-          {
-            command: 'agent',
-            description: 'Show current session agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent list',
-            description: 'List available agents',
-            scope: 'bare',
-          },
-          {
-            command: 'agent switch <id>',
-            description: 'Bind this session to an existing agent',
-            scope: 'bare',
-          },
-          {
-            command: 'agent create <id> [--model <model>]',
-            description: 'Create a new agent',
-            scope: 'bare',
-          },
-          {
-            command:
-              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
-            description: 'Install a packaged agent from a path or URL',
-            scope: 'both',
-          },
-          {
-            command: 'agent model [name]',
-            description:
-              'Show or set the persistent model for the current agent',
-            scope: 'bare',
-          },
-          {
-            command: 'bot list',
-            description: 'List available bots',
-            scope: 'bare',
-          },
-          {
-            command: 'bot set <id|name>',
-            description: 'Set chatbot for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'bot clear',
-            description: 'Clear the session chatbot and return to auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'bot info',
-            description: 'Show current chatbot settings',
-            scope: 'bare',
-          },
-          {
-            command: 'concierge [info|on|off]',
-            description: 'Show or toggle concierge routing defaults',
-            scope: 'both',
-          },
-          {
-            command: 'concierge model [name]',
-            description: 'Show or set the concierge decision model',
-            scope: 'both',
-          },
-          {
-            command: 'concierge profile <asap|balanced|no_hurry> [model]',
-            description: 'Show or set concierge profile model mappings',
-            scope: 'both',
-          },
-          {
-            command: 'model list [provider]',
-            description: 'List available models',
-            scope: 'both',
-          },
-          {
-            command: 'model set <name>',
-            description: 'Set model for this session',
-            scope: 'both',
-          },
-          {
-            command: 'model clear',
-            description: 'Clear the session model override',
-            scope: 'both',
-          },
-          {
-            command: 'model default [name]',
-            description: 'Show or set default model for new sessions',
-            scope: 'both',
-          },
-          {
-            command: 'model info',
-            description: 'Show effective, session, agent, and default models',
-            scope: 'both',
-          },
-          {
-            command: 'rag [on|off]',
-            description: 'Toggle or set RAG mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel mode [off|mention|free]',
-            description: 'Set or inspect this Discord channel response mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel policy [open|allowlist|disabled]',
-            description: 'Set or inspect guild channel policy',
-            scope: 'bare',
-          },
-          {
-            command: 'ralph [on|off|set <n>|info]',
-            description: 'Configure Ralph loop (0 off, -1 unlimited)',
-            scope: 'bare',
-          },
-          {
-            command: 'fullauto [status|off|on [prompt]|<prompt>]',
-            description: 'Enable/inspect/disable session full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'show [all|thinking|tools|none]',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'bare',
-          },
-          {
-            command: 'show <all|thinking|tools|none>',
-            description:
-              'Control visible thinking/tool activity for this session',
-            scope: 'slash',
-          },
-          {
-            command: 'mcp list',
-            description: 'List configured MCP servers',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp add <name> <json>',
-            description: 'Add or update an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp remove <name>',
-            description: 'Remove an MCP server config',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp toggle <name>',
-            description: 'Enable or disable an MCP server',
-            scope: 'bare',
-          },
-          {
-            command: 'mcp reconnect <name>',
-            description:
-              'Restart current session runtime so the server reconnects next turn',
-            scope: 'bare',
-          },
-          {
-            command: 'plugin list',
-            description:
-              'List discovered plugins, descriptions, commands, and load status',
-            scope: 'both',
-          },
-          {
-            command: 'plugin config <plugin-id> [key] [value|--unset]',
-            description: 'Show or change a plugin config override',
-            scope: 'both',
-          },
-          {
-            command: 'plugin enable <plugin-id>',
-            description: 'Enable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin disable <plugin-id>',
-            description: 'Disable a discovered plugin for future turns',
-            scope: 'both',
-          },
-          {
-            command: 'plugin install <path|npm-spec>',
-            description: 'Install a plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reinstall <path|npm-spec>',
-            description:
-              'Replace an installed plugin from a local TUI/web session',
-            scope: 'both',
-          },
-          {
-            command: 'plugin reload',
-            description:
-              'Reload all plugins (picks up code changes without gateway restart)',
-            scope: 'both',
-          },
-          {
-            command: 'plugin uninstall <plugin-id>',
-            description:
-              'Remove a home-installed plugin and matching runtime config overrides',
-            scope: 'both',
-          },
-          {
-            command: 'auth status hybridai',
-            description: 'Show local HybridAI auth/config state',
-            scope: 'both',
-          },
-          {
-            command: 'config',
-            description: 'Show the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config check',
-            description: 'Validate the local runtime config file',
-            scope: 'both',
-          },
-          {
-            command: 'config reload',
-            description:
-              'Hot-reload the local runtime config file and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'config set <key> <value>',
-            description: 'Set one local runtime config value and validate it',
-            scope: 'both',
-          },
-          {
-            command: 'clear',
-            description: 'Clear session history',
-            scope: 'bare',
-          },
-          {
-            command: 'reset [yes|no]',
-            description:
-              'Clear history, reset session settings, and remove the current agent workspace',
-            scope: 'bare',
-          },
-          {
-            command: 'compact',
-            description:
-              'Archive older history, summarize it, and retain recent context',
-            scope: 'slash',
-          },
-          {
-            command: 'status',
-            description:
-              'Show runtime status (Discord slash command, private to caller)',
-            scope: 'slash',
-          },
-          {
-            command: 'approve [view|yes|session|agent|no] [approval_id]',
-            description: 'View/respond to pending approvals privately',
-            scope: 'slash',
-          },
-          {
-            command: 'stop',
-            description:
-              'Abort the current session run and disable full-auto mode',
-            scope: 'bare',
-          },
-          {
-            command: 'channel-mode <off|mention|free>',
-            description: 'Set this Discord channel response mode',
-            scope: 'slash',
-          },
-          {
-            command: 'channel-policy <open|allowlist|disabled>',
-            description: 'Set Discord guild channel policy',
-            scope: 'slash',
-          },
-          {
-            command: 'sessions',
-            description: 'List active sessions',
-            scope: 'bare',
-          },
-          {
-            command:
-              'usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
-            description: 'Usage/cost aggregates',
-            scope: 'bare',
-          },
-          {
-            command: 'export session [sessionId]',
-            description: 'Export session JSONL snapshot for debugging',
-            scope: 'bare',
-          },
-          {
-            command: 'export trace [sessionId|all|--all]',
-            description:
-              'Export ATIF-compatible debug trace JSONL for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'audit [sessionId]',
-            description: 'Show recent structured audit events for a session',
-            scope: 'bare',
-          },
-          {
-            command: 'skill list',
-            description: 'List available skills and availability',
-            scope: 'bare',
-          },
-          {
-            command: 'skill inspect <name>|--all',
-            description: 'Show observation-based skill health',
-            scope: 'bare',
-          },
-          {
-            command: 'skill runs <name>',
-            description: 'Show recent execution observations for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill learn <name> [--apply|--reject|--rollback]',
-            description: 'Stage or manage skill amendments',
-            scope: 'bare',
-          },
-          {
-            command: 'skill history <name>',
-            description: 'Show amendment history for a skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill sync [--skip-skill-scan] <source>',
-            description: 'Reinstall a packaged or community skill',
-            scope: 'bare',
-          },
-          {
-            command: 'skill import [--force] [--skip-skill-scan] <source>',
-            description:
-              'Import a packaged or community skill into ~/.hybridclaw/skills',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add "<cron>" <prompt>',
-            description: 'Add cron scheduled task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add at "<ISO time>" <prompt>',
-            description: 'Add one-shot task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule add every <ms> <prompt>',
-            description: 'Add interval task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule list',
-            description: 'List scheduled tasks',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule remove <id>',
-            description: 'Remove a task',
-            scope: 'bare',
-          },
-          {
-            command: 'schedule toggle <id>',
-            description: 'Enable/disable a task',
-            scope: 'bare',
-          },
-        ];
-        const help = helpEntries.flatMap(({ command, description, scope }) => {
-          const prefixes =
-            scope === 'both' ? ['', '/'] : scope === 'slash' ? ['/'] : [''];
-          return prefixes.map(
-            (prefix) => `\`${prefix}${command}\` — ${description}`,
-          );
-        });
+        const help = buildLocalSessionSlashHelpEntries('web').map(
+          ({ command, description }) => `\`${command}\`: ${description}`,
+        );
         return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
@@ -6498,13 +5832,18 @@ export async function handleGatewayCommand(
             );
           }
 
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
+          await refreshAvailableModelCatalogs({
+            includeHybridAI: true,
+          });
+          const availableModels = getAvailableModelList();
+          const normalizedModelName = resolveRequestedCatalogModelName(
+            modelName,
+            availableModels,
+          );
           await refreshAvailableModelCatalogs({
             includeHybridAI:
               resolveModelProvider(normalizedModelName) === 'hybridai',
           });
-          const availableModels = getAvailableModelList();
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -6572,11 +5911,17 @@ export async function handleGatewayCommand(
                 'Usage: `agent create <id> [--model <model>]`',
               );
             }
-            modelName = normalizeHybridAIModelForRuntime(trailingArgs[1]);
+            await refreshAvailableModelCatalogs({
+              includeHybridAI: true,
+            });
+            const availableModels = getAvailableModelList();
+            modelName = resolveRequestedCatalogModelName(
+              String(trailingArgs[1] || ''),
+              availableModels,
+            );
             await refreshAvailableModelCatalogs({
               includeHybridAI: resolveModelProvider(modelName) === 'hybridai',
             });
-            const availableModels = getAvailableModelList();
             if (availableModels.length === 0) {
               logger.warn(
                 {
@@ -6791,7 +6136,7 @@ export async function handleGatewayCommand(
             );
             if (matched) {
               resolvedBotId = matched.id;
-              const botModel = normalizeHybridAIModelForRuntime(
+              const botModel = formatHybridAIModelForCatalog(
                 matched.model || '',
               );
               syncedModel = botModel || null;
@@ -6923,13 +6268,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           const listedModels =
@@ -6941,7 +6286,10 @@ export async function handleGatewayCommand(
                   }),
                   gatewayStatus.providerHealth,
                 );
-          const current = resolveDisplayedModelName(runtime.model);
+          const current = resolveRequestedCatalogModelName(
+            runtime.model,
+            listedModels,
+          );
           const modelCatalog = listedModels.map((model) => {
             const label = formatModelForDisplay(model);
             return {
@@ -6956,7 +6304,8 @@ export async function handleGatewayCommand(
             return infoCommand(
               'Available Models',
               providerFilterArg
-                ? `No models available for provider \`${providerFilterArg}\`.`
+                ? (buildModelListProviderSetupMessage(providerFilterArg) ??
+                    `No models available for provider \`${providerFilterArg}\`.`)
                 : 'No models available.',
             );
           }
@@ -6973,20 +6322,25 @@ export async function handleGatewayCommand(
         if (sub === 'default') {
           const modelName = req.args[2];
           if (!modelName) {
-            const defaultLine = `Default model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`;
+            const defaultModel = resolveRequestedCatalogModelName(
+              HYBRIDAI_MODEL,
+              availableModels,
+            );
+            const defaultLine = `Default model: ${formatModelForDisplay(defaultModel)}`;
             if (availableModels.length === 0) {
               return infoCommand('Default Model', defaultLine);
             }
             const list = availableModels
               .map((m) => {
                 const label = formatModelForDisplay(m);
-                return m === HYBRIDAI_MODEL ? `${label} (default)` : label;
+                return m === defaultModel ? `${label} (default)` : label;
               })
               .join('\n');
             return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
-          const normalizedModelName = resolveDisplayedModelName(
-            normalizeHybridAIModelForRuntime(modelName),
+          const normalizedModelName = resolveRequestedCatalogModelName(
+            modelName,
+            availableModels,
           );
           if (
             availableModels.length > 0 &&
@@ -7009,8 +6363,9 @@ export async function handleGatewayCommand(
           const modelName = req.args[2];
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
-          const normalizedModelName = resolveDisplayedModelName(
-            normalizeHybridAIModelForRuntime(modelName),
+          const normalizedModelName = resolveRequestedCatalogModelName(
+            modelName,
+            availableModels,
           );
           if (
             availableModels.length > 0 &&
@@ -7051,7 +6406,10 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveDisplayedModelName(runtime.model);
+          const currentModel = resolveRequestedCatalogModelName(
+            runtime.model,
+            availableModels,
+          );
           const modelCatalog = availableModels.map((model) => ({
             value: model,
             label:
@@ -7340,20 +6698,244 @@ export async function handleGatewayCommand(
 
       case 'auth': {
         const sub = (req.args[1] || '').trim().toLowerCase();
-        const provider = (req.args[2] || '').trim().toLowerCase();
-        if (sub === 'status' && provider === 'hybridai') {
+        const provider = normalizeGatewayAuthStatusProvider(req.args[2]);
+        if (sub === 'status' && provider) {
           if (!isLocalSession(req)) {
             return badCommand(
               'Auth Status Restricted',
-              '`auth status hybridai` reads local credential state and is only available from local TUI/web sessions.',
+              `\`auth status ${provider}\` reads local credential state and is only available from local TUI/web sessions.`,
             );
           }
-          return infoCommand(
-            'HybridAI Auth Status',
-            buildHybridAIAuthStatusLines().join('\n'),
+          const status = buildGatewayAuthStatusResponse(provider);
+          return infoCommand(status.title, status.lines.join('\n'));
+        }
+        return badCommand(
+          'Usage',
+          'Usage: `auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`',
+        );
+      }
+
+      case 'secret': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Secret Command Restricted',
+            '`secret` reads or writes local encrypted secrets and is only available from local TUI/web sessions.',
           );
         }
-        return badCommand('Usage', 'Usage: `auth status hybridai`');
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub || sub === 'list') {
+          const config = getRuntimeConfig();
+          const secretNames = listStoredRuntimeSecretNames();
+          const rules = config.tools.httpRequest.authRules;
+          const text = [
+            `Encrypted store: ${runtimeSecretsPath()}`,
+            `Secrets: ${secretNames.length > 0 ? secretNames.join(', ') : '(none)'}`,
+            '',
+            'HTTP auth routes:',
+            ...(rules.length > 0
+              ? rules.map((rule, index) =>
+                  formatHttpRequestAuthRule(rule, index),
+                )
+              : ['(none)']),
+          ].join('\n');
+          return infoCommand('Secrets', text);
+        }
+
+        if (sub === 'set') {
+          const secretName = String(req.args[2] || '').trim();
+          const secretValue = req.args.slice(3).join(' ').trim();
+          if (!secretName || !secretValue) {
+            return badCommand('Usage', 'Usage: `secret set <name> <value>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          if (isReservedNonSecretRuntimeName(secretName)) {
+            return badCommand(
+              'Reserved Non-Secret Name',
+              `\`${secretName}\` is a normal runtime config key and cannot be stored in encrypted secrets.`,
+            );
+          }
+          saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          refreshRuntimeSecretsFromEnv();
+          return plainCommand(
+            `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
+          );
+        }
+
+        if (sub === 'unset' || sub === 'delete' || sub === 'remove') {
+          const secretName = String(req.args[2] || '').trim();
+          if (!secretName) {
+            return badCommand('Usage', 'Usage: `secret unset <name>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          if (isReservedNonSecretRuntimeName(secretName)) {
+            return badCommand(
+              'Reserved Non-Secret Name',
+              `\`${secretName}\` is a normal runtime config key and is not stored in encrypted secrets.`,
+            );
+          }
+          saveNamedRuntimeSecrets({ [secretName]: null });
+          refreshRuntimeSecretsFromEnv();
+          return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
+        }
+
+        if (sub === 'route') {
+          const action = (req.args[2] || '').trim().toLowerCase();
+          if (!action || action === 'list') {
+            const rules = getRuntimeConfig().tools.httpRequest.authRules;
+            return infoCommand(
+              'Secret Routes',
+              rules.length > 0
+                ? rules
+                    .map((rule, index) =>
+                      formatHttpRequestAuthRule(rule, index),
+                    )
+                    .join('\n')
+                : '(none)',
+            );
+          }
+
+          if (action === 'add') {
+            const rawPrefix = String(req.args[3] || '').trim();
+            const secretName = String(req.args[4] || '').trim();
+            const rawHeader = String(req.args[5] || '').trim();
+            const rawAuthPrefix = String(req.args[6] || '').trim();
+            if (!rawPrefix || !secretName) {
+              return badCommand(
+                'Usage',
+                'Usage: `secret route add <url-prefix> <secret-name> [header] [prefix|none]`',
+              );
+            }
+            if (!isRuntimeSecretName(secretName)) {
+              return badCommand(
+                'Invalid Secret Name',
+                'Secret names must use uppercase letters, digits, and underscores only.',
+              );
+            }
+            if (isReservedNonSecretRuntimeName(secretName)) {
+              return badCommand(
+                'Reserved Non-Secret Name',
+                `\`${secretName}\` is a normal runtime config key and cannot be used as an encrypted secret route target.`,
+              );
+            }
+            try {
+              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const header = normalizeSecretRouteHeader(rawHeader);
+              const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
+              updateRuntimeConfig((draft) => {
+                const nextRule: RuntimeHttpRequestAuthRule = {
+                  urlPrefix,
+                  header,
+                  prefix,
+                  secret: { source: 'store', id: secretName },
+                };
+                draft.tools.httpRequest.authRules =
+                  draft.tools.httpRequest.authRules.filter(
+                    (rule) =>
+                      !(
+                        rule.urlPrefix === urlPrefix &&
+                        rule.header.toLowerCase() === header.toLowerCase()
+                      ),
+                  );
+                draft.tools.httpRequest.authRules.push(nextRule);
+              });
+              const authLabel = prefix
+                ? `${header}: ${prefix} <secret>`
+                : `${header}: <secret>`;
+              return plainCommand(
+                `Added secret route for \`${urlPrefix}\` using \`${secretName}\` as \`${authLabel}\`.`,
+              );
+            } catch (error) {
+              return badCommand(
+                'Secret Route Failed',
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+
+          if (action === 'remove') {
+            const rawPrefix = String(req.args[3] || '').trim();
+            const rawHeader = String(req.args[4] || '').trim();
+            if (!rawPrefix) {
+              return badCommand(
+                'Usage',
+                'Usage: `secret route remove <url-prefix> [header]`',
+              );
+            }
+            try {
+              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const header = rawHeader
+                ? normalizeSecretRouteHeader(rawHeader)
+                : '';
+              let removed = 0;
+              updateRuntimeConfig((draft) => {
+                const before = draft.tools.httpRequest.authRules.length;
+                draft.tools.httpRequest.authRules =
+                  draft.tools.httpRequest.authRules.filter((rule) => {
+                    if (rule.urlPrefix !== urlPrefix) return true;
+                    if (
+                      header &&
+                      rule.header.toLowerCase() !== header.toLowerCase()
+                    ) {
+                      return true;
+                    }
+                    return false;
+                  });
+                removed = before - draft.tools.httpRequest.authRules.length;
+              });
+              return plainCommand(
+                removed > 0
+                  ? `Removed ${removed} secret route${removed === 1 ? '' : 's'} for \`${urlPrefix}\`.`
+                  : `No secret routes matched \`${urlPrefix}\`.`,
+              );
+            } catch (error) {
+              return badCommand(
+                'Secret Route Failed',
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+
+          return badCommand(
+            'Usage',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+          );
+        }
+
+        if (sub === 'show' || sub === 'status') {
+          const secretName = String(req.args[2] || '').trim();
+          if (!secretName) {
+            return badCommand('Usage', 'Usage: `secret show <name>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          const stored = readStoredRuntimeSecret(secretName);
+          return infoCommand(
+            'Secret Status',
+            [`Name: ${secretName}`, `Stored: ${stored ? 'yes' : 'no'}`].join(
+              '\n',
+            ),
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+        );
       }
 
       case 'config': {
@@ -7749,6 +7331,146 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'dream': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Dream Restricted',
+            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const currentConfig = getRuntimeConfig();
+        const currentIntervalHours = Math.max(
+          0,
+          Math.trunc(currentConfig.memory.consolidationIntervalHours),
+        );
+        const formatDreamStatus = (): string =>
+          [
+            `Scheduler: ${currentIntervalHours > 0 ? 'enabled' : 'disabled'}`,
+            currentIntervalHours > 0
+              ? 'Cadence: nightly, with startup catch-up if a run was missed'
+              : 'Cadence: off',
+            `Decay rate: ${currentConfig.memory.decayRate}`,
+          ].join('\n');
+
+        if (!sub || sub === 'status' || sub === 'info' || sub === 'help') {
+          return infoCommand(
+            'Dream Status',
+            [formatDreamStatus(), '', 'Usage: `dream on|off|now`'].join('\n'),
+          );
+        }
+
+        if (sub === 'on' || sub === 'enable') {
+          if (currentIntervalHours > 0) {
+            return plainCommand(
+              'Dream scheduling already enabled. Consolidation runs nightly and catches up after downtime.',
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 24;
+          });
+          return plainCommand(
+            'Dream scheduling enabled. Memory consolidation will run nightly and catch up on the next startup if a run was missed.',
+          );
+        }
+
+        if (sub === 'off' || sub === 'disable') {
+          if (currentIntervalHours <= 0) {
+            return plainCommand('Dream scheduling already disabled.');
+          }
+          updateRuntimeConfig((draft) => {
+            draft.memory.consolidationIntervalHours = 0;
+          });
+          return plainCommand('Dream scheduling disabled.');
+        }
+
+        if (sub !== 'now' && sub !== 'run') {
+          return badCommand('Usage', 'Usage: `dream on|off|now`');
+        }
+
+        try {
+          const report = await runMemoryConsolidation({
+            trigger: 'manual',
+          });
+          if (!report) {
+            return plainCommand('Memory consolidation already running.');
+          }
+          return infoCommand(
+            'Memory Consolidated',
+            [
+              `Memories decayed: ${formatCompactNumber(report.memoriesDecayed)}`,
+              `Daily files compiled: ${formatCompactNumber(report.dailyFilesCompiled)}`,
+              `Workspaces updated: ${formatCompactNumber(report.workspacesUpdated)}`,
+              `Model cleanups: ${formatCompactNumber(report.modelCleanups)}`,
+              `Fallbacks used: ${formatCompactNumber(report.fallbacksUsed)}`,
+              `Duration: ${formatDurationMs(report.durationMs)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          return badCommand(
+            'Memory Consolidation Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
+      case 'memory': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Memory Commands Restricted',
+            '`memory inspect` and `memory query` expose workspace and session memory details and are only available from local TUI/web sessions.',
+          );
+        }
+
+        const rawSub = (req.args[1] || '').trim();
+        const sub = rawSub.toLowerCase();
+        if (sub && sub !== 'inspect' && sub !== 'query') {
+          return badCommand(
+            'Usage',
+            'Usage: `memory inspect [sessionId]` | `memory query <query>`',
+          );
+        }
+
+        if (sub === 'query') {
+          const query = req.args.slice(2).join(' ').trim();
+          if (!query) {
+            return badCommand('Usage', 'Usage: `memory query <query>`');
+          }
+          return infoCommand(
+            'Memory Query',
+            buildMemoryQueryReport({
+              session,
+              query,
+            }),
+          );
+        }
+
+        const targetSessionArg =
+          sub === 'inspect' ? req.args[2] : req.args[1] || session.id || '';
+        const targetSessionId =
+          String(targetSessionArg || '').trim() || session.id;
+        if (!targetSessionId) {
+          return badCommand(
+            'Usage',
+            'Usage: `memory inspect [sessionId]` | `memory query <query>`',
+          );
+        }
+
+        const targetSession = memoryService.getSessionById(targetSessionId);
+        if (!targetSession) {
+          return badCommand(
+            'Not Found',
+            `Session \`${targetSessionId}\` was not found.`,
+          );
+        }
+
+        return infoCommand(
+          'Memory Inspection',
+          buildMemoryInspectReport({ session: targetSession }),
+        );
+      }
+
       case 'status': {
         const status = await getGatewayStatus();
         const delegationStatus = delegationQueueStatus();
@@ -7785,6 +7507,7 @@ export async function handleGatewayCommand(
               ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
           ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
@@ -7799,6 +7522,11 @@ export async function handleGatewayCommand(
             : '🗄️ Cache: n/a (provider did not report cache stats)',
           `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
+          ...(activeSandboxSessionIds.length > 0
+            ? [
+                `🧱 Sandbox sessions: ${activeSandboxSessionIds.slice(0, 5).join(', ')}${activeSandboxSessionIds.length > 5 ? ` (+${activeSandboxSessionIds.length - 5} more)` : ''}`,
+              ]
+            : []),
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
@@ -7810,6 +7538,39 @@ export async function handleGatewayCommand(
       }
 
       case 'sessions': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (sub === 'active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions.');
+          }
+          return infoCommand(
+            'Active Sandbox Sessions',
+            [`Count: ${activeSessionIds.length}`, ...activeSessionIds].join(
+              '\n',
+            ),
+          );
+        }
+        if (sub === 'clear-active') {
+          const activeSessionIds = getActiveExecutorSessionIds();
+          if (activeSessionIds.length === 0) {
+            return plainCommand('No active sandbox sessions to stop.');
+          }
+          stopAllExecutions();
+          return infoCommand(
+            'Stopped Sandbox Sessions',
+            [
+              `Stopped ${activeSessionIds.length} active sandbox session${activeSessionIds.length === 1 ? '' : 's'}.`,
+              ...activeSessionIds,
+            ].join('\n'),
+          );
+        }
+        if (sub) {
+          return badCommand(
+            'Usage',
+            'Usage: `sessions`, `sessions active`, or `sessions clear-active`',
+          );
+        }
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
         const visibleSessions = sessions.slice(0, 20);
@@ -7825,7 +7586,20 @@ export async function handleGatewayCommand(
             return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
           })
           .join('\n');
-        return infoCommand('Sessions', list);
+        const activeSessionIds = getActiveExecutorSessionIds();
+        return infoCommand(
+          'Sessions',
+          [
+            ...(activeSessionIds.length > 0
+              ? [
+                  `Active sandbox sessions: ${activeSessionIds.length}`,
+                  'Use `sessions active` to inspect or `sessions clear-active` to stop them.',
+                  '',
+                ]
+              : []),
+            list,
+          ].join('\n'),
+        );
       }
 
       case 'usage': {
@@ -8038,284 +7812,15 @@ export async function handleGatewayCommand(
       }
 
       case 'skill': {
-        const sub = (req.args[1] || '').trim().toLowerCase();
-        if (!sub) {
-          return badCommand(
-            'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
-          );
-        }
-
-        if (sub === 'list') {
-          const catalog = loadSkillCatalog();
-          if (catalog.length === 0) {
-            return plainCommand('No skills are available.');
-          }
-          const lines = catalog.map((skill) => {
-            const availability = skill.available
-              ? skill.enabled
-                ? 'available'
-                : 'disabled'
-              : skill.missing.join(', ');
-            const description = skill.description
-              ? ` — ${skill.description}`
-              : '';
-            return `${skill.name} [${availability}]${description}`;
-          });
-          return infoCommand('Skills', lines.join('\n'));
-        }
-
-        if (sub === 'inspect') {
-          const inspectionModule = await import(
-            '../skills/skills-inspection.js'
-          );
-          const target = String(req.args[2] || '').trim();
-          if (!target) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill inspect <name>` or `skill inspect --all`',
-            );
-          }
-          if (target === '--all' || target.toLowerCase() === 'all') {
-            const metricsList = inspectionModule.inspectAllSkills();
-            if (metricsList.length === 0) {
-              return plainCommand(
-                'No observed skills found in the current inspection window.',
-              );
-            }
-            return infoCommand(
-              'Skill Health',
-              metricsList.map(formatSkillHealthMetrics).join('\n\n'),
-            );
-          }
-
-          const metrics = inspectionModule.inspectSkill(target);
-          if (metrics.total_executions === 0) {
-            return plainCommand(`No observations found for \`${target}\`.`);
-          }
-          return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
-        }
-
-        if (sub === 'learn') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill learn <name> [--apply|--reject|--rollback]`',
-            );
-          }
-
-          const actions = new Set(
-            req.args
-              .slice(3)
-              .map((entry) =>
-                String(entry || '')
-                  .trim()
-                  .toLowerCase(),
-              )
-              .filter(Boolean),
-          );
-          const hasApply = actions.has('--apply') || actions.has('apply');
-          const hasReject = actions.has('--reject') || actions.has('reject');
-          const hasRollback =
-            actions.has('--rollback') || actions.has('rollback');
-          const selectedActions = [hasApply, hasReject, hasRollback].filter(
-            Boolean,
-          ).length;
-          if (selectedActions > 1) {
-            return badCommand(
-              'Usage',
-              'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
-            );
-          }
-
-          const dbModule = await import('../memory/db.js');
-          const amendmentModule = await import('../skills/skills-amendment.js');
-          const evaluationModule = await import(
-            '../skills/skills-evaluation.js'
-          );
-          const inspectionModule = await import(
-            '../skills/skills-inspection.js'
-          );
-
-          if (hasApply) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'staged',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No staged amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = await amendmentModule.applyAmendment({
-              amendmentId: amendment.id,
-              reviewedBy: 'gateway-command',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Apply Failed',
-                result.reason || 'Failed to apply amendment.',
-              );
-            }
-            return plainCommand(
-              `Applied staged amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          if (hasReject) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'staged',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No staged amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = amendmentModule.rejectAmendment({
-              amendmentId: amendment.id,
-              reviewedBy: 'gateway-command',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Reject Failed',
-                result.reason || 'Failed to reject amendment.',
-              );
-            }
-            return plainCommand(
-              `Rejected staged amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          if (hasRollback) {
-            const amendment = dbModule.getLatestSkillAmendment({
-              skillName,
-              status: 'applied',
-            });
-            if (!amendment) {
-              return plainCommand(
-                `No applied amendment found for \`${skillName}\`.`,
-              );
-            }
-            const result = await evaluationModule.rollbackAmendment({
-              amendmentId: amendment.id,
-              reason: 'Rollback requested via gateway command.',
-            });
-            if (!result.ok) {
-              return badCommand(
-                'Rollback Failed',
-                result.reason || 'Failed to roll back amendment.',
-              );
-            }
-            return plainCommand(
-              `Rolled back amendment v${amendment.version} for \`${skillName}\`.`,
-            );
-          }
-
-          const metrics = inspectionModule.inspectSkill(skillName);
-          if (metrics.total_executions === 0) {
-            return plainCommand(
-              `No observations found for \`${skillName}\`; run the skill first before proposing an amendment.`,
-            );
-          }
-          const amendment = await amendmentModule.proposeAmendment({
-            skillName,
-            metrics,
-            agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
-          });
-          return infoCommand(
-            `Skill Amendment (${skillName})`,
-            formatSkillAmendment(amendment),
-          );
-        }
-
-        if (sub === 'history') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand('Usage', 'Usage: `skill history <name>`');
-          }
-          const dbModule = await import('../memory/db.js');
-          const history = dbModule.getAmendmentHistory(skillName);
-          if (history.length === 0) {
-            return plainCommand(
-              `No amendment history found for \`${skillName}\`.`,
-            );
-          }
-          return infoCommand(
-            `Skill History (${skillName})`,
-            history.map(formatSkillAmendment).join('\n\n'),
-          );
-        }
-
-        if (sub === 'runs') {
-          const skillName = String(req.args[2] || '').trim();
-          if (!skillName) {
-            return badCommand('Usage', 'Usage: `skill runs <name>`');
-          }
-          const { getSkillExecutionRuns } = await import(
-            '../skills/skills-management.js'
-          );
-          const runs = getSkillExecutionRuns(skillName);
-          if (runs.length === 0) {
-            return plainCommand(`No observations found for \`${skillName}\`.`);
-          }
-          return infoCommand(
-            `Skill Runs (${skillName})`,
-            runs.map(formatSkillObservationRun).join('\n\n'),
-          );
-        }
-
-        if (sub === 'import') {
-          const { source, force, skipSkillScan } = parseSkillImportArgs(
-            req.args.slice(2),
-            {
-              commandPrefix: 'skill',
-              commandName: 'import',
-              allowForce: true,
-            },
-          );
-
-          const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, {
-            force,
-            skipGuard: skipSkillScan,
-          });
-          const lines = [
-            ...buildGuardWarningLines(result),
-            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
-            `Installed to ${result.skillDir}`,
-          ];
-          return infoCommand('Skill Import', lines.join('\n'));
-        }
-
-        if (sub === 'sync') {
-          const { source, skipSkillScan } = parseSkillImportArgs(
-            req.args.slice(2),
-            {
-              commandPrefix: 'skill',
-              commandName: 'sync',
-              allowForce: false,
-            },
-          );
-
-          const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, {
-            force: true,
-            skipGuard: skipSkillScan,
-          });
-          const lines = [
-            ...buildGuardWarningLines(result),
-            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
-            `Installed to ${result.skillDir}`,
-          ];
-          return infoCommand('Skill Sync', lines.join('\n'));
-        }
-
-        return badCommand(
-          'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
-        );
+        return await handleSkillCommand({
+          args: req.args,
+          sessionAgentId: resolveSessionAgentId(session),
+          guildId: req.guildId,
+          channelId: req.channelId,
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+        });
       }
 
       case 'schedule': {
@@ -8452,6 +7957,28 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      }
+
+      case 'eval': {
+        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
+        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
+          return badCommand(
+            'Eval Restricted',
+            'The `eval` command is only available from local TUI, web, or CLI sessions.',
+          );
+        }
+
+        const evalModule = await import('../evals/eval-command.js');
+        const runtime = resolveAgentForRequest({ session });
+        return evalModule.handleEvalCommand({
+          args: req.args.slice(1),
+          channelId: req.channelId,
+          dataDir: DATA_DIR,
+          gatewayBaseUrl: GATEWAY_BASE_URL,
+          webApiToken: WEB_API_TOKEN,
+          effectiveAgentId: runtime.agentId,
+          effectiveModel: runtime.model,
+        });
       }
 
       default: {

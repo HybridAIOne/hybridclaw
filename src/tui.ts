@@ -3,16 +3,21 @@
  * Usage: npm run tui
  */
 import readline from 'node:readline';
+import {
+  APPROVE_COMMAND_USAGE,
+  type ApprovalScopeMode,
+} from './approval-commands.js';
 import { TUI_CAPABILITIES } from './channels/channel.js';
 import { registerChannel } from './channels/channel-registry.js';
+import { buildLocalSessionSlashHelpEntries } from './command-registry.js';
 import {
   APP_VERSION,
-  CONFIGURED_MODELS,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from './config/config.js';
+import { createApprovalPresentation } from './gateway/approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
   fetchGatewayAdminSkills,
@@ -45,8 +50,10 @@ import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
+  sortSelectableModelEntries,
 } from './model-selection.js';
 import {
+  formatHybridAIModelForCatalog,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from './providers/model-names.js';
@@ -55,6 +62,7 @@ import {
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import type { TuiStartupBannerSkillCategory } from './tui-banner.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
   isProbablyWsl,
@@ -122,6 +130,8 @@ interface TuiPalette {
   green: string;
   lightGreen: string;
   red: string;
+  activeSkill: string;
+  inactiveSkill: string;
 }
 
 const DARK_PALETTE: TuiPalette = {
@@ -131,6 +141,8 @@ const DARK_PALETTE: TuiPalette = {
   green: '\x1b[38;2;16;185;129m',
   lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;239;68;68m',
+  activeSkill: '\x1b[38;2;236;239;244m',
+  inactiveSkill: '\x1b[38;2;170;184;204m',
 };
 
 const LIGHT_PALETTE: TuiPalette = {
@@ -140,6 +152,8 @@ const LIGHT_PALETTE: TuiPalette = {
   green: '\x1b[38;2;0;130;92m',
   lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;185;28;28m',
+  activeSkill: '\x1b[38;2;16;24;40m',
+  inactiveSkill: '\x1b[38;2;120;128;140m',
 };
 
 function inferThemeFromColorFgBg(): TuiTheme | null {
@@ -313,6 +327,7 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
 );
 const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
+const TUI_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
@@ -325,6 +340,7 @@ let tuiPendingApproval: {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
 } | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
@@ -341,7 +357,7 @@ let tuiLoadedPluginCommandNames = new Set<string>();
 function mapApprovalSelectionToCommand(
   selection: string,
   requestId: string,
-  options: Array<'once' | 'session' | 'agent' | 'skip'>,
+  options: Array<ApprovalScopeMode | 'skip'>,
 ): string | null {
   const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
@@ -354,6 +370,7 @@ function mapApprovalSelectionToCommand(
     if (selected === 'once') return `yes ${requestId}`;
     if (selected === 'session') return `yes ${requestId} for session`;
     if (selected === 'agent') return `yes ${requestId} for agent`;
+    if (selected === 'all') return `yes ${requestId} for all`;
     return `skip ${requestId}`;
   }
 
@@ -363,7 +380,9 @@ function mapApprovalSelectionToCommand(
   if (
     options.includes('session') &&
     (normalized === 'session' ||
+      normalized === 'always' ||
       normalized === 'yes for session' ||
+      normalized === 'yes for always' ||
       normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
@@ -376,6 +395,14 @@ function mapApprovalSelectionToCommand(
   ) {
     return `yes ${requestId} for agent`;
   }
+  if (
+    options.includes('all') &&
+    (normalized === 'all' ||
+      normalized === 'yes for all' ||
+      normalized === 'for all')
+  ) {
+    return `yes ${requestId} for all`;
+  }
   if (normalized === 'no' || normalized === 'n' || normalized === 'skip') {
     return `skip ${requestId}`;
   }
@@ -384,7 +411,49 @@ function mapApprovalSelectionToCommand(
 
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+  return (
+    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
+      normalized,
+    ) ||
+    /^\/approve\s+(yes|once|always|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
+      normalized,
+    )
+  );
+}
+
+function normalizeApprovalReplayForGateway(content: string): string {
+  const normalized = content.trim();
+  if (normalized.startsWith('/approve')) {
+    return normalized;
+  }
+  const allowMatch =
+    /^yes\s+(\S+)(?:\s+for\s+(session|always|agent|all))?$/iu.exec(normalized);
+  if (allowMatch) {
+    const approvalId = allowMatch[1];
+    const mode = (allowMatch[2] || '').toLowerCase();
+    if (mode === 'session' || mode === 'always') {
+      return `/approve session ${approvalId}`;
+    }
+    if (mode === 'agent') {
+      return `/approve agent ${approvalId}`;
+    }
+    if (mode === 'all') {
+      return `/approve all ${approvalId}`;
+    }
+    return `/approve yes ${approvalId}`;
+  }
+  const denyMatch = /^(?:skip|no)\s+(\S+)$/iu.exec(normalized);
+  if (denyMatch?.[1]) {
+    return `/approve no ${denyMatch[1]}`;
+  }
+  return normalized;
+}
+
+async function submitApprovalReplay(
+  content: string,
+  rl: readline.Interface,
+): Promise<void> {
+  await processMessage(normalizeApprovalReplayForGateway(content), rl);
 }
 
 function resolvePendingApproval(
@@ -398,6 +467,7 @@ function resolvePendingApproval(
       reason: streamedApproval.reason,
       allowSession: streamedApproval.allowSession,
       allowAgent: streamedApproval.allowAgent,
+      allowAll: streamedApproval.allowAll,
     };
   }
 
@@ -409,6 +479,7 @@ function resolvePendingApproval(
       reason: pendingApproval.reason,
       allowSession: pendingApproval.allowSession,
       allowAgent: pendingApproval.allowAgent,
+      allowAll: pendingApproval.allowAll,
     };
   }
 
@@ -421,10 +492,12 @@ async function promptApprovalSelection(
   requestId: string,
   allowSession: boolean,
   allowAgent: boolean,
+  allowAll: boolean,
 ): Promise<string | null> {
-  const options: Array<'once' | 'session' | 'agent' | 'skip'> = ['once'];
+  const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
   if (allowSession) options.push('session');
   if (allowAgent) options.push('agent');
+  if (allowAll) options.push('all');
   options.push('skip');
   clearTuiSlashMenu();
   console.log(
@@ -438,7 +511,9 @@ async function promptApprovalSelection(
           ? 'yes for session'
           : option === 'agent'
             ? 'yes for agent'
-            : 'no / skip';
+            : option === 'all'
+              ? 'yes for all'
+              : 'no / skip';
     console.log(`  ${TEAL}${index + 1}${RESET} ${label}`);
   });
   const answer = await new Promise<string>((resolve) => {
@@ -456,12 +531,42 @@ async function promptApprovalSelection(
   return command;
 }
 
+async function handleTuiPendingApproval(
+  pendingApproval: TuiApprovalDetails,
+  rl: readline.Interface,
+): Promise<void> {
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  tuiPendingApproval = {
+    requestId: pendingApproval.approvalId,
+    summary,
+    intent: pendingApproval.intent,
+    reason: pendingApproval.reason,
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  };
+  if (TUI_APPROVAL_PRESENTATION.showText) {
+    printResponse(summary);
+  }
+  const approvalCommand = await promptApprovalSelection(
+    rl,
+    pendingApproval.approvalId,
+    pendingApproval.allowSession,
+    pendingApproval.allowAgent,
+    pendingApproval.allowAll,
+  );
+  if (approvalCommand) {
+    await submitApprovalReplay(approvalCommand, rl);
+  }
+}
+
 function printBanner(
   modelInfo: {
     current: string;
     defaultModel: string;
   },
   sandboxMode: 'container' | 'host',
+  skillCategories: TuiStartupBannerSkillCategory[],
 ): void {
   clearTuiSlashMenu();
   console.log();
@@ -475,6 +580,7 @@ function printBanner(
       hybridAIBaseUrl: HYBRIDAI_BASE_URL,
       chatbotId: HYBRIDAI_CHATBOT_ID || 'unset',
       version: APP_VERSION,
+      skillCategories,
     },
     palette: {
       reset: RESET,
@@ -483,6 +589,8 @@ function printBanner(
       teal: TEAL,
       gold: GOLD,
       green: GREEN,
+      activeSkill: PALETTE.activeSkill,
+      inactiveSkill: PALETTE.inactiveSkill,
       wordmarkRamp: WORDMARK_RAMP,
     },
   })) {
@@ -491,89 +599,86 @@ function printBanner(
   console.log();
 }
 
+function formatSkillCategoryLabel(category: string): string {
+  const parts = String(category || '')
+    .trim()
+    .split(/[-_\s]+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'Uncategorized';
+  return parts.map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+}
+
+function buildStartupSkillCategories(
+  skills: Array<{
+    name: string;
+    category: string;
+    available: boolean;
+    enabled: boolean;
+  }>,
+): TuiStartupBannerSkillCategory[] {
+  const grouped = new Map<string, TuiStartupBannerSkillCategory['skills']>();
+
+  for (const skill of skills) {
+    const category = formatSkillCategoryLabel(skill.category);
+    const entry = {
+      name: skill.name,
+      active: skill.enabled && skill.available,
+    };
+    const existing = grouped.get(category);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      grouped.set(category, [entry]);
+    }
+  }
+
+  return Array.from(grouped.entries()).map(([category, groupedSkills]) => ({
+    category,
+    skills: groupedSkills,
+  }));
+}
+
+async function fetchStartupSkillCategories(): Promise<
+  TuiStartupBannerSkillCategory[]
+> {
+  try {
+    const response = await fetchGatewayAdminSkills();
+    return buildStartupSkillCategories(response.skills);
+  } catch (error) {
+    logger.debug(
+      { error },
+      'Failed to load active skills for TUI startup banner',
+    );
+    return [];
+  }
+}
+
 function printHelp(): void {
   clearTuiSlashMenu();
   const pasteShortcutLabel =
     process.platform === 'linux' && isProbablyWsl()
       ? 'Ctrl+V / Ctrl+Alt+V'
       : 'Ctrl+V';
+  const helpEntries = buildLocalSessionSlashHelpEntries('tui');
+  const shortCommandWidth = 18;
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
     `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}Ctrl-N/Ctrl-P${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
   );
   console.log(
-    `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
-  );
-  console.log(`  ${TEAL}/help${RESET}             Show this help`);
-  console.log(
-    `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
-  );
-  console.log(
-    `  ${TEAL}/bot [info|list|set <id|name>|clear]${RESET} Manage the chatbot for this session`,
-  );
-  console.log(
-    `  ${TEAL}/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]${RESET} Configure concierge routing`,
-  );
-  console.log(
-    `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
-  );
-  console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
-  console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
-  console.log(`  ${TEAL}/status${RESET}           Show runtime status`);
-  console.log(
-    `  ${TEAL}/show [all|thinking|tools|none]${RESET} Control visible thinking/tool activity`,
-  );
-  console.log(
-    `  ${TEAL}/approve [view|yes|session|agent|no] [approval_id]${RESET} View/respond to pending approvals`,
-  );
-  console.log(
-    `  ${TEAL}/channel-mode <off|mention|free>${RESET} Set Discord channel mode`,
-  );
-  console.log(
-    `  ${TEAL}/channel-policy <open|allowlist|disabled>${RESET} Set Discord guild policy`,
-  );
-  console.log(
-    `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
-  );
-  console.log(
-    `  ${TEAL}/mcp [list|add|toggle|remove|reconnect] [name] [json]${RESET} Manage MCP servers`,
-  );
-  console.log(`  ${TEAL}/info${RESET}             Show current settings`);
-  console.log(
-    `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
-  );
-  console.log(
-    `  ${TEAL}/export session [sessionId] | /export trace [sessionId|all]${RESET} Export session snapshot or trace JSONL`,
-  );
-  console.log(`  ${TEAL}/sessions${RESET}         List active sessions`);
-  console.log(
-    `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
-  );
-  console.log(
-    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>${RESET} Manage skill config, health, runs, amendments, and imports`,
-  );
-  console.log(
-    `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
-  );
-  console.log(
-    `  ${TEAL}/paste${RESET}            Attach a copied file or clipboard image`,
-  );
-  console.log(
-    `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
-  );
-  console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
-  console.log(
-    `  ${TEAL}/reset [yes|no]${RESET}    Clear history, reset session settings, and remove the agent workspace`,
-  );
-  console.log(
-    `  ${TEAL}/stop${RESET}             Interrupt current request and disable full-auto`,
-  );
-  console.log(`  ${TEAL}/exit${RESET}             Quit`);
-  console.log(
     `  ${TEAL}${pasteShortcutLabel}${RESET} ${pasteShortcutLabel.length < 18 ? ' '.repeat(18 - pasteShortcutLabel.length) : ''}Queue a copied file or clipboard image`,
   );
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
+  console.log(
+    `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
+  );
+  console.log();
+  for (const { command, description } of helpEntries) {
+    console.log(
+      `  ${TEAL}${command.padEnd(shortCommandWidth)}${RESET} ${description}`,
+    );
+  }
   console.log();
 }
 
@@ -673,6 +778,359 @@ function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
   return title.startsWith('Available Models') || title === 'Default Model';
 }
 
+function isEvalResultsCommandResult(result: GatewayCommandResult): boolean {
+  const title = String(result.title || '').trim();
+  return (
+    title === 'Terminal-Bench 2.0 Results' ||
+    title === 'tau2 Results' ||
+    title === 'LOCOMO Results'
+  );
+}
+
+interface TuiSectionCard {
+  title: string;
+  rows: string[];
+}
+
+function stripAnsiTui(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
+
+function visibleTuiLength(value: string): number {
+  return [...stripAnsiTui(value)].length;
+}
+
+function padAnsiTuiEnd(value: string, width: number): string {
+  return `${value}${' '.repeat(Math.max(0, width - visibleTuiLength(value)))}`;
+}
+
+type TuiAnsiToken =
+  | { kind: 'ansi'; value: string }
+  | { kind: 'char'; value: string };
+
+function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
+  const source = String(value || '');
+  const tokens: TuiAnsiToken[] = [];
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      tokens.push({ kind: 'ansi', value: source.slice(start, index) });
+      continue;
+    }
+    const symbol = [...source.slice(index)][0] || source[index] || '';
+    tokens.push({ kind: 'char', value: symbol });
+    index += symbol.length || 1;
+  }
+  return tokens;
+}
+
+function trimAnsiTuiCell(value: string): string {
+  const tokens = tokenizeAnsiTui(value);
+  const trimmedLeading: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let started = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (started) {
+        trimmedLeading.push(token);
+      } else {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+    if (!started && token.value === ' ') {
+      continue;
+    }
+    if (!started) {
+      trimmedLeading.push(...pendingAnsi);
+      started = true;
+    }
+    trimmedLeading.push(token);
+  }
+
+  const trailingAnsi: TuiAnsiToken[] = [];
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'ansi'
+  ) {
+    trailingAnsi.unshift(trimmedLeading.pop() as TuiAnsiToken);
+  }
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'char' &&
+    trimmedLeading[trimmedLeading.length - 1]?.value === ' '
+  ) {
+    trimmedLeading.pop();
+  }
+  if (trimmedLeading.length === 0) return '';
+  return [...trimmedLeading, ...trailingAnsi]
+    .map((token) => token.value)
+    .join('');
+}
+
+function sliceAnsiTuiVisible(
+  value: string,
+  start: number,
+  width: number,
+): string {
+  if (width <= 0) return '';
+  const end = start + width;
+  const tokens = tokenizeAnsiTui(value);
+  const output: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let visibleIndex = 0;
+  let started = false;
+  let finished = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (finished) {
+        output.push(token);
+        continue;
+      }
+      if (started || visibleIndex >= start) {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+
+    if (visibleIndex >= start && visibleIndex < end) {
+      if (!started) {
+        output.push(...pendingAnsi);
+        pendingAnsi.length = 0;
+        started = true;
+      }
+      output.push(token);
+    } else if (started && visibleIndex >= end) {
+      finished = true;
+      break;
+    }
+    visibleIndex += 1;
+    if (visibleIndex >= end && started) {
+      finished = true;
+    }
+    if (!started) {
+      pendingAnsi.length = 0;
+    }
+  }
+
+  return output.map((token) => token.value).join('');
+}
+
+function truncateAnsiTuiEnd(value: string, width: number): string {
+  if (width <= 0) return '';
+  const source = String(value || '');
+  if (visibleTuiLength(source) <= width) return source;
+  if (width === 1) return '…';
+
+  let output = '';
+  let visibleCount = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      output += source.slice(start, index);
+      continue;
+    }
+    const symbol =
+      [...source.slice(index, index + 2)][0] || source[index] || '';
+    const symbolLength = [...symbol].length || 1;
+    if (visibleCount + 1 >= width) {
+      output += '…';
+      return output.endsWith(RESET) ? output : `${output}${RESET}`;
+    }
+    output += symbol;
+    visibleCount += 1;
+    index += symbolLength;
+  }
+  return output;
+}
+
+function looksLikeTuiTableSection(rows: readonly string[]): boolean {
+  if (rows.length < 2) return false;
+  const headerCells = rows[0]?.split(/ {2,}/).filter(Boolean) || [];
+  if (headerCells.length < 3) return false;
+  return /^[- ]+$/u.test(stripAnsiTui(rows[1] || ''));
+}
+
+function reflowTuiTableSection(
+  rows: readonly string[],
+  innerWidth: number,
+): string[] | null {
+  if (!looksLikeTuiTableSection(rows)) return null;
+  const separator = '  ';
+  const sourceWidths = String(rows[1] || '')
+    .split(/ {2,}/)
+    .filter(Boolean)
+    .map((entry) => entry.length);
+  const columnCount = sourceWidths.length;
+  if (columnCount < 3) return null;
+  const parseRow = (row: string): string[] => {
+    let offset = 0;
+    return sourceWidths.map((width, index) => {
+      const cell = trimAnsiTuiCell(sliceAnsiTuiVisible(row, offset, width));
+      offset += width;
+      if (index < sourceWidths.length - 1) {
+        offset += separator.length;
+      }
+      return cell;
+    });
+  };
+  const headerCells = parseRow(rows[0] || '');
+  const bodyRows = rows.slice(2).map((row) => parseRow(row));
+  if (bodyRows.some((row) => row.length !== columnCount)) {
+    return null;
+  }
+  const tableRows = [headerCells, ...bodyRows];
+
+  const metricWidths = Array.from(
+    { length: columnCount - 1 },
+    (_, metricIndex) =>
+      Math.max(
+        visibleTuiLength(tableRows[0]?.[metricIndex + 1] || ''),
+        ...tableRows.map((row) => visibleTuiLength(row[metricIndex + 1] || '')),
+      ),
+  );
+  const minVariantWidth = Math.max(
+    7,
+    visibleTuiLength(tableRows[0]?.[0] || ''),
+  );
+  const availableVariantWidth =
+    innerWidth -
+    metricWidths.reduce((total, width) => total + width, 0) -
+    separator.length * (columnCount - 1);
+  if (availableVariantWidth < minVariantWidth) {
+    return null;
+  }
+  const variantWidth = Math.min(
+    Math.max(
+      minVariantWidth,
+      ...tableRows.slice(1).map((row) => visibleTuiLength(row[0] || '')),
+    ),
+    availableVariantWidth,
+  );
+
+  return tableRows.flatMap((row, index) => {
+    if (index === 1) {
+      return [
+        [variantWidth, ...metricWidths]
+          .map((width) => '-'.repeat(width))
+          .join(separator),
+      ];
+    }
+    const cells = row.map((cell, cellIndex) => {
+      const width =
+        cellIndex === 0 ? variantWidth : metricWidths[cellIndex - 1];
+      return padAnsiTuiEnd(truncateAnsiTuiEnd(cell, width), width);
+    });
+    return [cells.join(separator)];
+  });
+}
+
+export function parseTuiSectionCards(text: string): TuiSectionCard[] {
+  const lines = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
+  const sections: TuiSectionCard[] = [];
+  let currentTitle: string | null = null;
+  let currentRows: string[] = [];
+
+  const flush = () => {
+    if (!currentTitle) return;
+    sections.push({ title: currentTitle, rows: [...currentRows] });
+    currentTitle = null;
+    currentRows = [];
+  };
+
+  for (const line of lines) {
+    const topMatch = line.match(/^┌─\s*(.*?)\s*─+┐$/u);
+    if (topMatch) {
+      flush();
+      currentTitle = String(topMatch[1] || '').trim();
+      currentRows = [];
+      continue;
+    }
+    if (/^└[─]+┘$/u.test(line)) {
+      flush();
+      continue;
+    }
+    const rowMatch = line.match(/^│\s?(.*?)\s?│$/u);
+    if (rowMatch && currentTitle) {
+      currentRows.push(String(rowMatch[1] || '').trimEnd());
+    }
+  }
+
+  flush();
+  return sections;
+}
+
+export function renderTuiEvalResultsPanel(
+  sections: readonly TuiSectionCard[],
+  columns: number,
+): string[] {
+  const innerWidth = Math.max(16, Math.floor(columns || 80) - 7);
+  const lines: string[] = [];
+  const pushBorder = (
+    left: '╭' | '├' | '╰',
+    fill: string,
+    right: '╮' | '┤' | '╯',
+  ) => {
+    lines.push(
+      `  ${MUTED}${left}${fill.repeat(innerWidth + 2)}${right}${RESET}`,
+    );
+  };
+  const pushRow = (text = '', color = '') => {
+    const padded = padAnsiTuiEnd(text, innerWidth);
+    const content = color ? `${color}${padded}${RESET}` : padded;
+    lines.push(`  ${MUTED}│${RESET} ${content} ${MUTED}│${RESET}`);
+  };
+
+  sections.forEach((section, index) => {
+    pushBorder(index === 0 ? '╭' : '├', '─', index === 0 ? '╮' : '┤');
+    pushRow(section.title, `${BOLD}${GOLD}`);
+    const tableRows = reflowTuiTableSection(section.rows, innerWidth);
+    if (tableRows) {
+      for (const row of tableRows) {
+        pushRow(row);
+      }
+      return;
+    }
+    for (const row of section.rows) {
+      for (const wrapped of wrapTuiBlock(row, innerWidth, '').split('\n')) {
+        pushRow(wrapped);
+      }
+    }
+  });
+  pushBorder('╰', '─', '╯');
+  return lines;
+}
+
 function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   clearTuiSlashMenu();
   console.log();
@@ -722,6 +1180,16 @@ function formatTuiOutput(text: string): string {
   return wrapTuiBlock(text, terminalColumns(), '  ');
 }
 
+export function formatTuiTitledCommandBlock(
+  title: string,
+  text: string,
+  width: number,
+): string[] {
+  const lines = wrapTuiBlock(title, width, '  ').split('\n');
+  if (!text.trim()) return lines;
+  return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
+}
+
 function isInactiveSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line);
 }
@@ -743,6 +1211,44 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     for (const line of formatTuiOutput(rendered).split('\n')) {
       const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  if (isEvalResultsCommandResult(result)) {
+    clearTuiSlashMenu();
+    console.log();
+    console.log(`${GOLD}${result.title || ''}${RESET}`);
+    console.log();
+    const sections = parseTuiSectionCards(result.text);
+    if (sections.length > 0) {
+      for (const line of renderTuiEvalResultsPanel(
+        sections,
+        terminalColumns(),
+      )) {
+        console.log(line);
+      }
+    } else {
+      for (const line of formatTuiOutput(result.text).split('\n')) {
+        console.log(`${GOLD}${line}${RESET}`);
+      }
+    }
+    console.log();
+    return;
+  }
+  if (result.title) {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiTitledCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
+      console.log(`${GOLD}${line}${RESET}`);
     }
     console.log();
     return;
@@ -1216,6 +1722,12 @@ async function runGatewayCommand(
 ): Promise<void> {
   try {
     const result = await requestGatewayCommand(args);
+    const pendingApproval =
+      result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
+    if (pendingApproval) {
+      await handleTuiPendingApproval(pendingApproval, rl);
+      return;
+    }
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
@@ -1305,12 +1817,14 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 async function fetchSelectableModels(): Promise<
   Array<{ label: string; value: string; isFree: boolean; recommended: boolean }>
 > {
-  const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
-    label: formatModelForDisplay(model),
-    value: normalizeHybridAIModelForRuntime(model),
-    isFree: false,
-    recommended: false,
-  }));
+  const fallback = sortSelectableModelEntries(
+    normalizeModelCandidates([HYBRIDAI_MODEL]).map((model) => ({
+      label: formatModelForDisplay(model),
+      value: model,
+      isFree: false,
+      recommended: false,
+    })),
+  );
   try {
     const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
@@ -1334,16 +1848,18 @@ async function fetchSelectableModels(): Promise<
           recommended: entry.recommended === true,
         });
       }
-      return models.length > 0 ? models : fallback;
+      return models.length > 0 ? sortSelectableModelEntries(models) : fallback;
     }
     const models = parseModelNamesFromListText(result.text || '');
     return models.length > 0
-      ? models.map((model) => ({
-          label: model,
-          value: normalizeHybridAIModelForRuntime(model),
-          isFree: false,
-          recommended: false,
-        }))
+      ? sortSelectableModelEntries(
+          models.map((model) => ({
+            label: model,
+            value: model,
+            isFree: false,
+            recommended: false,
+          })),
+        )
       : fallback;
   } catch {
     return fallback;
@@ -1421,7 +1937,11 @@ async function promptModelSelection(
   const matchedEntry = models.find(
     (entry) =>
       entry.label === trimmed ||
-      entry.value === normalizeHybridAIModelForRuntime(trimmed),
+      entry.value === trimmed ||
+      entry.value ===
+        formatHybridAIModelForCatalog(
+          normalizeHybridAIModelForRuntime(trimmed),
+        ),
   );
   if (matchedEntry) return matchedEntry.value;
 
@@ -1522,14 +2042,14 @@ async function handleSlashCommand(
         tuiPendingApproval?.requestId,
       );
       if (approvalResult.kind === 'usage') {
-        printInfo('Usage: /approve [view|yes|session|agent|no] [approval_id]');
+        printInfo(`Usage: ${APPROVE_COMMAND_USAGE}`);
         return true;
       }
       if (approvalResult.kind === 'missing-approval') {
         printInfo('No pending approval request is available to approve.');
         return true;
       }
-      await processMessage(approvalResult.message, rl);
+      await submitApprovalReplay(approvalResult.message, rl);
       return true;
     }
     case 'skill': {
@@ -1699,25 +2219,7 @@ async function processMessage(
     }
 
     if (pendingApproval) {
-      const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-      };
-      printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
-        rl,
-        pendingApproval.approvalId,
-        pendingApproval.allowSession,
-        pendingApproval.allowAgent,
-      );
-      if (approvalCommand) {
-        await processMessage(approvalCommand, rl);
-      }
+      await handleTuiPendingApproval(pendingApproval, rl);
     } else {
       if (isApprovalResponseContent(content)) {
         tuiPendingApproval = null;
@@ -1795,25 +2297,7 @@ async function processFullAutoSteeringMessage(
       }
       const pendingApproval = resolvePendingApproval(result, null);
       if (pendingApproval) {
-        const summary = formatTuiApprovalSummary(pendingApproval);
-        tuiPendingApproval = {
-          requestId: pendingApproval.approvalId,
-          summary,
-          intent: pendingApproval.intent,
-          reason: pendingApproval.reason,
-          allowSession: pendingApproval.allowSession,
-          allowAgent: pendingApproval.allowAgent,
-        };
-        printResponse(summary);
-        const approvalCommand = await promptApprovalSelection(
-          rl,
-          pendingApproval.approvalId,
-          pendingApproval.allowSession,
-          pendingApproval.allowAgent,
-        );
-        if (approvalCommand) {
-          await processMessage(approvalCommand, rl);
-        }
+        await handleTuiPendingApproval(pendingApproval, rl);
         return;
       }
       printResponse(result.result || 'No response.');
@@ -1853,11 +2337,13 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
     clearTuiSlashMenu();
     console.log();
     for (const message of result.messages) {
+      const badge = proactiveBadgeLabel(message.source);
       const suffix = proactiveSourceSuffix(message.source);
       const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
-      console.log(
-        `  ${GOLD}[${proactiveBadgeLabel(message.source)}]${RESET} ${message.text}${sourceSuffix}`,
-      );
+      const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
+      console.log(badgePrefix);
+      console.log();
+      console.log(`${message.text}${sourceSuffix}`);
     }
     console.log();
     promptTuiInput(rl);
@@ -1877,7 +2363,8 @@ async function main(): Promise<void> {
   const modelInfo = await fetchSessionAndDefaultModel();
   tuiFullAutoState = await fetchInitialFullAutoState();
   tuiShowMode = await fetchInitialShowMode();
-  printBanner(modelInfo, status.sandbox?.mode || 'container');
+  const skillCategories = await fetchStartupSkillCategories();
+  printBanner(modelInfo, status.sandbox?.mode || 'container', skillCategories);
 
   const rl = readline.createInterface({
     input: process.stdin,

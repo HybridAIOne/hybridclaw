@@ -15,8 +15,40 @@ import {
 } from '../agents/agent-types.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  MemoryEmbeddingDtype,
+  MemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import {
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+  DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+  DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+  DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+  normalizeMemoryEmbeddingDtype,
+  normalizeMemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import type {
+  MemoryQueryMode,
+  MemoryRecallBackend,
+  MemoryRecallRerank,
+  MemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
+import {
+  normalizeMemoryRecallBackend,
+  normalizeMemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
+import {
+  isRuntimeProviderId,
+  type RuntimeProviderId,
+} from '../providers/provider-ids.js';
+import {
+  isSecretRefInput,
+  parseSecretInput,
+  resolveSecretInput,
+  type SecretInput,
+} from '../security/secret-refs.js';
 import {
   normalizeSessionResetMode,
   type SessionResetMode,
@@ -45,7 +77,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 18;
+export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_DB_PATH = path.join(
@@ -108,9 +140,10 @@ export type DiscordPresenceActivityType =
   | 'listening'
   | 'competing'
   | 'custom';
-export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
+export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -134,6 +167,11 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackReplyStyle = 'thread' | 'top-level';
+export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -169,16 +207,7 @@ export type RuntimeAudioTranscriptionModelConfig =
   | RuntimeAudioProviderModelConfig
   | RuntimeAudioCliModelConfig;
 
-export type RuntimeAuxiliaryProviderSelection =
-  | 'auto'
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'vllm';
+export type RuntimeAuxiliaryProviderSelection = 'auto' | RuntimeProviderId;
 
 export interface RuntimeAuxiliaryModelPolicyConfig {
   provider: RuntimeAuxiliaryProviderSelection;
@@ -311,6 +340,31 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSlackConfig {
+  enabled: boolean;
+  groupPolicy: SlackGroupPolicy;
+  dmPolicy: SlackDmPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  requireMention: boolean;
+  textChunkLimit: number;
+  replyStyle: SlackReplyStyle;
+  mediaMaxMb: number;
+}
+
+export interface RuntimeTelegramConfig {
+  enabled: boolean;
+  botToken: string;
+  pollIntervalMs: number;
+  dmPolicy: TelegramDmPolicy;
+  groupPolicy: TelegramGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  requireMention: boolean;
+  textChunkLimit: number;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeIMessageConfig {
   enabled: boolean;
   backend: IMessageBackend;
@@ -339,6 +393,7 @@ export interface RuntimeEmailConfig {
   smtpPort: number;
   smtpSecure: boolean;
   address: string;
+  password: string;
   pollIntervalMs: number;
   folders: string[];
   allowFrom: string[];
@@ -352,6 +407,7 @@ export interface RuntimeSchedulerJob {
   description?: string;
   agentId?: string;
   boardStatus?: SchedulerBoardStatus;
+  maxRetries?: number | null;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -383,6 +439,17 @@ export interface RuntimePluginsConfig {
   list: RuntimePluginConfigEntry[];
 }
 
+export interface RuntimeHttpRequestAuthRule {
+  urlPrefix: string;
+  header: string;
+  prefix: string;
+  secret: SecretInput;
+}
+
+export interface RuntimeHttpRequestToolConfig {
+  authRules: RuntimeHttpRequestAuthRule[];
+}
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -394,6 +461,7 @@ export interface RuntimeConfig {
   };
   tools: {
     disabled: string[];
+    httpRequest: RuntimeHttpRequestToolConfig;
   };
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
@@ -426,6 +494,8 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  slack: RuntimeSlackConfig;
+  telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
   imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
@@ -439,7 +509,6 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
-    models: string[];
   };
   openrouter: {
     enabled: boolean;
@@ -504,6 +573,18 @@ export interface RuntimeConfig {
   memory: {
     decayRate: number;
     consolidationIntervalHours: number;
+    consolidationLanguage: string;
+    semanticPromptHardCap: number;
+    embedding: {
+      provider: MemoryEmbeddingProviderKind;
+      model: string;
+      revision: string;
+      dtype: MemoryEmbeddingDtype;
+    };
+    queryMode: MemoryQueryMode;
+    backend: MemoryRecallBackend;
+    rerank: MemoryRecallRerank;
+    tokenizer: MemoryRecallTokenizer;
   };
   ops: {
     healthHost: string;
@@ -619,12 +700,18 @@ export interface RuntimeSkillScopeConfigView {
 export interface RuntimeToolScopeConfigDraft {
   tools: {
     disabled: string[];
+    httpRequest?: {
+      authRules?: RuntimeHttpRequestAuthRule[];
+    };
   };
 }
 
 export interface RuntimeToolScopeConfigView {
   tools?: {
     disabled?: string[];
+    httpRequest?: {
+      authRules?: RuntimeHttpRequestAuthRule[];
+    };
   };
 }
 
@@ -633,17 +720,6 @@ export type RuntimeConfigChangeListener = (
   prev: RuntimeConfig,
 ) => void;
 
-const LEGACY_SINGLE_CODEX_MODEL_LIST = ['openai-codex/gpt-5-codex'];
-const DEFAULT_CODEX_MODEL_LIST = [
-  'openai-codex/gpt-5-codex',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex-spark',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.1-codex-max',
-  'openai-codex/gpt-5.2',
-  'openai-codex/gpt-5.1-codex-mini',
-] as const;
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -672,6 +748,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   tools: {
     disabled: [],
+    httpRequest: {
+      authRules: [],
+    },
   },
   plugins: {
     list: [],
@@ -784,6 +863,29 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       'teams.microsoft.com',
     ],
   },
+  slack: {
+    enabled: false,
+    groupPolicy: 'allowlist',
+    dmPolicy: 'allowlist',
+    allowFrom: [],
+    groupAllowFrom: [],
+    requireMention: true,
+    textChunkLimit: 12_000,
+    replyStyle: 'thread',
+    mediaMaxMb: 20,
+  },
+  telegram: {
+    enabled: false,
+    botToken: '',
+    pollIntervalMs: 1_500,
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    requireMention: true,
+    textChunkLimit: 4_000,
+    mediaMaxMb: 20,
+  },
   whatsapp: {
     dmPolicy: 'pairing',
     groupPolicy: 'disabled',
@@ -822,6 +924,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     smtpPort: 587,
     smtpSecure: false,
     address: '',
+    password: '',
     pollIntervalMs: 30_000,
     folders: ['INBOX'],
     allowFrom: [],
@@ -838,7 +941,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
-    models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   openrouter: {
     enabled: false,
@@ -864,6 +966,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       lmstudio: {
         enabled: false,
         baseUrl: 'http://127.0.0.1:1234/v1',
+      },
+      llamacpp: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8081/v1',
       },
       vllm: {
         enabled: false,
@@ -978,6 +1084,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   memory: {
     decayRate: 0.1,
     consolidationIntervalHours: 24,
+    consolidationLanguage: 'en',
+    semanticPromptHardCap: 12,
+    embedding: {
+      provider: DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+      model: DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+      revision: DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+      dtype: DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+    },
+    queryMode: 'no-stopwords',
+    backend: 'hybrid',
+    rerank: 'bm25',
+    tokenizer: 'porter',
   },
   ops: {
     healthHost: '127.0.0.1',
@@ -1061,10 +1179,21 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
 };
 
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
+const SECRET_INPUT_PATHS = [
+  'ops.webApiToken',
+  'ops.gatewayApiToken',
+  'email.password',
+  'imessage.password',
+  'telegram.botToken',
+  'local.backends.vllm.apiKey',
+] as const;
+type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
+let currentConfigSource: Record<string, unknown> = {};
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
+  containerMaxConcurrentExplicit: false,
 };
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1578,22 +1707,6 @@ function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
   return normalized;
 }
 
-function normalizeCodexModelArray(
-  value: unknown,
-  fallback: string[],
-): string[] {
-  const normalized = normalizeStringArray(value, fallback);
-  if (
-    normalized.length === LEGACY_SINGLE_CODEX_MODEL_LIST.length &&
-    normalized.every(
-      (model, index) => model === LEGACY_SINGLE_CODEX_MODEL_LIST[index],
-    )
-  ) {
-    return [...DEFAULT_CODEX_MODEL_LIST];
-  }
-  return normalized;
-}
-
 function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
 }
@@ -1735,6 +1848,75 @@ function normalizeWhatsAppGroupPolicy(
   return fallback;
 }
 
+function normalizeTelegramPolicy(
+  value: unknown,
+  fallback: TelegramDmPolicy,
+): TelegramDmPolicy;
+function normalizeTelegramPolicy(
+  value: unknown,
+  fallback: TelegramGroupPolicy,
+): TelegramGroupPolicy;
+function normalizeTelegramPolicy(
+  value: unknown,
+  fallback: TelegramDmPolicy | TelegramGroupPolicy,
+): TelegramDmPolicy | TelegramGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackGroupPolicy(
+  value: unknown,
+  fallback: SlackGroupPolicy,
+): SlackGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackDmPolicy(
+  value: unknown,
+  fallback: SlackDmPolicy,
+): SlackDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackReplyStyle(
+  value: unknown,
+  fallback: SlackReplyStyle,
+): SlackReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
+  return fallback;
+}
+
 function normalizeIMessageBackend(
   value: unknown,
   fallback: IMessageBackend,
@@ -1821,9 +2003,100 @@ function normalizeWhatsAppConfig(
   };
 }
 
+function normalizeTelegramConfig(
+  value: unknown,
+  fallback: RuntimeTelegramConfig,
+  opts?: {
+    botToken?: unknown;
+  },
+): RuntimeTelegramConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    botToken: normalizeString(
+      opts?.botToken ?? raw.botToken,
+      fallback.botToken,
+      {
+        allowEmpty: true,
+      },
+    ),
+    pollIntervalMs: normalizeInteger(
+      raw.pollIntervalMs,
+      fallback.pollIntervalMs,
+      {
+        min: 0,
+        max: 60_000,
+      },
+    ),
+    dmPolicy: normalizeTelegramPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeTelegramPolicy(raw.groupPolicy, fallback.groupPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 4_000,
+      },
+    ),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeSlackConfig(
+  value: unknown,
+  fallback: RuntimeSlackConfig,
+): RuntimeSlackConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    groupPolicy: normalizeSlackGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    dmPolicy: normalizeSlackDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 40_000,
+      },
+    ),
+    replyStyle: normalizeSlackReplyStyle(raw.replyStyle, fallback.replyStyle),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
 function normalizeIMessageConfig(
   value: unknown,
   fallback: RuntimeIMessageConfig,
+  opts?: {
+    password?: unknown;
+  },
 ): RuntimeIMessageConfig {
   const raw = isRecord(value) ? value : {};
   return {
@@ -1844,9 +2117,13 @@ function normalizeIMessageConfig(
       },
     ),
     serverUrl: normalizeBaseUrl(raw.serverUrl, fallback.serverUrl),
-    password: normalizeString(raw.password, fallback.password, {
-      allowEmpty: true,
-    }),
+    password: normalizeString(
+      opts?.password ?? raw.password,
+      fallback.password,
+      {
+        allowEmpty: true,
+      },
+    ),
     webhookPath: normalizeString(raw.webhookPath, fallback.webhookPath, {
       allowEmpty: false,
     }),
@@ -1886,6 +2163,9 @@ function normalizeIMessageConfig(
 function normalizeEmailConfig(
   value: unknown,
   fallback: RuntimeEmailConfig,
+  opts?: {
+    password?: unknown;
+  },
 ): RuntimeEmailConfig {
   const raw = isRecord(value) ? value : {};
   return {
@@ -1909,6 +2189,13 @@ function normalizeEmailConfig(
     address: normalizeString(raw.address, fallback.address, {
       allowEmpty: true,
     }),
+    password: normalizeString(
+      opts?.password ?? raw.password,
+      fallback.password,
+      {
+        allowEmpty: true,
+      },
+    ),
     pollIntervalMs: normalizeInteger(
       raw.pollIntervalMs,
       fallback.pollIntervalMs,
@@ -2490,8 +2777,14 @@ function normalizeSchedulerScheduleKind(
 ): SchedulerScheduleKind {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'at' || normalized === 'every' || normalized === 'cron')
+  if (
+    normalized === 'at' ||
+    normalized === 'every' ||
+    normalized === 'cron' ||
+    normalized === 'one_shot'
+  ) {
     return normalized;
+  }
   return fallback;
 }
 
@@ -2589,6 +2882,13 @@ function normalizeSchedulerJobList(
       scheduleKind === 'cron'
         ? normalizeString(rawSchedule.expr, '', { allowEmpty: false })
         : '';
+    const maxRetries =
+      scheduleKind === 'one_shot'
+        ? normalizeInteger(item.maxRetries, DEFAULT_ONE_SHOT_MAX_RETRIES, {
+            min: 0,
+            max: 100,
+          })
+        : null;
     if (scheduleKind === 'at' && !atIso) continue;
     if (scheduleKind === 'cron' && !expr) continue;
 
@@ -2622,9 +2922,10 @@ function normalizeSchedulerJobList(
       ...(description ? { description } : {}),
       ...(agentId ? { agentId } : {}),
       ...(boardStatus ? { boardStatus } : {}),
+      ...(maxRetries != null ? { maxRetries } : {}),
       schedule: {
         kind: scheduleKind,
-        at: atIso,
+        at: scheduleKind === 'at' ? atIso : null,
         everyMs,
         expr: scheduleKind === 'cron' ? expr : null,
         tz: normalizeString(rawSchedule.tz, '', { allowEmpty: true }),
@@ -2674,6 +2975,170 @@ function normalizeApiPath(value: unknown, fallback: string): string {
 
 function hasOwn(value: object, key: string): boolean {
   return Object.hasOwn(value, key);
+}
+
+function getSecretInputFromSource(
+  source: Record<string, unknown>,
+  secretPath: RuntimeConfigSecretInputPath,
+): unknown {
+  if (secretPath === 'ops.webApiToken') {
+    const ops = isRecord(source.ops) ? source.ops : null;
+    return ops && hasOwn(ops, 'webApiToken') ? ops.webApiToken : undefined;
+  }
+  if (secretPath === 'ops.gatewayApiToken') {
+    const ops = isRecord(source.ops) ? source.ops : null;
+    return ops && hasOwn(ops, 'gatewayApiToken')
+      ? ops.gatewayApiToken
+      : undefined;
+  }
+  if (secretPath === 'email.password') {
+    const email = isRecord(source.email) ? source.email : null;
+    return email && hasOwn(email, 'password') ? email.password : undefined;
+  }
+  if (secretPath === 'imessage.password') {
+    const imessage = isRecord(source.imessage) ? source.imessage : null;
+    return imessage && hasOwn(imessage, 'password')
+      ? imessage.password
+      : undefined;
+  }
+  if (secretPath === 'telegram.botToken') {
+    const telegram = isRecord(source.telegram) ? source.telegram : null;
+    return telegram && hasOwn(telegram, 'botToken')
+      ? telegram.botToken
+      : undefined;
+  }
+
+  const local = isRecord(source.local) ? source.local : null;
+  const backends = local && isRecord(local.backends) ? local.backends : null;
+  const vllm = backends && isRecord(backends.vllm) ? backends.vllm : null;
+  return vllm && hasOwn(vllm, 'apiKey') ? vllm.apiKey : undefined;
+}
+
+function setSecretInputOnSource(
+  source: Record<string, unknown>,
+  secretPath: RuntimeConfigSecretInputPath,
+  value: SecretInput | '',
+): void {
+  if (
+    secretPath === 'ops.webApiToken' ||
+    secretPath === 'ops.gatewayApiToken'
+  ) {
+    const ops = isRecord(source.ops) ? source.ops : {};
+    source.ops = ops;
+    ops[secretPath === 'ops.webApiToken' ? 'webApiToken' : 'gatewayApiToken'] =
+      value;
+    return;
+  }
+  if (secretPath === 'email.password') {
+    const email = isRecord(source.email) ? source.email : {};
+    source.email = email;
+    email.password = value;
+    return;
+  }
+  if (secretPath === 'imessage.password') {
+    const imessage = isRecord(source.imessage) ? source.imessage : {};
+    source.imessage = imessage;
+    imessage.password = value;
+    return;
+  }
+  if (secretPath === 'telegram.botToken') {
+    const telegram = isRecord(source.telegram) ? source.telegram : {};
+    source.telegram = telegram;
+    telegram.botToken = value;
+    return;
+  }
+
+  const local = isRecord(source.local) ? source.local : {};
+  source.local = local;
+  const backends = isRecord(local.backends) ? local.backends : {};
+  local.backends = backends;
+  const vllm = isRecord(backends.vllm) ? backends.vllm : {};
+  backends.vllm = vllm;
+  vllm.apiKey = value;
+}
+
+function preserveSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  for (const secretPath of SECRET_INPUT_PATHS) {
+    const sourceValue = getSecretInputFromSource(source, secretPath);
+    if (!isSecretRefInput(sourceValue)) continue;
+    setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
+  }
+}
+
+function resolveConfiguredSecretInput(
+  value: unknown,
+  opts: {
+    path: RuntimeConfigSecretInputPath;
+    required?: boolean;
+  },
+): unknown {
+  return resolveSecretInput(value, {
+    path: opts.path,
+    required: opts.required,
+  });
+}
+
+function normalizeHttpHeaderName(
+  value: unknown,
+  fallback: string,
+  opts?: { allowEmpty?: boolean },
+): string {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: opts?.allowEmpty ?? false,
+  });
+  if (!normalized) return normalized;
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(normalized)) {
+    throw new Error(`Invalid HTTP header name: ${normalized}`);
+  }
+  return normalized;
+}
+
+function normalizeHttpRequestAuthRuleSecret(
+  value: unknown,
+  path: string,
+): SecretInput {
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'invalid') {
+    throw new Error(`${path} ${parsed.reason}`);
+  }
+  if (parsed.kind === 'plain') {
+    throw new Error(
+      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR}\``,
+    );
+  }
+  return cloneConfig(parsed.ref);
+}
+
+function normalizeHttpRequestAuthRules(
+  value: unknown,
+  fallback: RuntimeHttpRequestAuthRule[],
+): RuntimeHttpRequestAuthRule[] {
+  if (!Array.isArray(value)) {
+    return cloneConfig(fallback);
+  }
+
+  const rules: RuntimeHttpRequestAuthRule[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (!isRecord(entry)) continue;
+    const urlPrefix = normalizeString(entry.urlPrefix, '', {
+      allowEmpty: false,
+    });
+    if (!urlPrefix) continue;
+    rules.push({
+      urlPrefix,
+      header: normalizeHttpHeaderName(entry.header, 'Authorization'),
+      prefix: normalizeString(entry.prefix, 'Bearer', { allowEmpty: true }),
+      secret: normalizeHttpRequestAuthRuleSecret(
+        entry.secret,
+        `tools.httpRequest.authRules[${index}].secret`,
+      ),
+    });
+  }
+  return rules;
 }
 
 function normalizeContainerSandboxMode(
@@ -2742,17 +3207,7 @@ function normalizeAuxiliaryProviderSelection(
 ): RuntimeAuxiliaryProviderSelection {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return fallback;
@@ -2994,6 +3449,8 @@ function normalizeRuntimeConfig(
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSlack = isRecord(raw.slack) ? raw.slack : {};
+  const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
@@ -3037,6 +3494,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawLmStudioBackend = isRecord(rawLocalBackends.lmstudio)
     ? rawLocalBackends.lmstudio
+    : {};
+  const rawLlamacppBackend = isRecord(rawLocalBackends.llamacpp)
+    ? rawLocalBackends.llamacpp
     : {};
   const rawVllmBackend = isRecord(rawLocalBackends.vllm)
     ? rawLocalBackends.vllm
@@ -3091,13 +3551,72 @@ function normalizeRuntimeConfig(
   const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
+  const emailEnabled = normalizeBoolean(
+    rawEmail.enabled,
+    DEFAULT_RUNTIME_CONFIG.email.enabled,
+  );
+  const imessageEnabled = normalizeBoolean(
+    rawIMessage.enabled,
+    DEFAULT_RUNTIME_CONFIG.imessage.enabled,
+  );
+  const imessageBackend = normalizeIMessageBackend(
+    rawIMessage.backend,
+    DEFAULT_RUNTIME_CONFIG.imessage.backend,
+  );
+  const vllmEnabled = normalizeBoolean(
+    rawVllmBackend.enabled,
+    DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
+  );
+  const resolvedWebApiToken = resolveConfiguredSecretInput(rawOps.webApiToken, {
+    path: 'ops.webApiToken',
+    required: isSecretRefInput(rawOps.webApiToken),
+  });
+  const resolvedGatewayApiToken = resolveConfiguredSecretInput(
+    rawOps.gatewayApiToken,
+    {
+      path: 'ops.gatewayApiToken',
+      required: isSecretRefInput(rawOps.gatewayApiToken),
+    },
+  );
+  const resolvedIMessagePassword = resolveConfiguredSecretInput(
+    rawIMessage.password,
+    {
+      path: 'imessage.password',
+      required:
+        isSecretRefInput(rawIMessage.password) &&
+        imessageEnabled &&
+        imessageBackend === 'bluebubbles',
+    },
+  );
+  const resolvedEmailPassword = resolveConfiguredSecretInput(
+    rawEmail.password,
+    {
+      path: 'email.password',
+      required: isSecretRefInput(rawEmail.password) && emailEnabled,
+    },
+  );
+  const resolvedVllmApiKey = resolveConfiguredSecretInput(
+    rawVllmBackend.apiKey,
+    {
+      path: 'local.backends.vllm.apiKey',
+      required: isSecretRefInput(rawVllmBackend.apiKey) && vllmEnabled,
+    },
+  );
+  const resolvedTelegramBotToken = resolveConfiguredSecretInput(
+    rawTelegram.botToken,
+    {
+      path: 'telegram.botToken',
+      required:
+        isSecretRefInput(rawTelegram.botToken) && Boolean(rawTelegram.enabled),
+    },
+  );
   const healthPort = normalizeInteger(
     rawOps.healthPort,
     defaultOps.healthPort,
     { min: 1, max: 65_535 },
   );
   const webApiToken = normalizeString(
-    rawOps.webApiToken,
+    resolvedWebApiToken,
     defaultOps.webApiToken,
     { allowEmpty: true },
   );
@@ -3137,10 +3656,6 @@ function normalizeRuntimeConfig(
   const modelList = normalizeStringArray(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
-  );
-  const codexModelList = normalizeCodexModelArray(
-    rawCodex.models,
-    DEFAULT_RUNTIME_CONFIG.codex.models,
   );
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
@@ -3211,6 +3726,14 @@ function normalizeRuntimeConfig(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,
       ),
+      httpRequest: {
+        authRules: normalizeHttpRequestAuthRules(
+          raw.tools && isRecord(raw.tools) && isRecord(raw.tools.httpRequest)
+            ? raw.tools.httpRequest.authRules
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.tools.httpRequest.authRules,
+        ),
+      },
     },
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
@@ -3375,6 +3898,14 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
+    telegram: normalizeTelegramConfig(
+      rawTelegram,
+      DEFAULT_RUNTIME_CONFIG.telegram,
+      {
+        botToken: resolvedTelegramBotToken,
+      },
+    ),
     whatsapp: normalizeWhatsAppConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
@@ -3382,8 +3913,13 @@ function normalizeRuntimeConfig(
     imessage: normalizeIMessageConfig(
       rawIMessage,
       DEFAULT_RUNTIME_CONFIG.imessage,
+      {
+        password: resolvedIMessagePassword,
+      },
     ),
-    email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
+    email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email, {
+      password: resolvedEmailPassword,
+    }),
     hybridai: {
       baseUrl: hybridBaseUrl,
       defaultModel: normalizeString(
@@ -3408,7 +3944,6 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
-      models: codexModelList,
     },
     openrouter: {
       enabled: normalizeBoolean(
@@ -3465,17 +4000,24 @@ function normalizeRuntimeConfig(
             DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
           ),
         },
-        vllm: {
+        llamacpp: {
           enabled: normalizeBoolean(
-            rawVllmBackend.enabled,
-            DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
+            rawLlamacppBackend.enabled,
+            DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.enabled,
           ),
+          baseUrl: normalizeBaseUrl(
+            rawLlamacppBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl,
+          ),
+        },
+        vllm: {
+          enabled: vllmEnabled,
           baseUrl: normalizeBaseUrl(
             rawVllmBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl,
           ),
           apiKey: normalizeString(
-            rawVllmBackend.apiKey,
+            resolvedVllmApiKey,
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
             { allowEmpty: true },
           ),
@@ -3764,6 +4306,82 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.memory.consolidationIntervalHours,
         { min: 0, max: 24 * 30 },
       ),
+      consolidationLanguage: normalizeString(
+        rawMemory.consolidationLanguage,
+        DEFAULT_RUNTIME_CONFIG.memory.consolidationLanguage,
+        { allowEmpty: false },
+      ).toLowerCase(),
+      semanticPromptHardCap: normalizeInteger(
+        rawMemory.semanticPromptHardCap,
+        DEFAULT_RUNTIME_CONFIG.memory.semanticPromptHardCap,
+        { min: 1, max: 50 },
+      ),
+      embedding: {
+        provider: normalizeMemoryEmbeddingProviderKind(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.provider
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+        ),
+        model: normalizeString(
+          isRecord(rawMemory.embedding) ? rawMemory.embedding.model : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.model,
+          { allowEmpty: false },
+        ),
+        revision: normalizeString(
+          isRecord(rawMemory.embedding)
+            ? rawMemory.embedding.revision
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.revision,
+          { allowEmpty: false },
+        ),
+        dtype: normalizeMemoryEmbeddingDtype(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.dtype
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+        ),
+      },
+      queryMode:
+        normalizeString(
+          rawMemory.queryMode,
+          DEFAULT_RUNTIME_CONFIG.memory.queryMode,
+          { allowEmpty: false },
+        ) === 'no-stopwords'
+          ? 'no-stopwords'
+          : 'raw',
+      backend: normalizeMemoryRecallBackend(
+        normalizeString(
+          rawMemory.backend,
+          DEFAULT_RUNTIME_CONFIG.memory.backend,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.backend,
+      ),
+      rerank:
+        normalizeString(
+          rawMemory.rerank,
+          DEFAULT_RUNTIME_CONFIG.memory.rerank,
+          { allowEmpty: false },
+        ) === 'bm25'
+          ? 'bm25'
+          : 'none',
+      tokenizer: normalizeMemoryRecallTokenizer(
+        normalizeString(
+          rawMemory.tokenizer,
+          DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+      ),
     },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
@@ -3775,7 +4393,7 @@ function normalizeRuntimeConfig(
         rawOps.gatewayBaseUrl,
         `http://127.0.0.1:${healthPort}`,
       ),
-      gatewayApiToken: normalizeString(rawOps.gatewayApiToken, webApiToken, {
+      gatewayApiToken: normalizeString(resolvedGatewayApiToken, webApiToken, {
         allowEmpty: true,
       }),
       dbPath: normalizedDbPath,
@@ -3999,6 +4617,7 @@ function normalizeRuntimeConfig(
 function loadConfigPatchFromDisk(): {
   observedFile: RuntimeConfigObservedFile;
   patch: DeepPartial<RuntimeConfig>;
+  source: Record<string, unknown>;
 } {
   if (!fs.existsSync(CONFIG_PATH)) {
     return {
@@ -4007,6 +4626,7 @@ function loadConfigPatchFromDisk(): {
         content: null,
       },
       patch: {},
+      source: {},
     };
   }
 
@@ -4018,28 +4638,30 @@ function loadConfigPatchFromDisk(): {
       content: raw,
     },
     patch: parseConfigPatch(parsed),
+    source: isRecord(parsed) ? (parsed as Record<string, unknown>) : {},
   };
 }
 
 function buildSerializableConfig(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
-): RuntimeConfig & {
-  container: RuntimeConfig['container'] & {
-    sandboxMode?: ContainerSandboxMode;
-  };
-} {
-  const serializable = cloneConfig(config) as RuntimeConfig & {
-    container: RuntimeConfig['container'] & {
-      sandboxMode?: ContainerSandboxMode;
-    };
-  };
+  sourceConfig?: Record<string, unknown>,
+): Record<string, unknown> {
+  const serializable = cloneConfig(config) as unknown as Record<
+    string,
+    unknown
+  >;
+  preserveSecretInputs(serializable, sourceConfig ?? {});
+  const serializableContainer = isRecord(serializable.container)
+    ? serializable.container
+    : null;
   if (
+    serializableContainer &&
     opts?.omitImplicitSandboxMode &&
-    serializable.container.sandboxMode ===
+    serializableContainer.sandboxMode ===
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode
   ) {
-    delete (serializable.container as { sandboxMode?: ContainerSandboxMode })
+    delete (serializableContainer as { sandboxMode?: ContainerSandboxMode })
       .sandboxMode;
   }
 
@@ -4049,19 +4671,21 @@ function buildSerializableConfig(
 function serializeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
+  sourceConfig?: Record<string, unknown>,
 ): string {
-  return `${JSON.stringify(buildSerializableConfig(config, opts), null, 2)}\n`;
+  return `${JSON.stringify(buildSerializableConfig(config, opts, sourceConfig), null, 2)}\n`;
 }
 
 function writeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
   meta?: RuntimeConfigChangeMeta,
+  sourceConfig?: Record<string, unknown>,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
 
-  const nextText = serializeConfigFile(config, opts);
+  const nextText = serializeConfigFile(config, opts, sourceConfig);
   if (fs.existsSync(CONFIG_PATH)) {
     try {
       const currentText = fs.readFileSync(CONFIG_PATH, 'utf-8');
@@ -4100,11 +4724,17 @@ function applyConfig(next: RuntimeConfig): void {
 function loadRuntimeConfigFromSources(
   syncMeta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  const { observedFile, patch: diskPatch } = loadConfigPatchFromDisk();
+  const {
+    observedFile,
+    patch: diskPatch,
+    source: diskSource,
+  } = loadConfigPatchFromDisk();
   syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
+  currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
+    containerMaxConcurrentExplicit: hasOwn(rawContainer, 'maxConcurrent'),
   };
   return normalizeRuntimeConfig(diskPatch);
 }
@@ -4289,6 +4919,7 @@ function migrateConfigSchemaOnStartup(): void {
         route: 'runtime-config.migrate-schema',
         source: 'system',
       },
+      parsedRecord,
     );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
@@ -4371,6 +5002,10 @@ export function isContainerSandboxModeExplicit(): boolean {
   return currentConfigMetadata.containerSandboxModeExplicit;
 }
 
+export function isContainerMaxConcurrentExplicit(): boolean {
+  return currentConfigMetadata.containerMaxConcurrentExplicit;
+}
+
 export function onRuntimeConfigChange(
   listener: RuntimeConfigChangeListener,
 ): () => void {
@@ -4393,16 +5028,68 @@ export function saveRuntimeConfig(
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    currentConfigMetadata.containerMaxConcurrentExplicit ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
+  const nextSource = buildSerializableConfig(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    currentConfigSource,
+  );
   writeConfigFile(
     normalized,
     {
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     meta,
+    currentConfigSource,
   );
+  currentConfigSource = cloneConfig(nextSource);
+  applyConfig(normalized);
+  return cloneConfig(normalized);
+}
+
+function saveRuntimeConfigSource(
+  source: Record<string, unknown>,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalized = normalizeRuntimeConfig(parseConfigPatch(source));
+  const rawContainer = isRecord(source.container) ? source.container : {};
+  const sandboxModeExplicit =
+    hasOwn(rawContainer, 'sandboxMode') ||
+    normalized.container.sandboxMode !==
+      DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    hasOwn(rawContainer, 'maxConcurrent') ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
+  };
+  const nextSource = buildSerializableConfig(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    source,
+  );
+  writeConfigFile(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    meta,
+    source,
+  );
+  currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);
 }
@@ -4425,6 +5112,29 @@ export function updateRuntimeConfig(
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
+}
+
+export function setRuntimeConfigSecretInput(
+  secretPath: RuntimeConfigSecretInputPath,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
 }
 
 export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {

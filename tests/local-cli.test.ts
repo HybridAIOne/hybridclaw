@@ -56,13 +56,22 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
   ) as RuntimeConfig;
 }
 
-function readRuntimeSecrets(homeDir: string): Record<string, string> {
-  return JSON.parse(
-    fs.readFileSync(
-      path.join(homeDir, '.hybridclaw', 'credentials.json'),
-      'utf-8',
+async function readRuntimeSecrets(
+  homeDir: string,
+): Promise<Record<string, string | null>> {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  return {
+    DISCORD_TOKEN: runtimeSecrets.readStoredRuntimeSecret('DISCORD_TOKEN'),
+    EMAIL_PASSWORD: runtimeSecrets.readStoredRuntimeSecret('EMAIL_PASSWORD'),
+    IMESSAGE_PASSWORD:
+      runtimeSecrets.readStoredRuntimeSecret('IMESSAGE_PASSWORD'),
+    MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
+      'MSTEAMS_APP_PASSWORD',
     ),
-  ) as Record<string, string>;
+    VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
+  };
 }
 
 afterEach(() => {
@@ -127,6 +136,55 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   expect(logSpy).toHaveBeenCalledWith(
     expect.stringContaining('Updated runtime config at'),
   );
+});
+
+test('local configure llamacpp enables the backend and normalizes the URL', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'llamacpp',
+    'Meta-Llama-3-8B-Instruct',
+    '--base-url',
+    'http://127.0.0.1:8081',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.local.backends.llamacpp.enabled).toBe(true);
+  expect(config.local.backends.llamacpp.baseUrl).toBe(
+    'http://127.0.0.1:8081/v1',
+  );
+  expect(config.hybridai.defaultModel).toBe(
+    'llamacpp/Meta-Llama-3-8B-Instruct',
+  );
+});
+
+test('local configure without model enables the backend and preserves the default model', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'local',
+    'configure',
+    'lmstudio',
+    '--base-url',
+    'http://127.0.0.1:1234',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.local.backends.lmstudio.enabled).toBe(true);
+  expect(config.local.backends.lmstudio.baseUrl).toBe(
+    'http://127.0.0.1:1234/v1',
+  );
+  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
+  expect(logSpy).toHaveBeenCalledWith('Configured model: none');
+  expect(logSpy).toHaveBeenCalledWith(
+    'Default model unchanged: hybridai/gpt-4.1-mini',
+  );
+  expect(logSpy).toHaveBeenCalledWith('  /model list lmstudio');
 });
 
 test('local configure --no-default preserves the existing default model', async () => {
@@ -211,7 +269,7 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.discord.commandsOnly).toBe(true);
   expect(config.discord.commandMode).toBe('restricted');
   expect(config.discord.commandAllowedUserIds).toEqual([
@@ -222,9 +280,115 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   expect(secrets.DISCORD_TOKEN).toBe('discord-token-123');
 });
 
+test('channels slack manifest prints the slash-command manifest fragment', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main(['channels', 'slack', 'manifest']);
+
+  const output = logSpy.mock.calls
+    .map(([message]) => String(message))
+    .join('\n');
+  expect(output).toContain('oauth_config:');
+  expect(output).toContain('command: "/hc-status"');
+  expect(output).toContain('- "commands"');
+});
+
+test('channels slack register-commands syncs slash commands through Slack app manifests', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const originalFetch = globalThis.fetch;
+  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/apps.manifest.export')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          manifest: {
+            display_information: { name: 'HybridClaw Dev' },
+            oauth_config: { scopes: { bot: ['chat:write'] } },
+            features: {
+              slash_commands: [
+                {
+                  command: '/custom',
+                  description: 'Custom command',
+                  should_escape: true,
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url.endsWith('/apps.manifest.update')) {
+      const payload = JSON.parse(String(init?.body || '{}')) as {
+        manifest?: string;
+      };
+      const manifest = JSON.parse(String(payload.manifest || '{}')) as {
+        oauth_config?: { scopes?: { bot?: string[] } };
+        features?: {
+          slash_commands?: Array<{ command?: string; description?: string }>;
+        };
+      };
+      expect(manifest.oauth_config?.scopes?.bot).toContain('commands');
+      expect(manifest.features?.slash_commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ command: '/custom' }),
+          expect.objectContaining({
+            command: '/hc-status',
+            description: 'Show HybridClaw runtime status (only visible to you)',
+          }),
+        ]),
+      );
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/status',
+        ),
+      ).toBe(false);
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/hybridclaw-status',
+        ),
+      ).toBe(false);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  globalThis.fetch = fetchMock as typeof fetch;
+  try {
+    await cli.main([
+      'channels',
+      'slack',
+      'register-commands',
+      '--app-id',
+      'A1234567890',
+      '--config-token',
+      'xoxe-1234567890',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(logSpy).toHaveBeenCalledWith(
+    'Updated Slack app manifest for A1234567890.',
+  );
+  expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Registered'));
+});
+
 test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   await cli.main([
     'channels',
@@ -249,16 +413,30 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawEmail = rawConfig.email as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.email.enabled).toBe(true);
   expect(config.email.address).toBe('agent@example.com');
   expect(config.email.imapHost).toBe('imap.example.com');
   expect(config.email.imapSecure).toBe(true);
   expect(config.email.smtpHost).toBe('smtp.example.com');
   expect(config.email.smtpSecure).toBe(false);
+  expect(rawEmail.password).toEqual({
+    source: 'store',
+    id: 'EMAIL_PASSWORD',
+  });
   expect(config.email.folders).toEqual(['INBOX', 'Support']);
   expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
   expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');
+  expect(logSpy).toHaveBeenCalledWith(
+    `Updated runtime config at ${path.join(homeDir, '.hybridclaw', 'config.json')}`,
+  );
+  expect(logSpy).toHaveBeenCalledWith(
+    `Saved email password to ${path.join(homeDir, '.hybridclaw', 'credentials.json')}`,
+  );
 });
 
 test('channels imessage setup configures the local backend with safe defaults', async () => {
@@ -303,15 +481,63 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawIMessage = rawConfig.imessage as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.imessage.enabled).toBe(true);
   expect(config.imessage.backend).toBe('bluebubbles');
   expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
-  expect(config.imessage.password).toBe('');
+  expect(rawIMessage.password).toEqual({
+    source: 'store',
+    id: 'IMESSAGE_PASSWORD',
+  });
   expect(config.imessage.dmPolicy).toBe('allowlist');
   expect(config.imessage.allowFrom).toEqual(['user@example.com']);
   expect(config.imessage.groupPolicy).toBe('disabled');
   expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
+});
+
+test('local configure vllm stores api key in runtime secrets and writes a store ref', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'vllm',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    '--base-url',
+    'http://127.0.0.1:8000',
+    '--api-key',
+    'vllm-secret-key',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawBackends = rawLocal.backends as Record<string, unknown>;
+  const rawVllm = rawBackends.vllm as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.backends.vllm.enabled).toBe(true);
+  expect(config.local.backends.vllm.baseUrl).toBe('http://127.0.0.1:8000/v1');
+  expect(config.local.backends.vllm.apiKey).toBe('vllm-secret-key');
+  expect(rawVllm.apiKey).toEqual({
+    source: 'store',
+    id: 'VLLM_API_KEY',
+  });
+  expect(config.hybridai.defaultModel).toBe(
+    'vllm/meta-llama/Llama-3.1-8B-Instruct',
+  );
+  expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
 });
 
 test('channels imessage setup fails fast when the local imsg binary is missing', async () => {
@@ -344,7 +570,7 @@ test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async (
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.msteams.enabled).toBe(true);
   expect(config.msteams.appId).toBe('teams-app-id');
   expect(config.msteams.tenantId).toBe('teams-tenant-id');
@@ -374,8 +600,8 @@ test('auth logout msteams clears Teams credentials and disables the integration'
   expect(config.msteams.appId).toBe('');
   expect(config.msteams.tenantId).toBe('');
   if (fs.existsSync(secretsPath)) {
-    const secrets = readRuntimeSecrets(homeDir);
-    expect(secrets.MSTEAMS_APP_PASSWORD).toBeUndefined();
+    const secrets = await readRuntimeSecrets(homeDir);
+    expect(secrets.MSTEAMS_APP_PASSWORD).toBeNull();
   } else {
     expect(fs.existsSync(secretsPath)).toBe(false);
   }
@@ -506,7 +732,6 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
         },
         codex: {
           baseUrl: 'https://chatgpt.com/backend-api/codex',
-          models: ['openai-codex/gpt-5-codex'],
         },
         local: {
           backends: {

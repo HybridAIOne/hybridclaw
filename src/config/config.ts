@@ -9,7 +9,12 @@ import {
 } from '../../container/shared/context-guard-config.js';
 import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
-import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
+import {
+  loadRuntimeSecrets,
+  type RuntimeSecretKey,
+  readStoredRuntimeSecrets,
+} from '../security/runtime-secrets.js';
+import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -24,12 +29,25 @@ export type {
   ResolvedModelRuntimeCredentials,
 } from '../providers/types.js';
 
-loadRuntimeSecrets();
+bootstrapRuntimeSecrets();
 ensureRuntimeConfigFile();
 
 export class MissingRequiredEnvVarError extends Error {
   constructor(public readonly envVar: string) {
-    super(`Missing required env var: ${envVar}`);
+    const messageByEnvVar: Record<string, string> = {
+      HYBRIDAI_API_KEY:
+        'HybridAI provider is not configured. Use `/auth login hybridai` in the TUI, or switch to a model from another configured provider.',
+      OPENROUTER_API_KEY:
+        'OpenRouter provider is not configured. Use `/auth login openrouter` in the TUI, or switch to a model from another configured provider.',
+      MISTRAL_API_KEY:
+        'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
+      HF_TOKEN:
+        'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+    };
+    super(
+      messageByEnvVar[envVar] ||
+        `Required credential is not configured: ${envVar}.`,
+    );
     this.name = 'MissingRequiredEnvVarError';
   }
 }
@@ -92,23 +110,85 @@ function resolveAppVersion(): string {
 
 export const APP_VERSION = resolveAppVersion();
 
+function readRuntimeSecretValue(
+  envKeys: string[],
+  storedKey: RuntimeSecretKey,
+  storedSecrets: Record<string, string>,
+): string {
+  for (const envKey of envKeys) {
+    const value = String(process.env[envKey] || '').trim();
+    if (value) return value;
+  }
+  return storedSecrets[storedKey]?.trim() || '';
+}
+
 function syncRuntimeSecretExports(): void {
-  DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
-  EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
-  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || '';
-  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
-  HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
-  OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-  MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
-  HUGGINGFACE_API_KEY =
-    process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
+  const storedSecrets = readStoredRuntimeSecrets();
+  DISCORD_TOKEN = readRuntimeSecretValue(
+    ['DISCORD_TOKEN'],
+    'DISCORD_TOKEN',
+    storedSecrets,
+  );
+  EMAIL_PASSWORD = readRuntimeSecretValue(
+    ['EMAIL_PASSWORD'],
+    'EMAIL_PASSWORD',
+    storedSecrets,
+  );
+  TELEGRAM_BOT_TOKEN = readRuntimeSecretValue(
+    ['TELEGRAM_BOT_TOKEN'],
+    'TELEGRAM_BOT_TOKEN',
+    storedSecrets,
+  );
+  IMESSAGE_PASSWORD = readRuntimeSecretValue(
+    ['IMESSAGE_PASSWORD'],
+    'IMESSAGE_PASSWORD',
+    storedSecrets,
+  );
+  MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
+    ['MSTEAMS_APP_PASSWORD'],
+    'MSTEAMS_APP_PASSWORD',
+    storedSecrets,
+  );
+  SLACK_BOT_TOKEN = readRuntimeSecretValue(
+    ['SLACK_BOT_TOKEN'],
+    'SLACK_BOT_TOKEN',
+    storedSecrets,
+  );
+  SLACK_APP_TOKEN = readRuntimeSecretValue(
+    ['SLACK_APP_TOKEN'],
+    'SLACK_APP_TOKEN',
+    storedSecrets,
+  );
+  HYBRIDAI_API_KEY = readRuntimeSecretValue(
+    ['HYBRIDAI_API_KEY'],
+    'HYBRIDAI_API_KEY',
+    storedSecrets,
+  );
+  OPENROUTER_API_KEY = readRuntimeSecretValue(
+    ['OPENROUTER_API_KEY'],
+    'OPENROUTER_API_KEY',
+    storedSecrets,
+  );
+  MISTRAL_API_KEY = readRuntimeSecretValue(
+    ['MISTRAL_API_KEY'],
+    'MISTRAL_API_KEY',
+    storedSecrets,
+  );
+  HUGGINGFACE_API_KEY = readRuntimeSecretValue(
+    ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
+    'HF_TOKEN',
+    storedSecrets,
+  );
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
+export let TELEGRAM_BOT_TOKEN = '';
 export let IMESSAGE_PASSWORD = '';
 export let MSTEAMS_APP_PASSWORD = '';
+export let SLACK_BOT_TOKEN = '';
+export let SLACK_APP_TOKEN = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
@@ -199,6 +279,16 @@ export let MSTEAMS_MEDIA_MAX_MB = 20;
 export let MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING = false;
 export let MSTEAMS_MEDIA_ALLOW_HOSTS: string[] = [];
 export let MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: string[] = [];
+export let SLACK_ENABLED = false;
+export let SLACK_GROUP_POLICY: RuntimeConfig['slack']['groupPolicy'] =
+  'allowlist';
+export let SLACK_DM_POLICY: RuntimeConfig['slack']['dmPolicy'] = 'allowlist';
+export let SLACK_ALLOW_FROM: string[] = [];
+export let SLACK_GROUP_ALLOW_FROM: string[] = [];
+export let SLACK_REQUIRE_MENTION = true;
+export let SLACK_TEXT_CHUNK_LIMIT = 12_000;
+export let SLACK_REPLY_STYLE: RuntimeConfig['slack']['replyStyle'] = 'thread';
+export let SLACK_MEDIA_MAX_MB = 20;
 export let WHATSAPP_DM_POLICY: RuntimeConfig['whatsapp']['dmPolicy'] =
   'pairing';
 export let WHATSAPP_GROUP_POLICY: RuntimeConfig['whatsapp']['groupPolicy'] =
@@ -246,45 +336,19 @@ export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
-let HYBRIDAI_MODELS: string[] = [
-  'gpt-4.1-mini',
-  'gpt-5-nano',
-  'gpt-5-mini',
-  'gpt-5',
-];
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
-let CODEX_MODELS: string[] = [
-  'openai-codex/gpt-5-codex',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex-spark',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.1-codex-max',
-  'openai-codex/gpt-5.2',
-  'openai-codex/gpt-5.1-codex-mini',
-];
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
 export let MISTRAL_ENABLED = false;
 export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
-let MISTRAL_MODELS: string[] = ['mistral/mistral-large-latest'];
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
-let HUGGINGFACE_MODELS: string[] = [
-  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-];
-export let CONFIGURED_MODELS: string[] = dedupeStringList([
-  ...HYBRIDAI_MODELS,
-  ...CODEX_MODELS,
-  ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
-  ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
-  ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
-]);
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_LMSTUDIO_ENABLED = false;
 export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_LLAMACPP_ENABLED = false;
+export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
 export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
@@ -446,18 +510,6 @@ function resolveSandboxMode(
   return 'host';
 }
 
-function dedupeStringList(values: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of values) {
-    const value = String(raw || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out;
-}
-
 function normalizeConfiguredBaseUrl(
   raw: string | undefined,
   fallback: string,
@@ -469,6 +521,7 @@ function normalizeConfiguredBaseUrl(
 }
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
+  const storedSecrets = readStoredRuntimeSecrets();
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
   DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
@@ -508,7 +561,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_GUILDS = structuredClone(config.discord.guilds);
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
-  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
+  MSTEAMS_APP_PASSWORD =
+    readRuntimeSecretValue(
+      ['MSTEAMS_APP_PASSWORD'],
+      'MSTEAMS_APP_PASSWORD',
+      storedSecrets,
+    ) || '';
   MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID || config.msteams.tenantId;
   MSTEAMS_WEBHOOK_PORT = Math.max(
     1,
@@ -530,6 +588,30 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.msteams.dangerouslyAllowNameMatching;
   MSTEAMS_MEDIA_ALLOW_HOSTS = [...config.msteams.mediaAllowHosts];
   MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS = [...config.msteams.mediaAuthAllowHosts];
+  SLACK_ENABLED = config.slack.enabled;
+  SLACK_BOT_TOKEN =
+    readRuntimeSecretValue(
+      ['SLACK_BOT_TOKEN'],
+      'SLACK_BOT_TOKEN',
+      storedSecrets,
+    ) || '';
+  SLACK_APP_TOKEN =
+    readRuntimeSecretValue(
+      ['SLACK_APP_TOKEN'],
+      'SLACK_APP_TOKEN',
+      storedSecrets,
+    ) || '';
+  SLACK_GROUP_POLICY = config.slack.groupPolicy;
+  SLACK_DM_POLICY = config.slack.dmPolicy;
+  SLACK_ALLOW_FROM = [...config.slack.allowFrom];
+  SLACK_GROUP_ALLOW_FROM = [...config.slack.groupAllowFrom];
+  SLACK_REQUIRE_MENTION = config.slack.requireMention;
+  SLACK_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(40_000, config.slack.textChunkLimit),
+  );
+  SLACK_REPLY_STYLE = config.slack.replyStyle;
+  SLACK_MEDIA_MAX_MB = Math.max(1, config.slack.mediaMaxMb);
   WHATSAPP_DM_POLICY = config.whatsapp.dmPolicy;
   WHATSAPP_GROUP_POLICY = config.whatsapp.groupPolicy;
   WHATSAPP_ALLOW_FROM = [...config.whatsapp.allowFrom];
@@ -548,7 +630,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   IMESSAGE_DB_PATH = config.imessage.dbPath;
   IMESSAGE_POLL_INTERVAL_MS = Math.max(250, config.imessage.pollIntervalMs);
   IMESSAGE_SERVER_URL = config.imessage.serverUrl;
-  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || config.imessage.password;
+  IMESSAGE_PASSWORD =
+    readRuntimeSecretValue(
+      ['IMESSAGE_PASSWORD'],
+      'IMESSAGE_PASSWORD',
+      storedSecrets,
+    ) || config.imessage.password;
   IMESSAGE_WEBHOOK_PATH = config.imessage.webhookPath;
   IMESSAGE_ALLOW_PRIVATE_NETWORK = config.imessage.allowPrivateNetwork;
   IMESSAGE_DM_POLICY = config.imessage.dmPolicy;
@@ -569,6 +656,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   EMAIL_SMTP_PORT = Math.max(1, Math.min(65_535, config.email.smtpPort));
   EMAIL_SMTP_SECURE = config.email.smtpSecure;
   EMAIL_ADDRESS = config.email.address;
+  EMAIL_PASSWORD =
+    readRuntimeSecretValue(
+      ['EMAIL_PASSWORD'],
+      'EMAIL_PASSWORD',
+      storedSecrets,
+    ) || config.email.password;
   EMAIL_POLL_INTERVAL_MS = Math.max(1_000, config.email.pollIntervalMs);
   EMAIL_FOLDERS = [...config.email.folders];
   EMAIL_ALLOW_FROM = [...config.email.allowFrom];
@@ -593,28 +686,18 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
-  CODEX_MODELS = [...config.codex.models];
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
-  OPENROUTER_MODELS = [...config.openrouter.models];
   MISTRAL_ENABLED = config.mistral.enabled;
   MISTRAL_BASE_URL = config.mistral.baseUrl;
-  MISTRAL_MODELS = [...config.mistral.models];
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
-  HUGGINGFACE_MODELS = [...config.huggingface.models];
-  HYBRIDAI_MODELS = [...config.hybridai.models];
-  CONFIGURED_MODELS = dedupeStringList([
-    ...HYBRIDAI_MODELS,
-    ...CODEX_MODELS,
-    ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
-    ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
-    ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
-  ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;
   LOCAL_LMSTUDIO_BASE_URL = config.local.backends.lmstudio.baseUrl;
+  LOCAL_LLAMACPP_ENABLED = config.local.backends.llamacpp.enabled;
+  LOCAL_LLAMACPP_BASE_URL = config.local.backends.llamacpp.baseUrl;
   LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
   LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
@@ -663,10 +746,16 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
 
   HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
-  WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
+  WEB_API_TOKEN =
+    readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
+    config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
   GATEWAY_API_TOKEN =
-    process.env.GATEWAY_API_TOKEN ||
+    readRuntimeSecretValue(
+      ['GATEWAY_API_TOKEN'],
+      'GATEWAY_API_TOKEN',
+      storedSecrets,
+    ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
     INTERNAL_GATEWAY_API_TOKEN;

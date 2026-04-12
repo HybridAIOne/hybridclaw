@@ -43,6 +43,17 @@ describe('scheduler cron normalization', () => {
     expect(prompt).toMatch(/Current time: .*05:00.*\(America\/Los_Angeles\)/);
   });
 
+  test('wrapCronPrompt includes the delivery target context', () => {
+    const prompt = wrapCronPrompt(
+      'half-hourly-email',
+      'Write a short operational update.',
+      'UTC',
+      'ops@example.com',
+    );
+
+    expect(prompt).toContain('Delivery target: email to ops@example.com.');
+  });
+
   test('getScheduledTaskNextRunAt uses the supplied clock and UTC by default', () => {
     const nextRunAt = getScheduledTaskNextRunAt(
       makeCronTask('0 9 * * *'),

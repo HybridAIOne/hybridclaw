@@ -3,7 +3,59 @@ import { useDeferredValue, useState } from 'react';
 import { fetchPlugins } from '../api/client';
 import type { AdminPlugin } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  BooleanPill,
+  MetricCard,
+  PageHeader,
+  Panel,
+  SortableHeader,
+  useSortableRows,
+} from '../components/ui';
+import { compareBoolean, compareNumber, compareText } from '../lib/sort';
+
+type PluginSortKey =
+  | 'plugin'
+  | 'source'
+  | 'enabled'
+  | 'status'
+  | 'commands'
+  | 'tools'
+  | 'hooks';
+
+const PLUGIN_SORTERS: Record<
+  PluginSortKey,
+  (left: AdminPlugin, right: AdminPlugin) => number
+> = {
+  plugin: (left, right) =>
+    compareText(left.name || left.id, right.name || right.id) ||
+    compareText(left.id, right.id),
+  source: (left, right) =>
+    compareText(left.source, right.source) ||
+    compareText(left.name || left.id, right.name || right.id),
+  enabled: (left, right) =>
+    compareBoolean(left.enabled, right.enabled) ||
+    compareText(left.name || left.id, right.name || right.id),
+  status: (left, right) =>
+    compareBoolean(left.status === 'loaded', right.status === 'loaded') ||
+    compareText(left.name || left.id, right.name || right.id),
+  commands: (left, right) =>
+    compareNumber(left.commands.length, right.commands.length) ||
+    compareText(left.name || left.id, right.name || right.id),
+  tools: (left, right) =>
+    compareNumber(left.tools.length, right.tools.length) ||
+    compareText(left.name || left.id, right.name || right.id),
+  hooks: (left, right) =>
+    compareNumber(left.hooks.length, right.hooks.length) ||
+    compareText(left.name || left.id, right.name || right.id),
+};
+
+const PLUGIN_DEFAULT_DIRECTIONS = {
+  enabled: 'desc',
+  status: 'desc',
+  commands: 'desc',
+  tools: 'desc',
+  hooks: 'desc',
+} as const;
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'none';
@@ -38,9 +90,21 @@ export function PluginsPage() {
     queryFn: () => fetchPlugins(auth.token),
   });
 
-  const plugins = (pluginsQuery.data?.plugins || []).filter((plugin) =>
+  const filteredPlugins = (pluginsQuery.data?.plugins || []).filter((plugin) =>
     matchesPluginFilter(plugin, filterNeedle),
   );
+  const {
+    sortedRows: plugins,
+    sortState,
+    toggleSort,
+  } = useSortableRows<AdminPlugin, PluginSortKey>(filteredPlugins, {
+    initialSort: {
+      key: 'plugin',
+      direction: 'asc',
+    },
+    sorters: PLUGIN_SORTERS,
+    defaultDirections: PLUGIN_DEFAULT_DIRECTIONS,
+  });
   const failedPlugins = plugins.filter((plugin) => plugin.status === 'failed');
 
   return (
@@ -95,13 +159,48 @@ export function PluginsPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>Plugin</th>
-                    <th>Source</th>
-                    <th>Enabled</th>
-                    <th>Status</th>
-                    <th>Commands</th>
-                    <th>Tools</th>
-                    <th>Hooks</th>
+                    <SortableHeader
+                      label="Plugin"
+                      sortKey="plugin"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Source"
+                      sortKey="source"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Enabled"
+                      sortKey="enabled"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Commands"
+                      sortKey="commands"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Tools"
+                      sortKey="tools"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Hooks"
+                      sortKey="hooks"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
                   </tr>
                 </thead>
                 <tbody>

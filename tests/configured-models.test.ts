@@ -95,11 +95,10 @@ describe('env var overrides', () => {
 });
 
 describe('configured model catalog', () => {
-  it('builds a deduplicated shared model list from hybridai, codex, openrouter, mistral, and huggingface config', async () => {
+  it('preserves provider model lists in the runtime config snapshot', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.hybridai.models = ['gpt-5-nano', 'shared-model', 'gpt-5'];
-      config.codex.models = ['shared-model', 'openai-codex/gpt-5.4'];
       config.openrouter.enabled = true;
       config.openrouter.models = [
         'shared-model',
@@ -122,10 +121,6 @@ describe('configured model catalog', () => {
       'shared-model',
       'gpt-5',
     ]);
-    expect(snapshot.codex.models).toEqual([
-      'shared-model',
-      'openai-codex/gpt-5.4',
-    ]);
     expect(config.OPENROUTER_ENABLED).toBe(true);
     expect(snapshot.openrouter.models).toEqual([
       'shared-model',
@@ -139,15 +134,6 @@ describe('configured model catalog', () => {
     expect(config.HUGGINGFACE_ENABLED).toBe(true);
     expect(snapshot.huggingface.models).toEqual([
       'shared-model',
-      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
-    ]);
-    expect(config.CONFIGURED_MODELS).toEqual([
-      'gpt-5-nano',
-      'shared-model',
-      'gpt-5',
-      'openai-codex/gpt-5.4',
-      'openrouter/anthropic/claude-sonnet-4',
-      'mistral/mistral-large-latest',
       'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     ]);
   });

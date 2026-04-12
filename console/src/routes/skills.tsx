@@ -2,33 +2,78 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import {
   applyAdaptiveSkillAmendment,
+  createSkill,
   fetchAdaptiveSkillAmendmentHistory,
   fetchAdaptiveSkillAmendments,
   fetchAdaptiveSkillHealth,
   fetchSkills,
   rejectAdaptiveSkillAmendment,
   saveSkillEnabled,
+  uploadSkillZip,
 } from '../api/client';
 import type {
   AdminAdaptiveSkillAmendment,
   AdminAdaptiveSkillHealthMetric,
+  AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  BooleanField,
   BooleanPill,
   BooleanToggle,
   MetricCard,
   PageHeader,
   Panel,
+  SegmentedToggle,
+  SortableHeader,
+  useSortableRows,
 } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { compareBoolean, compareNumber, compareText } from '../lib/sort';
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatFeedbackCounts(metrics: AdminAdaptiveSkillHealthMetric): string {
-  return `+${metrics.positive_feedback_count} / -${metrics.negative_feedback_count}`;
+const DEFAULT_SKILL_CATEGORIES = [
+  'agents',
+  'apple',
+  'business',
+  'communication',
+  'development',
+  'memory',
+  'misc',
+  'office',
+  'productivity',
+  'publishing',
+  'security',
+  'uncategorized',
+];
+
+function formatFeedbackCounts(
+  metrics: AdminAdaptiveSkillHealthMetric,
+): string | null {
+  if (
+    metrics.positive_feedback_count === 0 &&
+    metrics.negative_feedback_count === 0
+  ) {
+    return null;
+  }
+  return `👍 ${metrics.positive_feedback_count} · 👎 ${metrics.negative_feedback_count}`;
+}
+
+function abbreviateDescription(value: string, maxChars = 120): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  const truncated = normalized.slice(0, maxChars - 1);
+  const boundary = truncated.lastIndexOf(' ');
+  const head =
+    boundary >= Math.floor(maxChars * 0.6)
+      ? truncated.slice(0, boundary)
+      : truncated;
+  return `${head.trimEnd()}…`;
 }
 
 function formatAmendmentStatus(amendment: AdminAdaptiveSkillAmendment): string {
@@ -45,11 +90,157 @@ function formatAmendmentTiming(amendment: AdminAdaptiveSkillAmendment): string {
   return formatRelativeTime(relevantTimestamp);
 }
 
+interface InstalledSkillRow {
+  skill: AdminSkill;
+  metrics: AdminAdaptiveSkillHealthMetric | null;
+}
+
+type InstalledSkillSortKey =
+  | 'skill'
+  | 'category'
+  | 'source'
+  | 'health'
+  | 'tags'
+  | 'action';
+
+function getInstalledSkillHealthRank(
+  metrics: AdminAdaptiveSkillHealthMetric | null,
+): number {
+  if (!metrics) return 2;
+  return metrics.degraded ? 1 : 0;
+}
+
+const INSTALLED_SKILL_SORTERS: Record<
+  InstalledSkillSortKey,
+  (left: InstalledSkillRow, right: InstalledSkillRow) => number
+> = {
+  skill: (left, right) => compareText(left.skill.name, right.skill.name),
+  category: (left, right) =>
+    compareText(left.skill.category, right.skill.category) ||
+    compareText(left.skill.name, right.skill.name),
+  source: (left, right) =>
+    compareText(left.skill.source, right.skill.source) ||
+    compareText(left.skill.name, right.skill.name),
+  health: (left, right) =>
+    compareNumber(
+      getInstalledSkillHealthRank(left.metrics),
+      getInstalledSkillHealthRank(right.metrics),
+    ) ||
+    compareNumber(
+      left.metrics?.total_executions,
+      right.metrics?.total_executions,
+    ) ||
+    compareText(left.skill.name, right.skill.name),
+  tags: (left, right) =>
+    compareText(left.skill.tags.join(', '), right.skill.tags.join(', ')) ||
+    compareText(left.skill.name, right.skill.name),
+  action: (left, right) =>
+    compareBoolean(left.skill.enabled, right.skill.enabled) ||
+    compareText(left.skill.name, right.skill.name),
+};
+
+const INSTALLED_SKILL_DEFAULT_DIRECTIONS = {
+  action: 'desc',
+} as const;
+
+type ObservedSkillSortKey =
+  | 'skill'
+  | 'status'
+  | 'executions'
+  | 'success'
+  | 'toolBreakage'
+  | 'feedback'
+  | 'reasons';
+
+function getObservedSkillFeedbackCount(
+  metrics: AdminAdaptiveSkillHealthMetric,
+): number {
+  return metrics.positive_feedback_count + metrics.negative_feedback_count;
+}
+
+const OBSERVED_SKILL_SORTERS: Record<
+  ObservedSkillSortKey,
+  (
+    left: AdminAdaptiveSkillHealthMetric,
+    right: AdminAdaptiveSkillHealthMetric,
+  ) => number
+> = {
+  skill: (left, right) => compareText(left.skill_name, right.skill_name),
+  status: (left, right) =>
+    compareBoolean(!left.degraded, !right.degraded) ||
+    compareText(left.skill_name, right.skill_name),
+  executions: (left, right) =>
+    compareNumber(left.total_executions, right.total_executions) ||
+    compareText(left.skill_name, right.skill_name),
+  success: (left, right) =>
+    compareNumber(left.success_rate, right.success_rate) ||
+    compareText(left.skill_name, right.skill_name),
+  toolBreakage: (left, right) =>
+    compareNumber(left.tool_breakage_rate, right.tool_breakage_rate) ||
+    compareText(left.skill_name, right.skill_name),
+  feedback: (left, right) =>
+    compareNumber(
+      getObservedSkillFeedbackCount(left),
+      getObservedSkillFeedbackCount(right),
+    ) || compareText(left.skill_name, right.skill_name),
+  reasons: (left, right) =>
+    compareText(
+      left.degradation_reasons.join('; '),
+      right.degradation_reasons.join('; '),
+    ) || compareText(left.skill_name, right.skill_name),
+};
+
+const OBSERVED_SKILL_DEFAULT_DIRECTIONS = {
+  status: 'desc',
+  executions: 'desc',
+  success: 'desc',
+  toolBreakage: 'desc',
+  feedback: 'desc',
+} as const;
+
+interface SkillFileDraft {
+  id: number;
+  path: string;
+  content: string;
+}
+
+let nextFileId = 1;
+
+interface SkillDraft {
+  name: string;
+  description: string;
+  category: string;
+  shortDescription: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  tags: string;
+  body: string;
+  files: SkillFileDraft[];
+}
+
+function createEmptyDraft(): SkillDraft {
+  return {
+    name: '',
+    description: '',
+    category: '',
+    shortDescription: '',
+    userInvocable: true,
+    disableModelInvocation: false,
+    tags: '',
+    body: '',
+    files: [],
+  };
+}
+
 export function SkillsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState('');
   const [selectedSkillName, setSelectedSkillName] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
+  const [draft, setDraft] = useState<SkillDraft>(createEmptyDraft());
+  const [zipFile, setZipFile] = useState<File | null>(null);
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
@@ -103,8 +294,54 @@ export function SkillsPage() {
     },
   });
 
+  const createMutation = useMutation({
+    mutationFn: () => {
+      const tags = draft.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const files = draft.files
+        .filter((f) => f.path.trim())
+        .map((f) => ({ path: f.path.trim(), content: f.content }));
+      return createSkill(auth.token, {
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        category: draft.category.trim(),
+        shortDescription: draft.shortDescription.trim() || undefined,
+        userInvocable: draft.userInvocable,
+        disableModelInvocation: draft.disableModelInvocation,
+        tags: tags.length > 0 ? tags : undefined,
+        body: draft.body.trim(),
+        files: files.length > 0 ? files : undefined,
+      });
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+      setShowCreate(false);
+      setDraft(createEmptyDraft());
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      if (!zipFile) throw new Error('No file selected.');
+      return uploadSkillZip(auth.token, zipFile);
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+      setShowCreate(false);
+      setZipFile(null);
+    },
+  });
+
   const healthMetrics = healthQuery.data?.metrics || [];
   const stagedAmendments = stagedAmendmentsQuery.data?.amendments || [];
+  const categoryOptions = Array.from(
+    new Set([
+      ...DEFAULT_SKILL_CATEGORIES,
+      ...(skillsQuery.data?.skills || []).map((skill) => skill.category),
+    ]),
+  ).sort((left, right) => left.localeCompare(right));
   const knownSkillNames = new Set([
     ...(skillsQuery.data?.skills || []).map((skill) => skill.name),
     ...healthMetrics.map((metrics) => metrics.skill_name),
@@ -135,7 +372,9 @@ export function SkillsPage() {
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
     const haystack = [
       skill.name,
+      skill.category,
       skill.description,
+      skill.shortDescription || '',
       skill.source,
       ...(skill.tags || []),
       ...(skill.relatedSkills || []),
@@ -155,29 +394,362 @@ export function SkillsPage() {
       .toLowerCase();
     return haystack.includes(filterNeedle);
   });
+  const installedSkillRows = filteredSkills.map((skill) => ({
+    skill,
+    metrics:
+      healthMetrics.find((entry) => entry.skill_name === skill.name) || null,
+  }));
+  const {
+    sortedRows: sortedInstalledSkills,
+    sortState: installedSkillSortState,
+    toggleSort: toggleInstalledSkillSort,
+  } = useSortableRows<InstalledSkillRow, InstalledSkillSortKey>(
+    installedSkillRows,
+    {
+      initialSort: {
+        key: 'skill',
+        direction: 'asc',
+      },
+      sorters: INSTALLED_SKILL_SORTERS,
+      defaultDirections: INSTALLED_SKILL_DEFAULT_DIRECTIONS,
+    },
+  );
+  const {
+    sortedRows: sortedHealthMetrics,
+    sortState: observedSkillSortState,
+    toggleSort: toggleObservedSkillSort,
+  } = useSortableRows<AdminAdaptiveSkillHealthMetric, ObservedSkillSortKey>(
+    filteredHealthMetrics,
+    {
+      initialSort: {
+        key: 'skill',
+        direction: 'asc',
+      },
+      sorters: OBSERVED_SKILL_SORTERS,
+      defaultDirections: OBSERVED_SKILL_DEFAULT_DIRECTIONS,
+    },
+  );
 
   const degradedSkillCount = healthMetrics.filter(
     (metrics) => metrics.degraded,
   ).length;
-  const selectedMetrics = healthMetrics.find(
-    (metrics) => metrics.skill_name === effectiveSelectedSkillName,
-  );
   const historyEntries = historyQuery.data?.amendments || [];
 
   return (
     <div className="page-stack">
       <PageHeader
         title="Skills"
-        description="Discovery, runtime availability, and AdaptiveSkills health and amendment review."
+        description="Browse installed skills, review health, and manage amendments."
         actions={
-          <input
-            className="compact-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter skills"
-          />
+          <>
+            <input
+              className="compact-search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Filter skills"
+            />
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setShowCreate(!showCreate);
+                setDraft(createEmptyDraft());
+                setZipFile(null);
+                setCreateMode('form');
+                createMutation.reset();
+                uploadMutation.reset();
+              }}
+            >
+              {showCreate ? 'Cancel' : 'New'}
+            </button>
+          </>
         }
       />
+
+      {showCreate ? (
+        <Panel title="Create skill" accent="warm">
+          <SegmentedToggle
+            ariaLabel="Create mode"
+            value={createMode}
+            options={[
+              { value: 'form', label: 'Form', activeTone: 'is-on' },
+              { value: 'zip', label: 'Upload ZIP', activeTone: 'is-on' },
+            ]}
+            onChange={(value) => {
+              if (value === 'form' || value === 'zip') {
+                setCreateMode(value);
+              }
+            }}
+          />
+
+          {createMode === 'zip' ? (
+            <div className="stack-form">
+              <label className="field">
+                <span>Skill archive (.zip)</span>
+                <input
+                  type="file"
+                  accept=".zip,.skill"
+                  onChange={(event) =>
+                    setZipFile(event.target.files?.[0] || null)
+                  }
+                />
+              </label>
+              <p className="supporting-text">
+                ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
+                frontmatter field. May include scripts/, references/, and other
+                files.
+              </p>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={uploadMutation.isPending || !zipFile}
+                  onClick={() => uploadMutation.mutate()}
+                >
+                  {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
+                </button>
+              </div>
+              {uploadMutation.isError ? (
+                <p className="error-banner">
+                  {(uploadMutation.error as Error).message}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="stack-form">
+              <div className="field-grid">
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={draft.name}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="my-skill"
+                  />
+                </label>
+                <label className="field">
+                  <span>Category</span>
+                  <select
+                    value={draft.category}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        category: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select category</option>
+                    {categoryOptions.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="field-grid">
+                <label className="field">
+                  <span>Short description</span>
+                  <input
+                    value={draft.shortDescription}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        shortDescription: event.target.value,
+                      }))
+                    }
+                    placeholder="One-line summary used in metadata"
+                  />
+                </label>
+                <label className="field">
+                  <span>Tags</span>
+                  <input
+                    value={draft.tags}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        tags: event.target.value,
+                      }))
+                    }
+                    placeholder="tag1, tag2"
+                  />
+                </label>
+              </div>
+
+              <label className="field">
+                <span>Description</span>
+                <input
+                  value={draft.description}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                  placeholder="Short description of what this skill does"
+                />
+              </label>
+
+              <div className="field-grid">
+                <BooleanField
+                  label="User invocable"
+                  value={draft.userInvocable}
+                  trueLabel="yes"
+                  falseLabel="no"
+                  onChange={(userInvocable) =>
+                    setDraft((current) => ({ ...current, userInvocable }))
+                  }
+                />
+                <BooleanField
+                  label="Model invocable"
+                  value={!draft.disableModelInvocation}
+                  trueLabel="yes"
+                  falseLabel="no"
+                  onChange={(modelInvocable) =>
+                    setDraft((current) => ({
+                      ...current,
+                      disableModelInvocation: !modelInvocable,
+                    }))
+                  }
+                />
+              </div>
+
+              <label className="field">
+                <span>Skill body (Markdown)</span>
+                <textarea
+                  rows={10}
+                  value={draft.body}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      body: event.target.value,
+                    }))
+                  }
+                  placeholder={
+                    '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
+                  }
+                />
+              </label>
+
+              <div className="panel-header" style={{ marginTop: '0.5rem' }}>
+                <div>
+                  <h4>Files</h4>
+                  <p className="supporting-text">
+                    Add scripts or references (e.g. scripts/run.mjs,
+                    references/guide.md)
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      files: [
+                        ...current.files,
+                        {
+                          id: nextFileId++,
+                          path: 'scripts/new-file.mjs',
+                          content: '',
+                        },
+                      ],
+                    }))
+                  }
+                >
+                  Add file
+                </button>
+              </div>
+
+              {draft.files.map((file, index) => (
+                <div
+                  key={file.id}
+                  className="stack-form"
+                  style={{ gap: '0.25rem' }}
+                >
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>Path</span>
+                      <input
+                        value={file.path}
+                        onChange={(event) =>
+                          setDraft((current) => {
+                            const files = [...current.files];
+                            files[index] = {
+                              ...files[index],
+                              path: event.target.value,
+                            };
+                            return { ...current, files };
+                          })
+                        }
+                        placeholder="scripts/my-tool.mjs"
+                      />
+                    </label>
+                    <button
+                      className="danger-button"
+                      type="button"
+                      style={{ alignSelf: 'end' }}
+                      onClick={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          files: current.files.filter((_, i) => i !== index),
+                        }))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <label className="field">
+                    <span>Content</span>
+                    <textarea
+                      rows={8}
+                      value={file.content}
+                      onChange={(event) =>
+                        setDraft((current) => {
+                          const files = [...current.files];
+                          files[index] = {
+                            ...files[index],
+                            content: event.target.value,
+                          };
+                          return { ...current, files };
+                        })
+                      }
+                      placeholder="// Script content..."
+                      style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                    />
+                  </label>
+                </div>
+              ))}
+
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={
+                    createMutation.isPending ||
+                    !draft.name.trim() ||
+                    !draft.description.trim() ||
+                    !draft.category.trim()
+                  }
+                  onClick={() => createMutation.mutate()}
+                >
+                  {createMutation.isPending ? 'Creating...' : 'Create skill'}
+                </button>
+              </div>
+
+              {createMutation.isError ? (
+                <p className="error-banner">
+                  {(createMutation.error as Error).message}
+                </p>
+              ) : null}
+            </div>
+          )}
+        </Panel>
+      ) : null}
 
       <div className="metric-grid">
         <MetricCard
@@ -189,6 +761,7 @@ export function SkillsPage() {
           label="Observed skills"
           value={String(healthMetrics.length)}
           detail="from AdaptiveSkills observations"
+          href="#observed-skill-health"
         />
         <MetricCard
           label="Degraded skills"
@@ -199,72 +772,13 @@ export function SkillsPage() {
           label="Staged amendments"
           value={String(stagedAmendments.length)}
           detail="awaiting human review"
+          href="#staged-amendments"
         />
-      </div>
-
-      <div className="two-column-grid">
-        <Panel title="Discovery">
-          <div className="key-value-grid">
-            <div>
-              <span>Extra dirs</span>
-              <strong>
-                {skillsQuery.data?.extraDirs.length
-                  ? skillsQuery.data.extraDirs.join(', ')
-                  : 'none'}
-              </strong>
-            </div>
-            <div>
-              <span>Disabled skills</span>
-              <strong>
-                {skillsQuery.data?.disabled.length
-                  ? skillsQuery.data.disabled.join(', ')
-                  : 'none'}
-              </strong>
-            </div>
-          </div>
-        </Panel>
-
-        <Panel
-          title="AdaptiveSkills"
-          subtitle={
-            selectedMetrics
-              ? `${selectedMetrics.skill_name} selected for history review`
-              : 'Select a skill to review amendment history'
-          }
-          accent="warm"
-        >
-          {selectedMetrics ? (
-            <div className="key-value-grid">
-              <div>
-                <span>Status</span>
-                <strong>
-                  {selectedMetrics.degraded ? 'degraded' : 'healthy'}
-                </strong>
-              </div>
-              <div>
-                <span>Executions</span>
-                <strong>{selectedMetrics.total_executions}</strong>
-              </div>
-              <div>
-                <span>Success rate</span>
-                <strong>{formatPercent(selectedMetrics.success_rate)}</strong>
-              </div>
-              <div>
-                <span>Feedback</span>
-                <strong>{formatFeedbackCounts(selectedMetrics)}</strong>
-              </div>
-            </div>
-          ) : (
-            <div className="empty-state">
-              No AdaptiveSkills observations are available yet.
-            </div>
-          )}
-        </Panel>
       </div>
 
       <Panel
         title="Installed skills"
-        subtitle={`${filteredSkills.length} skill${filteredSkills.length === 1 ? '' : 's'} visible`}
+        subtitle={`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
       >
         {skillsQuery.isLoading ? (
           <div className="empty-state">Loading skill catalog...</div>
@@ -273,19 +787,52 @@ export function SkillsPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Skill</th>
-                  <th>Source</th>
-                  <th>Runtime</th>
-                  <th>Adaptive</th>
-                  <th>Tags</th>
-                  <th>Action</th>
+                  <SortableHeader
+                    label="Skill"
+                    sortKey="skill"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Category"
+                    sortKey="category"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Source"
+                    sortKey="source"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Health"
+                    sortKey="health"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Tags"
+                    sortKey="tags"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
+                  <SortableHeader
+                    label="Action"
+                    sortKey="action"
+                    sortState={installedSkillSortState}
+                    onToggle={toggleInstalledSkillSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {filteredSkills.map((skill) => {
-                  const metrics = healthMetrics.find(
-                    (entry) => entry.skill_name === skill.name,
-                  );
+                {sortedInstalledSkills.map(({ skill, metrics }) => {
+                  const feedbackSummary = metrics
+                    ? formatFeedbackCounts(metrics)
+                    : null;
+                  const displayDescription =
+                    skill.shortDescription?.trim() ||
+                    abbreviateDescription(skill.description);
                   return (
                     <tr key={skill.name}>
                       <td>
@@ -296,21 +843,10 @@ export function SkillsPage() {
                         >
                           {skill.name}
                         </button>
-                        <small>{skill.description}</small>
+                        <small>{displayDescription}</small>
                       </td>
+                      <td>{skill.category}</td>
                       <td>{skill.source}</td>
-                      <td>
-                        <BooleanPill
-                          value={skill.available}
-                          trueLabel="ready"
-                          falseLabel="missing"
-                        />
-                        {!skill.available ? (
-                          <small>
-                            {skill.missing.join(', ') || 'missing requirements'}
-                          </small>
-                        ) : null}
-                      </td>
                       <td>
                         {metrics ? (
                           <>
@@ -318,36 +854,54 @@ export function SkillsPage() {
                               value={!metrics.degraded}
                               trueLabel="healthy"
                               falseLabel="degraded"
+                              falseTone="danger"
                             />
                             <small>
-                              {metrics.total_executions} runs ·{' '}
-                              {formatFeedbackCounts(metrics)}
+                              {metrics.total_executions} runs
+                              {metrics.degraded || !feedbackSummary
+                                ? ''
+                                : ' · '}
+                              {metrics.degraded
+                                ? `${formatPercent(metrics.success_rate)} success`
+                                : feedbackSummary}
                             </small>
                           </>
-                        ) : (
-                          <small>no observations</small>
-                        )}
+                        ) : null}
                       </td>
                       <td>{skill.tags.join(', ') || 'none'}</td>
                       <td>
-                        <BooleanToggle
-                          value={skill.enabled}
-                          ariaLabel={`${skill.name} status`}
-                          disabled={toggleMutation.isPending}
-                          trueLabel="active"
-                          falseLabel="inactive"
-                          onChange={(enabled) =>
-                            toggleMutation.mutate({
-                              name: skill.name,
-                              enabled,
-                            })
-                          }
-                        />
+                        <div className="row-status-stack">
+                          <BooleanToggle
+                            value={skill.enabled}
+                            ariaLabel={`${skill.name} status`}
+                            disabled={
+                              toggleMutation.isPending ||
+                              (!skill.available && !skill.enabled)
+                            }
+                            trueLabel="active"
+                            falseLabel="inactive"
+                            onChange={(enabled) => {
+                              if (enabled && !skill.available) {
+                                return;
+                              }
+                              toggleMutation.mutate({
+                                name: skill.name,
+                                enabled,
+                              });
+                            }}
+                          />
+                          {!skill.available ? (
+                            <small className="row-status-note-danger">
+                              {skill.missing.join(', ') ||
+                                'missing requirements'}
+                            </small>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
-                {filteredSkills.length === 0 ? (
+                {sortedInstalledSkills.length === 0 ? (
                   <tr>
                     <td colSpan={6}>
                       <div className="empty-state">
@@ -369,12 +923,13 @@ export function SkillsPage() {
 
       <div className="two-column-grid">
         <Panel
+          id="observed-skill-health"
           title="Observed skill health"
-          subtitle={`${filteredHealthMetrics.length} observed skill${filteredHealthMetrics.length === 1 ? '' : 's'} visible`}
+          subtitle={`${sortedHealthMetrics.length} observed skill${sortedHealthMetrics.length === 1 ? '' : 's'} visible`}
         >
           {healthQuery.isLoading ? (
             <div className="empty-state">Loading AdaptiveSkills health...</div>
-          ) : filteredHealthMetrics.length === 0 ? (
+          ) : sortedHealthMetrics.length === 0 ? (
             <div className="empty-state">
               No observed skills match this filter.
             </div>
@@ -383,17 +938,52 @@ export function SkillsPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>Skill</th>
-                    <th>Status</th>
-                    <th>Executions</th>
-                    <th>Success</th>
-                    <th>Tool breakage</th>
-                    <th>Feedback</th>
-                    <th>Reasons</th>
+                    <SortableHeader
+                      label="Skill"
+                      sortKey="skill"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Executions"
+                      sortKey="executions"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Success"
+                      sortKey="success"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Tool breakage"
+                      sortKey="toolBreakage"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Feedback"
+                      sortKey="feedback"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Reasons"
+                      sortKey="reasons"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredHealthMetrics.map((metrics) => (
+                  {sortedHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
                         <button
@@ -415,12 +1005,13 @@ export function SkillsPage() {
                           value={!metrics.degraded}
                           trueLabel="healthy"
                           falseLabel="degraded"
+                          falseTone="danger"
                         />
                       </td>
                       <td>{metrics.total_executions}</td>
                       <td>{formatPercent(metrics.success_rate)}</td>
                       <td>{formatPercent(metrics.tool_breakage_rate)}</td>
-                      <td>{formatFeedbackCounts(metrics)}</td>
+                      <td>{formatFeedbackCounts(metrics) || null}</td>
                       <td>
                         <small>
                           {metrics.degradation_reasons.join('; ') || 'healthy'}
@@ -435,6 +1026,7 @@ export function SkillsPage() {
         </Panel>
 
         <Panel
+          id="staged-amendments"
           title="Staged amendments"
           subtitle={`${stagedAmendments.length} waiting for review`}
           accent="warm"

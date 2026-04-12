@@ -11,10 +11,14 @@ afterEach(() => {
 });
 
 test('registers plugin as a slash/text command', async () => {
-  const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
-    await importCommandRegistry();
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+  } = await importCommandRegistry();
   expect(isRegisteredTextCommandName('plugin')).toBe(true);
   expect(isRegisteredTextCommandName('concierge')).toBe(true);
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
     expect.arrayContaining([
@@ -77,6 +81,32 @@ test('registers plugin as a slash/text command', async () => {
           expect.objectContaining({
             kind: 'subcommand',
             name: 'uninstall',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'dream',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'now',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'on',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'off',
           }),
         ]),
       }),
@@ -211,6 +241,47 @@ test('registers auth as a local slash/text command', async () => {
   ).toEqual(['auth', 'status', 'hybridai']);
 });
 
+test('registers eval as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('eval')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'eval',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'eval',
+        tuiMenuEntries: expect.arrayContaining([
+          expect.objectContaining({
+            label: '/eval list',
+          }),
+          expect.objectContaining({
+            label: '/eval locomo',
+          }),
+          expect.objectContaining({
+            label: '/eval swebench-verified',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(mapCanonicalCommandToGatewayArgs(['eval', 'gaia'])).toEqual([
+    'eval',
+    'gaia',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['eval', 'locomo'])).toEqual([
+    'eval',
+    'locomo',
+  ]);
+});
+
 test('registers config as a local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
@@ -286,6 +357,59 @@ test('registers config as a local slash/text command', async () => {
   ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
 });
 
+test('registers secret as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('secret')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'secret',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'secret',
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'secret',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['secret']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'secret',
+      getString: (name) =>
+        name === 'action'
+          ? 'set'
+          : name === 'name'
+            ? 'STAGING_HYBRIDAI_API_KEY'
+            : name === 'value'
+              ? 'demo_key_2024'
+              : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
+  expect(mapCanonicalCommandToGatewayArgs(['secret'])).toEqual(['secret']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'secret',
+      'set',
+      'STAGING_HYBRIDAI_API_KEY',
+      'demo_key_2024',
+    ]),
+  ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
+});
+
 test('parses /concierge profile into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();
@@ -331,6 +455,48 @@ test('parses /plugin reload into gateway args', async () => {
       getSubcommand: () => 'reload',
     }),
   ).toEqual(['plugin', 'reload']);
+});
+
+test('registers dream as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('dream')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(false);
+  expect(
+    buildTuiSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'dream',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'dream',
+      getString: () => null,
+      getSubcommand: () => 'now',
+    }),
+  ).toEqual(['dream', 'now']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream'])).toEqual(['dream']);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'on'])).toEqual([
+    'dream',
+    'on',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'off'])).toEqual([
+    'dream',
+    'off',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['dream', 'now'])).toEqual([
+    'dream',
+    'now',
+  ]);
 });
 
 test('maps bot clear and bot auto to the clear gateway command', async () => {
@@ -395,17 +561,23 @@ test('parses /plugin install into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'install',
     }),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'install',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'install', './plugins/qmd-memory', '--yes']);
 });
 
 test('parses /plugin reinstall into gateway args', async () => {
@@ -414,17 +586,38 @@ test('parses /plugin reinstall into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
+      getString: (name) =>
+        name === 'source'
+          ? './plugins/qmd-memory'
+          : name === 'yes'
+            ? '--yes'
+            : null,
       getSubcommand: () => 'reinstall',
     }),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'plugin',
       'reinstall',
       './plugins/qmd-memory',
+      '--yes',
     ]),
-  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
+  ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory', '--yes']);
+});
+
+test('parses /plugin check into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'plugin-id' ? 'mempalace-memory' : null),
+      getSubcommand: () => 'check',
+    }),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'check', 'mempalace-memory']),
+  ).toEqual(['plugin', 'check', 'mempalace-memory']);
 });
 
 test('parses /plugin uninstall into gateway args', async () => {
@@ -459,4 +652,51 @@ test('recognizes loaded plugin commands without hardcoding them in the registry'
     'qmd',
     'status',
   ]);
+});
+
+test('builds local session help entries from the registry with surface filtering', async () => {
+  const { buildLocalSessionSlashHelpEntries } = await importCommandRegistry();
+
+  const tuiHelp = buildLocalSessionSlashHelpEntries('tui');
+  const webHelp = buildLocalSessionSlashHelpEntries('web');
+  const compareCommands = (left: string, right: string) =>
+    left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+  expect(tuiHelp).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        command: '/auth status <provider>',
+      }),
+      expect.objectContaining({
+        command: '/config [check|reload|set <key> <value>]',
+      }),
+      expect.objectContaining({
+        command: '/paste',
+      }),
+      expect.objectContaining({
+        command: '/exit',
+      }),
+    ]),
+  );
+  expect(webHelp).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        command: '/auth status <provider>',
+      }),
+      expect.objectContaining({
+        command: '/config [check|reload|set <key> <value>]',
+      }),
+    ]),
+  );
+  expect(webHelp.some((entry) => entry.command === '/paste')).toBe(false);
+  expect(webHelp.some((entry) => entry.command === '/exit')).toBe(false);
+  expect(tuiHelp.map((entry) => entry.command)).toEqual(
+    [...tuiHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
+  expect(webHelp.map((entry) => entry.command)).toEqual(
+    [...webHelp.map((entry) => entry.command)].sort(compareCommands),
+  );
 });

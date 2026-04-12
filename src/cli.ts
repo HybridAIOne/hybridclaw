@@ -12,10 +12,12 @@ import {
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
   printDoctorUsage,
+  printEvalUsage,
   printGatewayUsage,
   printHelpTopic,
   printHelpUsage,
   printMainUsage,
+  printMigrationUsage,
   printOnboardingUsage,
   printTuiUsage,
 } from './cli/help.js';
@@ -390,6 +392,22 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
   }
 }
 
+async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
+  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+
+  try {
+    const status = await gatewayStatus();
+    const runtimeSandboxMode = status.sandbox?.mode;
+    if (runtimeSandboxMode === 'host') {
+      return runtimeSandboxMode;
+    }
+  } catch {
+    // Fall back to the local runtime config when the gateway is not reachable.
+  }
+
+  return null;
+}
+
 function formatInstructionDiffLine(file: {
   path: string;
   status: 'ok' | 'modified' | 'missing' | 'source_missing';
@@ -603,8 +621,15 @@ async function launchTui(argv: string[]): Promise<void> {
     resumeSessionId: parsed.resumeSessionId,
     resumeCommand: 'hybridclaw tui --resume',
   });
-  await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
-  await ensureRuntimeContainer('hybridclaw tui', true);
+  await ensureRuntimeCredentials({
+    commandName: 'hybridclaw tui',
+    requireCredentials: false,
+  });
+  await ensureRuntimeContainer(
+    'hybridclaw tui',
+    true,
+    await resolveTuiPreflightSandboxMode(),
+  );
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');
   const { runTui } = await import('./tui.js');
@@ -667,7 +692,10 @@ async function runGatewayForeground(
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
-  await ensureRuntimeCredentials({ commandName });
+  await ensureRuntimeCredentials({
+    commandName,
+    requireCredentials: false,
+  });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
@@ -754,15 +782,17 @@ async function startGatewayBackend(
   }
 
   const { ensureRuntimeCredentials } = await ensureOnboardingApi();
-  await ensureRuntimeCredentials({ commandName });
+  await ensureRuntimeCredentials({
+    commandName,
+    requireCredentials: false,
+  });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);
   }
 
   ensureGatewayRunDir();
-  const out = fs.openSync(GATEWAY_LOG_PATH, 'a');
-  const err = fs.openSync(GATEWAY_LOG_PATH, 'a');
+  const logFd = fs.openSync(GATEWAY_LOG_PATH, 'a');
   const cliEntry = process.argv[1];
   const childArgs = [
     cliEntry,
@@ -773,15 +803,16 @@ async function startGatewayBackend(
     ...(logRequests ? ['--log-requests'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
-  const child = spawn(process.execPath, childArgs, {
+  const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
     detached: true,
-    stdio: ['ignore', out, err],
+    stdio: ['ignore', logFd, logFd],
     cwd: process.cwd(),
     env: {
       ...process.env,
       [GATEWAY_STDIO_TO_LOG_ENV]: '1',
     },
   });
+  fs.closeSync(logFd);
   child.unref();
 
   if (!child.pid) {
@@ -941,6 +972,12 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
+      if ((status.sandbox?.activeSessionIds?.length || 0) > 0) {
+        console.log('Active sandbox sessions:');
+        for (const sessionId of status.sandbox?.activeSessionIds || []) {
+          console.log(`  - ${sessionId}`);
+        }
+      }
     } catch (err) {
       console.log(
         `Gateway status fetch failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1059,7 +1096,45 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'eval') {
+    console.error('Use top-level eval commands: `hybridclaw eval ...`');
+    process.exitCode = 1;
+    return;
+  }
+
   await runGatewayApiCommand(normalized);
+}
+
+async function handleEvalCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printEvalUsage();
+    return;
+  }
+
+  const { initDatabase, isDatabaseInitialized } = await import(
+    './memory/db.js'
+  );
+  const { initAgentRegistry } = await import('./agents/agent-registry.js');
+  const { handleGatewayCommand, renderGatewayCommand } = await import(
+    './gateway/gateway-service.js'
+  );
+
+  if (!isDatabaseInitialized()) {
+    initDatabase({ quiet: true });
+  }
+  initAgentRegistry(getRuntimeConfig().agents);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'cli:eval',
+    guildId: null,
+    channelId: 'cli',
+    args: ['eval', ...normalized],
+  });
+
+  const rendered = renderGatewayCommand(result).trim();
+  if (rendered) console.log(rendered);
+  if (result.kind === 'error') process.exitCode = 1;
 }
 
 async function handleConfigCommand(args: string[]): Promise<void> {
@@ -1338,6 +1413,30 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   await cliPlugin.handlePluginCommand(args);
 }
 
+async function handleAgentMigrationCommand(
+  sourceKind: 'openclaw' | 'hermes',
+  args: string[],
+): Promise<void> {
+  const cliMigration = await import('./cli/agent-migration-command.js');
+  await cliMigration.handleAgentMigrationCommand(sourceKind, args);
+}
+
+async function handleMigrateCommand(args: string[]): Promise<void> {
+  const cliMigration = await import('./cli/agent-migration-command.js');
+  const subcommand = (args[0] || '').trim().toLowerCase();
+  if (!subcommand || isHelpRequest(args)) {
+    printMigrationUsage();
+    return;
+  }
+  if (subcommand === 'openclaw' || subcommand === 'hermes') {
+    await cliMigration.handleAgentMigrationCommand(subcommand, args.slice(1));
+    return;
+  }
+  throw new Error(
+    `Unknown migration source: ${subcommand}. Use \`hybridclaw migrate openclaw\` or \`hybridclaw migrate hermes\`.`,
+  );
+}
+
 async function handleAgentPackageCommand(args: string[]): Promise<void> {
   const cliAgent = await import('./cli/agent-command.js');
   await cliAgent.handleAgentPackageCommand(args);
@@ -1383,6 +1482,40 @@ export async function main(
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
+    case '__gateway-restart-helper': {
+      const payload = String(subargs[0] || '').trim();
+      if (!payload) {
+        throw new Error('Missing gateway restart helper payload.');
+      }
+      const { runGatewayRestartHelperFromArg } = await import(
+        './gateway/gateway-restart.js'
+      );
+      await runGatewayRestartHelperFromArg(payload);
+      break;
+    }
+    case 'eval':
+      await handleEvalCommand(subargs);
+      break;
+    case '__eval-terminal-bench-native': {
+      const { initDatabase, isDatabaseInitialized } = await import(
+        './memory/db.js'
+      );
+      const { initAgentRegistry } = await import('./agents/agent-registry.js');
+      const { runTerminalBenchNativeCli } = await import(
+        './evals/terminal-bench-native.js'
+      );
+      if (!isDatabaseInitialized()) {
+        initDatabase({ quiet: true });
+      }
+      initAgentRegistry(getRuntimeConfig().agents);
+      await runTerminalBenchNativeCli(subargs);
+      break;
+    }
+    case '__eval-locomo-native': {
+      const { runLocomoNativeCli } = await import('./evals/locomo-native.js');
+      await runLocomoNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;
@@ -1404,6 +1537,15 @@ export async function main(
       break;
     case 'browser':
       await handleBrowserCommand(subargs);
+      break;
+    case 'migrate':
+      await handleMigrateCommand(subargs);
+      break;
+    case 'openclaw':
+      await handleAgentMigrationCommand('openclaw', subargs);
+      break;
+    case 'hermes':
+      await handleAgentMigrationCommand('hermes', subargs);
       break;
     case 'plugin':
       await handlePluginCommand(subargs);
@@ -1503,16 +1645,23 @@ function isWhatsAppAuthLockError(err: unknown): err is Error {
 }
 
 function printMissingEnvVarError(message: string, envVar?: string): void {
-  const envVarHint: Record<string, string> = {
-    HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
-    OPENROUTER_API_KEY: `Set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`openrouter.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
-    MISTRAL_API_KEY: `Set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`mistral.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
-    HF_TOKEN: `Set HF_TOKEN in ${runtimeSecretsPath()} or your shell, ensure \`huggingface.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
+  const envVarMessage: Record<string, string> = {
+    HYBRIDAI_API_KEY: 'HybridAI provider is not configured.',
+    OPENROUTER_API_KEY: 'OpenRouter provider is not configured.',
+    MISTRAL_API_KEY: 'Mistral provider is not configured.',
+    HF_TOKEN: 'Hugging Face provider is not configured.',
   };
+  const envVarHint: Record<string, string> = {
+    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+  };
+  const renderedMessage = envVar ? envVarMessage[envVar] || message : message;
   const hint = envVar
     ? envVarHint[envVar]
     : 'Set this variable and rerun the command.';
-  console.error(`hybridclaw error: ${message}`);
+  console.error(`hybridclaw error: ${renderedMessage}`);
   console.error(`Hint: ${hint}`);
   console.error(
     `HybridClaw stores runtime secrets in ${runtimeSecretsPath()}. If .env exists in the current working directory, supported secrets are migrated there automatically.`,

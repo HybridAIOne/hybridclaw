@@ -11,15 +11,20 @@ sidebar_position: 3
 HybridClaw onboarding walks through:
 
 1. accepting `TRUST_MODEL.md`
-2. choosing whether to create a new account
+2. choosing HybridAI auth or a local-only setup
 3. opening HybridAI registration/login in the browser when needed
-4. saving the API key and default bot configuration
+4. pasting the API key back into the CLI or skipping remote auth for a local backend
+5. saving the default bot/model plus encrypted runtime secrets
 
 Run it explicitly with:
 
 ```bash
 hybridclaw onboarding
 ```
+
+If you plan to run only on Ollama, LM Studio, llama.cpp, or vLLM, onboarding
+can skip the remote-provider steps and you can configure the backend later with
+`hybridclaw auth login local <backend> [model-id] ...`.
 
 ## Start The Gateway
 
@@ -56,6 +61,8 @@ With the gateway running locally:
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
+For access from another machine, keep the gateway on loopback and follow
+[Remote Access](../guides/remote-access.md).
 
 ## Ground A Prompt With Files Or Repo Context
 
@@ -79,5 +86,10 @@ The gateway auto-connects configured channels:
 - Microsoft Teams when `msteams.enabled` is true and
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set
-- Email when `email.enabled` is true and `EMAIL_PASSWORD` is saved
+- Telegram when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
+- Email when `email.enabled` is true and an email password is configured,
+  typically through the stored `EMAIL_PASSWORD` secret
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
+
+For the setup commands and step-by-step flows, see
+[Channel Setup](./channels.md).

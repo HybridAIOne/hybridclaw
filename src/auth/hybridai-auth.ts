@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
 import readline from 'node:readline/promises';
 
 import {
@@ -9,6 +8,7 @@ import {
   refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -42,8 +42,12 @@ const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
 function readCurrentApiKey(): string {
-  refreshRuntimeSecretsFromEnv();
-  return (process.env.HYBRIDAI_API_KEY || HYBRIDAI_API_KEY || '').trim();
+  return (
+    process.env.HYBRIDAI_API_KEY ||
+    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
+    HYBRIDAI_API_KEY ||
+    ''
+  ).trim();
 }
 
 function maskToken(value: string): string {
@@ -203,20 +207,6 @@ async function promptYesNo(
   return defaultYes;
 }
 
-async function promptRequired(
-  rl: readline.Interface,
-  question: string,
-  secret = false,
-): Promise<string> {
-  while (true) {
-    const value = secret
-      ? await promptForSecretInput({ prompt: question, rl })
-      : (await rl.question(question)).trim();
-    if (value) return value;
-    console.log('Please enter a value.');
-  }
-}
-
 function requireInteractiveTerminal(): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('HybridAI login requires an interactive terminal.');
@@ -225,7 +215,6 @@ function requireInteractiveTerminal(): void {
 
 function saveApiKey(apiKey: string): string {
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
-  process.env.HYBRIDAI_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
@@ -241,10 +230,12 @@ async function loginWithApiKeyPrompt(options: {
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
   );
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
 
   try {
     if (method === 'browser') {
@@ -266,12 +257,17 @@ async function loginWithApiKeyPrompt(options: {
     let apiKey = '';
     let validated = false;
     while (true) {
-      const entered = await promptRequired(
-        rl,
-        'Paste HybridAI API key or URL containing it: ',
-        true,
-      );
+      rl.close();
+      const entered = await promptForSecretInput({
+        prompt: 'Paste HybridAI API key or URL containing it: ',
+        missingMessage: 'HybridAI login requires an interactive terminal.',
+      });
+      rl = createPromptInterface();
       apiKey = extractApiKeyFromInput(entered) || entered.trim();
+      if (!apiKey) {
+        console.log('Please enter a value.');
+        continue;
+      }
 
       const validation = await validateApiKey(baseUrl, apiKey);
       if (validation.ok) {
@@ -306,7 +302,6 @@ async function loginWithApiKeyPrompt(options: {
 
 export function clearHybridAICredentials(): string {
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: null });
-  delete process.env.HYBRIDAI_API_KEY;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
@@ -368,6 +363,8 @@ export async function loginHybridAIInteractive(options?: {
 
 export function getHybridAIAuthStatus(): HybridAIAuthStatus {
   const path = runtimeSecretsPath();
+  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
   const apiKey = readCurrentApiKey();
   if (!apiKey) {
     return {
@@ -382,6 +379,12 @@ export function getHybridAIAuthStatus(): HybridAIAuthStatus {
     authenticated: true,
     path,
     maskedApiKey: maskToken(apiKey),
-    source: fs.existsSync(path) ? 'runtime-secrets' : 'env',
+    source: envApiKey
+      ? storedApiKey && storedApiKey === envApiKey
+        ? 'runtime-secrets'
+        : 'env'
+      : storedApiKey
+        ? 'runtime-secrets'
+        : null,
   };
 }

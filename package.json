@@ -1,8 +1,16 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.9.8",
+  "version": "0.12.3",
   "type": "module",
-  "description": "Personal AI assistant bot for Discord, powered by HybridAI",
+  "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HybridAIOne/hybridclaw"
+  },
+  "homepage": "https://github.com/HybridAIOne/hybridclaw",
+  "bugs": {
+    "url": "https://github.com/HybridAIOne/hybridclaw/issues"
+  },
   "workspaces": [
     "console",
     "container"
@@ -52,7 +60,7 @@
     "check": "biome check src",
     "format": "biome check --write src",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts",
+    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts && npm --workspace console run test",
     "test:watch": "vitest --configLoader runner --config vitest.unit.config.ts",
     "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
@@ -71,6 +79,8 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
+    "@slack/bolt": "4.7.0",
+    "@huggingface/transformers": "3.8.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "ajv": "8.18.0",
     "better-sqlite3": "12.8.0",
@@ -92,6 +102,7 @@
     "pptxgenjs": "4.0.1",
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.1",
+    "stemmer": "2.0.1",
     "ws": "8.20.0",
     "xlsx-populate": "1.21.0",
     "yaml": "2.8.3",
@@ -108,6 +119,7 @@
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.0",
     "@vitest/coverage-v8": "4.0.18",
+    "html-to-text": "9.0.5",
     "husky": "9.1.7",
     "tsx": "4.21.0",
     "typescript": "5.9.3",

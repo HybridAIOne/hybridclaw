@@ -29,7 +29,6 @@ import {
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
@@ -48,6 +47,7 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
@@ -81,6 +81,16 @@ import {
 import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
+
+function resolveExecutorMaxTokens(params: {
+  model: string;
+  discoveredMaxTokens?: number;
+}): number | undefined {
+  return resolveProviderRequestMaxTokens({
+    model: params.model,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+  });
+}
 
 interface PoolEntry {
   process: ChildProcess;
@@ -276,12 +286,13 @@ function parseApprovalProgress(line: string): PendingApproval | null {
       return null;
     }
     return {
-      approvalId: redactSecrets(parsed.approvalId),
+      approvalId: parsed.approvalId,
       prompt: redactSecrets(parsed.prompt),
       intent: redactSecrets(parsed.intent),
       reason: redactSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
+      allowAll: parsed.allowAll === true,
       expiresAt:
         typeof parsed.expiresAt === 'number' &&
         Number.isFinite(parsed.expiresAt)
@@ -420,10 +431,32 @@ function remapHostBaseUrlForContainer(baseUrl: string): string {
   );
 }
 
+function getContainerWorkspacePath(params: {
+  sessionId: string;
+  agentId: string;
+  workspacePathOverride?: string;
+}): string {
+  const trimmed = params.workspacePathOverride?.trim();
+  if (trimmed) return path.resolve(trimmed);
+  const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
+  return workspacePath;
+}
+
 /**
  * Get or spawn a persistent container for a session.
  */
-function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
+function getOrSpawnContainer(
+  params: Pick<
+    ExecutorRequest,
+    | 'sessionId'
+    | 'agentId'
+    | 'workspacePathOverride'
+    | 'workspaceDisplayRootOverride'
+    | 'bashProxy'
+  >,
+): PoolEntry {
+  const sessionId = params.sessionId;
+  const agentId = params.agentId || DEFAULT_AGENT_ID;
   const existing = pool.get(sessionId);
   if (
     existing &&
@@ -444,7 +477,12 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
 
   ensureSessionDirs(sessionId);
   ensureAgentDirs(agentId);
-  const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
+  const { ipcPath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getContainerWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
@@ -492,6 +530,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-e',
     `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
+    '-e',
+    `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
+    '-e',
+    `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -678,6 +720,7 @@ export async function runContainer(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
+    skipContainerSystemPrompt,
     scheduledTasks,
     allowedTools,
     blockedTools,
@@ -688,8 +731,14 @@ export async function runContainer(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    maxWallClockMs,
+    inactivityTimeoutMs,
   } = params;
-  const { workspacePath } = getSessionPaths(sessionId, agentId);
+  const workspacePath = getContainerWorkspacePath({
+    sessionId,
+    agentId,
+    workspacePathOverride: params.workspacePathOverride,
+  });
   const modelRuntime = await resolveModelRuntimeCredentials({
     model,
     chatbotId,
@@ -735,12 +784,18 @@ export async function runContainer(
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
-    maxTokens: HYBRIDAI_MAX_TOKENS,
+    skipContainerSystemPrompt,
+    streamTextDeltas: Boolean(onTextDelta),
+    maxTokens: resolveExecutorMaxTokens({
+      model,
+      discoveredMaxTokens: modelRuntime.maxTokens,
+    }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
+        channelId: task.channel_id,
         cronExpr: task.cron_expr,
         runAt: task.run_at,
         everyMs: task.every_ms,
@@ -780,6 +835,9 @@ export async function runContainer(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    workspacePathOverride: params.workspacePathOverride,
+    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+    bashProxy: params.bashProxy,
   });
 
   const existingEntry = pool.get(sessionId);
@@ -804,7 +862,13 @@ export async function runContainer(
 
   let entry: PoolEntry;
   try {
-    entry = getOrSpawnContainer(sessionId, agentId);
+    entry = getOrSpawnContainer({
+      sessionId,
+      agentId,
+      workspacePathOverride: params.workspacePathOverride,
+      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+      bashProxy: params.bashProxy,
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -843,11 +907,18 @@ export async function runContainer(
     }
 
     // Wait for the container to produce output
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
-      signal: abortSignal,
-      activity,
-      terminalError: () => entry.terminalError,
-    });
+    const output = await readOutput(
+      sessionId,
+      inactivityTimeoutMs === undefined
+        ? CONTAINER_TIMEOUT
+        : inactivityTimeoutMs,
+      {
+        signal: abortSignal,
+        activity,
+        maxWallClockMs,
+        terminalError: () => entry.terminalError,
+      },
+    );
     if (isTimedOutAgentOutput(output)) {
       logger.warn(
         { sessionId, containerName: entry.containerName },

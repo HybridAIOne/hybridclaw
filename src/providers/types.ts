@@ -1,24 +1,7 @@
 import type { LocalThinkingFormat } from './local-types.js';
+import type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
 
-export type AIProviderId =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'anthropic'
-  | 'ollama'
-  | 'lmstudio'
-  | 'vllm';
-export type RuntimeProviderId =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'vllm';
+export type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
 
 export interface ResolvedModelRuntimeCredentials {
   provider: RuntimeProviderId;
@@ -31,6 +14,7 @@ export interface ResolvedModelRuntimeCredentials {
   accountId?: string;
   isLocal?: boolean;
   contextWindow?: number;
+  maxTokens?: number;
   thinkingFormat?: LocalThinkingFormat;
 }
 

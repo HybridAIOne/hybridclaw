@@ -31,6 +31,162 @@ function createTempDir(): string {
   return dir;
 }
 
+async function importFreshAgentMigrationCommand(options?: {
+  sourceRoot?: string | null;
+  promptResponses?: string[];
+  result?: {
+    sourceKind: 'openclaw' | 'hermes';
+    sourceRoot: string;
+    targetAgentId: string;
+    targetRoot: string;
+    execute: boolean;
+    overwrite: boolean;
+    migrateSecrets: boolean;
+    outputDir: string | null;
+    summary: {
+      total: number;
+      migrated: number;
+      skipped: number;
+      conflict: number;
+      error: number;
+      archived: number;
+    };
+    items: Array<{
+      kind: string;
+      source: string | null;
+      destination: string | null;
+      status: 'migrated' | 'skipped' | 'conflict' | 'error' | 'archived';
+      reason: string;
+      details?: Record<string, unknown>;
+    }>;
+  };
+}) {
+  vi.resetModules();
+  vi.doUnmock('../src/cli/agent-migration-command.js');
+  Object.defineProperty(process.stdin, 'isTTY', {
+    configurable: true,
+    value: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: true,
+  });
+  const promptResponses = [...(options?.promptResponses || [])];
+  const readlineQuestion = vi.fn(async () => promptResponses.shift() ?? '');
+  const readlineClose = vi.fn();
+  const readlineCreateInterface = vi.fn(() => ({
+    question: readlineQuestion,
+    close: readlineClose,
+  }));
+  const migrateAgentHome = vi.fn(
+    async () =>
+      options?.result || {
+        sourceKind: 'hermes' as const,
+        sourceRoot: '/tmp/.hermes',
+        targetAgentId: 'main',
+        targetRoot: '/tmp/.hybridclaw',
+        execute: false,
+        overwrite: false,
+        migrateSecrets: false,
+        outputDir: null,
+        summary: {
+          total: 4,
+          migrated: 1,
+          skipped: 1,
+          conflict: 1,
+          error: 0,
+          archived: 1,
+        },
+        items: [
+          {
+            kind: 'workspace-file',
+            source: '/tmp/.hermes/SOUL.md',
+            destination: '/tmp/.hybridclaw/data/agents/main/workspace/SOUL.md',
+            status: 'migrated' as const,
+            reason: '',
+          },
+          {
+            kind: 'config:providers',
+            source: '/tmp/.hermes/config.yaml',
+            destination: '/tmp/.hybridclaw/config.json',
+            status: 'skipped' as const,
+            reason: 'No new compatible providers found',
+          },
+          {
+            kind: 'config:model',
+            source: '/tmp/.hermes/config.yaml',
+            destination: '/tmp/.hybridclaw/config.json',
+            status: 'conflict' as const,
+            reason: 'HybridClaw default model already set',
+            details: {
+              currentModel: 'hybridai/gpt-4.1-mini',
+              incomingModel: 'openrouter/anthropic/claude-sonnet-4',
+              keyMappings: {
+                model: {
+                  source: 'model',
+                  target: 'hybridai.defaultModel',
+                },
+              },
+            },
+          },
+          {
+            kind: 'archive',
+            source: '/tmp/.hermes/config.yaml',
+            destination:
+              '/tmp/.hybridclaw/migration/hermes/demo/archive/config.yaml',
+            status: 'archived' as const,
+            reason: 'Copied for manual review',
+          },
+        ],
+      },
+  );
+  const detectAgentMigrationSourceRoot = vi.fn(
+    () => options?.sourceRoot ?? '/tmp/.hermes',
+  );
+  vi.doMock('../src/migration/agent-home-migration.js', () => ({
+    migrateAgentHome,
+    detectAgentMigrationSourceRoot,
+  }));
+  vi.doMock('../src/config/runtime-config.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/config/runtime-config.js')>();
+    return {
+      ...actual,
+      runtimeConfigPath: vi.fn(() => '/tmp/.hybridclaw/config.json'),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('../src/security/runtime-secrets.js')
+      >();
+    return {
+      ...actual,
+      runtimeSecretsPath: vi.fn(() => '/tmp/.hybridclaw/credentials.json'),
+    };
+  });
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: readlineCreateInterface,
+    },
+  }));
+  vi.doMock('../src/cli/help.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/cli/help.js')>();
+    return {
+      ...actual,
+      isHelpRequest: vi.fn(() => false),
+    };
+  });
+
+  const module = await import('../src/cli/agent-migration-command.ts');
+  return {
+    ...module,
+    migrateAgentHome,
+    detectAgentMigrationSourceRoot,
+    readlineQuestion,
+  };
+}
+
 async function importFreshCli(options?: {
   hybridAIStatus?: {
     authenticated: boolean;
@@ -64,6 +220,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
   configModuleError?: Error | null;
@@ -85,8 +242,31 @@ async function importFreshCli(options?: {
     source: string;
     alreadyInstalled: boolean;
     dependenciesInstalled: boolean;
+    dependencySummary: {
+      usedPackageJson: boolean;
+      installedNodePackages: string[];
+      installedPipPackages: string[];
+    };
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      installHint?: string;
+      installUrl?: string;
+    }>;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginReinstallError?: Error | null;
   pluginReinstallResult?: {
@@ -96,8 +276,62 @@ async function importFreshCli(options?: {
     alreadyInstalled: boolean;
     replacedExistingInstall: boolean;
     dependenciesInstalled: boolean;
+    dependencySummary: {
+      usedPackageJson: boolean;
+      installedNodePackages: string[];
+      installedPipPackages: string[];
+    };
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      installHint?: string;
+      installUrl?: string;
+    }>;
     requiresEnv: string[];
     requiredConfigKeys: string[];
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
+  };
+  pluginCheckError?: Error | null;
+  pluginCheckResult?: {
+    pluginId: string;
+    pluginDir: string;
+    source: 'home' | 'project' | 'config';
+    requiresEnv: string[];
+    missingEnv: string[];
+    requiredConfigKeys: string[];
+    packageJsonDependencies: Array<{ package: string; installed: boolean }>;
+    nodeDependencies: Array<{ package: string; installed: boolean }>;
+    pipDependencies: Array<{ package: string; installed: boolean }>;
+    externalDependencies: Array<{
+      name: string;
+      installed: boolean;
+      check: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
+    configuredRequiredBins: Array<{
+      name: string;
+      command: string;
+      configKey: string;
+    }>;
+    missingRequiredBins?: Array<{
+      name: string;
+      command: string;
+      configKey?: string;
+      installHint?: string;
+      installUrl?: string;
+    }>;
   };
   pluginUninstallError?: Error | null;
   pluginUninstallResult?: {
@@ -183,8 +417,18 @@ async function importFreshCli(options?: {
     name: string;
     model?: string | { primary: string };
   }>;
+  agentMigrationError?: Error | null;
+  agentMigrationCalls?: Array<{
+    sourceKind: 'openclaw' | 'hermes';
+    args: string[];
+  }>;
   promptResponses?: string[];
   whatsAppConnectionModuleError?: Error | null;
+  evalCommandResult?: {
+    kind: 'plain' | 'info' | 'error';
+    title?: string;
+    text: string;
+  };
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
@@ -254,7 +498,27 @@ async function importFreshCli(options?: {
   const printUpdateUsage = vi.fn();
   const runUpdateCommand = vi.fn();
   const runDoctorCli = vi.fn(async () => 0);
+  const handleEvalGatewayCommand = vi.fn(
+    async () =>
+      options?.evalCommandResult || {
+        kind: 'info' as const,
+        title: 'Eval',
+        text: 'eval help',
+      },
+  );
+  const renderEvalGatewayCommand = vi.fn(
+    (result: { text: string }) => result.text,
+  );
   const ensureRuntimeCredentials = vi.fn();
+  const handleAgentMigrationCommand = vi.fn(
+    async (
+      sourceKind: 'openclaw' | 'hermes',
+      args: string[],
+    ): Promise<void> => {
+      options?.agentMigrationCalls?.push({ sourceKind, args });
+      if (options?.agentMigrationError) throw options.agentMigrationError;
+    },
+  );
   const ensureContainerImageReady = vi.fn(async () => {
     if (options?.ensureContainerImageReadyError) {
       throw options.ensureContainerImageReadyError;
@@ -270,6 +534,8 @@ async function importFreshCli(options?: {
     };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const readStoredRuntimeSecret = vi.fn(() => null);
+  const readStoredRuntimeSecrets = vi.fn(() => ({}));
   const loadSkillCatalog = vi.fn(() => [
     { name: 'pdf' },
     { name: 'docx' },
@@ -302,6 +568,13 @@ async function importFreshCli(options?: {
         source,
         alreadyInstalled: false,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: [],
         requiredConfigKeys: [],
       }
@@ -319,11 +592,54 @@ async function importFreshCli(options?: {
         alreadyInstalled: false,
         replacedExistingInstall: true,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: [],
         requiredConfigKeys: [],
       }
     );
   });
+  const checkPlugin = vi.fn(async (pluginId: string) => {
+    if (options?.pluginCheckError) {
+      throw options.pluginCheckError;
+    }
+    return (
+      options?.pluginCheckResult || {
+        pluginId,
+        pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+        source: 'home' as const,
+        requiresEnv: [],
+        missingEnv: [],
+        requiredConfigKeys: [],
+        packageJsonDependencies: [],
+        nodeDependencies: [],
+        pipDependencies: [],
+        externalDependencies: [],
+        configuredRequiredBins: [],
+      }
+    );
+  });
+  class PluginDependencyApprovalRequiredError extends Error {
+    readonly plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    };
+
+    constructor(plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    }) {
+      super('Plugin dependency installation requires explicit approval.');
+      this.plan = plan;
+    }
+  }
   const uninstallPlugin = vi.fn(async (pluginId: string) => {
     if (options?.pluginUninstallError) {
       throw options.pluginUninstallError;
@@ -648,6 +964,31 @@ async function importFreshCli(options?: {
     persistRuntimeConfigState();
     return structuredClone(runtimeConfigState);
   });
+  const setRuntimeConfigSecretInput = vi.fn(
+    (secretPath: string, value: unknown, _meta?: Record<string, unknown>) => {
+      const draft = getRuntimeConfig() as Record<string, unknown>;
+      if (secretPath === 'email.password') {
+        const email = (draft.email as Record<string, unknown>) || {};
+        draft.email = email;
+        email.password = value;
+      } else if (secretPath === 'imessage.password') {
+        const imessage = (draft.imessage as Record<string, unknown>) || {};
+        draft.imessage = imessage;
+        imessage.password = value;
+      } else if (secretPath === 'local.backends.vllm.apiKey') {
+        const local = (draft.local as Record<string, unknown>) || {};
+        draft.local = local;
+        const backends = (local.backends as Record<string, unknown>) || {};
+        local.backends = backends;
+        const vllm = (backends.vllm as Record<string, unknown>) || {};
+        backends.vllm = vllm;
+        vllm.apiKey = value;
+      }
+      runtimeConfigState = draft as typeof runtimeConfigState;
+      persistRuntimeConfigState();
+      return structuredClone(runtimeConfigState);
+    },
+  );
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -669,6 +1010,24 @@ async function importFreshCli(options?: {
       activeContainers: 0,
       defaultModel: 'gpt-4.1-mini',
       ragDefault: true,
+      sandbox: options?.gatewayStatusSandboxMode
+        ? {
+            mode: options.gatewayStatusSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
       timestamp: new Date().toISOString(),
     };
   });
@@ -761,6 +1120,7 @@ async function importFreshCli(options?: {
     getRuntimeConfigRevision,
     deleteRuntimeConfigRevision,
     clearRuntimeConfigRevisions,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
@@ -812,6 +1172,9 @@ async function importFreshCli(options?: {
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
+  vi.doMock('../src/cli/agent-migration-command.js', () => ({
+    handleAgentMigrationCommand,
+  }));
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
   }));
@@ -835,6 +1198,8 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     loadRuntimeSecrets: vi.fn(),
+    readStoredRuntimeSecret,
+    readStoredRuntimeSecrets,
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -863,12 +1228,16 @@ async function importFreshCli(options?: {
     uninstallAgent,
   }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
   }));
@@ -890,6 +1259,10 @@ async function importFreshCli(options?: {
   vi.doMock('../src/doctor.ts', () => ({
     runDoctorCli,
   }));
+  vi.doMock('../src/gateway/gateway-service.js', () => ({
+    handleGatewayCommand: handleEvalGatewayCommand,
+    renderGatewayCommand: renderEvalGatewayCommand,
+  }));
 
   const cli = await import('../src/cli.ts');
   return {
@@ -903,13 +1276,18 @@ async function importFreshCli(options?: {
     printUpdateUsage,
     runUpdateCommand,
     runDoctorCli,
+    handleEvalGatewayCommand,
+    renderEvalGatewayCommand,
     ensureRuntimeCredentials,
+    handleAgentMigrationCommand,
     ensureContainerImageReady,
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
+    checkPlugin,
     installPlugin,
+    PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
     importSkill,
@@ -923,6 +1301,8 @@ async function importFreshCli(options?: {
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
+    readStoredRuntimeSecret,
+    readStoredRuntimeSecrets,
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
     clearRuntimeConfigRevisions,
@@ -934,6 +1314,7 @@ async function importFreshCli(options?: {
     restoreRuntimeConfigRevision,
     runtimeConfigPath,
     runtimeConfigRevisionPath,
+    setRuntimeConfigSecretInput,
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
@@ -1073,6 +1454,27 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('routes top-level eval through the local eval command path', async () => {
+    const { cli, handleEvalGatewayCommand } = await importFreshCli({
+      evalCommandResult: {
+        kind: 'info',
+        title: 'Eval',
+        text: 'gaia recipe',
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['eval', 'gaia']);
+
+    expect(handleEvalGatewayCommand).toHaveBeenCalledWith({
+      sessionId: 'cli:eval',
+      guildId: null,
+      channelId: 'cli',
+      args: ['eval', 'gaia'],
+    });
+    expect(logSpy).toHaveBeenCalledWith('gaia recipe');
+  });
+
   it('hides deprecated aliases from the top-level help output', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -1106,6 +1508,1117 @@ describe('CLI hybridai commands', () => {
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw auth login',
     });
+  });
+
+  it('routes `migrate openclaw` through the agent migration handler', async () => {
+    const { cli, handleAgentMigrationCommand } = await importFreshCli();
+
+    await cli.main(['migrate', 'openclaw', '--dry-run', '--force']);
+
+    expect(handleAgentMigrationCommand).toHaveBeenCalledWith('openclaw', [
+      '--dry-run',
+      '--force',
+    ]);
+  });
+
+  it('routes `migrate hermes` through the agent migration handler', async () => {
+    const { cli, handleAgentMigrationCommand } = await importFreshCli();
+
+    await cli.main(['migrate', 'hermes', '--migrate-secrets', '--force']);
+
+    expect(handleAgentMigrationCommand).toHaveBeenCalledWith('hermes', [
+      '--migrate-secrets',
+      '--force',
+    ]);
+  });
+
+  it('routes `migrate openclaw --force` through the agent migration handler', async () => {
+    const { cli, handleAgentMigrationCommand } = await importFreshCli();
+
+    await cli.main(['migrate', 'openclaw', '--dry-run', '--force']);
+
+    expect(handleAgentMigrationCommand).toHaveBeenCalledWith('openclaw', [
+      '--dry-run',
+      '--force',
+    ]);
+  });
+
+  it('prints the runtime secrets path in migration help', async () => {
+    const { printAgentMigrationUsage } =
+      await importFreshAgentMigrationCommand();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    printAgentMigrationUsage('openclaw');
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).toContain(
+      '--migrate-secrets     Import compatible secrets into /tmp/.hybridclaw/credentials.json',
+    );
+  });
+
+  it('prints emoji-grouped migration details after the summary', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome } =
+      await importFreshAgentMigrationCommand();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleAgentMigrationCommand('hermes', ['--dry-run', '--force']);
+
+    expect(migrateAgentHome).toHaveBeenCalledWith({
+      sourceKind: 'hermes',
+      sourceRoot: '/tmp/.hermes',
+      agentId: undefined,
+      execute: false,
+      overwrite: true,
+      migrateSecrets: false,
+    });
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).toContain(
+      'Hermes Agent migration summary for agent main: migrated=1',
+    );
+    expect(output).toContain('✅ Migrated (1)');
+    expect(output).toContain('/tmp/.hermes/SOUL.md');
+    expect(output).toContain('⏭️ Skipped (1)');
+    expect(output).toContain('⚠️ Conflicts (1)');
+    expect(output).toContain(
+      'config:model: hybridai.defaultModel: hybridai/gpt-4.1-mini -> openrouter/anthropic/claude-sonnet-4',
+    );
+    expect(output).toContain('📦 Archived (1)');
+  });
+
+  it('prints mapped config changes in the migration summary details', async () => {
+    const { handleAgentMigrationCommand } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'writer',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 4,
+            migrated: 4,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  webApiToken: '[unset]',
+                },
+                incoming: {
+                  webApiToken: '[set]',
+                },
+                keyMappings: {
+                  webApiToken: {
+                    source: 'gateway.auth.webApiToken',
+                    target: 'ops.webApiToken',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'config:web-search',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  provider: 'auto',
+                },
+                incoming: {
+                  provider: 'duckduckgo',
+                },
+                keyMappings: {
+                  provider: {
+                    source: 'tools.web.search.provider',
+                    target: 'web.search.provider',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'config:session-routing',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  identityLinks: { old: 'main' },
+                },
+                incoming: {
+                  identityLinks: { old: 'main', new_user: 'writer' },
+                },
+                keyMappings: {
+                  identityLinks: {
+                    source: 'session.identityLinks',
+                    target: 'sessionRouting.identityLinks',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'config:agent',
+              source: '/tmp/.openclaw',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                agentId: 'writer',
+              },
+            },
+          ],
+        },
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleAgentMigrationCommand('openclaw', ['--dry-run', '--force']);
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).toContain(
+      'config:gateway: ops.webApiToken: [unset] -> [set]',
+    );
+    expect(output).toContain(
+      'config:web-search: web.search.provider: auto -> duckduckgo',
+    );
+    expect(output).toContain(
+      'config:session-routing: sessionRouting.identityLinks: {"old":"main"} -> {"old":"main","new_user":"writer"}',
+    );
+    expect(output).toContain('agent: register writer');
+    expect(output).not.toContain(
+      'config:agent: /tmp/.openclaw -> /tmp/.hybridclaw/config.json',
+    );
+    expect(output).not.toContain('agents.list[].id');
+  });
+
+  it('skips migration prompts when `--force` is provided', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+      '--force',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(migrateAgentHome).toHaveBeenCalledWith({
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: false,
+      overwrite: true,
+      migrateSecrets: false,
+    });
+    expect(readlineQuestion).not.toHaveBeenCalled();
+  });
+
+  it('asks y/N for planned config changes during dry-run without applying them', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 2,
+            migrated: 2,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  gatewayBaseUrl: '[unset]',
+                  webApiToken: '[unset]',
+                },
+                incoming: {
+                  gatewayBaseUrl: 'https://gateway.example',
+                  webApiToken: '[set]',
+                },
+                keyMappings: {
+                  gatewayBaseUrl: {
+                    source: 'gateway.baseUrl | gateway.url | gateway.origin',
+                    target: 'ops.gatewayBaseUrl',
+                  },
+                  webApiToken: {
+                    source: 'gateway.auth.webApiToken',
+                    target: 'ops.webApiToken',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'workspace-file',
+              source: '/tmp/.openclaw/workspace/SOUL.md',
+              destination:
+                '/tmp/.hybridclaw/data/agents/main/workspace/SOUL.md',
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(migrateAgentHome).toHaveBeenCalledWith({
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: false,
+      overwrite: false,
+      migrateSecrets: false,
+    });
+    expect(readlineQuestion).toHaveBeenCalledTimes(1);
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'Apply change?',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'config:gateway: /tmp/.openclaw/openclaw.json -> /tmp/.hybridclaw/config.json',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '- HybridClaw ops.gatewayBaseUrl: [unset]',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '+ OpenClaw gateway.baseUrl | gateway.url | gateway.origin -> HybridClaw ops.gatewayBaseUrl: https://gateway.example',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '- HybridClaw ops.webApiToken: [unset]',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '+ OpenClaw gateway.auth.webApiToken -> HybridClaw ops.webApiToken: [set]',
+    );
+  });
+
+  it('only shows incoming config keys in diff prompts', async () => {
+    const { handleAgentMigrationCommand, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  gatewayBaseUrl: 'http://127.0.0.1:9090',
+                  webApiToken: '[unset]',
+                },
+                incoming: {
+                  webApiToken: '[set]',
+                },
+                keyMappings: {
+                  webApiToken: {
+                    source: 'gateway.auth.webApiToken',
+                    target: 'ops.webApiToken',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    const prompt = String(readlineQuestion.mock.calls[0]?.[0] || '');
+    expect(prompt).toContain('- HybridClaw ops.webApiToken: [unset]');
+    expect(prompt).toContain(
+      '+ OpenClaw gateway.auth.webApiToken -> HybridClaw ops.webApiToken: [set]',
+    );
+    expect(prompt).not.toContain(
+      '- HybridClaw ops.gatewayBaseUrl: http://127.0.0.1:9090',
+    );
+    expect(prompt).not.toContain('- HybridClaw ops.gatewayApiToken: [unset]');
+  });
+
+  it('shows source and target key mappings for supported web-search prompts', async () => {
+    const { handleAgentMigrationCommand, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:web-search',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  provider: 'auto',
+                  defaultCount: 5,
+                  cacheTtlMinutes: 5,
+                },
+                incoming: {
+                  provider: 'duckduckgo',
+                  defaultCount: 7,
+                },
+                keyMappings: {
+                  provider: {
+                    source: 'tools.web.search.provider',
+                    target: 'web.search.provider',
+                  },
+                  defaultCount: {
+                    source: 'tools.web.search.maxResults',
+                    target: 'web.search.defaultCount',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    const prompt = String(readlineQuestion.mock.calls[0]?.[0] || '');
+    expect(prompt).toContain('- HybridClaw web.search.provider: auto');
+    expect(prompt).toContain(
+      '+ OpenClaw tools.web.search.provider -> HybridClaw web.search.provider: duckduckgo',
+    );
+    expect(prompt).toContain('- HybridClaw web.search.defaultCount: 5');
+    expect(prompt).toContain(
+      '+ OpenClaw tools.web.search.maxResults -> HybridClaw web.search.defaultCount: 7',
+    );
+  });
+
+  it('treats `n` as skip-and-continue during dry-run diff review', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['n', 'y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 2,
+            migrated: 2,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  gatewayBaseUrl: '[unset]',
+                },
+                incoming: {
+                  gatewayBaseUrl: 'https://gateway.example',
+                },
+                keyMappings: {
+                  gatewayBaseUrl: {
+                    source: 'gateway.baseUrl | gateway.url | gateway.origin',
+                    target: 'ops.gatewayBaseUrl',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'config:discord',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  prefix: '!claw',
+                },
+                incoming: {
+                  prefix: '!openclaw',
+                },
+                keyMappings: {
+                  prefix: {
+                    source: 'channels.discord.prefix',
+                    target: 'discord.prefix',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(readlineQuestion).toHaveBeenCalledTimes(2);
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'config:gateway',
+    );
+    expect(String(readlineQuestion.mock.calls[1]?.[0] || '')).toContain(
+      'config:discord',
+    );
+    expect(String(readlineQuestion.mock.calls[1]?.[0] || '')).toContain(
+      '+ OpenClaw channels.discord.prefix -> HybridClaw discord.prefix: !openclaw',
+    );
+  });
+
+  it('treats escape as cancel during dry-run diff review', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['\u001b'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 2,
+            migrated: 2,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  gatewayBaseUrl: '[unset]',
+                },
+                incoming: {
+                  gatewayBaseUrl: 'https://gateway.example',
+                },
+              },
+            },
+            {
+              kind: 'config:discord',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  prefix: '!claw',
+                },
+                incoming: {
+                  prefix: '!openclaw',
+                },
+                keyMappings: {
+                  prefix: {
+                    source: 'channels.discord.prefix',
+                    target: 'discord.prefix',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(readlineQuestion).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith('Dry run cancelled.');
+  });
+
+  it('asks y/N for config conflicts during dry-run', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 0,
+            skipped: 0,
+            conflict: 1,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:model',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'conflict',
+              reason: 'HybridClaw default model already set',
+              details: {
+                currentModel: 'hybridai/gpt-4.1-mini',
+                incomingModel: 'openrouter/anthropic/claude-sonnet-4',
+                keyMappings: {
+                  model: {
+                    source: 'models.default | model',
+                    target: 'hybridai.defaultModel',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(readlineQuestion).toHaveBeenCalledTimes(1);
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'config:model: /tmp/.openclaw/openclaw.json -> /tmp/.hybridclaw/config.json (HybridClaw default model already set)',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '- HybridClaw hybridai.defaultModel: hybridai/gpt-4.1-mini',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '+ OpenClaw models.default | model -> HybridClaw hybridai.defaultModel: openrouter/anthropic/claude-sonnet-4',
+    );
+  });
+
+  it('asks y/N for migrated config items that update config.json', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:discord',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  prefix: '!claw',
+                },
+                incoming: {
+                  prefix: '!openclaw',
+                },
+                keyMappings: {
+                  prefix: {
+                    source: 'channels.discord.prefix',
+                    target: 'discord.prefix',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(readlineQuestion).toHaveBeenCalledTimes(1);
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'config:discord: /tmp/.openclaw/openclaw.json -> /tmp/.hybridclaw/config.json',
+    );
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      '+ OpenClaw channels.discord.prefix -> HybridClaw discord.prefix: !openclaw',
+    );
+  });
+
+  it('prints merged workspace imports as file and directory sources', async () => {
+    const { handleAgentMigrationCommand } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'workspace-file',
+              source: null,
+              destination:
+                '/tmp/.hybridclaw/data/agents/main/workspace/MEMORY.md',
+              status: 'migrated',
+              reason: '',
+              details: {
+                sourceFiles: ['/tmp/.openclaw/workspace/MEMORY.md'],
+                sourceDirectories: ['/tmp/.openclaw/workspace/memory'],
+              },
+            },
+          ],
+        },
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--dry-run',
+      '--force',
+    ]);
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).toContain(
+      'workspace-file: /tmp/.openclaw/workspace/MEMORY.md -> /tmp/.hybridclaw/data/agents/main/workspace/MEMORY.md',
+    );
+    expect(output).toContain(
+      'workspace-directory: /tmp/.openclaw/workspace/memory -> /tmp/.hybridclaw/data/agents/main/workspace/MEMORY.md',
+    );
+  });
+
+  it('does not ask for a new workspace file when the destination does not already exist', async () => {
+    const tempDir = createTempDir();
+    const destination = path.join(
+      tempDir,
+      '.hybridclaw',
+      'data',
+      'agents',
+      'openclaw_migration',
+      'workspace',
+      'SOUL.md',
+    );
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'openclaw_migration',
+          targetRoot: path.join(tempDir, '.hybridclaw'),
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'workspace-file',
+              source: '/tmp/.openclaw/workspace/SOUL.md',
+              destination,
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+      '--agent',
+      'openclaw_migration',
+      '--dry-run',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledTimes(1);
+    expect(readlineQuestion).not.toHaveBeenCalled();
+  });
+
+  it('passes `--agent` through to the migration handler', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'writer',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'workspace-file',
+              source: '/tmp/.openclaw/workspace/SOUL.md',
+              destination:
+                '/tmp/.hybridclaw/data/agents/writer/workspace/SOUL.md',
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--agent',
+      'writer',
+      '--dry-run',
+      '--force',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenCalledWith({
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: 'writer',
+      execute: false,
+      overwrite: true,
+      migrateSecrets: false,
+    });
+  });
+
+  it('asks y/N for each planned config change during execute-mode migration', async () => {
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y', 'y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: '/tmp/.hybridclaw',
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 2,
+            migrated: 2,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'config:gateway',
+              source: '/tmp/.openclaw/openclaw.json',
+              destination: '/tmp/.hybridclaw/config.json',
+              status: 'migrated',
+              reason: '',
+              details: {
+                current: {
+                  gatewayBaseUrl: '[unset]',
+                },
+                incoming: {
+                  gatewayBaseUrl: 'https://gateway.example',
+                },
+                keyMappings: {
+                  gatewayBaseUrl: {
+                    source: 'gateway.baseUrl | gateway.url | gateway.origin',
+                    target: 'ops.gatewayBaseUrl',
+                  },
+                },
+              },
+            },
+            {
+              kind: 'workspace-file',
+              source: '/tmp/.openclaw/workspace/SOUL.md',
+              destination:
+                '/tmp/.hybridclaw/data/agents/main/workspace/SOUL.md',
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenNthCalledWith(1, {
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: false,
+      overwrite: false,
+      migrateSecrets: false,
+    });
+    expect(migrateAgentHome).toHaveBeenNthCalledWith(2, {
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: true,
+      overwrite: false,
+      migrateSecrets: false,
+    });
+    expect(readlineQuestion).toHaveBeenCalledTimes(2);
+    expect(String(readlineQuestion.mock.calls[0]?.[0] || '')).toContain(
+      'Import OpenClaw data from /tmp/.openclaw into agent main?',
+    );
+    expect(String(readlineQuestion.mock.calls[1]?.[0] || '')).toContain(
+      'Apply change?',
+    );
+    expect(String(readlineQuestion.mock.calls[1]?.[0] || '')).toContain(
+      'config:gateway: /tmp/.openclaw/openclaw.json -> /tmp/.hybridclaw/config.json',
+    );
+    expect(
+      logSpy.mock.calls.some(([message]) =>
+        String(message).includes('OpenClaw migration summary for agent main'),
+      ),
+    ).toBe(true);
+  });
+
+  it('asks y/N before overwriting an existing destination file', async () => {
+    const tempDir = createTempDir();
+    const existingDestination = path.join(
+      tempDir,
+      '.hybridclaw',
+      'data',
+      'agents',
+      'main',
+      'workspace',
+      'SOUL.md',
+    );
+    fs.mkdirSync(path.dirname(existingDestination), { recursive: true });
+    fs.writeFileSync(existingDestination, 'Existing soul.\n', 'utf-8');
+
+    const { handleAgentMigrationCommand, migrateAgentHome, readlineQuestion } =
+      await importFreshAgentMigrationCommand({
+        sourceRoot: '/tmp/.openclaw',
+        promptResponses: ['y', 'y'],
+        result: {
+          sourceKind: 'openclaw',
+          sourceRoot: '/tmp/.openclaw',
+          targetAgentId: 'main',
+          targetRoot: path.join(tempDir, '.hybridclaw'),
+          execute: false,
+          overwrite: false,
+          migrateSecrets: false,
+          outputDir: null,
+          summary: {
+            total: 1,
+            migrated: 1,
+            skipped: 0,
+            conflict: 0,
+            error: 0,
+            archived: 0,
+          },
+          items: [
+            {
+              kind: 'workspace-file',
+              source: '/tmp/.openclaw/workspace/SOUL.md',
+              destination: existingDestination,
+              status: 'migrated',
+              reason: '',
+            },
+          ],
+        },
+      });
+
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+    ]);
+
+    expect(migrateAgentHome).toHaveBeenNthCalledWith(1, {
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: false,
+      overwrite: false,
+      migrateSecrets: false,
+    });
+    expect(migrateAgentHome).toHaveBeenNthCalledWith(2, {
+      sourceKind: 'openclaw',
+      sourceRoot: '/tmp/.openclaw',
+      agentId: undefined,
+      execute: true,
+      overwrite: false,
+      migrateSecrets: false,
+    });
+    expect(readlineQuestion).toHaveBeenCalledTimes(2);
+    expect(String(readlineQuestion.mock.calls[1]?.[0] || '')).toContain(
+      `workspace-file: /tmp/.openclaw/workspace/SOUL.md -> ${existingDestination}`,
+    );
   });
 
   it('resets WhatsApp auth without loading the connection manager', async () => {
@@ -1322,16 +2835,29 @@ describe('CLI hybridai commands', () => {
         source: '@scope/hybridclaw-plugin-example',
         alreadyInstalled: false,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
         requiredConfigKeys: ['workspaceId'],
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['plugin', 'install', '@scope/hybridclaw-plugin-example']);
+    await cli.main([
+      'plugin',
+      'install',
+      '@scope/hybridclaw-plugin-example',
+      '--yes',
+    ]);
 
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
+      { approveDependencyInstall: true },
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
@@ -1350,6 +2876,135 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('prints missing binary guidance after plugin install', async () => {
+    const { cli } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'mempalace-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+        source: './plugins/mempalace-memory',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: false,
+          installedNodePackages: [],
+          installedPipPackages: ['mempalace'],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
+        requiresEnv: [],
+        requiredConfigKeys: [],
+        missingRequiredBins: [
+          {
+            name: 'mempalace',
+            command: 'mempalace',
+            configKey: 'command',
+            installHint: 'pip install mempalace',
+            installUrl: 'https://github.com/milla-jovovich/mempalace',
+          },
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'plugin',
+      'install',
+      './plugins/mempalace-memory',
+      '--yes',
+    ]);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed plugin pip packages: mempalace.',
+    );
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Missing required binaries right now: mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install mempalace: pip install mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Install docs for mempalace: https://github.com/milla-jovovich/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'If mempalace is installed outside PATH, set it with: hybridclaw plugin config mempalace-memory command /absolute/path/to/mempalace',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Until the missing binaries are installed, the plugin will remain unavailable.',
+    );
+  });
+
+  it('requires --yes for non-interactive dependency installs', async () => {
+    const { PluginDependencyApprovalRequiredError } = await importFreshCli();
+    const { cli, installPlugin } = await importFreshCli({
+      pluginInstallError: new PluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    });
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+
+    await expect(
+      cli.main(['plugin', 'install', './plugins/mempalace-memory']),
+    ).rejects.toThrow(
+      'Plugin dependency installation requires an interactive terminal. Re-run with --yes to approve.',
+    );
+    expect(installPlugin).toHaveBeenCalled();
+  });
+
+  it('prints a plugin dependency check report', async () => {
+    const { checkPlugin, cli } = await importFreshCli({
+      pluginCheckResult: {
+        pluginId: 'mempalace-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+        source: 'home',
+        requiresEnv: ['MEMPALACE_TOKEN'],
+        missingEnv: ['MEMPALACE_TOKEN'],
+        requiredConfigKeys: ['palacePath'],
+        packageJsonDependencies: [
+          { package: '@scope/helper', installed: true },
+        ],
+        nodeDependencies: [],
+        pipDependencies: [{ package: 'mempalace', installed: true }],
+        externalDependencies: [
+          {
+            name: 'mempalace',
+            check: 'mempalace --version',
+            installed: true,
+          },
+        ],
+        configuredRequiredBins: [
+          {
+            name: 'mempalace',
+            configKey: 'command',
+            command:
+              '/tmp/.hybridclaw/plugins/mempalace-memory/.venv/bin/mempalace',
+          },
+        ],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'check', 'mempalace-memory']);
+
+    expect(checkPlugin).toHaveBeenCalledWith('mempalace-memory');
+    expect(logSpy).toHaveBeenCalledWith('Plugin: mempalace-memory');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Manifest pip dependencies: mempalace=ok',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured binary paths: mempalace (command=/tmp/.hybridclaw/plugins/mempalace-memory/.venv/bin/mempalace)',
+    );
+  });
+
   it('reinstalls a plugin and preserves the usual install guidance', async () => {
     const { cli, reinstallPlugin } = await importFreshCli({
       pluginReinstallResult: {
@@ -1359,15 +3014,29 @@ describe('CLI hybridai commands', () => {
         alreadyInstalled: false,
         replacedExistingInstall: true,
         dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
         requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
         requiredConfigKeys: ['workspaceId'],
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['plugin', 'reinstall', './plugins/example-plugin']);
+    await cli.main([
+      'plugin',
+      'reinstall',
+      './plugins/example-plugin',
+      '--yes',
+    ]);
 
-    expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin');
+    expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin', {
+      approveDependencyInstall: true,
+    });
     expect(logSpy).toHaveBeenCalledWith(
       'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
     );
@@ -1558,6 +3227,7 @@ describe('CLI hybridai commands', () => {
       cli,
       readlineCreateInterface,
       saveRuntimeSecrets,
+      setRuntimeConfigSecretInput,
       updateRuntimeConfig,
     } = await importFreshCli({
       promptResponses: [
@@ -1580,6 +3250,17 @@ describe('CLI hybridai commands', () => {
     expect(saveRuntimeSecrets).toHaveBeenCalledWith({
       EMAIL_PASSWORD: 'app-password-123',
     });
+    expect(setRuntimeConfigSecretInput).toHaveBeenCalledWith(
+      'email.password',
+      {
+        source: 'store',
+        id: 'EMAIL_PASSWORD',
+      },
+      {
+        route: 'cli.channels.email.setup-secret-ref',
+        source: 'user',
+      },
+    );
     const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
       email: {
         address: string;
@@ -1663,9 +3344,31 @@ describe('CLI hybridai commands', () => {
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
-    expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('API key: configured');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
+  });
+
+  it('prints configured instead of a partial Codex access token in status output', async () => {
+    const { cli } = await importFreshCli({
+      codexStatus: {
+        authenticated: true,
+        path: '/tmp/codex-auth.json',
+        source: 'browser-pkce',
+        accountId: 'acct_test',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        maskedAccessToken: 'codex-…7890',
+        reloginRequired: false,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'codex']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Source: browser-pkce');
+    expect(logSpy).toHaveBeenCalledWith('Account: acct_test');
+    expect(logSpy).toHaveBeenCalledWith('Access token: configured');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -2006,6 +3709,24 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Configured model: ollama/llama3.2');
   });
 
+  it('routes auth login local without model to backend-only configuration', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'local',
+      'llamacpp',
+      '--base-url',
+      'http://127.0.0.1:8081',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Backend: llamacpp');
+    expect(logSpy).toHaveBeenCalledWith('Configured model: none');
+  });
+
   it('routes auth login msteams to the Teams auth flow', async () => {
     const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
       await importFreshCli();
@@ -2055,7 +3776,7 @@ describe('CLI hybridai commands', () => {
     expect(readlineCreateInterface).toHaveBeenCalled();
     expect(readlineQuestion).toHaveBeenCalledWith('Microsoft Teams app id: ');
     expect(readlineQuestion).toHaveBeenCalledWith(
-      'Microsoft Teams app password: ',
+      '🔒 Paste Microsoft Teams app password: ',
     );
     expect(readlineQuestion).toHaveBeenCalledWith(
       'Microsoft Teams tenant id (optional): ',
@@ -2103,6 +3824,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['auth', 'status', 'msteams']);
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('App password: configured');
     expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
     expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
@@ -2221,6 +3943,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'openrouter']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -2317,6 +4040,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'mistral']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -2461,6 +4185,7 @@ describe('CLI hybridai commands', () => {
       await cli.main(['auth', 'status', 'huggingface']);
 
       expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('API key: configured');
       expect(logSpy).toHaveBeenCalledWith('Enabled: no');
       expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
     } finally {
@@ -2490,7 +4215,7 @@ describe('CLI hybridai commands', () => {
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      'Disabled local backends: ollama, lmstudio, vllm.',
+      'Disabled local backends: ollama, lmstudio, llamacpp, vllm.',
     );
     expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-4.1-mini');
   });
@@ -2647,6 +4372,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw gateway start --foreground',
+      requireCredentials: false,
     });
     expect(ensureGatewayRunDir).toHaveBeenCalled();
     expect(writeGatewayPid).toHaveBeenCalledWith(
@@ -2781,6 +4507,7 @@ describe('CLI hybridai commands', () => {
     expect(gatewayHealth).toHaveBeenCalled();
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
@@ -2798,6 +4525,36 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the reachable gateway sandbox mode for tui preflight', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'container',
+        gatewayStatusSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps host-mode tui preflight on the local runtime config even when a reachable gateway reports container mode', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        sandboxMode: 'host',
+        gatewayStatusSandboxMode: 'container',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {
@@ -2822,6 +4579,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
@@ -2857,6 +4615,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();

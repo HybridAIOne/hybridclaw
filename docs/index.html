@@ -20,7 +20,7 @@
   <meta name="twitter:description" content="One assistant brain across Discord, Teams, iMessage, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/docs/hero.png">
   <link rel="canonical" href="https://github.com/HybridAIOne/hybridclaw">
-  <link rel="icon" type="image/svg+xml" href="/static/hybridclaw-logo.svg">
+  <link rel="icon" type="image/svg+xml" href="/static/hybridclaw-logo.svg?v=brand">
   <link rel="icon" type="image/png" sizes="96x96" href="/static/favicon-96x96.png">
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
@@ -886,35 +886,45 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.9.8</div>
-    <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.9.8 adds concierge routing, tracked config revisions, plugin inbound webhooks, expanded agent install sources, and the bundled Sokosumi skill.</p>
+    <div class="section-label">Latest release: v0.12.3</div>
+    <h2 class="section-title">Current release highlights</h2>
+    <p class="section-desc">HybridClaw v0.12.3 adds Telegram transport, built-in memory inspection, provider-aware model catalogs, native LOCOMO evals, refreshed admin navigation, the bundled <code>manim-video</code> skill, and the new <code>gbrain</code> plugin, with smaller runtime polish around media staging, hot reloads, and model routing.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Concierge routing</h3>
-      <p><code>concierge info|on|off</code>, <code>concierge model</code>, and <code>concierge profile</code> can ask users about urgency before longer jobs and map execution to <code>asap</code>, <code>balanced</code>, or <code>no_hurry</code> model profiles.</p>
+      <div class="feature-icon">&#x1f4f2;</div>
+      <h3>Telegram transport</h3>
+      <p>HybridClaw now ships a built-in Telegram Bot API channel with BotFather setup, DM/group policies, topic-safe <code>telegram:&lt;chatId&gt;</code> send targets, inbound media handling, and admin-channel controls.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4dd;</div>
-      <h3>Tracked config revisions</h3>
-      <p><code>hybridclaw config revisions [list|rollback|delete|clear]</code> records auditable snapshots for <code>~/.hybridclaw/config.json</code> so local runtime config changes can be reviewed and restored.</p>
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Memory inspection</h3>
+      <p>Local TUI and web sessions can inspect built-in memory layers with <code>/memory inspect</code> and preview the exact attached prompt-memory block for a query with <code>/memory query</code>.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Expanded agent installs</h3>
-      <p><code>agent install</code> now supports direct <code>.claw</code> URLs, session-side installs in local TUI and web chat, and <code>--skip-import-errors</code> for partial imported-skill failures.</p>
+      <div class="feature-icon">&#x1f4cb;</div>
+      <h3>Model catalogs</h3>
+      <p><code>/model list</code> and status surfaces now expose provider-aware catalogs for Codex, OpenRouter, Mistral, and Hugging Face, with explicit <code>openai-codex/...</code> model ids and richer discovered metadata.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f517;</div>
-      <h3>Plugin inbound webhooks</h3>
-      <p>Plugins can register fixed webhook endpoints under the shared gateway HTTP server, parse inbound requests with SDK helpers, and dispatch normalized messages through the standard assistant turn pipeline.</p>
+      <div class="feature-icon">&#x1f52c;</div>
+      <h3>Native LOCOMO evals</h3>
+      <p><code>hybridclaw eval locomo</code> and local <code>/eval locomo</code> now cover official dataset setup, QA and retrieval runs, detached logs, and matrix sweeps across retrieval backends, rerankers, tokenizers, and embeddings.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f916;</div>
-      <h3>Sokosumi skill</h3>
-      <p>The bundled <code>sokosumi</code> skill adds API-key-authenticated workflows for agent hires, coworker task creation, job monitoring, and result retrieval without relying on the Ink TUI.</p>
+      <div class="feature-icon">&#x2709;</div>
+      <h3>Admin email and sidebar UX</h3>
+      <p>The embedded console now uses a structured sidebar taxonomy and adds a built-in email mailbox view so operators can browse folders, inspect messages, and send replies from the admin surface.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f9e9;</div>
+      <h3>New extension surfaces</h3>
+      <p>The bundled <code>gbrain</code> plugin adds external knowledge-brain recall plus <code>gbrain_*</code> tools, and the new <code>manim-video</code> skill adds guided video-animation workflows with install helpers and references.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f6e0;</div>
+      <h3>Runtime polish</h3>
+      <p>Inbound media now lands under one shared cache, Telegram config changes hot-reload in place, host-mode TUI startup avoids unnecessary container rebuild checks, and HybridAI auxiliary model routing handles provider prefixes correctly.</p>
     </div>
   </div>
 </section>
@@ -1059,7 +1069,7 @@
         <tr>
           <td>Security &amp; Trust</td>
           <td>
-            <span class="compare-text">Trust-first policy posture</span>
+            <span class="compare-text">Trust-first policy posture + encrypted runtime secrets + gateway-side auth injection</span>
           </td>
           <td>
             <span class="compare-text">Solid baseline controls</span>
@@ -1072,9 +1082,24 @@
           </td>
         </tr>
         <tr>
+          <td>Secret Storage</td>
+          <td>
+            <span class="compare-text">Encrypted-at-rest named secret store with separate master key</span>
+          </td>
+          <td>
+            <span class="compare-text">Project-dependent</span>
+          </td>
+          <td>
+            <span class="compare-text">Lightweight local handling</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal local secret layer</span>
+          </td>
+        </tr>
+        <tr>
           <td>Runtime Control</td>
           <td>
-            <span class="compare-text">Live config updates</span>
+            <span class="compare-text">Live config updates + SecretRefs + URL auth routes</span>
           </td>
           <td>
             <span class="compare-text">Setup-dependent tuning</span>
@@ -1246,7 +1271,7 @@
           <td>Skill system</td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>54 bundled + Skills Hub</span></td>
           <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>53 bundled + ClawHub</span></td>
-          <td><span class="compare-text">27 bundled + 7 hubs</span></td>
+          <td><span class="compare-text">33 bundled + 7 import sources</span></td>
         </tr>
         <tr>
           <td>Skill standard</td>
@@ -1374,6 +1399,10 @@
       <p>Gateway start/restart accepts <code>--log-requests</code> to persist best-effort redacted prompts, responses, and tool payloads in SQLite <code>request_log</code> for operator debugging. Typed browser input is always redacted.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Local Eval Workflows</h3>
+      <p><code>hybridclaw eval</code> and local <code>/eval</code> can point benchmark harnesses at the loopback OpenAI-compatible gateway, with managed <code>locomo</code>, <code>tau2</code>, and native <code>terminal-bench-2.0</code> runs, detached logs, retrieval sweeps, and progress summaries under <code>~/.hybridclaw/data/evals/</code>.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
       <p>Trust-model acceptance is required during onboarding, execution uses container or host sandbox modes with runtime guardrails, user-directed browser auth-flow testing is supported, and TUI blocks when runtime instruction copies drift from installed defaults.</p>
     </div>
@@ -1383,11 +1412,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, hot reload, and isolation controls. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, hot reload, SecretRef-backed credential surfaces, and isolation controls. Runtime secrets live in an encrypted <code>~/.hybridclaw/credentials.json</code> store with a separate master-key source.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, iMessage, WhatsApp, email, web, and terminal channels.</p>
+      <p>Persistent workspace memory, nightly dream consolidation with startup catch-up, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, iMessage, WhatsApp, email, web, and terminal channels.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">SQLite Reliability</h3>
@@ -1407,7 +1436,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>HybridClaw ships with 27 bundled skills and also supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
+      <p>HybridClaw ships with 33 bundled skills, including the <code>manim-video</code> animation workflow, category-aware catalog and admin authoring flows, and OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery with prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Agent Packaging</h3>
@@ -1439,7 +1468,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Plugin Extensibility</h3>
-      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install the repo-shipped <code>qmd-memory</code> plugin for external markdown retrieval.</p>
+      <p>HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, hot-reload them with <code>/plugin reload</code>, and install repo-shipped plugins such as <code>gbrain</code>, <code>honcho-memory</code>, <code>mempalace-memory</code>, <code>qmd-memory</code>, and <code>brevo-email</code> for external retrieval, memory recall, and per-agent email routing.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
@@ -1694,7 +1723,11 @@ function switchQsTab(tab) {
     </div>
     <div class="faq-item">
       <div class="faq-q">Do I still configure everything through .env?</div>
-      <div class="faq-a">No. Runtime behavior lives in typed <code>config.json</code> and runtime secrets live in <code>~/.hybridclaw/credentials.json</code>. If <code>.env</code> exists in the current working directory, supported secrets are imported into <code>~/.hybridclaw/credentials.json</code> once for compatibility. If you need the whole runtime state elsewhere, set <code>HYBRIDCLAW_DATA_DIR</code> to an absolute path.</div>
+      <div class="faq-a">No. Runtime behavior lives in typed <code>config.json</code> and runtime secrets live in an encrypted <code>~/.hybridclaw/credentials.json</code> store. HybridClaw reads the master key from <code>HYBRIDCLAW_MASTER_KEY</code>, <code>/run/secrets/hybridclaw_master_key</code>, or a local owner-only <code>credentials.master.key</code>. If <code>.env</code> exists in the current working directory, supported secrets are imported once for compatibility. If you need the whole runtime state elsewhere, set <code>HYBRIDCLAW_DATA_DIR</code> to an absolute path.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can HybridClaw call an API without exposing the real key to the model?</div>
+      <div class="faq-a">Yes. Store the key with <code>/secret set &lt;NAME&gt; &lt;VALUE&gt;</code>, then either reference it in a prompt with <code>&lt;secret:NAME&gt;</code> or bind it to a URL prefix with <code>/secret route add</code>. HybridClaw injects the real header in the gateway-side <code>http_request</code> path and persists redacted tool-call arguments instead of the plaintext secret.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>
@@ -1770,7 +1803,11 @@ function switchQsTab(tab) {
     </div>
     <div class="faq-item">
       <div class="faq-q">What AI models does it support?</div>
-      <div class="faq-a">HybridClaw supports HybridAI models, OpenAI Codex models (via <code>openai-codex/</code> prefix), OpenRouter models (via <code>openrouter/</code> prefix), Hugging Face router models (via <code>huggingface/</code> prefix), and local backends including Ollama, LM Studio, and vLLM. Use <code>model list</code> to browse available models and switch per channel or session at any time.</div>
+      <div class="faq-a">HybridClaw supports HybridAI models, OpenAI Codex models (via <code>openai-codex/</code> prefix), OpenRouter models (via <code>openrouter/</code> prefix), Hugging Face router models (via <code>huggingface/</code> prefix), and local backends including Ollama, LM Studio, llama.cpp, and vLLM. Use <code>model list</code> to browse available models and switch per channel or session at any time.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I migrate an existing OpenClaw or Hermes Agent home?</div>
+      <div class="faq-a">Yes. Run <code>hybridclaw migrate openclaw --dry-run</code> or <code>hybridclaw migrate hermes --dry-run</code> to preview the compatible workspace files, config values, model settings, and optional secrets that can be imported into a HybridClaw agent. Add <code>--agent &lt;id&gt;</code> to target a different agent and <code>--migrate-secrets</code> when you want compatible secrets moved into the encrypted runtime store.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
@@ -1782,7 +1819,7 @@ function switchQsTab(tab) {
     </div>
     <div class="faq-item">
       <div class="faq-q">Is there a web-based admin interface?</div>
-      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a live browser terminal at <code>/admin/terminal</code>, a web chat at <code>/chat</code>, and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. The Skills page can create local skills from a form or ZIP upload and review adaptive-skill amendments. There is also a live browser terminal at <code>/admin/terminal</code>, a web chat at <code>/chat</code>, and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

@@ -163,7 +163,7 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
   initDatabase({ quiet: true });
 
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const result = await handleGatewayMessage({
     sessionId: 'session-chatbot-fallback',
@@ -248,7 +248,7 @@ test('handleGatewayMessage returns an auth error when /bot-management/me fallbac
   initDatabase({ quiet: true });
 
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const result = await handleGatewayMessage({
     sessionId: 'session-chatbot-fallback-auth-error',
@@ -365,7 +365,7 @@ test('bot set works from a non-HybridAI session and syncs the bot model', async 
     text: 'Chatbot set to `bot-research` and model set to `hybridai/gpt-4o-mini` for this session.',
   });
   expect(getSessionById(sessionId)?.chatbot_id).toBe('bot-research');
-  expect(getSessionById(sessionId)?.model).toBe('gpt-4o-mini');
+  expect(getSessionById(sessionId)?.model).toBe('hybridai/gpt-4o-mini');
 });
 
 test('bot info works even when the session model is not HybridAI', async () => {

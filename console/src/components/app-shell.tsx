@@ -1,247 +1,133 @@
-import { Link, useRouterState } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useRouterState } from '@tanstack/react-router';
+import {
+  type ComponentType,
+  createContext,
+  type ReactNode,
+  useContext,
+} from 'react';
+import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
+import { Admin, Agents, Chat, Docs, Github } from './icons';
+import { AppSidebar } from './sidebar/app-sidebar';
+import {
+  getSidebarStyleVars,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from './sidebar/index';
+import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
-function ViewIcon(props: {
-  kind: 'chat' | 'agents' | 'admin' | 'cog' | 'docs' | 'github';
-}) {
-  if (props.kind === 'chat') {
-    return (
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    );
-  }
+const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
+const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
-  if (props.kind === 'agents') {
-    return (
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <rect x="3" y="3" width="7" height="7" rx="2" />
-        <rect x="14" y="3" width="7" height="7" rx="2" />
-        <rect x="3" y="14" width="7" height="7" rx="2" />
-        <rect x="14" y="14" width="7" height="7" rx="2" />
-      </svg>
-    );
-  }
+type AppShellConfigContextValue = {
+  configReady: boolean;
+  emailEnabled: boolean;
+};
 
-  if (props.kind === 'admin') {
-    return (
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z" />
-        <path d="M12 8v8" />
-        <path d="M8.5 10 12 8l3.5 2" />
-      </svg>
-    );
-  }
+const AppShellConfigContext = createContext<AppShellConfigContextValue>({
+  configReady: false,
+  emailEnabled: false,
+});
 
-  if (props.kind === 'docs') {
-    return (
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
-      </svg>
-    );
-  }
-
-  if (props.kind === 'github') {
-    return (
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 16 16"
-        fill="currentColor"
-      >
-        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <circle cx="12" cy="12" r="3.25" />
-      <path d="M12 2.75v2.5" />
-      <path d="M12 18.75v2.5" />
-      <path d="m4.93 4.93 1.77 1.77" />
-      <path d="m17.3 17.3 1.77 1.77" />
-      <path d="M2.75 12h2.5" />
-      <path d="M18.75 12h2.5" />
-      <path d="m4.93 19.07 1.77-1.77" />
-      <path d="m17.3 6.7 1.77-1.77" />
-    </svg>
-  );
-}
-
-const NAV_ITEMS: ReadonlyArray<{
-  to: string;
+const VIEW_SWITCH_ITEMS: ReadonlyArray<{
+  href: string;
   label: string;
-  icon?: 'cog' | 'chat' | 'agents' | 'admin';
+  icon: ComponentType;
+  active?: true;
 }> = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/terminal', label: 'Terminal' },
-  { to: '/gateway', label: 'Gateway' },
-  { to: '/sessions', label: 'Sessions' },
-  { to: '/channels', label: 'Channels' },
-  { to: '/models', label: 'Models' },
-  { to: '/scheduler', label: 'Scheduler' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/mcp', label: 'MCP' },
-  { to: '/audit', label: 'Audit' },
-  { to: '/skills', label: 'Skills' },
-  { to: '/plugins', label: 'Plugins' },
-  { to: '/tools', label: 'Tools' },
-  { to: '/config', label: 'Config' },
-];
-
-const VIEW_SWITCH_ITEMS = [
-  { href: '/chat', label: 'Chat', icon: 'chat' },
-  { href: '/agents', label: 'Agents', icon: 'agents' },
-  { href: '/admin', label: 'Admin', icon: 'admin' },
+  { href: '/chat', label: 'Chat', icon: Chat },
+  { href: '/agents', label: 'Agents', icon: Agents },
+  { href: '/admin', label: 'Admin', icon: Admin, active: true },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
     label: 'GitHub',
-    icon: 'github',
+    icon: Github,
   },
-  { href: '/development', label: 'Docs', icon: 'docs' },
-] as const;
+  { href: '/development', label: 'Docs', icon: Docs },
+];
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+  });
   const adminPath = pathname.startsWith('/admin/')
     ? pathname.slice('/admin'.length)
     : pathname === '/admin'
       ? '/'
       : pathname;
+  const configReady = Boolean(configQuery.data);
+  const emailEnabled = configQuery.data?.config.email.enabled === true;
+  const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => !item.requiresEmail || emailEnabled || adminPath === item.to,
+    ),
+  })).filter((group) => group.items.length > 0);
+  const navItems = sidebarGroups.flatMap((group) => group.items);
   const currentNavItem =
-    NAV_ITEMS.find((item) => item.to === adminPath) || NAV_ITEMS[0];
+    navItems.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
-    <div className="app-frame">
-      <aside className="sidebar">
-        <div>
-          <div className="brand-block">
-            <p className="eyebrow">HybridClaw</p>
-            <div className="brand-title">
-              <span className="nav-link-icon" aria-hidden="true">
-                <ViewIcon kind="admin" />
-              </span>
-              <h1>Admin console</h1>
+    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
+      <SidebarProvider style={SIDEBAR_STYLE}>
+        <AppSidebar
+          groups={sidebarGroups}
+          version={auth.gatewayStatus?.version}
+          showLogout={Boolean(auth.token)}
+          onLogout={auth.logout}
+        />
+        <SidebarInset className="main-panel">
+          <div className="topbar">
+            <div className="topbar-title">
+              <div className="topbar-heading">
+                <h2>{currentNavItem.label}</h2>
+              </div>
             </div>
-          </div>
-
-          <nav className="nav-group" aria-label="Primary">
-            {NAV_ITEMS.map((item) => {
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  activeProps={{ className: 'nav-link active' }}
-                  inactiveProps={{ className: 'nav-link' }}
-                  activeOptions={{ exact: item.to === '/' }}
-                >
-                  {item.icon ? (
+            <nav className="view-switch" aria-label="Switch view">
+              {VIEW_SWITCH_ITEMS.map((item) => {
+                const inner = (
+                  <>
                     <span className="nav-link-icon" aria-hidden="true">
-                      <ViewIcon kind={item.icon} />
-                    </span>
-                  ) : null}
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="sidebar-footer">
-          {auth.gatewayStatus?.version ? (
-            <span className="meta-chip sidebar-meta-chip">
-              {auth.gatewayStatus.version}
-            </span>
-          ) : null}
-          {auth.token ? (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={auth.logout}
-            >
-              Forget token
-            </button>
-          ) : null}
-        </div>
-      </aside>
-
-      <main className="main-panel">
-        <div className="topbar">
-          <div className="topbar-title">
-            <h2>{currentNavItem.label}</h2>
-          </div>
-          <nav className="view-switch" aria-label="Switch view">
-            {VIEW_SWITCH_ITEMS.map((item) => {
-              const isActive = item.icon === 'admin';
-              const classes = isActive
-                ? 'view-switch-link active'
-                : 'view-switch-link';
-
-              if (isActive) {
-                return (
-                  <span key={item.href} className={classes} aria-current="page">
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <ViewIcon kind={item.icon} />
+                      <item.icon />
                     </span>
                     <span>{item.label}</span>
-                  </span>
+                  </>
                 );
-              }
-
-              return (
-                <a key={item.href} className={classes} href={item.href}>
-                  <span className="nav-link-icon" aria-hidden="true">
-                    <ViewIcon kind={item.icon} />
+                return item.active ? (
+                  <span
+                    key={item.href}
+                    className="view-switch-link active"
+                    aria-current="page"
+                  >
+                    {inner}
                   </span>
-                  <span>{item.label}</span>
-                </a>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="page-content">{props.children}</div>
-      </main>
-    </div>
+                ) : (
+                  <a
+                    key={item.href}
+                    className="view-switch-link"
+                    href={item.href}
+                  >
+                    {inner}
+                  </a>
+                );
+              })}
+            </nav>
+            <SidebarTrigger className="topbar-sidebar-trigger" />
+          </div>
+          <div className="page-content">{props.children}</div>
+        </SidebarInset>
+      </SidebarProvider>
+    </AppShellConfigContext.Provider>
   );
+}
+
+export function useAppShellConfig(): AppShellConfigContextValue {
+  return useContext(AppShellConfigContext);
 }

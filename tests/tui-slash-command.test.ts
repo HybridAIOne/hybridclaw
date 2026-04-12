@@ -51,6 +51,16 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['h'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
+  expect(mapTuiSlashCommandToGatewayArgs(['memory'])).toEqual([
+    'memory',
+    'inspect',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['memory', 'inspect', 'session-1']),
+  ).toEqual(['memory', 'inspect', 'session-1']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['memory', 'query', 'deploy', 'animation']),
+  ).toEqual(['memory', 'query', 'deploy', 'animation']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['auth', 'status', 'hybridai']),
   ).toEqual(['auth', 'status', 'hybridai']);
@@ -63,6 +73,14 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'config',
     'reload',
   ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'secret',
+      'set',
+      'STAGING_HYBRIDAI_API_KEY',
+      'demo_key_2024',
+    ]),
+  ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
   expect(
     mapTuiSlashCommandToGatewayArgs([
       'config',
@@ -138,6 +156,17 @@ test('maps Discord-style slash commands to gateway command args', () => {
     mapTuiSlashCommandToGatewayArgs(['skill', 'runs', 'demo-skill']),
   ).toEqual(['skill', 'runs', 'demo-skill']);
   expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'install', 'demo-skill']),
+  ).toEqual(['skill', 'install', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'install',
+      'pdf',
+      'brew-poppler',
+    ]),
+  ).toEqual(['skill', 'install', 'pdf', 'brew-poppler']);
+  expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
   ).toEqual(['skill', 'learn', 'demo-skill']);
   expect(
@@ -202,6 +231,19 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
+  expect(mapTuiSlashCommandToGatewayArgs(['eval', 'list'])).toEqual([
+    'eval',
+    'list',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'eval',
+      'run',
+      'python',
+      '-m',
+      'swebench.harness.run_evaluation',
+    ]),
+  ).toEqual(['eval', 'run', 'python', '-m', 'swebench.harness.run_evaluation']);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {
@@ -234,9 +276,17 @@ test('maps /approve actions to explicit typed results', () => {
     kind: 'message',
     message: 'yes abc123',
   });
+  expect(mapTuiApproveSlashToMessage(['approve', 'always'], 'abc123')).toEqual({
+    kind: 'message',
+    message: 'yes abc123 for session',
+  });
   expect(mapTuiApproveSlashToMessage(['approve', 'agent'], 'abc123')).toEqual({
     kind: 'message',
     message: 'yes abc123 for agent',
+  });
+  expect(mapTuiApproveSlashToMessage(['approve', 'all'], 'abc123')).toEqual({
+    kind: 'message',
+    message: 'yes abc123 for all',
   });
   expect(mapTuiApproveSlashToMessage(['approve', 'no'], 'abc123')).toEqual({
     kind: 'message',

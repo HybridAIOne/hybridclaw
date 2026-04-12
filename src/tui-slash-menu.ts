@@ -6,6 +6,7 @@ import {
   type CanonicalSlashStringOptionDefinition,
   type CanonicalSlashSubcommandOptionDefinition,
   type CanonicalTuiMenuEntryDefinition,
+  type LocalSessionSurface,
   type PluginSlashCommandCatalogEntry,
 } from './command-registry.js';
 import { renderTuiSlashMenuLines } from './tui-slash-menu-render.js';
@@ -163,13 +164,31 @@ function defaultInsertText(prefix: string, hasSuffixInput: boolean): string {
   return hasSuffixInput ? `${prefix} ` : prefix;
 }
 
+function formatSubcommandSuffix(
+  subcommands: CanonicalSlashSubcommandOptionDefinition[],
+): string {
+  if (subcommands.length === 0) return '';
+  const names = subcommands.map((sub) => sub.name);
+  return names.length <= 4
+    ? `<${names.join('|')}>`
+    : `<${names.slice(0, 3).join('|')}|…>`;
+}
+
 function buildGenericRootEntry(
   definition: CanonicalSlashCommandDefinition,
   sortIndex: number,
 ): TuiSlashMenuEntry {
   const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
   const stringOptions = definition.options?.filter(isStringOption) ?? [];
-  const label = definition.tuiMenu?.label ?? `/${definition.name}`;
+  const optionSuffix =
+    subcommands.length > 0
+      ? formatSubcommandSuffix(subcommands)
+      : formatOptionSuffix(stringOptions);
+  const label =
+    definition.tuiMenu?.label ??
+    (optionSuffix
+      ? `/${definition.name} ${optionSuffix}`
+      : `/${definition.name}`);
   const insertText =
     definition.tuiMenu?.insertText ??
     defaultInsertText(
@@ -228,6 +247,71 @@ function appendSyntheticMenuEntry(params: {
     }),
   );
   return params.sortIndex + 1;
+}
+
+function dedupeMenuEntryKey(entry: TuiSlashMenuEntry): string {
+  return `${entry.label}\n${entry.insertText.trimEnd()}`;
+}
+
+function mergeDuplicateMenuEntries(
+  existing: TuiSlashMenuEntry,
+  next: TuiSlashMenuEntry,
+): TuiSlashMenuEntry {
+  return {
+    ...next,
+    depth: Math.min(existing.depth, next.depth),
+    sortIndex: Math.min(existing.sortIndex, next.sortIndex),
+    searchTerms: Array.from(
+      new Set([...existing.searchTerms, ...next.searchTerms]),
+    ),
+  };
+}
+
+function dedupeTuiSlashMenuEntries(
+  entries: TuiSlashMenuEntry[],
+): TuiSlashMenuEntry[] {
+  const deduped: TuiSlashMenuEntry[] = [];
+  const indexes = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = dedupeMenuEntryKey(entry);
+    const existingIndex = indexes.get(key);
+    if (existingIndex == null) {
+      indexes.set(key, deduped.length);
+      deduped.push(entry);
+      continue;
+    }
+    deduped[existingIndex] = mergeDuplicateMenuEntries(
+      deduped[existingIndex],
+      entry,
+    );
+  }
+
+  return deduped;
+}
+
+function compareSlashMenuEntries(
+  left: TuiSlashMenuEntry,
+  right: TuiSlashMenuEntry,
+): number {
+  const labelCompare = left.label.localeCompare(right.label, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (labelCompare !== 0) return labelCompare;
+  const insertTextCompare = left.insertText.localeCompare(
+    right.insertText,
+    undefined,
+    {
+      numeric: true,
+      sensitivity: 'base',
+    },
+  );
+  if (insertTextCompare !== 0) return insertTextCompare;
+  return left.id.localeCompare(right.id, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
 }
 
 function subsequenceScore(query: string, target: string): number | null {
@@ -310,8 +394,15 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
 
 export function buildTuiSlashMenuEntries(
   pluginCommands: PluginSlashCommandCatalogEntry[] = [],
+  surface: LocalSessionSurface = 'tui',
 ): TuiSlashMenuEntry[] {
-  const definitions = buildTuiSlashCommandDefinitions([], pluginCommands);
+  const definitions = buildTuiSlashCommandDefinitions(
+    [],
+    pluginCommands,
+  ).filter(
+    (definition) =>
+      !definition.localSurfaces || definition.localSurfaces.includes(surface),
+  );
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 
@@ -319,17 +410,18 @@ export function buildTuiSlashMenuEntries(
     entries.push(buildGenericRootEntry(definition, sortIndex));
     sortIndex += 1;
 
+    const childEntries: TuiSlashMenuEntry[] = [];
     const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
 
     for (const subcommand of subcommands) {
-      entries.push(
+      childEntries.push(
         buildGenericSubcommandEntry(definition.name, subcommand, sortIndex),
       );
       sortIndex += 1;
 
       for (const menuEntry of subcommand.tuiMenuEntries || []) {
         sortIndex = appendSyntheticMenuEntry({
-          entries,
+          entries: childEntries,
           entry: menuEntry,
           defaultDepth: 3,
           sortIndex,
@@ -339,15 +431,31 @@ export function buildTuiSlashMenuEntries(
 
     for (const menuEntry of definition.tuiMenuEntries || []) {
       sortIndex = appendSyntheticMenuEntry({
-        entries,
+        entries: childEntries,
         entry: menuEntry,
         defaultDepth: 2,
         sortIndex,
       });
     }
+
+    if (definition.name === 'model') {
+      childEntries.sort((left, right) =>
+        left.label.localeCompare(right.label, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    entries.push(...childEntries);
   }
 
-  return entries;
+  return dedupeTuiSlashMenuEntries(entries)
+    .sort(compareSlashMenuEntries)
+    .map((entry, sortIndex) => ({
+      ...entry,
+      sortIndex,
+    }));
 }
 
 export function rankTuiSlashMenuEntries(

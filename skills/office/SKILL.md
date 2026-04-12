@@ -3,8 +3,11 @@ name: office
 description: Internal shared OOXML helper scripts for DOCX, XLSX, and PPTX unpacking, validation, and repacking. Not a user-facing skill.
 user-invocable: false
 disable-model-invocation: true
+metadata:
+  hybridclaw:
+    category: office
+    short_description: "OOXML helper scripts."
 ---
-
 # Office Helpers
 
 This directory exists so shared OOXML helper scripts are synced into `/workspace/skills/office` inside the agent runtime.

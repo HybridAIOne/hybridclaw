@@ -1,0 +1,14 @@
+{
+  "name": "hybridclaw-plugin-brevo-email",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw plugin that provisions per-agent email addresses via Brevo inbound parsing and SMTP relay",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "html-to-text": "^9.0.5",
+    "nodemailer": "^7.0.3"
+  }
+}

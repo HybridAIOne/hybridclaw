@@ -239,6 +239,13 @@ export function TerminalPage() {
             }]\x1b[0m`,
           );
         }
+        if (parsed.type === 'shutdown') {
+          closeExpectedRef.current = true;
+          writeTerminalFooter(
+            terminalRef,
+            `\x1b[90m[service restarting, reconnect in ~${Math.ceil(parsed.restartExpectedMs / 1000)}s]\x1b[0m`,
+          );
+        }
       });
 
       socket.addEventListener('close', () => {

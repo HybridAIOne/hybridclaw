@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HybridClaw Chat</title>
+  <link rel="icon" type="image/svg+xml" href="/static/hybridclaw-logo.svg?v=brand">
+  <link rel="icon" type="image/png" sizes="96x96" href="/static/favicon-96x96.png">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <style>
     :root {
       --page-bg: #ffffff;
@@ -24,6 +28,7 @@
     html, body {
       margin: 0;
       height: 100%;
+      overflow: hidden;
       font-family: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter, NotoSansHans, sans-serif;
       background: var(--page-bg);
       color: var(--text);
@@ -32,12 +37,16 @@
     .layout {
       position: relative;
       z-index: 1;
-      height: 100vh;
+      min-height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
       display: grid;
       grid-template-columns: var(--nav-width) 1fr;
     }
 
     .sidebar {
+      min-height: 0;
+      overflow-y: auto;
       background: rgb(241, 245, 249);
       padding: 14px 14px 10px;
       display: flex;
@@ -287,17 +296,22 @@
 
     .chat {
       min-height: 0;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto 1fr;
       background: #ffffff;
     }
 
     .chat-topbar {
       display: flex;
+      align-items: center;
       justify-content: flex-end;
       padding: 16px 20px 12px;
       border-bottom: 1px solid var(--line);
       background: #ffffff;
+      gap: 10px;
     }
 
     .view-switch {
@@ -348,6 +362,7 @@
       min-height: 0;
       display: grid;
       grid-template-rows: 1fr auto;
+      overflow: hidden;
     }
 
     .messages {
@@ -484,6 +499,20 @@
       gap: 5px;
     }
 
+    .msg-block.is-approval {
+      width: max-content;
+      max-width: min(1240px, 100%);
+    }
+
+    .msg.assistant {
+      background: #ffffff;
+    }
+
+    .msg-block.is-approval .msg.assistant {
+      width: 100%;
+      max-width: none;
+    }
+
     .msg-block.user-block {
       margin-left: auto;
       align-items: flex-end;
@@ -493,6 +522,13 @@
       display: flex;
       justify-content: flex-start;
       gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .msg-actions.is-approval {
+      width: fit-content;
+      max-width: 100%;
+      gap: 8px;
     }
 
     .msg-block.user-block .msg-actions {
@@ -602,6 +638,51 @@
       font-weight: 500;
     }
 
+    .msg-action-btn.is-approval {
+      flex: 0 0 auto;
+      min-width: 0;
+      height: 32px;
+      padding: 0 12px;
+      justify-content: center;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 10px;
+    }
+
+    .msg-action-btn.is-approval-allow {
+      border-color: #79c894;
+      background: #c9efd4;
+      color: #1a5530;
+    }
+
+    .msg-action-btn.is-approval-allow:hover:not(:disabled) {
+      background: #b8e7c6;
+      color: #154627;
+    }
+
+    .msg-action-btn.is-approval-allow.is-primary {
+      border-color: #79c894;
+      background: #c9efd4;
+      color: #1a5530;
+    }
+
+    .msg-action-btn.is-approval-allow.is-primary:hover:not(:disabled) {
+      background: #b8e7c6;
+      color: #154627;
+    }
+
+    .msg-action-btn.is-approval-deny {
+      border-color: #e7a0a0;
+      background: #f7d4d4;
+      color: #8a2626;
+    }
+
+    .msg-action-btn.is-approval-deny:hover:not(:disabled) {
+      background: #f1c2c2;
+      color: #731d1d;
+    }
+
     .msg-action-btn.is-text:hover:not(:disabled) {
       background: #f6f8fc;
       color: #18253d;
@@ -661,10 +742,6 @@
       background: linear-gradient(135deg, var(--brand-blue), var(--brand-blue-2));
       border-color: transparent;
       color: #ffffff;
-    }
-
-    .msg.assistant {
-      background: #ffffff;
     }
 
     .msg-agent {
@@ -747,7 +824,16 @@
     }
 
     .composer {
+      position: relative;
+      z-index: 2;
       padding: 14px 20px 16px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.9) 24px,
+          #ffffff 54px
+        );
     }
 
     .chat.is-empty .chat-body {
@@ -757,6 +843,7 @@
       justify-content: center;
       padding: 0 20px;
       gap: 22px;
+      overflow: visible;
     }
 
     .chat.is-empty .messages {
@@ -783,6 +870,7 @@
       border-top: none;
       padding: 0;
       background: transparent;
+      position: static;
     }
 
     /* ── Prompt wrap: always-expanded card ── */
@@ -790,10 +878,10 @@
       display: flex;
       flex-direction: column;
       padding: 14px 16px 10px;
-      border: 1px solid var(--line);
+      border: 1px solid #d6deea;
       border-radius: 24px;
       background: #ffffff;
-      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 4px 14px rgba(31, 48, 77, 0.06);
     }
 
     .composer-bar {
@@ -877,6 +965,90 @@
       outline: none;
     }
 
+    .slash-suggestions {
+      position: absolute;
+      bottom: 100%;
+      left: 20px;
+      right: 20px;
+      margin: 0 0 6px;
+      padding: 4px;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.03),
+        0 4px 12px rgba(15, 23, 42, 0.08),
+        0 16px 40px rgba(15, 23, 42, 0.12);
+      z-index: 10;
+      max-height: 360px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .chat.is-empty .slash-suggestions {
+      left: 0;
+      right: 0;
+    }
+
+    .slash-suggestions[hidden] {
+      display: none;
+    }
+
+    .slash-suggestion {
+      width: 100%;
+      border: none;
+      background: transparent;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .slash-suggestion:hover {
+      background: #f1f5f9;
+    }
+
+    .slash-suggestion.is-active {
+      background: #e8f0fe;
+    }
+
+    .slash-suggestion-label {
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .slash-suggestion-args {
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .slash-suggestion.is-active .slash-suggestion-label {
+      color: #1a56db;
+      font-weight: 600;
+    }
+
+    .slash-suggestion.is-active .slash-suggestion-args {
+      color: #6b8fd4;
+    }
+
+    .slash-suggestion-description {
+      color: #64748b;
+      font-size: 11.5px;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* ── Action buttons ── */
     .composer-action {
       flex-shrink: 0;
@@ -933,47 +1105,144 @@
     }
 
     .error {
-      min-height: 20px;
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 96px;
+      z-index: 3;
+      min-height: 0;
       color: var(--error);
       font-size: 13px;
-      padding: 0 20px 14px;
+      padding: 0;
+      pointer-events: none;
     }
 
+    /* mobile-only elements – hidden on desktop */
+    .mobile-sidebar-backdrop {
+      display: none;
+    }
+
+    .mobile-brand {
+      display: none;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .mobile-brand img {
+      width: 26px;
+      height: 26px;
+      display: block;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: none;
+      background: transparent;
+      color: #526277;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .mobile-menu-btn svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    /* ── mobile: compact header + slide-out sidebar overlay ── */
     @media (max-width: 900px) {
       .layout {
         grid-template-columns: 1fr;
-        grid-template-rows: auto 1fr;
+        grid-template-rows: 1fr;
       }
 
+      /* sidebar → off-screen overlay */
       .sidebar {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
         border-right: none;
-        border-bottom: 1px solid #e3e8f0;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        width: 280px;
+        max-width: 85vw;
+        box-shadow: none;
+      }
+
+      .layout.is-mobile-sidebar-open .sidebar {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.12);
+      }
+
+      /* backdrop */
+      .mobile-sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99;
+        background: rgba(0,0,0,0.3);
+      }
+
+      .layout.is-mobile-sidebar-open .mobile-sidebar-backdrop {
+        display: block;
+      }
+
+      /* show hamburger + inline brand in topbar */
+      .mobile-menu-btn {
+        display: flex;
+      }
+
+      .mobile-brand {
+        display: flex;
+      }
+
+      /* compact topbar */
+      .chat-topbar {
+        padding: 6px 10px;
+        gap: 6px;
+      }
+
+      /* icon-only tabs, single row */
+      .view-switch {
+        width: 100%;
+        gap: 2px;
+        padding: 4px;
+        flex-wrap: nowrap;
+      }
+
+      .view-switch-link {
+        flex: 1 1 0;
+        justify-content: center;
+        padding: 7px 6px;
+        gap: 0;
+      }
+
+      .view-switch-link span:not(.sidebar-link-icon) {
+        display: none;
+      }
+
+      /* tighter content spacing */
+      .composer {
+        padding: 8px 12px 10px;
+      }
+
+      .messages {
+        padding: 12px;
       }
 
       .empty-greeting {
         font-size: clamp(22px, 6.8vw, 34px);
       }
     }
-
-    @media (max-width: 720px) {
-      .chat-topbar {
-        padding: 14px 16px 12px;
-      }
-
-      .view-switch {
-        width: 100%;
-      }
-
-      .view-switch-link {
-        flex: 1 1 0;
-        justify-content: center;
-      }
-    }
   </style>
 </head>
 <body>
   <div class="layout">
-    <aside class="sidebar">
+    <aside id="mobileSidebar" class="sidebar">
       <div class="sidebar-top">
         <div class="brand">
           <img
@@ -1009,10 +1278,23 @@
       <div id="appVersion" class="app-version">HybridClaw v...</div>
     </aside>
 
+    <div class="mobile-sidebar-backdrop" id="mobileSidebarBackdrop"></div>
+
     <main class="chat">
       <div class="chat-topbar">
+        <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" aria-label="Open menu" title="Open menu" aria-expanded="false" aria-controls="mobileSidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <title>Open menu</title>
+            <path d="M4 7h16"></path>
+            <path d="M4 12h16"></path>
+            <path d="M4 17h16"></path>
+          </svg>
+        </button>
+        <div class="mobile-brand" aria-hidden="true">
+          <img src="/static/hybridclaw-logo.svg" alt="">
+        </div>
         <nav class="view-switch" aria-label="Switch view">
-          <a class="view-switch-link is-active" href="/chat" aria-current="page">
+          <a class="view-switch-link is-active" href="/chat" aria-current="page" aria-label="Chat" title="Chat">
             <span class="sidebar-link-icon">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -1020,7 +1302,7 @@
             </span>
             <span>Chat</span>
           </a>
-          <a class="view-switch-link" href="/agents">
+          <a class="view-switch-link" href="/agents" aria-label="Agents" title="Agents">
             <span class="sidebar-link-icon">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="7" height="7" rx="2"></rect>
@@ -1031,7 +1313,7 @@
             </span>
             <span>Agents</span>
           </a>
-          <a class="view-switch-link" href="/admin">
+          <a class="view-switch-link" href="/admin" aria-label="Admin" title="Admin">
             <span class="sidebar-link-icon">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
@@ -1041,7 +1323,7 @@
             </span>
             <span>Admin</span>
           </a>
-          <a class="view-switch-link" href="https://github.com/HybridAIOne/hybridclaw">
+          <a class="view-switch-link" href="https://github.com/HybridAIOne/hybridclaw" aria-label="GitHub" title="GitHub">
             <span class="sidebar-link-icon">
               <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
@@ -1049,7 +1331,7 @@
             </span>
             <span>GitHub</span>
           </a>
-          <a class="view-switch-link" href="/docs">
+          <a class="view-switch-link" href="/docs" aria-label="Docs" title="Docs">
             <span class="sidebar-link-icon">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -1064,9 +1346,10 @@
         <section id="messages" class="messages"></section>
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
+          <div id="slashSuggestions" class="slash-suggestions" role="listbox" aria-label="Slash command suggestions" hidden></div>
           <div class="prompt-wrap">
             <div id="pendingMedia" class="pending-media" hidden></div>
-            <textarea id="message" rows="1" placeholder="Message HybridClaw"></textarea>
+            <textarea id="message" rows="1" placeholder="Message HybridClaw" aria-controls="slashSuggestions" aria-expanded="false" aria-autocomplete="list"></textarea>
             <div class="composer-bar">
               <button id="attach" type="button" class="composer-action" aria-label="Attach files">
                 <span aria-hidden="true">+</span>
@@ -1101,6 +1384,7 @@
     const attachEl = document.getElementById('attach');
     const attachmentInputEl = document.getElementById('attachmentInput');
     const pendingMediaEl = document.getElementById('pendingMedia');
+    const slashSuggestionsEl = document.getElementById('slashSuggestions');
 
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
@@ -1224,6 +1508,11 @@
     let activeChatRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
+    let slashSuggestionsVersion = 0;
+    let slashFetchBackoffUntil = 0;
+    let slashDebounceTimer = 0;
+    let activeSlashSuggestions = [];
+    let activeSlashSuggestionIndex = 0;
     const assistantAvatarObjectUrls = new Map();
     const assistantAvatarFetches = new Map();
     let bootstrapPollTimer = null;
@@ -1340,6 +1629,148 @@
       const attachmentText = buildPendingMediaSummary(media);
       if (!attachmentText) return text;
       return text ? `${text}\n\n${attachmentText}` : attachmentText;
+    }
+
+    function normalizeApprovalEvent(value) {
+      if (!value || typeof value !== 'object') return null;
+      const approvalId = String(value.approvalId || '').trim();
+      if (!approvalId) return null;
+      const expiresAt =
+        typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
+          ? value.expiresAt
+          : null;
+      return {
+        approvalId,
+        prompt: String(value.prompt || '').trim(),
+        summary: String(value.summary || '').trim(),
+        intent: String(value.intent || '').trim(),
+        reason: String(value.reason || '').trim(),
+        allowSession: value.allowSession === true,
+        allowAgent: value.allowAgent === true,
+        allowAll: value.allowAll === true,
+        expiresAt,
+      };
+    }
+
+    function extractPendingApprovalFromResult(value) {
+      return normalizeApprovalEvent(value?.pendingApproval || null);
+    }
+
+    function buildApprovalSummary(approval) {
+      const normalized = normalizeApprovalEvent(approval);
+      if (!normalized) return '';
+      if (normalized.summary) return normalized.summary;
+
+      const lines = [];
+      if (normalized.intent) {
+        lines.push(`Approval needed for: ${normalized.intent}`);
+      }
+      if (normalized.reason) {
+        lines.push(`Why: ${normalized.reason}`);
+      }
+      lines.push(`Approval ID: ${normalized.approvalId}`);
+      return lines.join('\n');
+    }
+
+    function buildApprovalUserMessage(action, approvalId) {
+      const normalizedAction = String(action || '').trim().toLowerCase();
+      const normalizedApprovalId = String(approvalId || '').trim();
+      const withApprovalId = (base) =>
+        normalizedApprovalId ? `${base} ${normalizedApprovalId}` : base;
+
+      if (normalizedAction === 'yes' || normalizedAction === '1') {
+        return withApprovalId('/approve yes');
+      }
+      if (normalizedAction === 'always') {
+        return normalizedApprovalId
+          ? `/approve always ${normalizedApprovalId}`
+          : '/approve always';
+      }
+      if (
+        normalizedAction === 'session' ||
+        normalizedAction === '2'
+      ) {
+        return normalizedApprovalId
+          ? `/approve session ${normalizedApprovalId}`
+          : '/approve session';
+      }
+      if (normalizedAction === 'agent' || normalizedAction === '3') {
+        return normalizedApprovalId
+          ? `/approve agent ${normalizedApprovalId}`
+          : '/approve agent';
+      }
+      if (normalizedAction === 'all' || normalizedAction === '4') {
+        return normalizedApprovalId
+          ? `/approve all ${normalizedApprovalId}`
+          : '/approve all';
+      }
+      if (
+        normalizedAction === 'no' ||
+        normalizedAction === 'deny' ||
+        normalizedAction === 'skip' ||
+        normalizedAction === '5'
+      ) {
+        return withApprovalId('/approve no');
+      }
+      return null;
+    }
+
+    function parseApprovalPrompt(content) {
+      const lines = String(content || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const intentLine =
+        lines.find((line) => line.startsWith('Approval needed for: ')) ||
+        lines.find((line) => line.startsWith('I need your approval before I '));
+      const reasonLine = lines.find((line) => line.startsWith('Why: '));
+      const approvalIdLine = lines.find((line) =>
+        line.startsWith('Approval ID: '),
+      );
+
+      if (!intentLine || !reasonLine || !approvalIdLine) {
+        return null;
+      }
+
+      let intent = intentLine.startsWith('Approval needed for: ')
+        ? intentLine.slice('Approval needed for: '.length).trim()
+        : intentLine.slice('I need your approval before I '.length).trim();
+      if (intent.endsWith('.')) {
+        intent = intent.slice(0, -1).trim();
+      }
+
+      const reason = reasonLine.slice('Why: '.length).trim();
+      const approvalId = approvalIdLine.slice('Approval ID: '.length).trim();
+      if (!intent || !reason || !approvalId) {
+        return null;
+      }
+
+      return {
+        approvalId,
+        prompt: String(content || '').trim(),
+        summary: lines
+          .filter(
+            (line) =>
+              line.startsWith('Approval needed for: ') ||
+              line.startsWith('Why: ') ||
+              line.startsWith('Approval ID: '),
+          )
+          .join('\n'),
+        intent,
+        reason,
+        allowSession: lines.some((line) =>
+          /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
+            line,
+          ),
+        ),
+        allowAgent: lines.includes(
+          'Reply `yes for agent` to trust it for this agent.',
+        ),
+        allowAll: lines.includes(
+          'Reply `yes for all` to add this action to the workspace allowlist.',
+        ),
+        expiresAt: null,
+      };
     }
 
     function cloneMediaList(media) {
@@ -1712,7 +2143,144 @@
 
     function autoResizeTextarea() {
       messageEl.style.height = 'auto';
-      messageEl.style.height = messageEl.scrollHeight + 'px';
+      messageEl.style.height = `${messageEl.scrollHeight}px`;
+    }
+
+    function resolveSlashCommandQuery() {
+      if (document.activeElement !== messageEl) return null;
+      if (messageEl.selectionStart !== messageEl.selectionEnd) return null;
+      if (messageEl.selectionStart !== messageEl.value.length) return null;
+      const value = messageEl.value;
+      if (!value.startsWith('/')) return null;
+      if (value.includes('\n')) return null;
+      return value.slice(1);
+    }
+
+    async function fetchSlashSuggestions(query) {
+      if (Date.now() < slashFetchBackoffUntil) return [];
+      const url = query
+        ? '/api/chat/commands?q=' + encodeURIComponent(query)
+        : '/api/chat/commands';
+      try {
+        const payload = await requestJson(url, {
+          method: 'GET',
+          headers: apiHeaders(),
+        });
+        return Array.isArray(payload.commands)
+          ? payload.commands.map((entry) => ({
+              id: String(entry?.id || '').trim(),
+              label: String(entry?.label || '').trim(),
+              insertText: String(entry?.insertText || ''),
+              description: String(entry?.description || '').trim(),
+              depth: Number(entry?.depth) || 99,
+            }))
+          : [];
+      } catch (err) {
+        slashFetchBackoffUntil = Date.now() + 5000;
+        if (err instanceof Error && /401|unauthorized/i.test(err.message)) {
+          setError('Session expired. Please refresh to re-authenticate.');
+        }
+        console.warn('[slash-suggestions] fetch failed:', err);
+        return [];
+      }
+    }
+
+    function hideSlashSuggestions() {
+      activeSlashSuggestions = [];
+      activeSlashSuggestionIndex = 0;
+      slashSuggestionsEl.hidden = true;
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
+      messageEl.setAttribute('aria-expanded', 'false');
+      messageEl.removeAttribute('aria-activedescendant');
+    }
+
+    function applySlashSuggestion(entry) {
+      if (!entry) return;
+      messageEl.value = entry.insertText;
+      messageEl.focus();
+      const caret = messageEl.value.length;
+      messageEl.setSelectionRange(caret, caret);
+      autoResizeTextarea();
+      hideSlashSuggestions();
+      updateComposerState();
+    }
+
+    function renderSlashSuggestionsList(entries) {
+      activeSlashSuggestions = entries;
+      if (activeSlashSuggestionIndex >= entries.length) {
+        activeSlashSuggestionIndex = 0;
+      }
+      if (activeSlashSuggestionIndex < 0) {
+        activeSlashSuggestionIndex = entries.length - 1;
+      }
+      if (entries.length === 0) {
+        hideSlashSuggestions();
+        return;
+      }
+
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
+      entries.forEach((entry, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'slash-suggestion';
+        button.setAttribute('role', 'option');
+        button.id = 'slash-opt-' + index;
+        const isActive = index === activeSlashSuggestionIndex;
+        if (isActive) {
+          button.classList.add('is-active');
+          button.setAttribute('aria-selected', 'true');
+        } else {
+          button.setAttribute('aria-selected', 'false');
+        }
+
+        const label = document.createElement('div');
+        label.className = 'slash-suggestion-label';
+        const argsMatch = entry.label.match(/^(.+?)\s+([<[].+)$/);
+        if (argsMatch) {
+          label.textContent = argsMatch[1] + ' ';
+          const args = document.createElement('span');
+          args.className = 'slash-suggestion-args';
+          args.textContent = argsMatch[2];
+          label.appendChild(args);
+        } else {
+          label.textContent = entry.label;
+          if (entry.insertText && entry.insertText.endsWith(' ')) {
+            const hint = document.createElement('span');
+            hint.className = 'slash-suggestion-args';
+            hint.textContent = ' …';
+            label.appendChild(hint);
+          }
+        }
+        button.appendChild(label);
+
+        if (entry.description) {
+          const description = document.createElement('div');
+          description.className = 'slash-suggestion-description';
+          description.textContent = entry.description;
+          button.appendChild(description);
+        }
+
+        button.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+          applySlashSuggestion(entry);
+        });
+        slashSuggestionsEl.appendChild(button);
+      });
+      slashSuggestionsEl.hidden = false;
+      messageEl.setAttribute('aria-expanded', 'true');
+      messageEl.setAttribute('aria-activedescendant', 'slash-opt-' + activeSlashSuggestionIndex);
+    }
+
+    async function renderSlashSuggestions() {
+      const query = resolveSlashCommandQuery();
+      if (query == null || activeChatRequest) {
+        hideSlashSuggestions();
+        return;
+      }
+      const version = ++slashSuggestionsVersion;
+      const entries = await fetchSlashSuggestions(query);
+      if (version !== slashSuggestionsVersion) return;
+      renderSlashSuggestionsList(entries);
     }
 
     function updateComposerState() {
@@ -1734,6 +2302,9 @@
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
       messageEl.disabled = isRunning;
+      if (isRunning) {
+        hideSlashSuggestions();
+      }
     }
 
     function setError(text) {
@@ -1874,7 +2445,17 @@
 
         if (!line.trim()) {
           flushParagraph();
-          closeList();
+          // Look ahead past blank lines: keep the list open when the next
+          // non-empty line continues the same list type (#206)
+          if (openList) {
+            let ahead = index + 1;
+            while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+            const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
+            const continuesList =
+              (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
+              (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
+            if (!continuesList) closeList();
+          }
           index += 1;
           continue;
         }
@@ -2004,6 +2585,10 @@
     function updateEmptyState() {
       const hasMessages = messagesEl.children.length > 0;
       chatEl.classList.toggle('is-empty', !hasMessages);
+    }
+
+    function scrollChatToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function isScrolledNearBottom(element, threshold = 64) {
@@ -2193,13 +2778,101 @@
       actions.appendChild(switcher);
     }
 
+    async function handleApprovalAction(block, action) {
+      const meta = getMessageMeta(block);
+      const approval = normalizeApprovalEvent(meta?.pendingApproval);
+      if (!meta || meta.role !== 'assistant' || !approval) return;
+      if (activeChatRequest) {
+        setError('Stop the current run before responding to an approval.');
+        return;
+      }
+
+      const approvalContent = buildApprovalUserMessage(action, approval.approvalId);
+      if (!approvalContent) {
+        setError('Unknown approval action.');
+        return;
+      }
+
+      setError('');
+      const parent = block.parentNode;
+      const nextSibling = block.nextSibling;
+      block.remove();
+      updateEmptyState();
+
+      const result = await submitPrompt(approvalContent, [], {
+        sessionId: meta.sessionId || activeSessionId,
+        clearComposer: false,
+        clearPendingMedia: false,
+        hideUserMessage: true,
+      });
+
+      if (result || !parent) return;
+
+      if (nextSibling && nextSibling.parentNode === parent) {
+        parent.insertBefore(block, nextSibling);
+      } else {
+        parent.appendChild(block);
+      }
+      setMessageMeta(block, {
+        pendingApproval: approval,
+        approvalBusy: false,
+      });
+      renderMessageActions(block);
+      updateEmptyState();
+    }
+
+    function renderApprovalActionButtons(actions, meta) {
+      const approval = normalizeApprovalEvent(meta.pendingApproval);
+      if (!approval) return;
+
+      actions.classList.add('is-approval');
+      const disabled = Boolean(meta.approvalBusy || activeChatRequest);
+      const appendButton = (label, action, options = {}) => {
+        const button = createTextActionButton({
+          label,
+          title: label,
+          ariaLabel: label,
+          primary: options.primary === true,
+          onClick: () => {
+            void handleApprovalAction(meta.block, action);
+          },
+        });
+        button.classList.add('is-approval');
+        if (options.kind === 'deny') {
+          button.classList.add('is-approval-deny');
+        } else {
+          button.classList.add('is-approval-allow');
+        }
+        button.disabled = disabled;
+        actions.appendChild(button);
+      };
+
+      appendButton('Allow once', 'yes', { primary: true });
+      if (approval.allowSession) {
+        appendButton('Allow always', 'always');
+      }
+      if (approval.allowAgent) {
+        appendButton('Allow agent', 'agent');
+      }
+      if (approval.allowAll) {
+        appendButton('Allow all', 'all');
+      }
+      appendButton('Deny', 'no', { kind: 'deny' });
+    }
+
     function renderMessageActions(block) {
       const meta = getMessageMeta(block);
       if (!meta?.actionsEl) return;
       const actions = meta.actionsEl;
       actions.innerHTML = '';
+      actions.classList.toggle('is-approval', Boolean(meta.pendingApproval));
 
       if (meta.role === 'assistant') {
+        if (meta.pendingApproval) {
+          renderApprovalActionButtons(actions, meta);
+          return;
+        }
+
         if (meta.replayRequest) {
           const regenerate = createMessageActionButton({
             label: '↻',
@@ -2307,6 +2980,9 @@
       if (role === 'user') {
         block.classList.add('user-block');
       }
+      if (role === 'assistant' && options.pendingApproval) {
+        block.classList.add('is-approval');
+      }
       block.appendChild(item);
 
       if (role === 'assistant') {
@@ -2336,14 +3012,23 @@
           artifactsEl: role === 'assistant' ? artifactsBlock || null : null,
           replayRequest: options.replayRequest || null,
           branchKey: options.branchKey || null,
+          pendingApproval:
+            role === 'assistant'
+              ? normalizeApprovalEvent(options.pendingApproval)
+              : null,
+          approvalBusy: false,
           isEditing: false,
         });
+        block.classList.toggle(
+          'is-approval',
+          role === 'assistant' && Boolean(options.pendingApproval),
+        );
         renderMessageActions(block);
       }
 
       messagesEl.appendChild(block);
       updateEmptyState();
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollChatToBottom();
       return {
         block,
         item,
@@ -2365,6 +3050,10 @@
       const hasNextArtifacts = nextArtifacts.length > 0;
       const hasCurrentArtifacts = Array.isArray(meta.artifacts) && meta.artifacts.length > 0;
       let nextArtifactsEl = meta.artifactsEl || null;
+      const pendingApprovalProvided = Object.hasOwn(
+        options,
+        'pendingApproval',
+      );
       if (hasNextArtifacts || hasCurrentArtifacts) {
         if (meta.artifactsEl?.isConnected) {
           meta.artifactsEl.remove();
@@ -2386,10 +3075,24 @@
         artifacts: nextArtifacts,
         artifactsEl: nextArtifactsEl,
         replayRequest: options.replayRequest || meta.replayRequest || null,
+        ...(pendingApprovalProvided
+          ? {
+              pendingApproval: normalizeApprovalEvent(options.pendingApproval),
+              approvalBusy: false,
+            }
+          : {}),
       });
+      block.classList.toggle(
+        'is-approval',
+        Boolean(
+          pendingApprovalProvided
+            ? options.pendingApproval
+            : meta.pendingApproval,
+        ),
+      );
 
       if (shouldAutoScroll) {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollChatToBottom();
       }
     }
 
@@ -2404,7 +3107,7 @@
       item.appendChild(dots);
       messagesEl.appendChild(item);
       updateEmptyState();
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollChatToBottom();
       return item;
     }
 
@@ -2572,6 +3275,15 @@
         }
 
         if (payload.type === 'text' && typeof payload.delta === 'string') {
+          onEvent(payload);
+          return null;
+        }
+
+        if (
+          payload.type === 'approval' &&
+          typeof payload.approvalId === 'string' &&
+          typeof payload.prompt === 'string'
+        ) {
           onEvent(payload);
           return null;
         }
@@ -2816,6 +3528,9 @@
             continue;
           }
           if (role === 'assistant') {
+            if (parseApprovalPrompt(content)) {
+              continue;
+            }
             addMessage(role, content, undefined, {
               sessionId: activeSessionId,
               messageId,
@@ -2900,13 +3615,16 @@
 
       savePrefs();
       setError('');
-      const userView = addMessage('user', previewText, undefined, {
-        sessionId: targetSessionId,
-        copyText: previewText,
-        rawContent: content,
-        media: queuedMedia,
-        branchKey: options.branchKey || null,
-      });
+      const userView =
+        options.hideUserMessage === true
+          ? null
+          : addMessage('user', previewText, undefined, {
+              sessionId: targetSessionId,
+              copyText: previewText,
+              rawContent: content,
+              media: queuedMedia,
+              branchKey: options.branchKey || null,
+            });
       if (options.clearComposer !== false) {
         messageEl.value = '';
       }
@@ -2924,6 +3642,7 @@
         assistantBlock: null,
         assistantText: '',
         assistantRenderFrame: 0,
+        pendingApproval: null,
         stopRequested: false,
         stopping: false,
       };
@@ -2931,10 +3650,13 @@
       updateComposerState();
 
       try {
-        const replayRequest = {
-          content,
-          media: queuedMedia,
-        };
+        const replayRequest =
+          options.hideUserMessage === true
+            ? null
+            : {
+                content,
+                media: queuedMedia,
+              };
         const ensureAssistantBlock = () => {
           if (requestState.assistantBlock?.isConnected) {
             return requestState.assistantBlock;
@@ -2956,6 +3678,7 @@
           updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
             sessionId: requestState.sessionId,
             replayRequest,
+            pendingApproval: requestState.pendingApproval,
           });
         };
         const scheduleAssistantRender = () => {
@@ -2987,9 +3710,24 @@
           }),
           signal: requestState.controller.signal,
           onEvent: (event) => {
-            if (event.type !== 'text' || !event.delta) return;
-            requestState.assistantText += event.delta;
-            scheduleAssistantRender();
+            if (event.type === 'text' && event.delta) {
+              requestState.assistantText += event.delta;
+              scheduleAssistantRender();
+              return;
+            }
+
+            if (event.type === 'approval') {
+              requestState.pendingApproval = normalizeApprovalEvent(event);
+              if (
+                requestState.pendingApproval &&
+                !String(requestState.assistantText || '').trim()
+              ) {
+                requestState.assistantText = buildApprovalSummary(
+                  requestState.pendingApproval,
+                );
+              }
+              scheduleAssistantRender();
+            }
           },
         });
         if (payload.status === 'error') {
@@ -3008,17 +3746,35 @@
           renderMessageActions(requestState.userBlock);
         }
         flushAssistantRender();
-        const assistantBlock =
-          requestState.assistantBlock || ensureAssistantBlock();
+        const rawAssistantText = payload.result || requestState.assistantText || '';
+        const parsedApprovalPrompt = parseApprovalPrompt(rawAssistantText);
+        const pendingApproval =
+          extractPendingApprovalFromResult(payload) ||
+          requestState.pendingApproval ||
+          parsedApprovalPrompt;
+        const finalAssistantText = pendingApproval
+          ? parsedApprovalPrompt?.summary ||
+            buildApprovalSummary(pendingApproval)
+          : rawAssistantText;
+        const shouldRenderAssistant = Boolean(
+          requestState.assistantBlock ||
+            finalAssistantText ||
+            (payload.artifacts || []).length > 0 ||
+            pendingApproval,
+        );
+        const assistantBlock = shouldRenderAssistant
+          ? requestState.assistantBlock || ensureAssistantBlock()
+          : null;
         if (assistantBlock) {
           updateAssistantMessage(
             assistantBlock,
-            payload.result || requestState.assistantText || '',
+            finalAssistantText,
             payload.artifacts || [],
             {
               sessionId: activeSessionId,
               messageId: normalizeMessageId(payload.assistantMessageId),
               replayRequest,
+              pendingApproval,
             },
           );
           renderMessageActions(assistantBlock);
@@ -3055,6 +3811,9 @@
           activeChatRequest = null;
         }
         updateComposerState();
+        if (requestState.assistantBlock?.isConnected) {
+          renderMessageActions(requestState.assistantBlock);
+        }
       }
 
       return null;
@@ -3120,6 +3879,7 @@
       savePrefs();
       renderRecentSessions();
       setError('');
+      hideSlashSuggestions();
       await loadHistory();
       messageEl.focus();
     }
@@ -3148,6 +3908,7 @@
       savePrefs();
       renderRecentSessions();
       setError('');
+      hideSlashSuggestions();
       messageEl.focus();
     }
 
@@ -3171,14 +3932,107 @@
       void uploadSelectedFiles(attachmentInputEl.files);
     });
     document.getElementById('newChat').addEventListener('click', newChat);
-    document.getElementById('sidebarToggle').addEventListener('click', () => {
+    const sidebarToggleBtn = document.getElementById('sidebarToggle');
+    const mobileSidebarMedia = window.matchMedia('(max-width: 900px)');
+    sidebarToggleBtn.addEventListener('click', () => {
+      if (mobileSidebarMedia.matches) {
+        closeMobileSidebar();
+        return;
+      }
       layoutEl.classList.toggle('is-sidebar-collapsed');
     });
+
+    /* ── mobile sidebar overlay toggle ── */
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const mobileSidebarBackdrop = document.getElementById('mobileSidebarBackdrop');
+
+    function openMobileSidebar() {
+      layoutEl.classList.add('is-mobile-sidebar-open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'true');
+    }
+    function closeMobileSidebar() {
+      layoutEl.classList.remove('is-mobile-sidebar-open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+    function toggleMobileSidebar() {
+      if (layoutEl.classList.contains('is-mobile-sidebar-open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
+    }
+
+    mobileMenuBtn.addEventListener('click', toggleMobileSidebar);
+    mobileSidebarBackdrop.addEventListener('click', closeMobileSidebar);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && layoutEl.classList.contains('is-mobile-sidebar-open')) {
+        closeMobileSidebar();
+      }
+    });
+
+    /* close sidebar when a nav link inside it is tapped on mobile */
+    document.querySelector('.sidebar').addEventListener('click', (e) => {
+      if (e.target.closest('.sidebar-link, .new-chat-btn, .chat-session-link')) {
+        closeMobileSidebar();
+      }
+    });
+    function scheduleSlashSuggestions(delay) {
+      clearTimeout(slashDebounceTimer);
+      if (delay <= 0) {
+        void renderSlashSuggestions();
+      } else {
+        slashDebounceTimer = setTimeout(() => void renderSlashSuggestions(), delay);
+      }
+    }
     messageEl.addEventListener('input', () => {
       autoResizeTextarea();
       updateComposerState();
+      scheduleSlashSuggestions(150);
+    });
+    messageEl.addEventListener('focus', () => {
+      scheduleSlashSuggestions(0);
+    });
+    messageEl.addEventListener('click', () => {
+      if (resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
+    });
+    document.addEventListener('selectionchange', () => {
+      if (document.activeElement === messageEl && resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
     });
     messageEl.addEventListener('keydown', (event) => {
+      if (activeSlashSuggestions.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          activeSlashSuggestionIndex =
+            (activeSlashSuggestionIndex + 1) % activeSlashSuggestions.length;
+          renderSlashSuggestionsList(activeSlashSuggestions);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          activeSlashSuggestionIndex =
+            (activeSlashSuggestionIndex - 1 + activeSlashSuggestions.length) %
+            activeSlashSuggestions.length;
+          renderSlashSuggestionsList(activeSlashSuggestions);
+          return;
+        }
+        if (
+          event.key === 'Tab' ||
+          (event.key === 'Enter' && !event.shiftKey)
+        ) {
+          event.preventDefault();
+          applySlashSuggestion(activeSlashSuggestions[activeSlashSuggestionIndex]);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          hideSlashSuggestions();
+          return;
+        }
+      }
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         if (activeChatRequest) return;
@@ -3190,6 +4044,11 @@
       if (pastedFiles.length === 0) return;
       event.preventDefault();
       void uploadSelectedFiles(pastedFiles);
+    });
+    document.addEventListener('mousedown', (event) => {
+      if (!slashSuggestionsEl.contains(event.target) && event.target !== messageEl) {
+        hideSlashSuggestions();
+      }
     });
     introIndex = Math.floor(Math.random() * introLines.length);
     renderIntro();

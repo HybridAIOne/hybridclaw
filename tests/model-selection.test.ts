@@ -4,6 +4,7 @@ import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
+  sortSelectableModelEntries,
 } from '../src/model-selection.js';
 
 test('normalizeModelCandidates trims and deduplicates model names', () => {
@@ -29,6 +30,42 @@ test('parseModelNamesFromListText strips current markers from gateway list outpu
   ).toEqual([
     'gpt-5-nano',
     'lmstudio/qwen/qwen3.5-9b',
+    'openai-codex/gpt-5-codex',
+  ]);
+});
+
+test('sortSelectableModelEntries groups the selector by normalized model id', () => {
+  expect(
+    sortSelectableModelEntries([
+      {
+        label: 'lmstudio/bonsai-8b',
+        value: 'lmstudio/bonsai-8b',
+        isFree: false,
+        recommended: false,
+      },
+      {
+        label: 'hybridai/mistral-large',
+        value: 'hybridai/mistral-large',
+        isFree: false,
+        recommended: false,
+      },
+      {
+        label: 'hybridai/grok-4.20-0309-non-reasoning',
+        value: 'hybridai/grok-4.20-0309-non-reasoning',
+        isFree: false,
+        recommended: false,
+      },
+      {
+        label: 'openai-codex/gpt-5-codex',
+        value: 'openai-codex/gpt-5-codex',
+        isFree: false,
+        recommended: false,
+      },
+    ]).map((entry) => entry.value),
+  ).toEqual([
+    'hybridai/grok-4.20-0309-non-reasoning',
+    'hybridai/mistral-large',
+    'lmstudio/bonsai-8b',
     'openai-codex/gpt-5-codex',
   ]);
 });

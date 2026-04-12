@@ -1,3 +1,4 @@
+import { APPROVE_COMMAND_USAGE } from './approval-commands.js';
 import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
 
 export interface CanonicalTuiMenuPresentation {
@@ -15,6 +16,13 @@ export interface CanonicalTuiMenuEntryDefinition {
   depth?: number;
 }
 
+export type LocalSessionSurface = 'tui' | 'web';
+
+export interface LocalSessionSlashHelpEntry {
+  command: string;
+  description: string;
+}
+
 export interface CanonicalSlashCommandDefinition {
   name: string;
   description: string;
@@ -22,6 +30,7 @@ export interface CanonicalSlashCommandDefinition {
   tuiMenu?: CanonicalTuiMenuPresentation;
   tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
   tuiOnly?: boolean;
+  localSurfaces?: LocalSessionSurface[];
 }
 
 export type CanonicalSlashStringOptionDefinition = {
@@ -56,15 +65,25 @@ export interface PluginSlashCommandCatalogEntry {
   description?: string;
 }
 
+interface LocalSessionHelpPresentation {
+  command?: string;
+  description?: string;
+  surfaces?: LocalSessionSurface[];
+  commandBySurface?: Partial<Record<LocalSessionSurface, string>>;
+}
+
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
   'bot',
   'config',
+  'dream',
+  'secret',
   'concierge',
   'rag',
   'model',
   'status',
+  'memory',
   'show',
   'approve',
   'usage',
@@ -72,6 +91,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
+  'eval',
   'channel',
   'ralph',
   'mcp',
@@ -85,8 +105,10 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
 const APPROVAL_ACTION_CHOICES = [
   { name: 'view', value: 'view' },
   { name: 'yes', value: 'yes' },
+  { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
+  { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
 
@@ -132,6 +154,7 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'local', value: 'local' },
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
+  { name: 'llamacpp', value: 'llamacpp' },
   { name: 'vllm', value: 'vllm' },
 ] satisfies Array<{ name: string; value: string }>;
 
@@ -141,8 +164,116 @@ const CONCIERGE_PROFILE_CHOICES = [
   { name: 'no_hurry', value: 'no_hurry' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
+  string,
+  LocalSessionHelpPresentation
+> = {
+  agent: {
+    command: '/agent [info|list|switch|create|model] [id] [--model <model>]',
+    description: 'Inspect or manage agents',
+  },
+  approve: {
+    command: APPROVE_COMMAND_USAGE,
+    description: 'View/respond to pending approvals',
+  },
+  audit: {
+    command: '/audit [sessionId]',
+    description: 'Show recent structured audit events',
+  },
+  auth: {
+    command: '/auth status <provider>',
+    description: 'Show local provider auth and config status',
+  },
+  bot: {
+    command: '/bot [info|list|set <id|name>|clear]',
+    description: 'Manage the chatbot for this session',
+  },
+  concierge: {
+    command:
+      '/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]',
+    description: 'Configure concierge routing',
+  },
+  config: {
+    command: '/config [check|reload|set <key> <value>]',
+    description: 'Show or update local runtime config',
+  },
+  export: {
+    command: '/export session [sessionId] | /export trace [sessionId|all]',
+    description: 'Export session snapshot or trace JSONL',
+  },
+  fullauto: {
+    command: '/fullauto [status|off|on [prompt]|prompt]',
+    description: 'Enable or inspect session full-auto mode',
+  },
+  help: {
+    command: '/help',
+    description: 'Show this help',
+  },
+  info: {
+    command: '/info',
+    description: 'Show current settings',
+  },
+  mcp: {
+    command: '/mcp [list|add|toggle|remove|reconnect] [name] [json]',
+    description: 'Manage MCP servers',
+  },
+  model: {
+    command:
+      '/model [<name>|info|list [provider]|set <name>|clear|default [name]]',
+    description: 'Inspect or set session/default model',
+  },
+  memory: {
+    command: '/memory inspect [sessionId] | /memory query <query>',
+    description:
+      'Inspect memory layers or preview prompt-time memory attachment',
+  },
+  plugin: {
+    command:
+      '/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]',
+    description: 'Manage installed plugins',
+  },
+  ralph: {
+    command: '/ralph [info|on|off|set n]',
+    description: 'Configure Ralph loop',
+  },
+  schedule: {
+    command: '/schedule add "<cron>" <prompt>',
+    description: 'Add a scheduled task',
+  },
+  secret: {
+    command: '/secret [list|set|show|unset|route]',
+    description: 'Manage stored secrets and URL auth routes',
+  },
+  skill: {
+    command:
+      '/skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+    description:
+      'Manage skill config, dependencies, health, runs, amendments, and imports',
+  },
+  usage: {
+    command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
+    description: 'Show usage',
+  },
+};
+
 function tokenizeFreeformText(value: string): string[] {
   return value.match(/"[^"]*"|\S+/g) ?? [];
+}
+
+function isAvailableOnLocalSurface(
+  definition: CanonicalSlashCommandDefinition,
+  surface: LocalSessionSurface,
+): boolean {
+  return (
+    !definition.localSurfaces || definition.localSurfaces.includes(surface)
+  );
+}
+
+function compareCommandLabels(left: string, right: string): number {
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
 }
 
 function normalizeStringOption(
@@ -269,6 +400,14 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'status':
       return ['status'];
 
+    case 'memory': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['memory', 'inspect'];
+      if (sub === 'inspect') return ['memory', 'inspect', ...parts.slice(2)];
+      if (sub === 'query') return ['memory', 'query', ...parts.slice(2)];
+      return ['memory', 'inspect', ...parts.slice(1)];
+    }
+
     case 'auth': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub) return ['auth'];
@@ -316,14 +455,30 @@ export function mapCanonicalCommandToGatewayArgs(
         return ['plugin', 'config', pluginId, key, value];
       }
       if (sub === 'install') {
-        const source = parts.slice(2).join(' ').trim();
-        return source ? ['plugin', 'install', source] : ['plugin', 'install'];
+        const yes = (parts[parts.length - 1] || '').trim();
+        const hasYes = yes === '--yes';
+        const source = parts
+          .slice(2, hasYes ? -1 : undefined)
+          .join(' ')
+          .trim();
+        return source
+          ? ['plugin', 'install', source, ...(hasYes ? ['--yes'] : [])]
+          : ['plugin', 'install'];
       }
       if (sub === 'reinstall') {
-        const source = parts.slice(2).join(' ').trim();
+        const yes = (parts[parts.length - 1] || '').trim();
+        const hasYes = yes === '--yes';
+        const source = parts
+          .slice(2, hasYes ? -1 : undefined)
+          .join(' ')
+          .trim();
         return source
-          ? ['plugin', 'reinstall', source]
+          ? ['plugin', 'reinstall', source, ...(hasYes ? ['--yes'] : [])]
           : ['plugin', 'reinstall'];
+      }
+      if (sub === 'check') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', 'check', pluginId] : ['plugin', 'check'];
       }
       if (sub === 'reload') return ['plugin', 'reload'];
       if (sub === 'uninstall') {
@@ -350,8 +505,20 @@ export function mapCanonicalCommandToGatewayArgs(
       return null;
     }
 
+    case 'secret':
+      return parts.length > 1 ? ['secret', ...parts.slice(1)] : ['secret'];
+
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
+
+    case 'dream': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['dream'];
+      if (sub === 'on' || sub === 'off' || sub === 'now' || sub === 'status') {
+        return ['dream', sub];
+      }
+      return ['dream', ...parts.slice(1)];
+    }
 
     case 'compact':
       return ['compact'];
@@ -382,6 +549,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
 
+    case 'eval':
+      return ['eval', ...parts.slice(1)];
+
     case 'stop':
     case 'abort':
       return ['stop'];
@@ -405,6 +575,27 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'memory',
+      description:
+        'Inspect memory layers or preview prompt-time memory attachment',
+      localSurfaces: ['tui', 'web'],
+      tuiMenuEntries: [
+        {
+          id: 'memory.inspect',
+          label: '/memory inspect [sessionId]',
+          insertText: '/memory inspect ',
+          description: 'Inspect the built-in memory layers for a session',
+        },
+        {
+          id: 'memory.query',
+          label: '/memory query <query>',
+          insertText: '/memory query ',
+          description:
+            'Preview the exact memory block the current session would attach',
+        },
+      ],
     },
     {
       name: 'show',
@@ -451,6 +642,13 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Approve the pending request once',
         },
         {
+          id: 'approve.always',
+          label: '/approve always [approval_id]',
+          insertText: '/approve always',
+          description:
+            'Approve the pending request for the rest of the conversation',
+        },
+        {
           id: 'approve.session',
           label: '/approve session [approval_id]',
           insertText: '/approve session',
@@ -463,6 +661,13 @@ function buildSlashCommandCatalogDefinitions(
           insertText: '/approve agent',
           description:
             'Approve the pending request for the current agent workspace',
+        },
+        {
+          id: 'approve.all',
+          label: '/approve all [approval_id]',
+          insertText: '/approve all',
+          description:
+            'Approve the pending request for the workspace allowlist',
         },
         {
           id: 'approve.no',
@@ -488,6 +693,48 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'dream',
+      description: 'Control nightly memory consolidation and run it on demand',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'dream.now',
+          label: '/dream now',
+          insertText: '/dream now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          id: 'dream.on',
+          label: '/dream on',
+          insertText: '/dream on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          id: 'dream.off',
+          label: '/dream off',
+          insertText: '/dream off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'now',
+          description: 'Run memory consolidation across agent workspaces now',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable nightly dream consolidation',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable nightly dream consolidation',
+        },
+      ],
     },
     {
       name: 'channel-mode',
@@ -892,6 +1139,57 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'secret',
+      description:
+        'Manage encrypted local secrets and URL-based HTTP auth injection',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'secret.list',
+          label: '/secret list',
+          insertText: '/secret list',
+          description: 'List stored secret names and HTTP auth routes',
+        },
+        {
+          id: 'secret.set',
+          label: '/secret set <name> <value>',
+          insertText: '/secret set ',
+          description: 'Store an encrypted named secret',
+        },
+        {
+          id: 'secret.route.add',
+          label: '/secret route add <url-prefix> <secret-name>',
+          insertText: '/secret route add ',
+          description: 'Auto-attach a stored secret to matching HTTP requests',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Secret command action',
+          choices: [
+            { name: 'list', value: 'list' },
+            { name: 'set', value: 'set' },
+            { name: 'unset', value: 'unset' },
+            { name: 'show', value: 'show' },
+            { name: 'route', value: 'route' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'name',
+          description: 'Secret name or route subcommand',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description:
+            'Secret value, URL prefix, or additional route arguments',
+        },
+      ],
+    },
+    {
       name: 'plugin',
       description:
         'List, configure, enable, disable, install, reinstall, reload, or uninstall HybridClaw plugins',
@@ -968,15 +1266,23 @@ function buildSlashCommandCatalogDefinitions(
           name: 'install',
           description: 'Install a plugin from a local TUI/web session',
           tuiMenu: {
-            label: '/plugin install <path|npm-spec>',
+            label: '/plugin install <path|plugin-id|npm-spec>',
             insertText: '/plugin install ',
           },
           options: [
             {
               kind: 'string',
               name: 'source',
-              description: 'Local plugin path or npm package spec',
+              description:
+                'Local plugin path, repo-local plugin id, or npm package spec',
               required: true,
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description:
+                'Optional --yes override to approve dependency installs',
+              choices: [{ name: '--yes', value: '--yes' }],
             },
           ],
         },
@@ -986,14 +1292,40 @@ function buildSlashCommandCatalogDefinitions(
           description:
             'Replace an installed plugin from a local TUI/web session',
           tuiMenu: {
-            label: '/plugin reinstall <path|npm-spec>',
+            label: '/plugin reinstall <path|plugin-id|npm-spec>',
             insertText: '/plugin reinstall ',
           },
           options: [
             {
               kind: 'string',
               name: 'source',
-              description: 'Local plugin path or npm package spec',
+              description:
+                'Local plugin path, repo-local plugin id, or npm package spec',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description:
+                'Optional --yes override to approve dependency installs',
+              choices: [{ name: '--yes', value: '--yes' }],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'check',
+          description:
+            'Check dependency, env, and binary status for one plugin',
+          tuiMenu: {
+            label: '/plugin check <plugin-id>',
+            insertText: '/plugin check ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'plugin-id',
+              description: 'Plugin id to inspect',
               required: true,
             },
           ],
@@ -1317,7 +1649,7 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'sessions',
-      description: 'List active sessions',
+      description: 'List chat sessions or inspect active sandbox sessions',
     },
     {
       name: 'audit',
@@ -1382,6 +1714,153 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'eval',
+      description:
+        'Local eval recipes and detached benchmark runs via the OpenAI-compatible gateway',
+      tuiOnly: true,
+      tuiMenu: {
+        label: '/eval [list|env|<suite>|<command...>]',
+        insertText: '/eval ',
+      },
+      tuiMenuEntries: [
+        {
+          id: 'eval.list',
+          label: '/eval list',
+          insertText: '/eval list',
+          description: 'List supported eval suites and starter recipes',
+        },
+        {
+          id: 'eval.env',
+          label: '/eval env',
+          insertText: '/eval env',
+          description:
+            'Show the injected OpenAI-compatible base URL and model without exposing tokens',
+        },
+        {
+          id: 'eval.swebench-verified',
+          label: '/eval swebench-verified',
+          insertText: '/eval swebench-verified',
+          description: 'Stub entry for a planned SWE-bench Verified runner',
+        },
+        {
+          id: 'eval.locomo',
+          label: '/eval locomo',
+          insertText: '/eval locomo',
+          description: 'Show the native LOCOMO memory benchmark commands',
+        },
+        {
+          id: 'eval.locomo.setup',
+          label: '/eval locomo setup',
+          insertText: '/eval locomo setup',
+          description:
+            'Download the official LOCOMO dataset into the local eval workspace',
+        },
+        {
+          id: 'eval.locomo.run',
+          label: '/eval locomo run --budget 4000 --num-samples 2',
+          insertText: '/eval locomo run --budget 4000 --num-samples 2',
+          description:
+            'Run a small native LOCOMO memory benchmark sample with recent-tail and semantic-recall modes',
+        },
+        {
+          id: 'eval.locomo.results',
+          label: '/eval locomo results',
+          insertText: '/eval locomo results',
+          description: 'Show the latest LOCOMO summary and comparison metrics',
+        },
+        {
+          id: 'eval.terminal-bench-2.0',
+          label: '/eval terminal-bench-2.0',
+          insertText: '/eval terminal-bench-2.0',
+          description: 'Show the Terminal-Bench 2.0 starter recipe',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.setup',
+          label: '/eval terminal-bench-2.0 setup',
+          insertText: '/eval terminal-bench-2.0 setup',
+          description:
+            'Install the native Terminal-Bench dataset helper into the local eval workspace',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.run',
+          label: '/eval terminal-bench-2.0 run --num-tasks 10',
+          insertText: '/eval terminal-bench-2.0 run --num-tasks 10',
+          description:
+            'Run 10 Terminal-Bench tasks through the native HybridClaw harness',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.results',
+          label: '/eval terminal-bench-2.0 results',
+          insertText: '/eval terminal-bench-2.0 results',
+          description: 'Show the latest Terminal-Bench summary and score',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.logs',
+          label: '/eval terminal-bench-2.0 logs',
+          insertText: '/eval terminal-bench-2.0 logs',
+          description:
+            'Show tailed stdout/stderr for the latest Terminal-Bench job',
+        },
+        {
+          id: 'eval.tau2',
+          label: '/eval tau2',
+          insertText: '/eval tau2',
+          description: 'Show managed tau2 eval commands',
+        },
+        {
+          id: 'eval.tau2.setup',
+          label: '/eval tau2 setup',
+          insertText: '/eval tau2 setup',
+          description: 'Clone and install tau2 into the local eval workspace',
+        },
+        {
+          id: 'eval.tau2.run',
+          label:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          insertText:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          description:
+            'Run a 10-task telecom tau2 sample with default eval models',
+        },
+        {
+          id: 'eval.tau2.status',
+          label: '/eval tau2 status',
+          insertText: '/eval tau2 status',
+          description: 'Show tau2 install state and latest managed run',
+        },
+        {
+          id: 'eval.tau2.results',
+          label: '/eval tau2 results',
+          insertText: '/eval tau2 results',
+          description: 'Show the latest tau2 run log tail and result paths',
+        },
+        {
+          id: 'eval.agentbench',
+          label: '/eval agentbench',
+          insertText: '/eval agentbench',
+          description: 'Stub entry for a planned AgentBench runner',
+        },
+        {
+          id: 'eval.gaia',
+          label: '/eval gaia',
+          insertText: '/eval gaia',
+          description: 'Stub entry for a planned GAIA runner',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'target',
+          description: 'list, env, run, or a supported eval suite',
+        },
+        {
+          kind: 'string',
+          name: 'args',
+          description: 'Optional shell command tail for `run`',
+        },
+      ],
+    },
+    {
       name: 'fullauto',
       description: 'Enable, inspect, disable, or steer session full-auto mode',
       tuiMenu: {
@@ -1418,7 +1897,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, manage amendments, and import or sync community skills',
+        'Inspect skill dependencies and health, review recent runs, manage amendments, and import or sync community skills',
       tuiOnly: true,
       options: [
         {
@@ -1462,6 +1941,30 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'name',
               description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install one declared dependency for a skill',
+          tuiMenu: {
+            label: '/skill install <skill> <dependency>',
+            insertText: '/skill install ',
+            aliases: ['/skill install <skill> <dependency>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'skill',
+              description: 'Skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'dependency',
+              description: 'Dependency id declared by that skill',
               required: true,
             },
           ],
@@ -1598,6 +2101,12 @@ function buildSlashCommandCatalogDefinitions(
       tuiOnly: true,
     },
     {
+      name: 'paste',
+      description: 'Attach a copied file or clipboard image',
+      tuiOnly: true,
+      localSurfaces: ['tui'],
+    },
+    {
       name: 'stop',
       description: 'Interrupt the current request and disable full-auto',
       tuiMenu: {
@@ -1612,6 +2121,7 @@ function buildSlashCommandCatalogDefinitions(
         aliases: ['quit', 'q'],
       },
       tuiOnly: true,
+      localSurfaces: ['tui'],
     },
   ];
 }
@@ -1643,6 +2153,35 @@ export function buildTuiSlashCommandDefinitions(
   return definitions;
 }
 
+export function buildLocalSessionSlashHelpEntries(
+  surface: LocalSessionSurface,
+): LocalSessionSlashHelpEntry[] {
+  return buildTuiSlashCommandDefinitions([])
+    .flatMap((definition) => {
+      if (!isAvailableOnLocalSurface(definition, surface)) {
+        return [];
+      }
+      const presentation = LOCAL_SESSION_HELP_PRESENTATIONS[definition.name];
+      if (presentation?.surfaces && !presentation.surfaces.includes(surface)) {
+        return [];
+      }
+      return [
+        {
+          command:
+            presentation?.commandBySurface?.[surface] ??
+            presentation?.command ??
+            `/${definition.name}`,
+          description: presentation?.description ?? definition.description,
+        },
+      ];
+    })
+    .sort((left, right) => {
+      const commandCompare = compareCommandLabels(left.command, right.command);
+      if (commandCompare !== 0) return commandCompare;
+      return compareCommandLabels(left.description, right.description);
+    });
+}
+
 export function parseCanonicalSlashCommandArgs(
   interaction: CanonicalSlashInteractionInput,
 ): string[] | null {
@@ -1666,6 +2205,25 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'reload' && !key && !value) return ['config', 'reload'];
       if (action !== 'set' || !key || !value) return null;
       return ['config', 'set', key, value];
+    }
+
+    case 'secret': {
+      const action = normalizeStringOption(interaction, 'action');
+      const name = normalizeStringOption(interaction, 'name');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !name && !value) return ['secret'];
+      if (action === 'list' && !name && !value) return ['secret', 'list'];
+      if ((action === 'unset' || action === 'show') && name && !value) {
+        return ['secret', action, name];
+      }
+      if (action === 'set' && name && value) {
+        return ['secret', 'set', name, value];
+      }
+      if (action === 'route' && name) {
+        const routeArgs = value ? tokenizeFreeformText(value) : [];
+        return ['secret', 'route', name, ...routeArgs];
+      }
+      return null;
     }
 
     case 'show': {
@@ -1699,6 +2257,14 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'dream': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'now' || subcommand === 'on' || subcommand === 'off') {
+        return ['dream', subcommand];
+      }
+      return subcommand ? null : ['dream'];
+    }
 
     case 'channel-mode': {
       const mode = normalizeStringOption(interaction, 'mode', true);
@@ -1914,11 +2480,19 @@ export function parseCanonicalSlashCommandArgs(
       }
       if (subcommand === 'install') {
         const source = normalizeStringOption(interaction, 'source', true);
-        return source ? ['plugin', 'install', source] : null;
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (!source || (yes && yes !== '--yes')) return null;
+        return ['plugin', 'install', source, ...(yes ? ['--yes'] : [])];
       }
       if (subcommand === 'reinstall') {
         const source = normalizeStringOption(interaction, 'source', true);
-        return source ? ['plugin', 'reinstall', source] : null;
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (!source || (yes && yes !== '--yes')) return null;
+        return ['plugin', 'reinstall', source, ...(yes ? ['--yes'] : [])];
+      }
+      if (subcommand === 'check') {
+        const pluginId = normalizeStringOption(interaction, 'plugin-id', true);
+        return pluginId ? ['plugin', 'check', pluginId] : null;
       }
       if (subcommand === 'reload') return ['plugin', 'reload'];
       if (subcommand === 'uninstall') {

@@ -1,10 +1,19 @@
 import {
+  formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
   hasKnownNonHybridProviderPrefix,
   normalizeHybridAIModelForRuntime,
+  stripHybridAIModelPrefix,
+  stripProviderPrefix,
 } from '../../container/shared/model-names.js';
 
-export { HYBRIDAI_MODEL_PREFIX, normalizeHybridAIModelForRuntime };
+export {
+  formatHybridAIModelForCatalog,
+  HYBRIDAI_MODEL_PREFIX,
+  normalizeHybridAIModelForRuntime,
+  stripHybridAIModelPrefix,
+  stripProviderPrefix,
+};
 
 export function formatModelForDisplay(model: string): string {
   const normalized = String(model || '').trim();

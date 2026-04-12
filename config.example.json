@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 21,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -12,6 +12,8 @@
     "channelDisabled": {
       "discord": [],
       "msteams": [],
+      "slack": [],
+      "telegram": [],
       "whatsapp": [],
       "email": []
     }
@@ -121,6 +123,29 @@
       "teams.microsoft.com"
     ]
   },
+  "slack": {
+    "enabled": false,
+    "groupPolicy": "allowlist",
+    "dmPolicy": "allowlist",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "requireMention": true,
+    "textChunkLimit": 12000,
+    "replyStyle": "thread",
+    "mediaMaxMb": 20
+  },
+  "telegram": {
+    "enabled": false,
+    "botToken": "",
+    "pollIntervalMs": 1500,
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "requireMention": true,
+    "textChunkLimit": 4000,
+    "mediaMaxMb": 20
+  },
   "whatsapp": {
     "dmPolicy": "pairing",
     "groupPolicy": "disabled",
@@ -174,17 +199,7 @@
     "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {
-    "baseUrl": "https://chatgpt.com/backend-api/codex",
-    "models": [
-      "openai-codex/gpt-5-codex",
-      "openai-codex/gpt-5.3-codex",
-      "openai-codex/gpt-5.4",
-      "openai-codex/gpt-5.3-codex-spark",
-      "openai-codex/gpt-5.2-codex",
-      "openai-codex/gpt-5.1-codex-max",
-      "openai-codex/gpt-5.2",
-      "openai-codex/gpt-5.1-codex-mini"
-    ]
+    "baseUrl": "https://chatgpt.com/backend-api/codex"
   },
   "openrouter": {
     "enabled": false,
@@ -210,6 +225,10 @@
       "lmstudio": {
         "enabled": false,
         "baseUrl": "http://127.0.0.1:1234/v1"
+      },
+      "llamacpp": {
+        "enabled": false,
+        "baseUrl": "http://127.0.0.1:8081/v1"
       },
       "vllm": {
         "enabled": false,
@@ -349,7 +368,19 @@
   },
   "memory": {
     "decayRate": 0.1,
-    "consolidationIntervalHours": 24
+    "consolidationIntervalHours": 24,
+    "consolidationLanguage": "en",
+    "semanticPromptHardCap": 12,
+    "embedding": {
+      "provider": "hashed",
+      "model": "onnx-community/embeddinggemma-300m-ONNX",
+      "revision": "75a84c732f1884df76bec365346230e32f582c82",
+      "dtype": "q8"
+    },
+    "queryMode": "no-stopwords",
+    "backend": "hybrid",
+    "rerank": "bm25",
+    "tokenizer": "porter"
   },
   "sessionRouting": {
     "dmScope": "per-channel-peer",

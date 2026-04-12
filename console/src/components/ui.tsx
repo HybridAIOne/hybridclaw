@@ -1,4 +1,92 @@
 import type { ReactNode } from 'react';
+import { useMemo, useState } from 'react';
+
+export type TableSortDirection = 'asc' | 'desc';
+
+export interface TableSortState<Key extends string> {
+  key: Key;
+  direction: TableSortDirection;
+}
+
+export function useSortableRows<Row, Key extends string>(
+  rows: readonly Row[],
+  options: {
+    initialSort: TableSortState<Key>;
+    sorters: Record<Key, (left: Row, right: Row) => number>;
+    defaultDirections?: Partial<Record<Key, TableSortDirection>>;
+  },
+): {
+  sortedRows: Row[];
+  sortState: TableSortState<Key>;
+  toggleSort: (key: Key) => void;
+} {
+  const [sortState, setSortState] = useState<TableSortState<Key>>(
+    options.initialSort,
+  );
+
+  const sortedRows = useMemo(() => {
+    const compare = options.sorters[sortState.key];
+    if (!compare) {
+      return [...rows];
+    }
+    return [...rows].sort((left, right) => {
+      const result = compare(left, right);
+      if (result === 0) return 0;
+      return sortState.direction === 'asc' ? result : -result;
+    });
+  }, [options.sorters, rows, sortState]);
+
+  const toggleSort = (key: Key) => {
+    setSortState((current) => {
+      if (current.key === key) {
+        return {
+          key,
+          direction: current.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+      return {
+        key,
+        direction: options.defaultDirections?.[key] || 'asc',
+      };
+    });
+  };
+
+  return { sortedRows, sortState, toggleSort };
+}
+
+export function SortableHeader<Key extends string>(props: {
+  label: string;
+  sortKey: Key;
+  sortState: TableSortState<Key>;
+  onToggle: (key: Key) => void;
+}) {
+  const active = props.sortState.key === props.sortKey;
+  const ariaSort = active
+    ? props.sortState.direction === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+
+  return (
+    <th aria-sort={ariaSort}>
+      <button
+        type="button"
+        className="table-sort-button"
+        onClick={() => props.onToggle(props.sortKey)}
+      >
+        <span>{props.label}</span>
+        <span
+          aria-hidden="true"
+          className={
+            active
+              ? `table-sort-indicator is-active is-${props.sortState.direction}`
+              : 'table-sort-indicator'
+          }
+        />
+      </button>
+    </th>
+  );
+}
 
 export function PageHeader(props: {
   title: string;
@@ -30,9 +118,13 @@ export function Panel(props: {
   subtitle?: string;
   children: ReactNode;
   accent?: 'default' | 'warm';
+  id?: string;
 }) {
   return (
-    <section className={props.accent === 'warm' ? 'panel warm' : 'panel'}>
+    <section
+      id={props.id}
+      className={props.accent === 'warm' ? 'panel warm' : 'panel'}
+    >
       {props.title ? (
         <div className="panel-header">
           <div>
@@ -52,13 +144,70 @@ export function MetricCard(props: {
   label: string;
   value: string;
   detail?: string;
+  href?: string;
 }) {
-  return (
-    <div className="metric-card">
+  const content = (
+    <>
       <span>{props.label}</span>
       <strong>{props.value}</strong>
       {props.detail ? <small>{props.detail}</small> : null}
-    </div>
+    </>
+  );
+
+  if (props.href) {
+    return (
+      <a className="metric-card metric-card-link" href={props.href}>
+        {content}
+      </a>
+    );
+  }
+
+  return <div className="metric-card">{content}</div>;
+}
+
+export function SegmentedToggle(props: {
+  ariaLabel: string;
+  value: string;
+  className?: string;
+  options: Array<{
+    value: string;
+    label: string;
+    activeTone?: 'is-on' | 'is-off';
+  }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <fieldset
+      className={
+        props.className ? `binary-toggle ${props.className}` : 'binary-toggle'
+      }
+      aria-label={props.ariaLabel}
+    >
+      {props.options.map((option) => {
+        const active = option.value === props.value;
+        return (
+          <button
+            key={option.value}
+            className={
+              active
+                ? `binary-toggle-button active ${option.activeTone ?? 'is-on'}`
+                : 'binary-toggle-button'
+            }
+            type="button"
+            disabled={props.disabled}
+            aria-pressed={active}
+            onClick={() => {
+              if (!active) {
+                props.onChange(option.value);
+              }
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </fieldset>
   );
 }
 
@@ -66,14 +215,21 @@ export function BooleanPill(props: {
   value: boolean;
   trueLabel?: string;
   falseLabel?: string;
+  falseTone?: 'default' | 'danger';
 }) {
   const label = props.value
     ? (props.trueLabel ?? 'on')
     : (props.falseLabel ?? 'off');
+  const falseToneClass =
+    !props.value && props.falseTone === 'danger' ? ' tone-danger' : '';
 
   return (
     <span
-      className={props.value ? 'boolean-pill is-on' : 'boolean-pill is-off'}
+      className={
+        props.value
+          ? 'boolean-pill is-on'
+          : `boolean-pill is-off${falseToneClass}`
+      }
     >
       <span className="boolean-pill-dot" />
       {label}
@@ -90,42 +246,27 @@ export function BooleanToggle(props: {
   ariaLabel: string;
 }) {
   return (
-    <fieldset className="binary-toggle" aria-label={props.ariaLabel}>
-      <button
-        className={
-          props.value
-            ? 'binary-toggle-button active is-on'
-            : 'binary-toggle-button'
-        }
-        type="button"
-        disabled={props.disabled}
-        aria-pressed={props.value}
-        onClick={() => {
-          if (!props.value) {
-            props.onChange(true);
-          }
-        }}
-      >
-        {props.trueLabel ?? 'on'}
-      </button>
-      <button
-        className={
-          !props.value
-            ? 'binary-toggle-button active is-off'
-            : 'binary-toggle-button'
-        }
-        type="button"
-        disabled={props.disabled}
-        aria-pressed={!props.value}
-        onClick={() => {
-          if (props.value) {
-            props.onChange(false);
-          }
-        }}
-      >
-        {props.falseLabel ?? 'off'}
-      </button>
-    </fieldset>
+    <SegmentedToggle
+      className="boolean-toggle"
+      ariaLabel={props.ariaLabel}
+      value={props.value ? 'true' : 'false'}
+      options={[
+        {
+          value: 'true',
+          label: props.trueLabel ?? 'on',
+          activeTone: 'is-on',
+        },
+        {
+          value: 'false',
+          label: props.falseLabel ?? 'off',
+          activeTone: 'is-off',
+        },
+      ]}
+      disabled={props.disabled}
+      onChange={(value) => {
+        props.onChange(value === 'true');
+      }}
+    />
   );
 }
 

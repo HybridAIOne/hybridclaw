@@ -24,6 +24,7 @@ import {
   callOpenAICodexProvider,
   callOpenAICodexProviderStream,
 } from './openai-codex.js';
+import { isOpenAICompatRuntimeProvider } from './provider-ids.js';
 import type {
   NormalizedCallArgs,
   NormalizedStreamCallArgs,
@@ -103,13 +104,7 @@ export async function callProviderModel(
   if (args.provider === 'ollama') {
     return callOllamaProvider(args);
   }
-  if (
-    args.provider === 'openrouter' ||
-    args.provider === 'mistral' ||
-    args.provider === 'huggingface' ||
-    args.provider === 'lmstudio' ||
-    args.provider === 'vllm'
-  ) {
+  if (isOpenAICompatRuntimeProvider(args.provider)) {
     return callLocalOpenAICompatProvider(args);
   }
   return callHybridAIProvider(args);
@@ -124,13 +119,7 @@ export async function callProviderModelStream(
   if (args.provider === 'ollama') {
     return callOllamaProviderStream(args);
   }
-  if (
-    args.provider === 'openrouter' ||
-    args.provider === 'mistral' ||
-    args.provider === 'huggingface' ||
-    args.provider === 'lmstudio' ||
-    args.provider === 'vllm'
-  ) {
+  if (isOpenAICompatRuntimeProvider(args.provider)) {
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
@@ -156,13 +145,7 @@ function normalizeVisionBaseUrl(
   if (provider === 'ollama') {
     return normalized.replace(/\/v1$/i, '');
   }
-  if (
-    provider === 'openrouter' ||
-    provider === 'mistral' ||
-    provider === 'huggingface' ||
-    provider === 'lmstudio' ||
-    provider === 'vllm'
-  ) {
+  if (isOpenAICompatRuntimeProvider(provider)) {
     return /\/v1$/i.test(normalized) ? normalized : `${normalized}/v1`;
   }
   return normalized;

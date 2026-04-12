@@ -6,26 +6,39 @@ import {
 import {
   expandSkillInvocation,
   loadSkills,
-  resolveExplicitSkillInvocation,
+  resolveSkillInvocationForTurn,
   type Skill,
+  type SkillInvocation,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import {
   buildSystemPromptFromHooks,
   type PromptMode,
+  type PromptPartName,
   type PromptRuntimeInfo,
 } from './prompt-hooks.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
 
 interface HistoryMessage {
   role: string;
-  content: string;
+  content: ChatMessage['content'];
+}
+
+function resolvePreviousUserContent(history: HistoryMessage[]): string | null {
+  // Conversation history enters this function newest-first from storage.
+  const previousUserMessage = history.find(
+    (message) => message.role === 'user',
+  );
+  return typeof previousUserMessage?.content === 'string'
+    ? previousUserMessage.content
+    : null;
 }
 
 export interface ConversationContext {
   messages: ChatMessage[];
   skills: Skill[];
   historyStats: HistoryOptimizationStats;
+  explicitSkillInvocation: SkillInvocation | null;
 }
 
 export function buildConversationContext(params: {
@@ -35,11 +48,13 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
-  currentUserContent?: string;
+  currentUserContent?: ChatMessage['content'];
 }): ConversationContext {
   const {
     agentId,
@@ -48,6 +63,8 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    includePromptParts,
+    omitPromptParts,
     extraSafetyText,
     runtimeInfo,
     allowedTools,
@@ -59,9 +76,14 @@ export function buildConversationContext(params: {
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
   );
+  const previousUserContent = resolvePreviousUserContent(history);
   const explicitSkillInvocation =
     typeof currentUserContent === 'string' && currentUserContent.trim()
-      ? resolveExplicitSkillInvocation(currentUserContent, skills)
+      ? resolveSkillInvocationForTurn({
+          content: currentUserContent,
+          skills,
+          previousUserContent,
+        })
       : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
@@ -71,6 +93,8 @@ export function buildConversationContext(params: {
     explicitSkillInvocation,
     purpose: 'conversation',
     promptMode,
+    includePromptParts,
+    omitPromptParts,
     extraSafetyText,
     runtimeInfo,
     allowedTools,
@@ -108,5 +132,6 @@ export function buildConversationContext(params: {
     messages,
     skills,
     historyStats: optimizedHistory.stats,
+    explicitSkillInvocation,
   };
 }

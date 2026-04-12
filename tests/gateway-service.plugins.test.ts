@@ -9,7 +9,9 @@ const {
   reloadPluginManagerMock,
   shutdownPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
+  checkPluginMock,
   installPluginMock,
+  pluginDependencyApprovalRequiredError,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
   reinstallPluginMock,
@@ -23,8 +25,12 @@ const {
     collectPromptContextDetails: vi.fn(async () => ({
       sections: ['plugin-memory-context'],
       pluginIds: ['qmd-memory'],
+      replacesBuiltInMemory: false,
     })),
     collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
+    getMemoryLayerBehavior: vi.fn(async () => ({
+      replacesBuiltInMemory: false,
+    })),
     findCommand: vi.fn(() => undefined),
     getToolDefinitions: vi.fn(() => [
       {
@@ -40,6 +46,7 @@ const {
       },
     ]),
     notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifyMemoryWrites: vi.fn(async () => {}),
     notifyTurnComplete: vi.fn(async () => {}),
     notifyAgentEnd: vi.fn(async () => {}),
     handleSessionReset: vi.fn(async () => {}),
@@ -53,12 +60,34 @@ const {
     reloadPluginManagerMock: vi.fn(async () => pluginManager),
     shutdownPluginManagerMock: vi.fn(async () => {}),
     setPluginInboundMessageDispatcherMock: vi.fn(),
+    checkPluginMock: vi.fn(async (pluginId: string) => ({
+      pluginId,
+      pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+      source: 'home' as const,
+      requiresEnv: ['DEMO_PLUGIN_TOKEN'],
+      missingEnv: [],
+      requiredConfigKeys: ['workspaceId'],
+      packageJsonDependencies: [
+        { package: '@scope/demo-plugin', installed: true },
+      ],
+      nodeDependencies: [],
+      pipDependencies: [],
+      externalDependencies: [],
+      configuredRequiredBins: [],
+    })),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
       source,
       alreadyInstalled: false,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
@@ -93,9 +122,32 @@ const {
       alreadyInstalled: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    pluginDependencyApprovalRequiredError: class PluginDependencyApprovalRequiredError extends Error {
+      readonly plan: {
+        usesPackageJson: boolean;
+        nodePackages: string[];
+        pipPackages: string[];
+      };
+
+      constructor(plan: {
+        usesPackageJson: boolean;
+        nodePackages: string[];
+        pipPackages: string[];
+      }) {
+        super('Plugin dependency installation requires explicit approval.');
+        this.plan = plan;
+      }
+    },
     uninstallPluginMock: vi.fn(async () => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -159,7 +211,9 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
 }));
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
+  checkPlugin: checkPluginMock,
   installPlugin: installPluginMock,
+  PluginDependencyApprovalRequiredError: pluginDependencyApprovalRequiredError,
   reinstallPlugin: reinstallPluginMock,
   uninstallPlugin: uninstallPluginMock,
 }));
@@ -181,9 +235,11 @@ const { setupHome } = setupGatewayTest({
     setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
+    pluginManagerMock.getMemoryLayerBehavior.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
     pluginManagerMock.handleInboundWebhook.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
+    pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifyTurnComplete.mockClear();
     pluginManagerMock.notifyAgentEnd.mockClear();
     pluginManagerMock.handleSessionReset.mockClear();
@@ -191,6 +247,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.listPluginSummary.mockClear();
     pluginManagerMock.findCommand.mockClear();
     shutdownPluginManagerMock.mockClear();
+    checkPluginMock.mockClear();
     installPluginMock.mockClear();
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
@@ -255,7 +312,7 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -340,12 +397,137 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
   );
 });
 
+test('handleGatewayMessage forwards successful native memory writes to plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Saved that memory.',
+    toolsUsed: ['memory'],
+    toolExecutions: [
+      {
+        name: 'memory',
+        arguments:
+          '{"action":"append","file_path":"memory/2026-04-08.md","content":"Remember Clerk reduced auth integration time."}',
+        result: 'Appended 45 chars to memory/2026-04-08.md',
+        durationMs: 15,
+      },
+    ],
+  });
+
+  await handleGatewayMessage({
+    sessionId: 'session-plugin-memory-write',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'Please save the auth migration reason.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith({
+    sessionId: 'session-plugin-memory-write',
+    agentId: 'main',
+    channelId: 'web',
+    toolExecutions: [
+      expect.objectContaining({
+        name: 'memory',
+        result: 'Appended 45 chars to memory/2026-04-08.md',
+      }),
+    ],
+  });
+  expect(
+    pluginManagerMock.notifyMemoryWrites.mock.invocationCallOrder[0],
+  ).toBeLessThan(pluginManagerMock.notifyAgentEnd.mock.invocationCallOrder[0]);
+});
+
+test('handleGatewayMessage lets a plugin memory layer replace built-in memory', async () => {
+  setupHome();
+
+  pluginManagerMock.getMemoryLayerBehavior.mockResolvedValueOnce({
+    replacesBuiltInMemory: true,
+  });
+  pluginManagerMock.collectPromptContextDetails.mockResolvedValueOnce({
+    sections: ['mempalace-memory-context'],
+    pluginIds: ['mempalace-memory'],
+    replacesBuiltInMemory: true,
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const buildPromptMemorySpy = vi.spyOn(
+    memoryService,
+    'buildPromptMemoryContext',
+  );
+  const storeTurnSpy = vi.spyOn(memoryService, 'storeTurn');
+  const appendCanonicalSpy = vi.spyOn(memoryService, 'appendCanonicalMessages');
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'replacement-aware reply',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const sessionId = 'session-plugin-replacement';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'What should you remember about the auth migration?',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.pluginsUsed).toEqual(['mempalace-memory']);
+  expect(buildPromptMemorySpy).not.toHaveBeenCalled();
+  expect(storeTurnSpy).not.toHaveBeenCalled();
+  expect(appendCanonicalSpy).not.toHaveBeenCalled();
+
+  const systemMessage = (
+    runAgentMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages?.find((message) => message.role === 'system');
+  expect(systemMessage?.content).toContain('## Session Summary');
+  expect(systemMessage?.content).toContain('mempalace-memory-context');
+  expect(systemMessage?.content).not.toContain('## Retrieved Context');
+
+  const history = memoryService.getConversationHistory(sessionId, 10);
+  expect(history.map((message) => message.role)).toEqual(['assistant', 'user']);
+
+  const canonicalContext = memoryService.getCanonicalContext({
+    agentId: 'main',
+    userId: 'user-42',
+    windowSize: 12,
+    excludeSessionId: sessionId,
+  });
+  expect(canonicalContext).toEqual({
+    summary: null,
+    recent_messages: [],
+  });
+});
+
 test('handleGatewayMessage continues without plugins when plugin manager init fails', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -644,10 +826,12 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
     sessionId: 'session-plugin-install',
     guildId: null,
     channelId: 'tui',
-    args: ['plugin', 'install', './plugins/qmd-memory'],
+    args: ['plugin', 'install', './plugins/qmd-memory', '--yes'],
   });
 
-  expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory');
+  expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveDependencyInstall: true,
+  });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -657,10 +841,73 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain(
     'Installed plugin `demo-plugin` to `/tmp/.hybridclaw/plugins/demo-plugin`.',
   );
-  expect(result.text).toContain('Installed plugin npm dependencies.');
+  expect(result.text).toContain(
+    'Installed plugin Node.js dependencies from package.json.',
+  );
   expect(result.text).toContain('Required env vars: DEMO_PLUGIN_TOKEN');
   expect(result.text).toContain('required config keys: workspaceId');
   expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand reports missing binary guidance after plugin install', async () => {
+  setupHome();
+  installPluginMock.mockResolvedValueOnce({
+    pluginId: 'mempalace-memory',
+    pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+    source: './plugins/mempalace-memory',
+    alreadyInstalled: false,
+    dependenciesInstalled: true,
+    dependencySummary: {
+      usedPackageJson: false,
+      installedNodePackages: [],
+      installedPipPackages: ['mempalace'],
+    },
+    configuredRequiredBins: [],
+    externalDependencies: [],
+    requiresEnv: [],
+    requiredConfigKeys: [],
+    missingRequiredBins: [
+      {
+        name: 'mempalace',
+        command: 'mempalace',
+        configKey: 'command',
+        installHint: 'pip install mempalace',
+        installUrl: 'https://github.com/milla-jovovich/mempalace',
+      },
+    ],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-mempalace',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'install', './plugins/mempalace-memory', '--yes'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'Missing required binaries right now: mempalace.',
+  );
+  expect(result.text).toContain('Install mempalace: `pip install mempalace`');
+  expect(result.text).toContain(
+    'Install docs for mempalace: https://github.com/milla-jovovich/mempalace',
+  );
+  expect(result.text).toContain(
+    'If mempalace is installed outside PATH, set it with: `/plugin config mempalace-memory command /absolute/path/to/mempalace`',
+  );
+  expect(result.text).toContain(
+    'Until the missing binaries are installed, the plugin will remain unavailable.',
+  );
 });
 
 test('handleGatewayCommand rejects plugin install outside local TUI/web sessions', async () => {
@@ -687,6 +934,213 @@ test('handleGatewayCommand rejects plugin install outside local TUI/web sessions
   }
   expect(result.title).toBe('Plugin Install Restricted');
   expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
+test('handleGatewayCommand requires explicit approval before installing plugin dependencies', async () => {
+  setupHome();
+  installPluginMock.mockRejectedValueOnce(
+    new pluginDependencyApprovalRequiredError({
+      usesPackageJson: false,
+      nodePackages: [],
+      pipPackages: ['mempalace'],
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Pending Approval');
+  expect(result.text).toContain(
+    'I need your approval before I install Python packages for plugin `./plugins/mempalace-memory`: mempalace.',
+  );
+  expect(result.text).toContain('Approval ID:');
+  expect(result.text).toContain(
+    'Reply `yes for session` to trust this action for this session.',
+  );
+  expect(result.text).not.toContain('Node.js dependency state');
+});
+
+test('handleTextChannelApprovalCommand approves a pending plugin dependency install', async () => {
+  setupHome();
+  installPluginMock
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: false,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'mempalace-memory',
+      pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+      source: './plugins/mempalace-memory',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: false,
+        installedNodePackages: [],
+        installedPipPackages: ['mempalace'],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const approval = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-approve-flow',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+
+  expect(approval.kind).toBe('info');
+
+  const handled = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-approve-flow',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(handled).not.toBeNull();
+  expect(installPluginMock).toHaveBeenNthCalledWith(
+    3,
+    './plugins/mempalace-memory',
+    { approveDependencyInstall: true },
+  );
+  expect(handled?.text).toContain('Plugin Installed');
+  expect(handled?.text).toContain('Installed plugin `mempalace-memory`');
+});
+
+test('handleTextChannelApprovalCommand approves npm for the session before prompting separately for pip', async () => {
+  setupHome();
+  installPluginMock
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: ['mempalace'],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'mempalace-memory',
+      pluginDir: '/tmp/.hybridclaw/plugins/mempalace-memory',
+      source: './plugins/mempalace-memory',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: ['mempalace'],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const initialApproval = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'install', './plugins/mempalace-memory'],
+  });
+  expect(initialApproval.kind).toBe('info');
+
+  const pipApproval = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'session'],
+  });
+
+  expect(pipApproval).not.toBeNull();
+  expect(pipApproval?.text).toContain(
+    'I need your approval before I install Python packages for plugin',
+  );
+  expect(pipApproval?.text).toContain('mempalace');
+
+  const installed = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-install-two-step',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(installed?.text).toContain('Plugin Installed');
+  expect(installPluginMock).toHaveBeenNthCalledWith(
+    4,
+    './plugins/mempalace-memory',
+    { approveDependencyInstall: true },
+  );
 });
 
 test('handleGatewayCommand reports plugin install failures', async () => {
@@ -729,10 +1183,12 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
     sessionId: 'session-plugin-reinstall',
     guildId: null,
     channelId: 'tui',
-    args: ['plugin', 'reinstall', './plugins/qmd-memory'],
+    args: ['plugin', 'reinstall', './plugins/qmd-memory', '--yes'],
   });
 
-  expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory');
+  expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
+    approveDependencyInstall: true,
+  });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -742,8 +1198,39 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
   expect(result.text).toContain(
     'Reinstalled plugin `demo-plugin` to `/tmp/.hybridclaw/plugins/demo-plugin`.',
   );
-  expect(result.text).toContain('Installed plugin npm dependencies.');
+  expect(result.text).toContain(
+    'Installed plugin Node.js dependencies from package.json.',
+  );
   expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand checks one plugin from a local TUI/web session', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-check',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'check', 'demo-plugin'],
+  });
+
+  expect(checkPluginMock).toHaveBeenCalledWith('demo-plugin');
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Check');
+  expect(result.text).toContain('Plugin: demo-plugin');
+  expect(result.text).toContain(
+    'package.json dependencies: @scope/demo-plugin=ok',
+  );
 });
 
 test('handleGatewayCommand dispatches plugin-registered commands', async () => {
@@ -850,22 +1337,23 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   }
   expect(result.title).toBe('HybridClaw Commands');
   expect(result.text).toContain(
-    '`plugin config <plugin-id> [key] [value|--unset]`',
+    '`/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed plugins',
   );
   expect(result.text).toContain(
-    '`/plugin config <plugin-id> [key] [value|--unset]`',
+    '`/auth status <provider>`: Show local provider auth and config status',
   );
-  expect(result.text).toContain('`plugin enable <plugin-id>`');
-  expect(result.text).toContain('`/plugin enable <plugin-id>`');
-  expect(result.text).toContain('`plugin disable <plugin-id>`');
-  expect(result.text).toContain('`plugin install <path|npm-spec>`');
-  expect(result.text).toContain('`plugin reinstall <path|npm-spec>`');
-  expect(result.text).toContain('`plugin reload`');
-  expect(result.text).toContain('`/auth status hybridai`');
-  expect(result.text).toContain('`config`');
-  expect(result.text).toContain('`/config check`');
-  expect(result.text).toContain('`/config reload`');
-  expect(result.text).toContain('`/config set <key> <value>`');
+  expect(result.text).toContain(
+    '`/config [check|reload|set <key> <value>]`: Show or update local runtime config',
+  );
+  expect(result.text).not.toContain(
+    '`plugin config <plugin-id> [key] [value|--unset]`',
+  );
+  expect(result.text).not.toContain('`plugin enable <plugin-id>`');
+  expect(result.text).not.toContain('`config check`');
+  expect(result.text).not.toContain('`config reload`');
+  expect(result.text).not.toContain('`config set <key> <value>`');
+  expect(result.text).not.toContain('`/exit`');
+  expect(result.text).not.toContain('`/paste`');
 });
 
 test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {
@@ -1017,5 +1505,68 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
         hooks: ['gateway_start'],
       },
     ],
+  });
+});
+
+test('admin tools catalog excludes stale plugin tool executions when the plugin is not active', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-send-email',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'tool.result',
+      toolName: 'send_email',
+      isError: false,
+      durationMs: 21,
+    },
+  });
+
+  pluginManagerMock.getToolDefinitions.mockReturnValueOnce([
+    {
+      name: 'memory_lookup',
+      description: 'Query plugin memory',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+        },
+        required: ['question'],
+      },
+    },
+  ]);
+
+  const { getGatewayAdminTools } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await getGatewayAdminTools();
+  const catalogNames = result.groups.flatMap((group) =>
+    group.tools.map((tool) => tool.name),
+  );
+
+  expect(catalogNames).toContain('memory_lookup');
+  expect(catalogNames).not.toContain('send_email');
+  expect(result.groups).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Plugins',
+        tools: [
+          expect.objectContaining({
+            name: 'memory_lookup',
+            kind: 'plugin',
+          }),
+        ],
+      }),
+    ]),
+  );
+  expect(result.recentExecutions[0]).toMatchObject({
+    toolName: 'send_email',
+    durationMs: 21,
   });
 });

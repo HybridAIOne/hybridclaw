@@ -8,6 +8,7 @@ export const NON_HYBRID_PROVIDER_PREFIXES = [
   'anthropic/',
   'ollama/',
   'lmstudio/',
+  'llamacpp/',
   'vllm/',
 ];
 
@@ -29,6 +30,32 @@ export function hasDisplayOnlyHybridAIPrefix(model) {
   return (
     Boolean(upstreamModel) && !hasKnownNonHybridProviderPrefix(upstreamModel)
   );
+}
+
+export function stripProviderPrefix(model, prefix) {
+  const normalized = String(model || '').trim();
+  const normalizedPrefix = `${String(prefix || '')
+    .trim()
+    .replace(/\/+$/g, '')}/`;
+  if (!normalizedPrefix || normalizedPrefix === '/') {
+    return normalized;
+  }
+  if (!normalized.toLowerCase().startsWith(normalizedPrefix.toLowerCase())) {
+    return normalized;
+  }
+  const upstreamModel = normalized.slice(normalizedPrefix.length).trim();
+  return upstreamModel || normalized;
+}
+
+export function stripHybridAIModelPrefix(model) {
+  return stripProviderPrefix(model, HYBRIDAI_MODEL_PREFIX);
+}
+
+export function formatHybridAIModelForCatalog(model) {
+  const normalized = stripHybridAIModelPrefix(model);
+  if (normalized.toLowerCase() === HYBRIDAI_MODEL_PREFIX) return '';
+  if (!normalized) return '';
+  return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;
 }
 
 export function normalizeHybridAIModelForRuntime(model) {

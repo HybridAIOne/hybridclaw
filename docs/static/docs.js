@@ -16,7 +16,9 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Installation', path: 'getting-started/installation.md' },
       { title: 'Quick Start', path: 'getting-started/quickstart.md' },
       { title: 'Authentication', path: 'getting-started/authentication.md' },
-      { title: 'Microsoft Teams', path: 'getting-started/msteams.md' },
+      { title: 'Channel Setup', path: 'getting-started/channels.md' },
+      { title: 'iMessage', path: 'imessage.md' },
+      { title: 'MS Teams', path: 'msteams.md' },
     ],
   },
   {
@@ -25,6 +27,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Guides', path: 'guides/README.md' },
       { title: 'Bundled Skills', path: 'guides/bundled-skills.md' },
       { title: 'Local Providers', path: 'guides/local-providers.md' },
+      { title: 'Remote Access', path: 'guides/remote-access.md' },
       { title: 'Office Dependencies', path: 'guides/office-dependencies.md' },
       { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
       { title: 'Voice TTS', path: 'guides/voice-tts.md' },
@@ -36,6 +39,14 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Extensibility', path: 'extensibility/README.md' },
       { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
       { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
+      {
+        title: 'Honcho Memory Plugin',
+        path: 'extensibility/honcho-memory-plugin.md',
+      },
+      {
+        title: 'MemPalace Memory Plugin',
+        path: 'extensibility/mempalace-memory-plugin.md',
+      },
       { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
       { title: 'Plugins', path: 'extensibility/plugins.md' },
       {
@@ -51,6 +62,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Internals', path: 'internals/README.md' },
       { title: 'Architecture', path: 'internals/architecture.md' },
       { title: 'Runtime', path: 'internals/runtime.md' },
+      { title: 'Memory', path: 'internals/memory.md' },
       { title: 'Session Routing', path: 'internals/session-routing.md' },
     ],
   },
@@ -73,6 +85,7 @@ const DOCS_BY_PATH = new Map(
   ),
 );
 const KNOWN_DOC_PATHS = new Set(DOCS_BY_PATH.keys());
+const ROOT_LEVEL_DOC_PATHS = new Set(['imessage.md', 'msteams.md']);
 const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
   section.pages.map((page) => ({
     label: page.title,
@@ -194,7 +207,11 @@ export function buildDocMarkdownHref(
   basePath = DOCS_BASE_PATH,
   contentBasePath = basePath,
 ) {
-  return `${normalizeBasePath(contentBasePath)}/${normalizeDocPath(docPath)}`;
+  const normalizedDocPath = normalizeDocPath(docPath);
+  if (ROOT_LEVEL_DOC_PATHS.has(normalizedDocPath)) {
+    return `/${normalizedDocPath}`;
+  }
+  return `${normalizeBasePath(contentBasePath)}/${normalizedDocPath}`;
 }
 
 function renderExternalLinkIcon() {
@@ -455,7 +472,17 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
 
     if (!line.trim()) {
       flushParagraph();
-      closeList();
+      // Look ahead past blank lines: keep the list open when the next
+      // non-empty line continues the same list type (#206)
+      if (openList) {
+        let ahead = index + 1;
+        while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+        const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
+        const continuesList =
+          (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
+          (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
+        if (!continuesList) closeList();
+      }
       continue;
     }
 

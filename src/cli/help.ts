@@ -1,3 +1,4 @@
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 
@@ -9,10 +10,12 @@ export function printMainUsage(): void {
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
   gateway    Manage core runtime (start/stop/status) or run gateway commands
+  eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
+  migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   tool       List or disable built-in agent tools
@@ -35,11 +38,77 @@ Commands:
   hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
-  hybridclaw gateway sessions
+  hybridclaw gateway sessions [active|clear-active]
   hybridclaw gateway bot info
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
+}
+
+export function printEvalUsage(): void {
+  console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+       hybridclaw eval locomo [setup|run|status|stop|results|logs]
+       hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
+       hybridclaw eval tau2 [setup|run|status|stop|results]
+       hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
+
+Runs local eval helpers backed by HybridClaw's OpenAI-compatible API.
+
+Examples:
+  hybridclaw eval list
+  hybridclaw eval env
+  hybridclaw eval env --fresh-agent
+  hybridclaw eval locomo
+  hybridclaw eval locomo setup
+  hybridclaw eval locomo run --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --matrix --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+  hybridclaw eval tau2
+  hybridclaw eval tau2 setup
+  hybridclaw eval terminal-bench-2.0 setup
+  hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+  hybridclaw eval swebench-verified
+  hybridclaw eval agentbench
+  hybridclaw eval gaia
+  hybridclaw eval tau2 status
+  hybridclaw eval tau2 results
+  hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
+  hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
+
+Notes:
+  - This is a local-only command. It is not intended for remote chat channels.
+  - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
+  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
+  - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
+  - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
+  - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
+  - \`locomo --mode retrieval --matrix\` runs the default retrieval sweep across backend, rerank, and tokenizer combinations and prints one comparison table.
+  - \`locomo --mode retrieval --matrix backend|rerank|tokenizer|embedding\` runs a single-dimension sweep and keeps the other retrieval settings at their defaults.
+  - Retrieval-mode knobs are benchmark-only: \`--retrieval-query raw|no-stopwords\`, \`--retrieval-backend cosine|full-text|hybrid\`, \`--retrieval-rerank none|bm25\` (default: \`bm25\`), \`--retrieval-tokenizer unicode61|porter|trigram\`, and \`--retrieval-embedding hashed|transformers\`.
+  - \`locomo --num-samples\` limits conversation records; use \`--max-questions\` for fast smoke runs over a small QA slice.
+  - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace.
+  - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
+  - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
+  - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
+  - For \`tau2 run\`, omitted \`--agent-llm\` and \`--user-llm\` flags default to \`$HYBRIDCLAW_EVAL_MODEL\`.
+  - TUI and web sessions receive proactive ASCII progress bars for supported evals like \`tau2 run --num-tasks ...\`.
+  - Outside suite-specific overrides, the default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
+  - \`--fresh-agent\` uses a temporary template-seeded agent workspace for each eval request.
+  - \`--ablate-system\` removes HybridClaw's injected system prompt for the eval request.
+  - Prompt parts include hook names like \`memory\`, \`runtime\`, \`safety\`, \`bootstrap\` and bootstrap subparts like \`soul\`, \`identity\`, \`user\`, \`tools\`, \`memory-file\`, and \`skills\`.
+  - Detached run logs are written under \`~/.hybridclaw/data/evals/\`.`);
 }
 
 export function printTuiUsage(): void {
@@ -52,20 +121,39 @@ If gateway is not running, it is started in backend mode automatically.
 By default, \`hybridclaw tui\` starts a fresh local CLI session.
 
 Interactive slash commands inside TUI:
-  /help   /status   /approve [view|yes|session|agent|no] [approval_id]
-  /show [all|thinking|tools|none]
-  /agent [list|switch|create|model]   /bot [info|list|set <id|name>|clear]
-  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
+  /agent [list|switch|create|model]
+  ${APPROVE_COMMAND_USAGE}
+  /audit [sessionId]
+  /auth status <provider>
+  /bot [info|list|set <id|name>|clear]
+  /channel-mode <off|mention|free>
+  /channel-policy <open|allowlist|disabled>
+  /clear
+  /compact
+  /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
+  /eval [list|env|<suite>|<command...>]
   /config   /config check   /config reload   /config set <key> <value>   /config revisions
-  /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
-  /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
-  /mcp add <name> <json>
-  /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /exit
   /export session [sessionId]   /export trace [sessionId|all]
-  /sessions   /audit [sessionId]
+  /fullauto [status|off|on [prompt]|prompt]
+  /help
+  /info
+  /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
+  /memory inspect [sessionId]   /memory query <query>
+  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
+  /paste
+  /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
+  /rag [on|off]
+  /ralph [info|on|off|set n]
+  /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
-  /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
+  /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
+  /sessions [active|clear-active]
+  /show [all|thinking|tools|none]
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /status
+  /stop
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
 }
 
 export function printOnboardingUsage(): void {
@@ -83,24 +171,27 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 
 Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|vllm> <model-id> ...
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
   hybridclaw auth status local
   hybridclaw auth logout local
 
 Examples:
+  hybridclaw local configure lmstudio --base-url http://127.0.0.1:1234
   hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+  hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
-  - LM Studio and vLLM URLs are normalized to include \`/v1\`.
+  - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
-  - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
-    Use \`--no-default\` to leave the global default model unchanged.`);
+  - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
+    Use \`--no-default\` to leave the global default model unchanged.
+  - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 
 export function printAuthUsage(): void {
@@ -108,9 +199,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -121,27 +212,34 @@ Examples:
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+  hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
+  hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
+  hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status msteams
+  hybridclaw auth status slack
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout msteams
+  hybridclaw auth logout slack
 
 Notes:
   - \`auth login\` without a provider runs the normal interactive onboarding flow.
   - \`local logout\` disables configured local backends and clears any saved vLLM API key.
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
+  - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
-  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
+  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
+  - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
 
 export function printChannelsUsage(): void {
@@ -149,6 +247,9 @@ export function printChannelsUsage(): void {
 
 Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+  hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -156,6 +257,9 @@ Commands:
 Notes:
   - Discord setup stores a bot token only when \`--token\` is provided.
   - Discord setup configures command-only mode and keeps guild access restricted by default.
+  - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
+  - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
+  - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
@@ -168,11 +272,15 @@ Notes:
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
+  - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
+  - \`hybridclaw channels slack manifest\` prints a Slack app manifest fragment for HybridClaw slash commands.
+  - \`hybridclaw channels slack register-commands\` updates an existing Slack app manifest through Slack's app manifest API.
   - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
   - iMessage setup stores \`IMESSAGE_PASSWORD\` only when \`--password\` is provided for the remote relay backend.
   - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
   - Groups stay disabled by default for iMessage setup.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
+  - Telegram activates automatically when \`telegram.enabled=true\` and a bot token is configured.
   - iMessage activates automatically when \`imessage.enabled=true\`.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
@@ -194,6 +302,54 @@ Notes:
   - Profile data is stored under the HybridClaw data directory (configurable via HYBRIDCLAW_DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
   - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
+}
+
+export function printMigrationUsage(): void {
+  console.log(`Usage:
+  hybridclaw migrate openclaw [options]
+  hybridclaw migrate hermes [options]
+
+Notes:
+  - Use \`migrate openclaw\` to import from \`~/.openclaw\`.
+  - Use \`migrate hermes\` to import from \`~/.hermes\`.
+  - Add \`--agent <id>\` to import into a specific HybridClaw agent instead of \`main\`.
+  - Add \`--dry-run\` first to preview what will be imported.`);
+}
+
+export function printOpenClawMigrationUsage(): void {
+  console.log(`Usage: hybridclaw migrate openclaw [options]
+
+Options:
+  --source <path>       Override the OpenClaw home directory (default: ~/.openclaw)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
+  --dry-run             Preview the migration without writing files
+  --overwrite           Replace existing HybridClaw files and config values on conflict
+  --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
+  --force               Assume yes to all prompts
+
+Notes:
+  - Imports the parts of an OpenClaw home that map cleanly into HybridClaw.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
+  - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
+  - A report is written under \`~/.hybridclaw/migration/openclaw/\` when the migration runs in execute mode.`);
+}
+
+export function printHermesMigrationUsage(): void {
+  console.log(`Usage: hybridclaw migrate hermes [options]
+
+Options:
+  --source <path>       Override the Hermes home directory (default: ~/.hermes)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
+  --dry-run             Preview the migration without writing files
+  --overwrite           Replace existing HybridClaw files and config values on conflict
+  --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
+  --force               Assume yes to all prompts
+
+Notes:
+  - Imports the parts of a Hermes Agent home that map cleanly into HybridClaw.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
+  - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
+  - A report is written under \`~/.hybridclaw/migration/hermes/\` when the migration runs in execute mode.`);
 }
 
 export function printWhatsAppUsage(): void {
@@ -219,6 +375,24 @@ Notes:
   - \`--tenant-id\` is optional.
   - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
   - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
+}
+
+export function printSlackUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
+  hybridclaw auth status slack
+  hybridclaw auth logout slack
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+
+Notes:
+  - \`auth login slack\` enables the Slack integration in ${runtimeConfigPath()}.
+  - \`auth login slack\` stores \`SLACK_BOT_TOKEN\` and \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
+  - Slack uses Socket Mode, so both a bot token and an app token are required.
+  - \`channels slack manifest\` prints a Slack app manifest fragment that adds HybridClaw slash commands plus the \`commands\` bot scope.
+  - \`channels slack register-commands\` exports your app manifest, merges the HybridClaw slash commands, and updates it through Slack's app manifest API.
+  - \`channels slack register-commands\` needs a Slack app configuration access token (\`xoxe-...\`) and the Slack app id (\`A...\`).
+  - If either auth token is omitted during \`auth login slack\` and the terminal is interactive, HybridClaw prompts for the missing value.`);
 }
 
 export function printCodexUsage(): void {
@@ -338,6 +512,7 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <skill-name> <dependency>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -345,10 +520,10 @@ Commands:
   hybridclaw skill history <skill-name>
   hybridclaw skill sync [--skip-skill-scan] <source>
   hybridclaw skill import [--force] [--skip-skill-scan] <source>
-  hybridclaw skill install <skill-name> [install-id]
 
 Notes:
-  - \`list\` shows declared install options from skill frontmatter.
+  - \`list\` shows declared dependency ids from skill frontmatter.
+  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -359,7 +534,7 @@ Notes:
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
+  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
 }
 
 export function printToolUsage(): void {
@@ -384,8 +559,9 @@ Commands:
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin enable <plugin-id>
   hybridclaw plugin disable <plugin-id>
-  hybridclaw plugin install <path|npm-spec>
-  hybridclaw plugin reinstall <path|npm-spec>
+  hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]
+  hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]
+  hybridclaw plugin check <plugin-id>
   hybridclaw plugin uninstall <plugin-id>
 
 Examples:
@@ -393,19 +569,23 @@ Examples:
   hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
-  hybridclaw plugin install ./plugins/example-plugin
-  hybridclaw plugin install @scope/hybridclaw-plugin-example
-  hybridclaw plugin reinstall ./plugins/example-plugin
+  hybridclaw plugin install ./plugins/example-plugin --yes
+  hybridclaw plugin install mempalace-memory --yes
+  hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
+  hybridclaw plugin reinstall ./plugins/example-plugin --yes
+  hybridclaw plugin check example-plugin
   hybridclaw plugin uninstall example-plugin
 
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
+  - Bare plugin ids resolve to \`./plugins/<plugin-id>\` when that directory exists in the current project.
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
-  - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
+  - \`install\` validates \`hybridclaw.plugin.yaml\` and can install declared Node.js and pip dependencies, but dependency installation requires approval.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
+  - \`check\` reports the current dependency, env, and binary status for one discovered plugin.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }
@@ -480,12 +660,17 @@ Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
+  eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  migrate     Help for agent-home migration
+  openclaw    Help for OpenClaw migration
+  hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
+  slack       Help for Slack auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
@@ -547,6 +732,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'gateway':
       printGatewayUsage();
       return true;
+    case 'eval':
+      printEvalUsage();
+      return true;
     case 'tui':
       printTuiUsage();
       return true;
@@ -565,6 +753,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'msteams':
     case 'teams':
       printMSTeamsUsage();
+      return true;
+    case 'slack':
+      printSlackUsage();
       return true;
     case 'local':
       printLocalUsage();
@@ -587,6 +778,15 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'browser':
       printBrowserUsage();
+      return true;
+    case 'migrate':
+      printMigrationUsage();
+      return true;
+    case 'openclaw':
+      printOpenClawMigrationUsage();
+      return true;
+    case 'hermes':
+      printHermesMigrationUsage();
       return true;
     case 'whatsapp':
       printWhatsAppUsage();

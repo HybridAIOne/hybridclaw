@@ -28,8 +28,14 @@ config.local.json
 *.db-shm
 *.db-wal
 
+# Internal workplans
+docs/development/workplan-*.md
+
 # Claude Code
 .claude/
 
 # OS
 .DS_Store
+
+# Temporary files
+*.tmp*

@@ -31,6 +31,7 @@ export interface SandboxDiagnostics {
   mountAllowlistPath: string;
   additionalMountsConfigured: number;
   activeSessions: number;
+  activeSessionIds: string[];
   warning: string | null;
 }
 
@@ -47,8 +48,14 @@ function getHostExecutor(): HostExecutor {
   return hostExecutor;
 }
 
-export function getExecutor(): Executor {
-  return CONTAINER_SANDBOX_MODE === 'host'
+function resolveExecutorMode(
+  override?: 'host' | 'container',
+): 'host' | 'container' {
+  return override || CONTAINER_SANDBOX_MODE;
+}
+
+export function getExecutor(override?: 'host' | 'container'): Executor {
+  return resolveExecutorMode(override) === 'host'
     ? getHostExecutor()
     : getContainerExecutor();
 }
@@ -131,6 +138,7 @@ export function getSandboxDiagnostics(): SandboxDiagnostics {
     mountAllowlistPath: MOUNT_ALLOWLIST_PATH,
     additionalMountsConfigured: parseAdditionalMountsCount(),
     activeSessions: getActiveExecutorCount(),
+    activeSessionIds: getActiveExecutorSessionIds(),
     warning:
       mode === 'host'
         ? 'Running in host mode without container isolation.'

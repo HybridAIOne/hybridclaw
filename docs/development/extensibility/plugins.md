@@ -17,6 +17,11 @@ Use the CLI to install a plugin from a local directory or npm package:
 hybridclaw plugin list
 hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
+hybridclaw plugin install ./plugins/gbrain
+hybridclaw plugin install ./plugins/honcho-memory
+hybridclaw plugin install ./plugins/mempalace-memory
+hybridclaw plugin install ./plugins/qmd-memory
+hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -61,11 +66,36 @@ Use `plugin config <plugin-id> [key] [value|--unset]` when you want to inspect
 or change one top-level `plugins.list[].config` key without editing
 `~/.hybridclaw/config.json` by hand.
 
+## Repo-Shipped Examples
+
+- `gbrain` shells out to the GBrain CLI, injects search results into prompt
+  context, and mirrors the discovered GBrain operations as `gbrain_*` plugin
+  tools
+- `honcho-memory` mirrors HybridClaw turns into Honcho, injects prompt-time
+  recall, and exposes direct Honcho tools while keeping built-in memory active
+- `mempalace-memory` layers MemPalace recall on top of native memory, mirrors
+  turns back into MemPalace, and can route prompt-time retrieval through CLI
+  helpers or an active `mempalace` MCP server
+- `qmd-memory` injects external markdown retrieval context into prompts
+- `brevo-email` provides per-agent email addresses through a Brevo inbound
+  webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
+  `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,
+  `fromName`, `fromAddress`, and `agentHandles`. The bundled `send_email` tool
+  also accepts optional `inReplyTo` and `references` Message-ID headers when
+  you need to continue an existing email thread.
+
+Example config writes:
+
+```bash
+hybridclaw plugin config brevo-email domain agent.hybridai.one
+hybridclaw plugin config brevo-email fromName "HybridClaw Agent"
+```
+
 When a reply uses plugin-provided prompt context, the TUI shows a footer such
-as `🪼 plugins: qmd-memory`. For deeper verification, inspect
-`~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval appears under
-its own `## Retrieved Context` section instead of being merged into generic
-session memory.
+as `🪼 plugins: gbrain` or `🪼 plugins: qmd-memory`. For deeper verification,
+inspect `~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval
+appears under its own `## Retrieved Context` section instead of being merged
+into generic session memory.
 
 ## How-To
 
@@ -102,6 +132,9 @@ from the repo working tree.
 
 - Use `/plugin list` first to separate discovery/config problems from retrieval
   problems.
+- For `brevo-email`, keep the required Brevo secrets in the encrypted runtime
+  store or declared plugin credentials instead of hardcoding them in tracked
+  config files.
 - If a plugin is enabled but appears unused, inspect
   `~/.hybridclaw/data/last_prompt.jsonl` rather than guessing. Prompt-injection
   plugins leave evidence there even when the final answer is poor.
@@ -167,10 +200,18 @@ configSchema:
 The manifest supports:
 
 - identity fields such as `id`, `name`, `version`, `description`, `kind`
+- `memoryProvider: true` for plugins that act as an external memory provider
 - runtime requirements under `requires.bins`, `requires.env`, and `requires.node`
+- `credentials` for optional `/secret` or environment-backed plugin credentials
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
+
+`memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
+only for plugins that should behave like a primary external memory system.
+HybridClaw keeps built-in memory on at all times and allows at most one active
+external memory provider, while other `kind: memory` plugins can still inject
+retrieval or prompt context in parallel.
 
 `configSchema` is validated with Ajv, so standard JSON Schema keywords such as
 `minLength`, `maxLength`, `pattern`, `minimum`, and `maximum` are enforced.
@@ -185,8 +226,11 @@ If a plugin config allows overriding an executable path, that path is trusted
 operator input and is executed directly by the gateway process. HybridClaw does
 not sandbox those binaries separately, so only point executable overrides at
 programs you trust to run with the gateway's OS-level access.
-Plugins can only read environment variables declared in `requires.env` through
-`api.getCredential(...)`; undeclared process environment values are not exposed.
+Plugins can only read credentials declared in `requires.env` or `credentials`
+through `api.getCredential(...)`; undeclared process environment values are not
+exposed. Use `requires.env` when the plugin must not load without the value, and
+use `credentials` when the value is optional but should still be readable from
+`/secret` or the process environment.
 
 ## Runtime API
 

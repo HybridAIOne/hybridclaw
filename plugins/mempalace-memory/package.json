@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-mempalace-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory plugin for MemPalace CLI recall",
+  "engines": {
+    "node": "22.x"
+  }
+}

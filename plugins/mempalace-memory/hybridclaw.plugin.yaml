@@ -1,0 +1,77 @@
+id: mempalace-memory
+name: MemPalace Memory
+version: 0.1.0
+kind: memory
+description: Augment HybridClaw's built-in memory with a local MemPalace CLI for recall and hook-driven auto-save updates.
+entrypoint: src/index.js
+requires:
+  bins:
+    - name: mempalace
+      configKey: command
+      installHint: pip install mempalace
+      installUrl: https://github.com/milla-jovovich/mempalace
+pipDependencies:
+  - mempalace
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      default: mempalace
+    workingDirectory:
+      type: string
+    palacePath:
+      type: string
+    mcpServerName:
+      type: string
+      default: mempalace
+    sessionExportDir:
+      type: string
+    wakeUpEnabled:
+      type: boolean
+      default: true
+    wakeUpWing:
+      type: string
+    searchEnabled:
+      type: boolean
+      default: true
+    searchWing:
+      type: string
+    searchRoom:
+      type: string
+    updateWing:
+      type: string
+    updateAgent:
+      type: string
+      default: hybridclaw
+    saveEveryMessages:
+      type: number
+      default: 15
+      minimum: 1
+      maximum: 200
+    maxResults:
+      type: number
+      default: 3
+      minimum: 1
+      maximum: 10
+    maxWakeUpChars:
+      type: number
+      default: 1200
+      minimum: 100
+      maximum: 6000
+    maxSearchChars:
+      type: number
+      default: 2800
+      minimum: 200
+      maximum: 12000
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 16000
+    timeoutMs:
+      type: number
+      default: 12000
+      minimum: 1000
+      maximum: 60000

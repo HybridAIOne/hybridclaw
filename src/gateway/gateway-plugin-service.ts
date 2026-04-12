@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
@@ -16,6 +17,7 @@ import {
 } from '../plugins/plugin-config.js';
 import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
+  checkPlugin,
   installPlugin,
   reinstallPlugin,
   uninstallPlugin,
@@ -28,13 +30,15 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { consumeCommandApproval } from './command-approval-trust.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
   GatewayAdminPluginsResponse,
-  GatewayChatRequest,
-  GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
+import { rememberPendingApproval } from './pending-approvals.js';
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
@@ -61,6 +65,313 @@ function formatPluginConfigValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function formatMissingBinaryRequirement(params: {
+  name: string;
+  command: string;
+  configKey?: string;
+}): string {
+  if (params.configKey && params.command.trim() !== params.name.trim()) {
+    return `${params.name} (from ${params.configKey}=${params.command})`;
+  }
+  return params.name;
+}
+
+function buildMissingBinaryGuidanceLines(
+  pluginId: string,
+  missingRequiredBins:
+    | Array<{
+        name: string;
+        command: string;
+        configKey?: string;
+        installHint?: string;
+        installUrl?: string;
+      }>
+    | undefined,
+): string[] {
+  if (!missingRequiredBins || missingRequiredBins.length === 0) return [];
+
+  const lines = [
+    `Missing required binaries right now: ${missingRequiredBins.map((entry) => formatMissingBinaryRequirement(entry)).join(', ')}.`,
+  ];
+  for (const entry of missingRequiredBins) {
+    if (entry.installHint) {
+      lines.push(`Install ${entry.name}: \`${entry.installHint}\``);
+    }
+    if (entry.installUrl) {
+      lines.push(`Install docs for ${entry.name}: ${entry.installUrl}`);
+    }
+    if (entry.configKey) {
+      lines.push(
+        `If ${entry.name} is installed outside PATH, set it with: \`/plugin config ${pluginId} ${entry.configKey} /absolute/path/to/${entry.name}\``,
+      );
+    }
+  }
+  lines.push(
+    'Until the missing binaries are installed, the plugin will remain unavailable.',
+  );
+  return lines;
+}
+
+interface PluginDependencyApprovalPlan {
+  usesPackageJson: boolean;
+  nodePackages: string[];
+  pipPackages: string[];
+}
+
+interface PluginDependencyApprovalStep {
+  approvalId: string;
+  actionKey: string;
+  prompt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+}
+
+function buildPluginDependencyApprovalPrompt(params: {
+  approvalId: string;
+  intent: string;
+  reason: string;
+  consequenceIfDenied: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+}): string {
+  const optionLines = [
+    'Reply `yes` to approve once.',
+    params.allowSession
+      ? 'Reply `yes for session` to trust this action for this session.'
+      : 'Reply `yes for session` is unavailable for this approval.',
+    params.allowAgent
+      ? 'Reply `yes for agent` to trust it for this agent.'
+      : 'Reply `yes for agent` is unavailable for this approval.',
+    params.allowAll
+      ? 'Reply `yes for all` to add this action to the workspace allowlist.'
+      : 'Reply `yes for all` is unavailable for this approval.',
+    'Reply `no` to deny.',
+  ];
+  return [
+    `I need your approval before I ${params.intent}.`,
+    `Why: ${params.reason}`,
+    `If you skip this, ${params.consequenceIfDenied.charAt(0).toLowerCase()}${params.consequenceIfDenied.slice(1)}`,
+    `Approval ID: ${params.approvalId}`,
+    ...optionLines,
+    'Approval expires in 120s.',
+  ].join('\n');
+}
+
+function resolveNextPluginDependencyApprovalStep(params: {
+  sessionId: string;
+  source: string;
+  plan: PluginDependencyApprovalPlan;
+}): PluginDependencyApprovalStep | null {
+  const steps: PluginDependencyApprovalStep[] = [];
+  if (params.plan.usesPackageJson || params.plan.nodePackages.length > 0) {
+    const approvalId = randomUUID();
+    const commandPreview =
+      params.plan.nodePackages.length > 0
+        ? `run \`npm install --ignore-scripts --omit=dev --no-package-lock --no-audit --no-fund ${params.plan.nodePackages.join(' ')}\` for plugin \`${params.source}\``
+        : `run \`npm install --ignore-scripts --omit=dev --no-audit --no-fund\` for plugin \`${params.source}\``;
+    steps.push({
+      approvalId,
+      actionKey: 'plugin-deps:npm',
+      prompt: buildPluginDependencyApprovalPrompt({
+        approvalId,
+        intent: commandPreview,
+        reason: 'this changes the local Node.js dependency state',
+        consequenceIfDenied: 'dependency installation will be skipped.',
+        allowSession: true,
+        allowAgent: false,
+        allowAll: false,
+      }),
+      allowSession: true,
+      allowAgent: false,
+      allowAll: false,
+    });
+  }
+  if (params.plan.pipPackages.length > 0) {
+    const approvalId = randomUUID();
+    steps.push({
+      approvalId,
+      actionKey: 'plugin-deps:pip',
+      prompt: buildPluginDependencyApprovalPrompt({
+        approvalId,
+        intent: `install Python packages for plugin \`${params.source}\`: ${params.plan.pipPackages.join(', ')}`,
+        reason: 'this changes the local Python dependency state',
+        consequenceIfDenied: 'dependency installation will be skipped.',
+        allowSession: true,
+        allowAgent: false,
+        allowAll: false,
+      }),
+      allowSession: true,
+      allowAgent: false,
+      allowAll: false,
+    });
+  }
+
+  for (const step of steps) {
+    if (
+      !consumeCommandApproval({
+        sessionId: params.sessionId,
+        actionKey: step.actionKey,
+      })
+    ) {
+      return step;
+    }
+  }
+  return null;
+}
+
+function buildDependencyInstallLines(params: {
+  dependencySummary: {
+    usedPackageJson: boolean;
+    installedNodePackages: string[];
+    installedPipPackages: string[];
+  };
+  configuredRequiredBins: Array<{
+    name: string;
+    command: string;
+    configKey: string;
+  }>;
+  externalDependencies: Array<{
+    name: string;
+    installed: boolean;
+    installHint?: string;
+    installUrl?: string;
+  }>;
+}): string[] {
+  const lines: string[] = [];
+  if (params.dependencySummary.usedPackageJson) {
+    lines.push('Installed plugin Node.js dependencies from package.json.');
+  }
+  if (params.dependencySummary.installedNodePackages.length > 0) {
+    lines.push(
+      `Installed plugin npm packages: ${params.dependencySummary.installedNodePackages.join(', ')}.`,
+    );
+  }
+  if (params.dependencySummary.installedPipPackages.length > 0) {
+    lines.push(
+      `Installed plugin pip packages: ${params.dependencySummary.installedPipPackages.join(', ')}.`,
+    );
+  }
+  for (const entry of params.configuredRequiredBins) {
+    lines.push(
+      `Configured ${entry.name} via \`${entry.configKey} = ${entry.command}\`.`,
+    );
+  }
+  for (const entry of params.externalDependencies.filter(
+    (dependency) => !dependency.installed,
+  )) {
+    lines.push(`External dependency check failed for ${entry.name}.`);
+    if (entry.installHint) {
+      lines.push(`Install ${entry.name}: \`${entry.installHint}\``);
+    }
+    if (entry.installUrl) {
+      lines.push(`Install docs for ${entry.name}: ${entry.installUrl}`);
+    }
+  }
+  return lines;
+}
+
+function buildPluginCheckLines(result: {
+  pluginId: string;
+  pluginDir: string;
+  source: string;
+  requiresEnv: string[];
+  missingEnv: string[];
+  requiredConfigKeys: string[];
+  packageJsonDependencies: Array<{ package: string; installed: boolean }>;
+  nodeDependencies: Array<{ package: string; installed: boolean }>;
+  pipDependencies: Array<{ package: string; installed: boolean }>;
+  externalDependencies: Array<{
+    name: string;
+    installed: boolean;
+    check: string;
+    installHint?: string;
+    installUrl?: string;
+  }>;
+  configuredRequiredBins: Array<{
+    name: string;
+    command: string;
+    configKey: string;
+  }>;
+  missingRequiredBins?: Array<{
+    name: string;
+    command: string;
+    configKey?: string;
+    installHint?: string;
+    installUrl?: string;
+  }>;
+}): string[] {
+  const lines = [
+    `Plugin: ${result.pluginId}`,
+    `Directory: \`${result.pluginDir}\``,
+    `Source: ${result.source}`,
+  ];
+  if (result.requiresEnv.length > 0) {
+    lines.push(`Required env vars: ${result.requiresEnv.join(', ')}`);
+  }
+  if (result.missingEnv.length > 0) {
+    lines.push(`Missing env vars: ${result.missingEnv.join(', ')}`);
+  }
+  if (result.packageJsonDependencies.length > 0) {
+    lines.push(
+      `package.json dependencies: ${result.packageJsonDependencies.map((entry) => `${entry.package}=${entry.installed ? 'ok' : 'missing'}`).join(', ')}`,
+    );
+  }
+  if (result.nodeDependencies.length > 0) {
+    lines.push(
+      `Manifest npm dependencies: ${result.nodeDependencies.map((entry) => `${entry.package}=${entry.installed ? 'ok' : 'missing'}`).join(', ')}`,
+    );
+  }
+  if (result.pipDependencies.length > 0) {
+    lines.push(
+      `Manifest pip dependencies: ${result.pipDependencies.map((entry) => `${entry.package}=${entry.installed ? 'ok' : 'missing'}`).join(', ')}`,
+    );
+  }
+  if (result.externalDependencies.length > 0) {
+    lines.push(
+      `External dependencies: ${result.externalDependencies.map((entry) => `${entry.name}=${entry.installed ? 'ok' : 'missing'}`).join(', ')}`,
+    );
+  }
+  if (result.configuredRequiredBins.length > 0) {
+    lines.push(
+      `Configured binary paths: ${result.configuredRequiredBins.map((entry) => `${entry.name} (${entry.configKey}=${entry.command})`).join(', ')}`,
+    );
+  }
+  lines.push(
+    ...buildMissingBinaryGuidanceLines(
+      result.pluginId,
+      result.missingRequiredBins,
+    ),
+  );
+  if (result.requiredConfigKeys.length > 0) {
+    lines.push(`Required config keys: ${result.requiredConfigKeys.join(', ')}`);
+  }
+  return lines;
+}
+
+function isDependencyApprovalRequiredError(error: unknown): error is {
+  plan: {
+    usesPackageJson: boolean;
+    nodePackages: string[];
+    pipPackages: string[];
+  };
+} {
+  if (!(error instanceof Error)) return false;
+  const plan = (error as { plan?: unknown }).plan;
+  if (!plan || typeof plan !== 'object') return false;
+  const candidate = plan as {
+    usesPackageJson?: unknown;
+    nodePackages?: unknown;
+    pipPackages?: unknown;
+  };
+  return (
+    typeof candidate.usesPackageJson === 'boolean' &&
+    Array.isArray(candidate.nodePackages) &&
+    Array.isArray(candidate.pipPackages)
+  );
 }
 
 export async function reloadPluginRuntime(): Promise<{
@@ -113,38 +424,7 @@ async function rollbackPluginRuntimeConfigChange(
   ];
 }
 
-export async function tryEnsurePluginManagerInitializedForGateway(params: {
-  sessionId: string;
-  channelId: string;
-  agentId?: string | null;
-  surface: 'chat' | 'command' | 'webhook';
-}): Promise<{
-  pluginManager: PluginManager | null;
-  pluginInitError: unknown;
-}> {
-  try {
-    return {
-      pluginManager: await ensurePluginManagerInitialized(),
-      pluginInitError: null,
-    };
-  } catch (pluginInitError) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId ?? null,
-        surface: params.surface,
-        error: pluginInitError,
-      },
-      'Plugin manager init failed; proceeding without plugins',
-    );
-    return { pluginManager: null, pluginInitError };
-  }
-}
-
-export async function initGatewayService(params: {
-  handleGatewayMessage: (req: GatewayChatRequest) => Promise<GatewayChatResult>;
-}): Promise<void> {
+export async function initGatewayService(): Promise<void> {
   if (gatewayServiceInitialized) return;
   if (gatewayServiceInitializing) {
     await gatewayServiceInitializing;
@@ -153,7 +433,7 @@ export async function initGatewayService(params: {
   gatewayServiceInitializing = (async () => {
     setPluginInboundMessageDispatcher(
       async (pluginId, request) =>
-        await params.handleGatewayMessage({
+        await handleGatewayMessage({
           ...request,
           source: `plugin:${pluginId}`,
         }),
@@ -365,8 +645,18 @@ export async function handlePluginGatewayCommand(params: {
 
   if (sub === 'install') {
     const source = String(req.args[2] || '').trim();
+    const yes = String(req.args[3] || '').trim();
     if (!source) {
-      return badCommand('Usage', 'Usage: `plugin install <path|npm-spec>`');
+      return badCommand(
+        'Usage',
+        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
+      );
+    }
+    if (yes && yes !== '--yes') {
+      return badCommand(
+        'Usage',
+        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
+      );
     }
     if (!isLocalSession(req)) {
       return badCommand(
@@ -375,16 +665,20 @@ export async function handlePluginGatewayCommand(params: {
       );
     }
     try {
-      const result = await installPlugin(source);
+      const result = await installPlugin(source, {
+        approveDependencyInstall: yes === '--yes',
+      });
       const reloadResult = await reloadPluginRuntime();
       const lines = [
         result.alreadyInstalled
           ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-        ...(result.dependenciesInstalled
-          ? ['Installed plugin npm dependencies.']
-          : []),
+        ...buildDependencyInstallLines(result),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...buildMissingBinaryGuidanceLines(
+          result.pluginId,
+          result.missingRequiredBins,
+        ),
         ...(result.requiresEnv.length > 0
           ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
           : []),
@@ -395,6 +689,54 @@ export async function handlePluginGatewayCommand(params: {
       ];
       return infoCommand('Plugin Installed', lines.join('\n'));
     } catch (error) {
+      if (isDependencyApprovalRequiredError(error)) {
+        const step = resolveNextPluginDependencyApprovalStep({
+          sessionId: req.sessionId,
+          source,
+          plan: error.plan,
+        });
+        if (!step) {
+          const result = await installPlugin(source, {
+            approveDependencyInstall: true,
+          });
+          const reloadResult = await reloadPluginRuntime();
+          const lines = [
+            result.alreadyInstalled
+              ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
+              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+            ...buildDependencyInstallLines(result),
+            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...buildMissingBinaryGuidanceLines(
+              result.pluginId,
+              result.missingRequiredBins,
+            ),
+            ...(result.requiresEnv.length > 0
+              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              : []),
+            result.requiredConfigKeys.length > 0
+              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
+              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
+            reloadResult.message,
+          ];
+          return infoCommand('Plugin Installed', lines.join('\n'));
+        }
+        await rememberPendingApproval({
+          sessionId: req.sessionId,
+          approvalId: step.approvalId,
+          prompt: step.prompt,
+          userId: String(req.userId || req.sessionId).trim() || req.sessionId,
+          commandAction: {
+            approveArgs: ['plugin', 'install', source],
+            actionKey: step.actionKey,
+            allowSession: step.allowSession,
+            allowAgent: step.allowAgent,
+            allowAll: step.allowAll,
+            denyTitle: 'Plugin Install Cancelled',
+            denyText: `Cancelled plugin install for \`${source}\`.`,
+          },
+        });
+        return infoCommand('Pending Approval', step.prompt);
+      }
       return badCommand(
         'Plugin Install Failed',
         error instanceof Error ? error.message : String(error),
@@ -404,8 +746,18 @@ export async function handlePluginGatewayCommand(params: {
 
   if (sub === 'reinstall') {
     const source = String(req.args[2] || '').trim();
+    const yes = String(req.args[3] || '').trim();
     if (!source) {
-      return badCommand('Usage', 'Usage: `plugin reinstall <path|npm-spec>`');
+      return badCommand(
+        'Usage',
+        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
+      );
+    }
+    if (yes && yes !== '--yes') {
+      return badCommand(
+        'Usage',
+        'Usage: `plugin reinstall <path|plugin-id|npm-spec> [--yes]`',
+      );
     }
     if (!isLocalSession(req)) {
       return badCommand(
@@ -414,16 +766,20 @@ export async function handlePluginGatewayCommand(params: {
       );
     }
     try {
-      const result = await reinstallPlugin(source);
+      const result = await reinstallPlugin(source, {
+        approveDependencyInstall: yes === '--yes',
+      });
       const reloadResult = await reloadPluginRuntime();
       const lines = [
         result.replacedExistingInstall
           ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-        ...(result.dependenciesInstalled
-          ? ['Installed plugin npm dependencies.']
-          : []),
+        ...buildDependencyInstallLines(result),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...buildMissingBinaryGuidanceLines(
+          result.pluginId,
+          result.missingRequiredBins,
+        ),
         ...(result.requiresEnv.length > 0
           ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
           : []),
@@ -434,8 +790,81 @@ export async function handlePluginGatewayCommand(params: {
       ];
       return infoCommand('Plugin Reinstalled', lines.join('\n'));
     } catch (error) {
+      if (isDependencyApprovalRequiredError(error)) {
+        const step = resolveNextPluginDependencyApprovalStep({
+          sessionId: req.sessionId,
+          source,
+          plan: error.plan,
+        });
+        if (!step) {
+          const result = await reinstallPlugin(source, {
+            approveDependencyInstall: true,
+          });
+          const reloadResult = await reloadPluginRuntime();
+          const lines = [
+            result.replacedExistingInstall
+              ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
+              : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+            ...buildDependencyInstallLines(result),
+            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...buildMissingBinaryGuidanceLines(
+              result.pluginId,
+              result.missingRequiredBins,
+            ),
+            ...(result.requiresEnv.length > 0
+              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              : []),
+            result.requiredConfigKeys.length > 0
+              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
+              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
+            reloadResult.message,
+          ];
+          return infoCommand('Plugin Reinstalled', lines.join('\n'));
+        }
+        await rememberPendingApproval({
+          sessionId: req.sessionId,
+          approvalId: step.approvalId,
+          prompt: step.prompt,
+          userId: String(req.userId || req.sessionId).trim() || req.sessionId,
+          commandAction: {
+            approveArgs: ['plugin', 'reinstall', source],
+            actionKey: step.actionKey,
+            allowSession: step.allowSession,
+            allowAgent: step.allowAgent,
+            allowAll: step.allowAll,
+            denyTitle: 'Plugin Reinstall Cancelled',
+            denyText: `Cancelled plugin reinstall for \`${source}\`.`,
+          },
+        });
+        return infoCommand('Pending Approval', step.prompt);
+      }
       return badCommand(
         'Plugin Reinstall Failed',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (sub === 'check') {
+    const pluginId = String(req.args[2] || '').trim();
+    if (!pluginId) {
+      return badCommand('Usage', 'Usage: `plugin check <plugin-id>`');
+    }
+    if (!isLocalSession(req)) {
+      return badCommand(
+        'Plugin Check Restricted',
+        '`plugin check` is only available from local TUI/web sessions.',
+      );
+    }
+    try {
+      const result = await checkPlugin(pluginId);
+      return infoCommand(
+        'Plugin Check',
+        buildPluginCheckLines(result).join('\n'),
+      );
+    } catch (error) {
+      return badCommand(
+        'Plugin Check Failed',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -446,7 +875,7 @@ export async function handlePluginGatewayCommand(params: {
     if (!pluginId) {
       return badCommand(
         'Usage',
-        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec>|reinstall <path|npm-spec>|uninstall <plugin-id>`',
+        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
       );
     }
     try {
@@ -480,7 +909,7 @@ export async function handlePluginGatewayCommand(params: {
 
   return badCommand(
     'Usage',
-    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
+    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
   );
 }
 

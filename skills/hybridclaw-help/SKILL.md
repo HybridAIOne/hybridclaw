@@ -4,6 +4,8 @@ description: HybridClaw help. Primary skill for product questions about setup, c
 user-invocable: true
 metadata:
   hybridclaw:
+    category: misc
+    short_description: "HybridClaw product help."
     tags:
       - hybridclaw
       - docs
@@ -14,7 +16,6 @@ metadata:
     related_skills:
       - feature-planning
 ---
-
 # HybridClaw Help
 
 Use this skill for product-specific HybridClaw questions such as:

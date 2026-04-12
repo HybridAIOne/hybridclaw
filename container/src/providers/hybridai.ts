@@ -1,4 +1,4 @@
-import { normalizeHybridAIModelForRuntime } from '../../shared/model-names.js';
+import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
@@ -42,7 +42,7 @@ function buildHybridAIRequestBody(
   args: NormalizedCallArgs,
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
-    model: normalizeHybridAIModelForRuntime(args.model),
+    model: stripHybridAIModelPrefix(args.model),
     chatbot_id: args.chatbotId,
     messages: args.messages,
     tools: args.tools,
@@ -171,7 +171,7 @@ export async function callHybridAIProviderStream(
 
   let buffer = '';
   let streamId = '';
-  let streamModel = normalizeHybridAIModelForRuntime(args.model);
+  let streamModel = stripHybridAIModelPrefix(args.model);
   let finishReason: string | null = null;
   let usage: ChatCompletionResponse['usage'] | undefined;
   let role = 'assistant';

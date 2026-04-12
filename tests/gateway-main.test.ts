@@ -1,14 +1,39 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const tempDirs: string[] = [];
+
+function makeTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function expectInfoLog(
+  state: ReturnType<typeof createGatewayMainTestState>,
+  message: string,
+  payload: unknown,
+): void {
+  expect(state.loggerInfo).toHaveBeenCalledWith(payload, message);
+}
+
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
+  emailEnabled?: boolean;
+  emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  slackInitError?: Error;
+  hasSlackCredentials?: boolean;
+  whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -19,6 +44,10 @@ function createGatewayMainTestState(options?: {
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    slackMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    telegramMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     imessageMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -31,16 +60,40 @@ function createGatewayMainTestState(options?: {
           next: Record<string, unknown>,
           prev: Record<string, unknown>,
         ) => void),
+    scheduledTaskRunner: null as null | ((...args: unknown[]) => Promise<void>),
     currentConfig: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
       email: {
-        enabled: false,
-        address: '',
-        imapHost: '',
+        enabled: options?.emailEnabled ?? false,
+        address: options?.emailEnabled ? 'bot@example.com' : '',
+        imapHost: options?.emailEnabled ? 'imap.example.com' : '',
         imapSecure: true,
-        smtpHost: '',
+        smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+      },
+      slack: {
+        enabled: options?.slackEnabled ?? false,
+        groupPolicy: 'allowlist',
+        dmPolicy: 'allowlist',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        textChunkLimit: 12_000,
+        replyStyle: 'thread',
+        mediaMaxMb: 20,
+      },
+      telegram: {
+        enabled: false,
+        botToken: '',
+        dmPolicy: 'disabled',
+        groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        pollIntervalMs: 1_500,
+        textChunkLimit: 4_000,
+        mediaMaxMb: 20,
       },
       msteams: {
         enabled: options?.msteamsEnabled ?? true,
@@ -54,8 +107,16 @@ function createGatewayMainTestState(options?: {
         backend: 'bluebubbles',
         webhookPath: '/api/imessage/webhook',
       },
+      whatsapp: {
+        dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
+        groupPolicy: 'disabled',
+      },
       local: { enabled: false },
-      memory: { consolidationIntervalHours: 0, decayRate: 0.25 },
+      memory: {
+        consolidationIntervalHours: 0,
+        decayRate: 0.25,
+        consolidationLanguage: 'en',
+      },
       observability: { enabled: false, botId: '', agentId: '' },
       ops: { healthPort: 9090 },
       scheduler: { jobs: [] as unknown[] },
@@ -73,8 +134,14 @@ function createGatewayMainTestState(options?: {
       (title: string, detail: string) => `**${title}:** ${detail}`,
     ),
     formatInfo: vi.fn((title: string, body: string) => `**${title}**\n${body}`),
+    currentMostRecentSessionChannelId: 'discord:123' as string | null,
     getConfigSnapshot: vi.fn(),
-    getGatewayStatus: vi.fn(() => ({ status: 'ok', sessions: 1 })),
+    getGatewayStatus: vi.fn(() => ({
+      status: 'ok',
+      sessions: 1,
+      providerHealth: {},
+      localBackends: {},
+    })),
     getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
@@ -93,8 +160,11 @@ function createGatewayMainTestState(options?: {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initSlack: vi.fn(),
+    initTelegram: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(
@@ -102,18 +172,33 @@ function createGatewayMainTestState(options?: {
     ),
     listAgents: vi.fn(() => []),
     stopGatewayPlugins: vi.fn(async () => {}),
-    configureFullAutoRuntime: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
     loggerError: vi.fn(),
     loggerFatal: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    shutdownEmail: vi.fn(async () => {}),
+    shutdownSlack: vi.fn(async () => {}),
+    shutdownTelegram: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
+      dailyFilesCompiled: 0,
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
+      durationMs: 1,
+    })),
+    memoryServiceConsolidateWithCleanup: vi.fn(async () => ({
+      memoriesDecayed: 0,
+      dailyFilesCompiled: 0,
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
       durationMs: 1,
     })),
     memoryServiceSetDecayRate: vi.fn(),
+    memoryServiceSetLanguage: vi.fn(),
     onConfigChange: vi.fn(),
     processOn: vi.spyOn(process, 'on'),
     rearmScheduler: vi.fn(),
@@ -121,16 +206,22 @@ function createGatewayMainTestState(options?: {
       (result: { text: string }) => `rendered:${result.text}`,
     ),
     resumeEnabledFullAutoSessions: vi.fn(() => 0),
+    runGatewayScheduledTask: vi.fn(async () => {}),
     resolveAgentForRequest: vi.fn(() => ({
       agentId: 'agent-resolved',
       model: 'gpt-5-nano',
       chatbotId: 'bot-1',
     })),
+    resolveAgentWorkspaceId: vi.fn((agentId: string) => agentId),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
-    startGatewayHttpServer: vi.fn(),
+    setTimeout: vi.fn(() => ({ timer: true })),
+    startGatewayHttpServer: vi.fn(() => ({
+      broadcastShutdown: vi.fn(),
+      setReady: vi.fn(),
+    })),
     startHeartbeat: vi.fn(),
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
@@ -145,6 +236,9 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  slackEnabled?: boolean;
+  hasSlackCredentials?: boolean;
+  whatsappEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -156,6 +250,7 @@ async function importFreshGatewayMain(options?: {
   hasMSTeamsCredentials?: boolean;
   initGatewayServiceImpl?: () => Promise<void>;
   skipBootstrapHandlerCheck?: boolean;
+  dataDir?: string;
   onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
 }) {
   vi.resetModules();
@@ -187,6 +282,15 @@ async function importFreshGatewayMain(options?: {
   state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
+  });
+  state.initSlack.mockImplementation((messageHandler) => {
+    if (options?.slackInitError) {
+      throw options.slackInitError;
+    }
+    state.slackMessageHandler = messageHandler;
+  });
+  state.initTelegram.mockImplementation((messageHandler) => {
+    state.telegramMessageHandler = messageHandler;
   });
   state.initIMessage.mockImplementation((messageHandler) => {
     if (options?.imessageInitError) {
@@ -225,11 +329,13 @@ async function importFreshGatewayMain(options?: {
     state.whatsappMessageHandler = messageHandler;
   });
   state.startScheduler.mockImplementation((listener) => {
-    void listener;
+    state.scheduledTaskRunner = listener;
   });
   state.processOn.mockImplementation((() => process) as never);
   vi.stubGlobal('setInterval', state.setInterval as never);
   vi.stubGlobal('clearInterval', vi.fn());
+  vi.stubGlobal('setTimeout', state.setTimeout as never);
+  vi.stubGlobal('clearTimeout', vi.fn());
 
   vi.doMock('../src/agent/executor.js', () => ({
     stopAllExecutions: vi.fn(),
@@ -275,14 +381,31 @@ async function importFreshGatewayMain(options?: {
     sendToIMessageChat: vi.fn(async () => {}),
     shutdownIMessage: vi.fn(async () => {}),
   }));
+  vi.doMock('../src/channels/telegram/runtime.js', () => ({
+    hasTelegramBotToken: vi.fn(() =>
+      Boolean(
+        String(state.getConfigSnapshot().telegram?.botToken || '').trim(),
+      ),
+    ),
+    initTelegram: state.initTelegram,
+    sendTelegramMediaToChat: vi.fn(async () => {}),
+    sendToTelegramChat: vi.fn(async () => {}),
+    shutdownTelegram: state.shutdownTelegram,
+  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
+  vi.doMock('../src/channels/slack/runtime.js', () => ({
+    initSlack: state.initSlack,
+    sendSlackFileToTarget: vi.fn(async () => {}),
+    sendToSlackTarget: vi.fn(async () => {}),
+    shutdownSlack: state.shutdownSlack,
+  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
-    initEmail: vi.fn(async () => {}),
+    initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
     sendToEmail: vi.fn(async () => {}),
-    shutdownEmail: vi.fn(async () => {}),
+    shutdownEmail: state.shutdownEmail,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     initWhatsApp: state.initWhatsApp,
@@ -298,13 +421,18 @@ async function importFreshGatewayMain(options?: {
     })),
   }));
   vi.doMock('../src/config/config.js', () => ({
-    DATA_DIR: '/tmp/hybridclaw-data',
+    DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
-    EMAIL_PASSWORD: '',
+    EMAIL_PASSWORD: options?.emailPassword ?? '',
     MSTEAMS_APP_ID:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
     MSTEAMS_APP_PASSWORD:
       options?.hasMSTeamsCredentials === false ? '' : 'teams-app-password',
+    SLACK_APP_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'slack-app-token',
+    SLACK_BOT_TOKEN:
+      options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
+    TELEGRAM_BOT_TOKEN: '',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -325,7 +453,9 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/memory/db.js', () => ({
     deleteQueuedProactiveMessage: vi.fn(),
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
-    getMostRecentSessionChannelId: vi.fn(() => 'discord:123'),
+    getMostRecentSessionChannelId: vi.fn(
+      () => state.currentMostRecentSessionChannelId,
+    ),
     getQueuedProactiveMessageCount: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
     initDatabase: state.initDatabase,
@@ -334,16 +464,16 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/memory/memory-service.js', () => ({
     memoryService: {
       consolidateMemories: state.memoryServiceConsolidate,
+      consolidateMemoriesWithCleanup: state.memoryServiceConsolidateWithCleanup,
       getSessionById: vi.fn(() => state.currentSession),
       setConsolidationDecayRate: state.memoryServiceSetDecayRate,
+      setConsolidationLanguage: state.memoryServiceSetLanguage,
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     listAgents: state.listAgents,
     resolveAgentForRequest: state.resolveAgentForRequest,
-  }));
-  vi.doMock('../src/gateway/fullauto.js', () => ({
-    configureFullAutoRuntime: state.configureFullAutoRuntime,
+    resolveAgentWorkspaceId: state.resolveAgentWorkspaceId,
   }));
   vi.doMock('../src/providers/local-discovery.js', () => ({
     startDiscoveryLoop: state.startDiscoveryLoop,
@@ -375,10 +505,14 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     getGatewayStatus: state.getGatewayStatus,
     handleGatewayCommand: state.handleGatewayCommand,
-    handleGatewayMessage: state.handleGatewayMessage,
     renderGatewayCommand: state.renderGatewayCommand,
     resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
-    runGatewayScheduledTask: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
+    handleGatewayMessage: state.handleGatewayMessage,
+  }));
+  vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
+    runGatewayScheduledTask: state.runGatewayScheduledTask,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     initGatewayService: state.initGatewayService,
@@ -435,8 +569,10 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
+  vi.doUnmock('../src/channels/telegram/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
+  vi.doUnmock('../src/channels/slack/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/auth.js');
@@ -450,12 +586,18 @@ afterEach(() => {
   vi.doUnmock('../src/scheduler/heartbeat.js');
   vi.doUnmock('../src/scheduler/scheduler.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/gateway/gateway-chat-service.js');
+  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
   vi.doUnmock('../src/gateway/gateway-http-server.js');
   vi.doUnmock('../src/gateway/proactive-delivery.js');
   vi.doUnmock('../src/gateway/managed-media-cleanup.js');
   vi.doUnmock('../src/workflow/executor.js');
   vi.doUnmock('../src/workflow/service.js');
   vi.resetModules();
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe('gateway bootstrap', () => {
@@ -480,17 +622,91 @@ describe('gateway bootstrap', () => {
     expect(state.setInterval).toHaveBeenCalled();
   });
 
+  test('runs a missed dream consolidation on startup when nightly scheduling is enabled', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.memoryServiceSetDecayRate).toHaveBeenCalledWith(0.4);
+    expect(state.memoryServiceConsolidateWithCleanup).toHaveBeenCalledTimes(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('does not rerun dream consolidation on startup when a nightly run already completed today', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    fs.writeFileSync(
+      path.join(dataDir, 'memory-consolidation-state.json'),
+      `${JSON.stringify({
+        version: 1,
+        lastCompletedAt: new Date().toISOString(),
+      })}\n`,
+      'utf-8',
+    );
+
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.memoryServiceConsolidateWithCleanup).not.toHaveBeenCalled();
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('logs the resolved scheduler timezone instead of an invalid USER.md placeholder', async () => {
+    const dataDir = makeTempDir('hybridclaw-gateway-data-');
+    const mainWorkspaceDir = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(mainWorkspaceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(mainWorkspaceDir, 'USER.md'),
+      '# USER.md\n\n- **Timezone:** _(to be determined)_\n',
+      'utf-8',
+    );
+
+    const state = await importFreshGatewayMain({
+      dataDir,
+      onState: (draft) => {
+        draft.currentConfig.memory = {
+          consolidationIntervalHours: 24,
+          decayRate: 0.4,
+          consolidationLanguage: 'en',
+        };
+      },
+    });
+
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextRunAt: expect.any(String),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      }),
+      'Memory consolidation scheduled for next nightly run',
+    );
+  });
+
   test('starts iMessage integration automatically when enabled in config', async () => {
     const state = await importFreshGatewayMain({ imessageEnabled: true });
 
     expect(state.initIMessage).toHaveBeenCalledTimes(1);
     expect(state.imessageMessageHandler).not.toBeNull();
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         imessage: true,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -506,12 +722,12 @@ describe('gateway bootstrap', () => {
       { error: expect.any(Error) },
       'iMessage integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         imessage: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -554,11 +770,166 @@ describe('gateway bootstrap', () => {
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
   });
 
-  test('starts WhatsApp integration automatically when linked auth exists', async () => {
-    const state = await importFreshGatewayMain({ whatsappLinked: true });
+  test('starts WhatsApp integration automatically when the transport is enabled', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: false });
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('does not start WhatsApp integration when the transport is disabled', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        whatsapp: false,
+      }),
+    );
+  });
+
+  test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentMostRecentSessionChannelId = null;
+      },
+    });
+
+    await state.scheduledTaskRunner?.({
+      source: 'config-job',
+      jobId: 'release-notes',
+      sessionId: 'scheduler:release-notes',
+      channelId: 'scheduler',
+      prompt: 'publish release notes',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'last-channel',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).not.toHaveBeenCalled();
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'release-notes',
+        taskId: undefined,
+        source: 'config-job',
+        actionKind: 'agent_turn',
+        delivery: 'last-channel',
+      },
+      'Scheduled task skipped: no delivery channel available',
+    );
+    expect(state.loggerError).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'release-notes',
+        delivery: 'last-channel',
+      }),
+      'Scheduled task failed',
+    );
+  });
+
+  test('logs provider health and scheduler jobs separately from the startup summary', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.getGatewayStatus.mockReturnValue({
+          status: 'ok',
+          sessions: 1,
+          codex: {
+            authenticated: true,
+            source: 'browser-pkce',
+            accountId: 'acct-1',
+            expiresAt: 1,
+            reloginRequired: false,
+          },
+          observability: {
+            enabled: true,
+            running: false,
+            paused: false,
+            reason: null,
+            streamKey: 'stream-key',
+            lastCursor: 1,
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+          scheduler: {
+            jobs: [
+              {
+                id: 'release-notes',
+                name: 'Release Notes',
+                description: null,
+                enabled: true,
+                lastRun: '2026-04-03T13:00:00.003Z',
+                lastStatus: 'success',
+                nextRunAt: '2026-04-03T14:00:00.000Z',
+                disabled: false,
+                consecutiveErrors: 0,
+              },
+            ],
+          },
+          providerHealth: {
+            codex: {
+              kind: 'remote',
+              reachable: true,
+              modelCount: 8,
+              detail: 'Authenticated via browser-pkce',
+            },
+          },
+          localBackends: {
+            lmstudio: {
+              reachable: true,
+              latencyMs: 29,
+              modelCount: 12,
+            },
+          },
+        });
+      },
+    });
+
+    expectInfoLog(
+      state,
+      'HybridClaw gateway started',
+      expect.not.objectContaining({
+        scheduler: expect.anything(),
+        providerHealth: expect.anything(),
+        localBackends: expect.anything(),
+      }),
+    );
+    expectInfoLog(state, 'Gateway scheduler jobs', {
+      jobs: [
+        {
+          id: 'release-notes',
+          name: 'Release Notes',
+          description: null,
+          enabled: true,
+          lastRun: '2026-04-03T13:00:00.003Z',
+          lastStatus: 'success',
+          nextRunAt: '2026-04-03T14:00:00.000Z',
+          disabled: false,
+          consecutiveErrors: 0,
+        },
+      ],
+    });
+    expectInfoLog(
+      state,
+      'Gateway provider health',
+      expect.objectContaining({
+        providerHealth: expect.objectContaining({
+          codex: expect.objectContaining({
+            reachable: true,
+          }),
+        }),
+        localBackends: expect.objectContaining({
+          lmstudio: expect.objectContaining({
+            reachable: true,
+          }),
+        }),
+      }),
+    );
   });
 
   test('keeps the gateway running when WhatsApp auth is locked by another process', async () => {
@@ -584,12 +955,12 @@ describe('gateway bootstrap', () => {
         (call) => call[1] === 'WhatsApp integration failed to start',
       ),
     ).toBe(false);
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         whatsapp: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -606,12 +977,12 @@ describe('gateway bootstrap', () => {
       { error: whatsappInitError },
       'WhatsApp integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         whatsapp: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -632,16 +1003,15 @@ describe('gateway bootstrap', () => {
       { error: discordInitError },
       'Discord integration failed to start',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
-        sessions: 1,
         discord: false,
         msteams: true,
         email: false,
-        whatsapp: false,
+        whatsapp: true,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -657,12 +1027,12 @@ describe('gateway bootstrap', () => {
     expect(state.loggerWarn).not.toHaveBeenCalledWith(
       'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
     );
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expectInfoLog(
+      state,
+      'Gateway channels',
       expect.objectContaining({
-        status: 'ok',
         discord: false,
       }),
-      'HybridClaw gateway started',
     );
   });
 
@@ -753,6 +1123,52 @@ describe('gateway bootstrap', () => {
       [],
     );
     expect(stream.fail).not.toHaveBeenCalled();
+  });
+
+  test('replies directly when a Discord chat result includes components', async () => {
+    const state = await importFreshGatewayMain();
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Choose an option',
+      toolsUsed: [],
+      artifacts: [],
+      components: [{ type: 1, components: [] }],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      null,
+      '123456789012345678',
+      'user',
+      'alice',
+      'hello',
+      [],
+      reply,
+      context,
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      'Choose an option',
+      [],
+      [{ type: 1, components: [] }],
+    );
+    expect(stream.discard).toHaveBeenCalled();
+    expect(stream.finalize).not.toHaveBeenCalled();
   });
 
   test('finalizes Teams message responses with uploaded artifact attachments', async () => {
@@ -998,6 +1414,30 @@ describe('gateway bootstrap', () => {
       context,
     );
 
+    expect(context.sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: '',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'user',
+    });
+    expect(pendingApprovals.getPendingApproval('session')).toMatchObject({
+      approvalId: 'approve123',
+      prompt: 'Hello <@123>\n*Tools: search*',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+    });
+
     const reply = vi.fn(async () => {});
     await state.commandHandler?.(
       'session',
@@ -1015,6 +1455,125 @@ describe('gateway bootstrap', () => {
       expect.any(Array),
     );
     await pendingApprovals.clearPendingApproval('session');
+  });
+
+  test('stores Slack pending approvals via the transport notification hook', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Need approval',
+      toolsUsed: ['web_search'],
+      artifacts: [],
+      pendingApproval: {
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+        intent: 'access reuters.com',
+        reason: 'this would contact a new external host',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: 1_710_000_000_000,
+      },
+    });
+    const cleanup = {
+      disableButtons: vi.fn(async () => {}),
+    };
+    const sendApprovalNotification = vi.fn(async () => cleanup);
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890:1710000000.123456',
+      'U1234567890',
+      'alice',
+      'hello',
+      [],
+      reply,
+      {
+        inbound: {
+          target: 'slack:C1234567890:1710000000.123456',
+          isDm: false,
+          threadTs: '1710000000.123456',
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+        sendApprovalNotification,
+      },
+    );
+
+    expect(sendApprovalNotification).toHaveBeenCalledWith({
+      approval: expect.objectContaining({
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I access reuters.com.',
+      }),
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      userId: 'U1234567890',
+    });
+    expect(reply).not.toHaveBeenCalled();
+    expect(pendingApprovals.getPendingApproval('session-slack')).toMatchObject({
+      approvalId: 'approve123',
+      userId: 'U1234567890',
+      prompt: 'I need your approval before I access reuters.com.',
+      presentation: {
+        mode: 'buttons',
+        showText: true,
+        showButtons: true,
+        showReplyText: false,
+      },
+      disableButtons: cleanup.disableButtons,
+    });
+    await pendingApprovals.clearPendingApproval('session-slack');
+  });
+
+  test('routes Slack slash-text commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ slackEnabled: true });
+    const reply = vi.fn(async () => {});
+
+    await state.slackMessageHandler?.(
+      'session-slack',
+      null,
+      'slack:C1234567890',
+      'U1234567890',
+      'alice',
+      '/status',
+      [],
+      reply,
+      {
+        inbound: {
+          target: 'slack:C1234567890',
+          isDm: false,
+          threadTs: null,
+          rawEvent: {
+            channel: 'C1234567890',
+            ts: '1710000000.200000',
+            type: 'message',
+          },
+        },
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-slack',
+        channelId: 'slack:C1234567890',
+        args: ['status'],
+        userId: 'U1234567890',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
   });
 
   test('stores Teams pending approvals and advertises numeric replies', async () => {
@@ -1068,12 +1627,18 @@ describe('gateway bootstrap', () => {
     ).toMatchObject({
       approvalId: 'approve123',
       userId: 'user-aad-id',
+      presentation: {
+        mode: 'text',
+        showText: true,
+        showButtons: false,
+        showReplyText: true,
+      },
     });
     expect(stream.finalize).toHaveBeenCalledWith(
       expect.stringContaining('Reply `1` to allow once'),
     );
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('`/approve [1|2|3|4]`'),
+      expect.stringContaining('`/approve [1|2|3|4|5]`'),
     );
     await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });
@@ -1445,7 +2010,11 @@ describe('gateway bootstrap', () => {
         smtpSecure: false,
       },
       local: { enabled: true },
-      memory: { consolidationIntervalHours: 2, decayRate: 0.5 },
+      memory: {
+        consolidationIntervalHours: 2,
+        decayRate: 0.5,
+        consolidationLanguage: 'en',
+      },
       observability: { enabled: true, botId: 'bot-obs', agentId: 'agent-obs' },
       scheduler: { jobs: [{ id: 'job-1' }] },
     };
@@ -1456,6 +2025,181 @@ describe('gateway bootstrap', () => {
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
     expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
-    expect(state.setInterval.mock.calls.length).toBeGreaterThan(1);
+    expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('restarts email integration when email config changes', async () => {
+    const state = await importFreshGatewayMain({
+      emailEnabled: true,
+      emailPassword: 'secret',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      email: {
+        ...state.currentConfig.email,
+        smtpSecure: true,
+      },
+    };
+
+    expect(state.initEmail).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.initEmail).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting email integration',
+      expect.objectContaining({
+        address: 'bot@example.com',
+        smtpHost: 'smtp.example.com',
+        smtpSecure: true,
+      }),
+    );
+  });
+
+  test('does not restart Telegram integration when Telegram config values are unchanged', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        allowFrom: [...state.currentConfig.telegram.allowFrom],
+        groupAllowFrom: [...state.currentConfig.telegram.groupAllowFrom],
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).not.toHaveBeenCalled();
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Telegram integration when Telegram config changes', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.currentConfig.telegram = {
+          ...draft.currentConfig.telegram,
+          enabled: true,
+          botToken: 'telegram-token',
+          dmPolicy: 'allowlist',
+          allowFrom: ['12345'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      telegram: {
+        ...state.currentConfig.telegram,
+        requireMention: false,
+      },
+    };
+
+    expect(state.initTelegram).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.initTelegram).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Telegram integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'disabled',
+        pollIntervalMs: 1_500,
+        requireMention: false,
+      }),
+    );
+  });
+
+  test('does not restart Slack integration when Slack allowlists only change order', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+      onState: (draft) => {
+        draft.currentConfig.slack = {
+          ...draft.currentConfig.slack,
+          enabled: true,
+          allowFrom: ['U123', 'U456'],
+          groupAllowFrom: ['U789', 'U000'],
+        };
+      },
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        allowFrom: ['U456', 'U123'],
+        groupAllowFrom: ['U000', 'U789'],
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).not.toHaveBeenCalled();
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+  });
+
+  test('restarts Slack integration when Slack config changes', async () => {
+    const state = await importFreshGatewayMain({
+      slackEnabled: true,
+      hasSlackCredentials: true,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      slack: {
+        ...state.currentConfig.slack,
+        replyStyle: 'top-level',
+      },
+    };
+
+    expect(state.initSlack).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.initSlack).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting Slack integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'allowlist',
+        groupPolicy: 'allowlist',
+        requireMention: true,
+        replyStyle: 'top-level',
+      }),
+    );
   });
 });

@@ -131,6 +131,100 @@ test('ContainerExecutor redacts result and error strings from agent output', asy
   expect(output.error).toBe('Authorization: Bearer 123456...stuv');
 });
 
+test('ContainerExecutor preserves approval ids while redacting approval text fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'Approval needed.',
+    toolsUsed: ['web_search'],
+    artifacts: [],
+    pendingApproval: {
+      approvalId: '089 4233232',
+      prompt:
+        'I need your approval before I call +49 170 3330160 and contact user@example.com.',
+      intent: 'contact +49 170 3330160',
+      reason: 'notify user@example.com',
+      allowSession: true,
+      allowAgent: true,
+      allowAll: true,
+      expiresAt: 1_710_000_000_000,
+    },
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+  const output = await executor.exec({
+    sessionId: 'session-approval-redaction',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  expect(output.pendingApproval?.approvalId).toBe('089 4233232');
+  expect(output.pendingApproval?.prompt).toContain('***PHONE_REDACTED***');
+  expect(output.pendingApproval?.prompt).toContain('***EMAIL_REDACTED***');
+  expect(output.pendingApproval?.intent).toContain('***PHONE_REDACTED***');
+  expect(output.pendingApproval?.reason).toContain('***EMAIL_REDACTED***');
+});
+
 test('ContainerExecutor stops and respawns a timed out pooled container', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -245,6 +339,262 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
   expect(stopCalls).toHaveLength(1);
 });
 
+test('ContainerExecutor disables internal text streaming when no text callback is provided', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-no-stream-ipc',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+  });
+
+  expect(proc.stdin.write).toHaveBeenCalledTimes(1);
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as Record<string, unknown>;
+  expect(firstInput).toMatchObject({
+    streamTextDeltas: false,
+  });
+});
+
+test('ContainerExecutor does not apply the HybridAI token cap to remote OpenAI-compatible providers by default', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: '',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-openrouter-max-tokens',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: '',
+    enableRag: false,
+    model: 'openrouter/qwen/qwen3.5-27b',
+    agentId: 'default',
+    channelId: 'web',
+  });
+
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as Record<string, unknown>;
+  expect(firstInput).not.toHaveProperty('maxTokens');
+});
+
+test('ContainerExecutor uses discovered maxTokens for Anthropic OpenRouter models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: '',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-openrouter-anthropic-max-tokens',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: '',
+    enableRag: false,
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    agentId: 'default',
+    channelId: 'web',
+  });
+
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as Record<string, unknown>;
+  expect(firstInput.maxTokens).toBe(64_000);
+});
+
 test('ContainerExecutor surfaces missing packaged runtime dependencies as immediate errors', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -349,4 +699,176 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
     'Missing runtime dependency: @modelcontextprotocol/sdk.',
   );
   expect(output.error).toContain('Reinstall HybridClaw.');
+});
+
+test('ContainerExecutor forwards maxWallClockMs to the IPC output reader', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-max-wall-clock',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+    maxWallClockMs: 3_600_000,
+  });
+
+  expect(readOutput).toHaveBeenCalledWith(
+    'session-max-wall-clock',
+    expect.any(Number),
+    expect.objectContaining({
+      maxWallClockMs: 3_600_000,
+    }),
+  );
+});
+
+test('ContainerExecutor forwards disabled inactivity timeout to the IPC output reader', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-no-inactivity-timeout',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+    inactivityTimeoutMs: null,
+  });
+
+  expect(readOutput).toHaveBeenCalledWith(
+    'session-no-inactivity-timeout',
+    null,
+    expect.any(Object),
+  );
 });
