@@ -43,7 +43,10 @@ async function importFreshSlackRuntime() {
     (payload: {
       ack: () => Promise<void>;
       command: Record<string, unknown>;
-      respond: (message: { text: string; response_type: 'ephemeral' }) => Promise<void>;
+      respond: (message: {
+        text: string;
+        response_type: 'ephemeral';
+      }) => Promise<void>;
     }) => Promise<void>
   >();
   let approvalActionHandler:
@@ -791,7 +794,10 @@ describe('slack runtime', () => {
       },
     );
 
-    await state.runtime.initSlack(async () => {}, async () => {});
+    await state.runtime.initSlack(
+      async () => {},
+      async () => {},
+    );
     const eventHandler = state.eventHandlers.get('message');
     expect(eventHandler).toBeTypeOf('function');
 
@@ -843,14 +849,20 @@ describe('slack runtime', () => {
     state.authTest.mockRejectedValueOnce(new Error('auth failed'));
 
     await expect(
-      state.runtime.initSlack(async () => {}, async () => {}),
+      state.runtime.initSlack(
+        async () => {},
+        async () => {},
+      ),
     ).rejects.toThrow('auth failed');
 
     expect(state.start).not.toHaveBeenCalled();
     expect(state.stop).toHaveBeenCalledTimes(1);
 
     await expect(
-      state.runtime.initSlack(async () => {}, async () => {}),
+      state.runtime.initSlack(
+        async () => {},
+        async () => {},
+      ),
     ).resolves.toBeUndefined();
 
     expect(state.authTest).toHaveBeenCalledTimes(2);

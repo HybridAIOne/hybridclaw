@@ -372,9 +372,7 @@ test('channels slack register-commands syncs slash commands through Slack app ma
   expect(logSpy).toHaveBeenCalledWith(
     'Updated Slack app manifest for A1234567890.',
   );
-  expect(logSpy).toHaveBeenCalledWith(
-    expect.stringContaining('Registered'),
-  );
+  expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Registered'));
 });
 
 test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {

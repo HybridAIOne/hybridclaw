@@ -2,8 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-
-import type { RuntimeSlackConfig } from '../src/config/runtime-config.ts';
 import {
   cleanupSlackInboundMedia,
   evaluateSlackAccessPolicy,
@@ -11,6 +9,7 @@ import {
   resolveSlackManagedMediaDirectory,
 } from '../src/channels/slack/inbound.ts';
 import * as slackTarget from '../src/channels/slack/target.ts';
+import type { RuntimeSlackConfig } from '../src/config/runtime-config.ts';
 import { logger } from '../src/logger.ts';
 import type { MediaContextItem } from '../src/types/container.ts';
 
@@ -56,7 +55,9 @@ afterEach(() => {
 });
 
 test('processInboundSlackEvent starts Slack attachment downloads in parallel', async () => {
-  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'));
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'),
+  );
   vi.spyOn(os, 'tmpdir').mockReturnValue(tempRoot);
 
   const resolvers: Array<(value: Response) => void> = [];
@@ -79,13 +80,15 @@ test('processInboundSlackEvent starts Slack attachment downloads in parallel', a
           name: 'first.txt',
           mimetype: 'text/plain',
           size: 3,
-          url_private_download: 'https://files.slack.com/files-pri/T1-F1/first.txt',
+          url_private_download:
+            'https://files.slack.com/files-pri/T1-F1/first.txt',
         },
         {
           name: 'second.txt',
           mimetype: 'text/plain',
           size: 3,
-          url_private_download: 'https://files.slack.com/files-pri/T1-F2/second.txt',
+          url_private_download:
+            'https://files.slack.com/files-pri/T1-F2/second.txt',
         },
       ],
     },
@@ -106,7 +109,9 @@ test('processInboundSlackEvent starts Slack attachment downloads in parallel', a
 });
 
 test('processInboundSlackEvent downloads attachments into managed temp media and cleanup removes them', async () => {
-  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'));
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'),
+  );
   vi.spyOn(os, 'tmpdir').mockReturnValue(tempRoot);
   const rootDir = tempRoot;
   vi.stubGlobal(
@@ -131,7 +136,8 @@ test('processInboundSlackEvent downloads attachments into managed temp media and
           name: 'report.pdf',
           mimetype: 'application/pdf',
           size: 3,
-          url_private_download: 'https://files.slack.com/files-pri/T1-F1/report.pdf',
+          url_private_download:
+            'https://files.slack.com/files-pri/T1-F1/report.pdf',
         },
       ],
     },
@@ -160,7 +166,9 @@ test('processInboundSlackEvent downloads attachments into managed temp media and
 });
 
 test('processInboundSlackEvent streams attachment downloads without calling arrayBuffer', async () => {
-  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'));
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'),
+  );
   vi.spyOn(os, 'tmpdir').mockReturnValue(tempRoot);
   const arrayBufferSpy = vi.fn(async () => new ArrayBuffer(0));
 
@@ -190,7 +198,8 @@ test('processInboundSlackEvent streams attachment downloads without calling arra
           name: 'report.pdf',
           mimetype: 'application/pdf',
           size: 3,
-          url_private_download: 'https://files.slack.com/files-pri/T1-F1/report.pdf',
+          url_private_download:
+            'https://files.slack.com/files-pri/T1-F1/report.pdf',
         },
       ],
     },
@@ -220,7 +229,9 @@ test('cleanupSlackInboundMedia ignores files outside managed Slack temp director
 });
 
 test('processInboundSlackEvent removes partial temp media when a later download fails', async () => {
-  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'));
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'),
+  );
   vi.spyOn(os, 'tmpdir').mockReturnValue(tempRoot);
   const rootDir = tempRoot;
 
@@ -248,13 +259,15 @@ test('processInboundSlackEvent removes partial temp media when a later download 
             name: 'first.txt',
             mimetype: 'text/plain',
             size: 3,
-            url_private_download: 'https://files.slack.com/files-pri/T1-F1/first.txt',
+            url_private_download:
+              'https://files.slack.com/files-pri/T1-F1/first.txt',
           },
           {
             name: 'second.txt',
             mimetype: 'text/plain',
             size: 3,
-            url_private_download: 'https://files.slack.com/files-pri/T1-F2/second.txt',
+            url_private_download:
+              'https://files.slack.com/files-pri/T1-F2/second.txt',
           },
         ],
       },
@@ -269,7 +282,9 @@ test('processInboundSlackEvent removes partial temp media when a later download 
 });
 
 test('processInboundSlackEvent warns when a downloaded attachment exceeds the max size', async () => {
-  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'));
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-slack-inbound-'),
+  );
   vi.spyOn(os, 'tmpdir').mockReturnValue(tempRoot);
   const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
@@ -294,7 +309,8 @@ test('processInboundSlackEvent warns when a downloaded attachment exceeds the ma
           name: 'too-large.bin',
           mimetype: 'application/octet-stream',
           size: 1,
-          url_private_download: 'https://files.slack.com/files-pri/T1-F1/too-large.bin',
+          url_private_download:
+            'https://files.slack.com/files-pri/T1-F1/too-large.bin',
         },
       ],
     },
