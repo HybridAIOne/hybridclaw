@@ -4,8 +4,8 @@ import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
-import { getErrorMessage } from '../lib/error-message';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 
 const GATEWAY_RESTART_POLL_MS = 1000;

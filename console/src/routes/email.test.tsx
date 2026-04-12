@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ToastProvider } from '../components/toast';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -8,6 +7,7 @@ import type {
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
 } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { EmailPage } from './email';
 
 const fetchAdminEmailMailboxMock =

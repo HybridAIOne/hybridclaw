@@ -371,7 +371,6 @@ export function McpPage() {
                 <p>{selectedServer.summary}</p>
               </div>
             ) : null}
-
           </div>
         </Panel>
       </div>

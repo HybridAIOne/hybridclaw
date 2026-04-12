@@ -16,7 +16,9 @@ import type {
   GatewayStatus,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { buildChannelCatalog } from './channels-catalog';
 
@@ -534,8 +536,6 @@ function SchedulerTaskDetail(props: {
   deletePending: boolean;
   onPauseToggle: () => void;
   onDelete: () => void;
-  pauseError: Error | null;
-  deleteError: Error | null;
 }) {
   return (
     <Panel title="Task" accent="warm">
@@ -606,13 +606,6 @@ function SchedulerTaskDetail(props: {
             {props.deletePending ? 'Deleting...' : 'Delete task'}
           </button>
         </div>
-
-        {props.pauseError ? (
-          <p className="error-banner">{props.pauseError.message}</p>
-        ) : null}
-        {props.deleteError ? (
-          <p className="error-banner">{props.deleteError.message}</p>
-        ) : null}
       </div>
     </Panel>
   );
@@ -626,10 +619,6 @@ function SchedulerJobEditor(props: {
   savePending: boolean;
   pausePending: boolean;
   deletePending: boolean;
-  saveError: Error | null;
-  pauseError: Error | null;
-  deleteError: Error | null;
-  saveResult: AdminSchedulerResponse | undefined;
   onDraftChange: (update: (current: SchedulerDraft) => SchedulerDraft) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -1020,23 +1009,6 @@ function SchedulerJobEditor(props: {
           ) : null}
         </div>
 
-        {props.saveResult ? (
-          <p className="success-banner">
-            Saved{' '}
-            {props.saveResult.jobs.find((job) => job.id === draft.id)?.name ||
-              draft.id}
-            .
-          </p>
-        ) : null}
-        {props.saveError ? (
-          <p className="error-banner">{props.saveError.message}</p>
-        ) : null}
-        {props.pauseError ? (
-          <p className="error-banner">{props.pauseError.message}</p>
-        ) : null}
-        {props.deleteError ? (
-          <p className="error-banner">{props.deleteError.message}</p>
-        ) : null}
       </div>
     </Panel>
   );
@@ -1044,6 +1016,7 @@ function SchedulerJobEditor(props: {
 
 export function SchedulerPage() {
   const auth = useAuth();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const requestedId =
@@ -1085,7 +1058,14 @@ export function SchedulerPage() {
     onSuccess: (payload, nextDraft) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
       setSelectedId(nextDraft.id.trim());
+      const name =
+        payload.jobs.find((job) => job.id === nextDraft.id.trim())?.name ||
+        nextDraft.id.trim();
+      toast.success(`Saved ${name}.`);
       window.location.href = '/admin/jobs';
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -1098,8 +1078,12 @@ export function SchedulerPage() {
     },
     onSuccess: (payload) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
+      toast.success('Deleted.');
       setSelectedId(null);
       setDraft(createDraft());
+    },
+    onError: (error) => {
+      toast.error('Delete failed', getErrorMessage(error));
     },
   });
 
@@ -1120,8 +1104,9 @@ export function SchedulerPage() {
             action,
           });
     },
-    onSuccess: (payload) => {
+    onSuccess: (payload, action) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
+      toast.success(action === 'pause' ? 'Paused.' : 'Resumed.');
       if (!selectedJob) return;
       const refreshed =
         payload.jobs.find((job) => job.id === selectedJob.id) || null;
@@ -1133,6 +1118,9 @@ export function SchedulerPage() {
       if (isConfigJob(refreshed)) {
         setDraft(createDraft(refreshed));
       }
+    },
+    onError: (error) => {
+      toast.error('Pause/resume failed', getErrorMessage(error));
     },
   });
 
@@ -1233,8 +1221,6 @@ export function SchedulerPage() {
               pauseMutation.mutate(selectedJob.disabled ? 'resume' : 'pause')
             }
             onDelete={() => deleteMutation.mutate()}
-            pauseError={pauseMutation.error as Error | null}
-            deleteError={deleteMutation.error as Error | null}
           />
         ) : (
           <SchedulerJobEditor
@@ -1245,10 +1231,6 @@ export function SchedulerPage() {
             savePending={saveMutation.isPending}
             pausePending={pauseMutation.isPending}
             deletePending={deleteMutation.isPending}
-            saveError={saveMutation.error as Error | null}
-            pauseError={pauseMutation.error as Error | null}
-            deleteError={deleteMutation.error as Error | null}
-            saveResult={saveMutation.isSuccess ? saveMutation.data : undefined}
             onDraftChange={(update) => setDraft((current) => update(current))}
             onSave={() => {
               const nextDraft = prepareDraftForSave(

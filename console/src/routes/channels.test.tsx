@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ToastProvider } from '../components/toast';
 import {
   fireEvent,
   render,
@@ -8,8 +7,8 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();

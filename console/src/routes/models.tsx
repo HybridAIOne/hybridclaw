@@ -3,13 +3,13 @@ import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { getErrorMessage } from '../lib/error-message';
 import {
   PageHeader,
   Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -301,7 +301,6 @@ export function ModelsPage() {
                   {saveMutation.isPending ? 'Saving...' : 'Save selection'}
                 </button>
               </div>
-
             </div>
           )}
         </Panel>

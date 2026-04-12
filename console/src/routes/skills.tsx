@@ -18,7 +18,6 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { getErrorMessage } from '../lib/error-message';
 import {
   BooleanField,
   BooleanPill,
@@ -30,6 +29,7 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { compareBoolean, compareNumber, compareText } from '../lib/sort';
 
@@ -750,7 +750,6 @@ export function SkillsPage() {
                   {createMutation.isPending ? 'Creating...' : 'Create skill'}
                 </button>
               </div>
-
             </div>
           )}
         </Panel>

@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchOverview } from '../api/client';
 import { useAuth } from '../auth';
-import { getErrorMessage } from '../lib/error-message';
 import {
   MetricCard,
   PageHeader,
@@ -10,6 +9,7 @@ import {
   useSortableRows,
 } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
   formatRelativeTime,
