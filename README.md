@@ -19,7 +19,7 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, WhatsApp, Telegram, Microsoft Teams, email, or the web. Run it
+Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email, or the web. Run it
 locally, deploy it for business workflows, and keep your agents, secrets, and
 data under your control.
 
@@ -75,7 +75,7 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect WhatsApp, Telegram, Discord, Microsoft Teams, Email
+- or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## How HybridClaw compares
 
@@ -124,7 +124,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt
@@ -152,12 +152,14 @@ Browse the full manual at
   [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
   [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
+  [Slack](https://www.hybridclaw.io/docs/slack),
   [iMessage](https://www.hybridclaw.io/docs/imessage), and
   [MS Teams](https://www.hybridclaw.io/docs/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
   [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
   [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
   [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
 - Configuration:

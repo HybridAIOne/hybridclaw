@@ -54,6 +54,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slack?: {
+    botTokenConfigured: boolean;
+    botTokenSource: 'env' | 'runtime-secrets' | null;
+    appTokenConfigured: boolean;
+    appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -110,6 +116,100 @@ export interface AdminSession {
   taskCount: number;
   createdAt: string;
   lastActive: string;
+}
+
+export interface AdminEmailFolder {
+  path: string;
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unseen: number;
+}
+
+export interface AdminEmailMessageSummary {
+  folder: string;
+  uid: number;
+  messageId: string | null;
+  subject: string;
+  fromAddress: string | null;
+  fromName: string | null;
+  preview: string | null;
+  receivedAt: string | null;
+  seen: boolean;
+  flagged: boolean;
+  answered: boolean;
+  hasAttachments: boolean;
+}
+
+export interface AdminEmailParticipant {
+  name: string | null;
+  address: string | null;
+}
+
+export interface AdminEmailAttachment {
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface AdminEmailMessageMetadata {
+  agentId: string | null;
+  model: string | null;
+  provider: string | null;
+  totalTokens: number | null;
+  tokenSource: 'api' | 'estimated' | null;
+}
+
+export interface AdminEmailMessageDetail extends AdminEmailMessageSummary {
+  to: AdminEmailParticipant[];
+  cc: AdminEmailParticipant[];
+  bcc: AdminEmailParticipant[];
+  replyTo: AdminEmailParticipant[];
+  text: string | null;
+  attachments: AdminEmailAttachment[];
+  metadata: AdminEmailMessageMetadata | null;
+}
+
+export interface AdminEmailMailboxResponse {
+  enabled: boolean;
+  address: string;
+  folders: AdminEmailFolder[];
+  defaultFolder: string | null;
+}
+
+export interface AdminEmailFolderResponse {
+  folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
+  messages: AdminEmailMessageSummary[];
+}
+
+export interface AdminEmailMessageResponse {
+  message: AdminEmailMessageDetail | null;
+  thread: AdminEmailMessageDetail[];
+}
+
+export interface AdminEmailDeleteResponse {
+  deleted: true;
+  targetFolder: string | null;
+  permanent: boolean;
+}
+
+export interface GatewayHistoryMessage {
+  id: number;
+  session_id: string;
+  user_id: string;
+  username: string | null;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface GatewayHistoryResponse {
+  sessionId: string;
+  history: GatewayHistoryMessage[];
 }
 
 export interface AdminTerminalStartResponse {
@@ -206,6 +306,13 @@ export interface AdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  slack: {
+    enabled: boolean;
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    defaultRequireMention: boolean;
+    defaultReplyStyle: 'thread' | 'top-level';
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
@@ -316,6 +423,17 @@ export interface AdminConfig {
     dangerouslyAllowNameMatching: boolean;
     mediaAllowHosts: string[];
     mediaAuthAllowHosts: string[];
+  };
+  slack: {
+    enabled: boolean;
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    requireMention: boolean;
+    textChunkLimit: number;
+    replyStyle: 'thread' | 'top-level';
+    mediaMaxMb: number;
   };
   telegram: {
     enabled: boolean;

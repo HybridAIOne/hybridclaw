@@ -286,7 +286,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
       return null;
     }
     return {
-      approvalId: redactSecrets(parsed.approvalId),
+      approvalId: parsed.approvalId,
       prompt: redactSecrets(parsed.prompt),
       intent: redactSecrets(parsed.intent),
       reason: redactSecrets(parsed.reason),
@@ -795,6 +795,7 @@ export async function runContainer(
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
+        channelId: task.channel_id,
         cronExpr: task.cron_expr,
         runAt: task.run_at,
         everyMs: task.every_ms,

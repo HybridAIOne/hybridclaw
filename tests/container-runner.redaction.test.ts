@@ -131,6 +131,100 @@ test('ContainerExecutor redacts result and error strings from agent output', asy
   expect(output.error).toBe('Authorization: Bearer 123456...stuv');
 });
 
+test('ContainerExecutor preserves approval ids while redacting approval text fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'Approval needed.',
+    toolsUsed: ['web_search'],
+    artifacts: [],
+    pendingApproval: {
+      approvalId: '089 4233232',
+      prompt:
+        'I need your approval before I call +49 170 3330160 and contact user@example.com.',
+      intent: 'contact +49 170 3330160',
+      reason: 'notify user@example.com',
+      allowSession: true,
+      allowAgent: true,
+      allowAll: true,
+      expiresAt: 1_710_000_000_000,
+    },
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+  const output = await executor.exec({
+    sessionId: 'session-approval-redaction',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  expect(output.pendingApproval?.approvalId).toBe('089 4233232');
+  expect(output.pendingApproval?.prompt).toContain('***PHONE_REDACTED***');
+  expect(output.pendingApproval?.prompt).toContain('***EMAIL_REDACTED***');
+  expect(output.pendingApproval?.intent).toContain('***PHONE_REDACTED***');
+  expect(output.pendingApproval?.reason).toContain('***EMAIL_REDACTED***');
+});
+
 test('ContainerExecutor stops and respawns a timed out pooled container', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

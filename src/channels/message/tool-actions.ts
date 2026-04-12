@@ -19,6 +19,7 @@ import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
 import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
+import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
 import {
   sendTelegramMediaToChat,
   sendToTelegramChat,
@@ -503,6 +504,13 @@ export async function runMessageToolAction(
   });
   if (teamsResult) {
     return teamsResult;
+  }
+
+  const slackResult = await maybeRunSlackToolAction(request, {
+    resolveSendFilePath: resolveMessageToolSendFilePath,
+  });
+  if (slackResult) {
+    return slackResult;
   }
 
   if (request.action === 'read') {

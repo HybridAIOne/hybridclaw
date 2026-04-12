@@ -1,29 +1,35 @@
-import { Link, useRouterState } from '@tanstack/react-router';
-import type { ComponentType, ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useRouterState } from '@tanstack/react-router';
+import {
+  type ComponentType,
+  createContext,
+  type ReactNode,
+  useContext,
+} from 'react';
+import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
-import { ThemeToggle } from './theme-toggle';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
+import { AppSidebar } from './sidebar/app-sidebar';
+import {
+  getSidebarStyleVars,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from './sidebar/index';
+import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
-const NAV_ITEMS: ReadonlyArray<{
-  to: string;
-  label: string;
-  icon?: ComponentType;
-}> = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/terminal', label: 'Terminal' },
-  { to: '/gateway', label: 'Gateway' },
-  { to: '/sessions', label: 'Sessions' },
-  { to: '/channels', label: 'Channels' },
-  { to: '/models', label: 'Models' },
-  { to: '/scheduler', label: 'Scheduler' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/mcp', label: 'MCP' },
-  { to: '/audit', label: 'Audit' },
-  { to: '/skills', label: 'Skills' },
-  { to: '/plugins', label: 'Plugins' },
-  { to: '/tools', label: 'Tools' },
-  { to: '/config', label: 'Config' },
-];
+const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
+const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
+
+type AppShellConfigContextValue = {
+  configReady: boolean;
+  emailEnabled: boolean;
+};
+
+const AppShellConfigContext = createContext<AppShellConfigContextValue>({
+  configReady: false,
+  emailEnabled: false,
+});
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
@@ -47,106 +53,81 @@ export function AppShell(props: { children: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+  });
   const adminPath = pathname.startsWith('/admin/')
     ? pathname.slice('/admin'.length)
     : pathname === '/admin'
       ? '/'
       : pathname;
+  const configReady = Boolean(configQuery.data);
+  const emailEnabled = configQuery.data?.config.email.enabled === true;
+  const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => !item.requiresEmail || emailEnabled || adminPath === item.to,
+    ),
+  })).filter((group) => group.items.length > 0);
+  const navItems = sidebarGroups.flatMap((group) => group.items);
   const currentNavItem =
-    NAV_ITEMS.find((item) => item.to === adminPath) || NAV_ITEMS[0];
+    navItems.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
 
   return (
-    <div className="app-frame">
-      <aside className="sidebar">
-        <div>
-          <div className="brand-block">
-            <p className="eyebrow">HybridClaw</p>
-            <div className="brand-title">
-              <span className="nav-link-icon" aria-hidden="true">
-                <Admin />
-              </span>
-              <h1>Admin console</h1>
+    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
+      <SidebarProvider style={SIDEBAR_STYLE}>
+        <AppSidebar
+          groups={sidebarGroups}
+          version={auth.gatewayStatus?.version}
+          showLogout={Boolean(auth.token)}
+          onLogout={auth.logout}
+        />
+        <SidebarInset className="main-panel">
+          <div className="topbar">
+            <div className="topbar-title">
+              <div className="topbar-heading">
+                <SidebarTrigger className="topbar-sidebar-trigger" />
+                <h2>{currentNavItem.label}</h2>
+              </div>
             </div>
-          </div>
-
-          <nav className="nav-group" aria-label="Primary">
-            {NAV_ITEMS.map((item) => {
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  activeProps={{ className: 'nav-link active' }}
-                  inactiveProps={{ className: 'nav-link' }}
-                  activeOptions={{ exact: item.to === '/' }}
-                >
-                  {item.icon ? (
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <item.icon />
-                    </span>
-                  ) : null}
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="sidebar-footer">
-          {auth.gatewayStatus?.version ? (
-            <span className="meta-chip sidebar-meta-chip">
-              {auth.gatewayStatus.version}
-            </span>
-          ) : null}
-          <div className="sidebar-footer-right">
-            <ThemeToggle />
-            {auth.token ? (
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={auth.logout}
-              >
-                Forget token
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </aside>
-
-      <main className="main-panel">
-        <div className="topbar">
-          <div className="topbar-title">
-            <h2>{currentNavItem.label}</h2>
-          </div>
-          <nav className="view-switch" aria-label="Switch view">
-            {VIEW_SWITCH_ITEMS.map((item) => {
-              const classes = item.active
-                ? 'view-switch-link active'
-                : 'view-switch-link';
-
-              if (item.active) {
-                return (
-                  <span key={item.href} className={classes} aria-current="page">
+            <nav className="view-switch" aria-label="Switch view">
+              {VIEW_SWITCH_ITEMS.map((item) => {
+                const inner = (
+                  <>
                     <span className="nav-link-icon" aria-hidden="true">
                       <item.icon />
                     </span>
                     <span>{item.label}</span>
-                  </span>
+                  </>
                 );
-              }
-
-              return (
-                <a key={item.href} className={classes} href={item.href}>
-                  <span className="nav-link-icon" aria-hidden="true">
-                    <item.icon />
+                return item.active ? (
+                  <span
+                    key={item.href}
+                    className="view-switch-link active"
+                    aria-current="page"
+                  >
+                    {inner}
                   </span>
-                  <span>{item.label}</span>
-                </a>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="page-content">{props.children}</div>
-      </main>
-    </div>
+                ) : (
+                  <a
+                    key={item.href}
+                    className="view-switch-link"
+                    href={item.href}
+                  >
+                    {inner}
+                  </a>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="page-content">{props.children}</div>
+        </SidebarInset>
+      </SidebarProvider>
+    </AppShellConfigContext.Provider>
   );
+}
+
+export function useAppShellConfig(): AppShellConfigContextValue {
+  return useContext(AppShellConfigContext);
 }

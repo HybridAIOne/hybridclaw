@@ -8,6 +8,7 @@ import {
   type Message,
   type MessageActionRowComponent,
 } from 'discord.js';
+import { APPROVAL_BUTTON_LABELS } from '../../gateway/approval-button-labels.js';
 
 export function buildApprovalActionRow(
   approvalId: string,
@@ -15,23 +16,23 @@ export function buildApprovalActionRow(
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`approve:yes:${approvalId}`)
-      .setLabel('Allow Once')
+      .setLabel(APPROVAL_BUTTON_LABELS.yes)
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`approve:session:${approvalId}`)
-      .setLabel('Allow Session')
+      .setLabel(APPROVAL_BUTTON_LABELS.session)
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`approve:agent:${approvalId}`)
-      .setLabel('Allow Agent')
+      .setLabel(APPROVAL_BUTTON_LABELS.agent)
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`approve:all:${approvalId}`)
-      .setLabel('Allow All')
+      .setLabel(APPROVAL_BUTTON_LABELS.all)
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`approve:no:${approvalId}`)
-      .setLabel('Deny')
+      .setLabel(APPROVAL_BUTTON_LABELS.no)
       .setStyle(ButtonStyle.Danger),
   );
 }

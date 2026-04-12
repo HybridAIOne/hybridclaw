@@ -11,6 +11,7 @@ import {
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import { formatError, formatInfo } from '../utils/text-format.js';
+import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -360,7 +361,7 @@ export async function handleTextChannelApprovalCommand(params: {
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
-      prompt: pendingApproval.prompt || resultText,
+      prompt: getApprovalPromptText(pendingApproval, resultText),
       userId,
       expiresAt: pendingApproval.expiresAt,
     });

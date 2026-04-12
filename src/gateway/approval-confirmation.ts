@@ -1,3 +1,4 @@
+import { APPROVAL_BUTTON_LABELS } from './approval-button-labels.js';
 import type { GatewayMessageComponents } from './gateway-types.js';
 
 export function buildApprovalConfirmationComponents(
@@ -10,31 +11,31 @@ export function buildApprovalConfirmationComponents(
         {
           type: 2,
           style: 3,
-          label: 'Allow Once',
+          label: APPROVAL_BUTTON_LABELS.yes,
           custom_id: `approve:yes:${approvalId}`,
         },
         {
           type: 2,
           style: 1,
-          label: 'Allow Session',
+          label: APPROVAL_BUTTON_LABELS.session,
           custom_id: `approve:session:${approvalId}`,
         },
         {
           type: 2,
           style: 1,
-          label: 'Allow Agent',
+          label: APPROVAL_BUTTON_LABELS.agent,
           custom_id: `approve:agent:${approvalId}`,
         },
         {
           type: 2,
           style: 1,
-          label: 'Allow All',
+          label: APPROVAL_BUTTON_LABELS.all,
           custom_id: `approve:all:${approvalId}`,
         },
         {
           type: 2,
           style: 4,
-          label: 'Deny',
+          label: APPROVAL_BUTTON_LABELS.no,
           custom_id: `approve:no:${approvalId}`,
         },
       ],

@@ -81,6 +81,7 @@ function guardCommand(command: string): string | null {
 
 type ScheduledTaskInfo = {
   id: number;
+  channelId: string;
   cronExpr: string;
   runAt: string | null;
   everyMs: number | null;
@@ -2891,7 +2892,8 @@ async function executeToolInternal(
             else schedule = `every ${Math.round(secs / 3600)}h`;
           } else schedule = t.cronExpr;
           const status = t.enabled ? 'enabled' : 'disabled';
-          return `#${t.id} [${status}] ${schedule} — ${t.prompt}`;
+          const destination = t.channelId ? ` -> ${t.channelId}` : '';
+          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}`;
         });
         return lines.join('\n');
       }
@@ -2903,6 +2905,8 @@ async function executeToolInternal(
           readStringValue(args.text);
         if (!promptInput) return failTool('Error: prompt is required');
         const prompt = promptInput;
+        const channelId =
+          readStringValue(args.channel) || readStringValue(args.channelId);
         const atSeconds = readPositiveNumberValue(
           args.at_seconds ?? args.atSeconds,
         );
@@ -2925,8 +2929,9 @@ async function executeToolInternal(
             action: 'add',
             runAt: runAt.toISOString(),
             prompt,
+            channelId,
           });
-          return `Scheduled one-shot task at ${runAt.toISOString()}: ${prompt}`;
+          return `Scheduled one-shot task at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.cron) {
@@ -2934,8 +2939,9 @@ async function executeToolInternal(
             action: 'add',
             cronExpr: args.cron,
             prompt,
+            channelId,
           });
-          return `Scheduled recurring task with cron "${args.cron}": ${prompt}`;
+          return `Scheduled recurring task with cron "${args.cron}"${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -2947,8 +2953,9 @@ async function executeToolInternal(
             action: 'add',
             everyMs,
             prompt,
+            channelId,
           });
-          return `Scheduled interval task every ${secs}s: ${prompt}`;
+          return `Scheduled interval task every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         return failTool(
@@ -3826,9 +3833,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds)\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence).',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself.',
       parameters: {
         type: 'object',
         properties: {
@@ -3860,6 +3867,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description:
               'Interval in seconds for simple recurring schedule (minimum 10)',
+          },
+          channel: {
+            type: 'string',
+            description:
+              'Optional delivery channel override for "add" (for example an email address, Discord channel id, Telegram target, iMessage handle, or "tui")',
           },
           taskId: {
             type: 'number',

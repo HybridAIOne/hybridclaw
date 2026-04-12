@@ -7,9 +7,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
-
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { registerChannel } from '../channels/channel-registry.js';
+import { isEmailAddress } from '../channels/email/allowlist.js';
+import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isTelegramChannelId } from '../channels/telegram/target.js';
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import {
   type RuntimeSchedulerJob,
@@ -33,6 +36,7 @@ const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
+const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
 
 type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
 
@@ -119,13 +123,29 @@ function formatFireTime(timeZone = DEFAULT_SCHEDULER_TIME_ZONE): string {
   });
 }
 
+function describeScheduledDeliveryTarget(
+  channelId: string | undefined,
+): string {
+  const trimmed = channelId?.trim();
+  if (!trimmed) return 'the current session';
+  if (isEmailAddress(trimmed)) return `email to ${trimmed}`;
+  if (DISCORD_CHANNEL_ID_RE.test(trimmed)) return `Discord channel ${trimmed}`;
+  if (isTelegramChannelId(trimmed)) return `Telegram target ${trimmed}`;
+  if (isIMessageHandle(trimmed)) return `iMessage target ${trimmed}`;
+  if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
+  if (trimmed === 'tui') return 'the local TUI inbox';
+  return `channel ${trimmed}`;
+}
+
 export function wrapCronPrompt(
   jobLabel: string,
   message: string,
   timeZone = DEFAULT_SCHEDULER_TIME_ZONE,
+  deliveryChannelId?: string,
 ): string {
   const resolvedTz = resolveSchedulerTimeZone(timeZone);
-  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime(resolvedTz)} (${resolvedTz})\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
+  const deliveryTarget = describeScheduledDeliveryTarget(deliveryChannelId);
+  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime(resolvedTz)} (${resolvedTz})\nDelivery target: ${deliveryTarget}. Your plain-text response will be delivered there automatically.\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
 }
 
 function defaultConfigJobMeta(): ConfigJobMeta {
@@ -663,7 +683,12 @@ function arm(): void {
 
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
-  const prompt = wrapCronPrompt(`#${task.id}`, task.prompt);
+  const prompt = wrapCronPrompt(
+    `#${task.id}`,
+    task.prompt,
+    DEFAULT_SCHEDULER_TIME_ZONE,
+    task.channel_id,
+  );
   await taskRunner({
     source: 'db-task',
     taskId: task.id,
@@ -689,6 +714,7 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
           jobLabel,
           job.action.message,
           job.schedule.tz || undefined,
+          job.delivery.kind === 'channel' ? job.delivery.to : undefined,
         )
       : job.action.message;
   await taskRunner({

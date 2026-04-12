@@ -25,9 +25,10 @@ export function processSideEffects(
     for (const effect of schedules) {
       try {
         if (effect.action === 'add') {
+          const deliveryChannelId = effect.channelId?.trim() || channelId;
           const taskId = createTask(
             sessionId,
-            channelId,
+            deliveryChannelId,
             effect.cronExpr || '',
             effect.prompt,
             effect.runAt,
@@ -37,7 +38,7 @@ export function processSideEffects(
             {
               taskId,
               sessionId,
-              channelId,
+              channelId: deliveryChannelId,
               cronExpr: effect.cronExpr,
               runAt: effect.runAt,
               everyMs: effect.everyMs,

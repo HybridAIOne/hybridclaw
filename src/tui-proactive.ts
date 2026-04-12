@@ -2,7 +2,7 @@ export function proactiveBadgeLabel(
   source: string | null | undefined,
 ): string | null {
   if (source === 'fullauto') return 'fullauto';
-  if (source === 'eval') return null;
+  if (source === 'eval') return 'eval';
   return 'reminder';
 }
 

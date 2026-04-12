@@ -194,3 +194,45 @@ test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong use
 
   await pendingApprovals.clearPendingApproval('session-5');
 });
+
+test('rollbackPendingApprovalClaim reopens a claimed approval for retry', async () => {
+  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+
+  await pendingApprovals.setPendingApproval('session-6', {
+    approvalId: 'claim66',
+    prompt: 'claim me then retry',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'user-1',
+    resolvedAt: null,
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim66',
+      userId: 'user-1',
+    }),
+  ).toMatchObject({
+    status: 'claimed',
+    sessionId: 'session-6',
+  });
+
+  expect(
+    pendingApprovals.rollbackPendingApprovalClaim({
+      sessionId: 'session-6',
+      approvalId: 'claim66',
+    }),
+  ).toBe(true);
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim66',
+      userId: 'user-1',
+    }),
+  ).toMatchObject({
+    status: 'claimed',
+    sessionId: 'session-6',
+  });
+
+  await pendingApprovals.clearPendingApproval('session-6');
+});

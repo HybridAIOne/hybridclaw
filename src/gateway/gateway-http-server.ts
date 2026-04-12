@@ -106,6 +106,7 @@ import {
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   deleteGatewayAdminAgent,
+  deleteGatewayAdminEmailMessage,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   GatewayRequestError,
@@ -113,6 +114,9 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminEmailFolder,
+  getGatewayAdminEmailMailbox,
+  getGatewayAdminEmailMessage,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
@@ -2171,6 +2175,91 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
 
+async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminEmailMailbox());
+}
+
+async function handleApiAdminEmailFolder(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const limitRaw = url.searchParams.get('limit')?.trim() || '';
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  if (
+    limitRaw &&
+    (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0)
+  ) {
+    sendJson(res, 400, { error: '`limit` must be a positive integer.' });
+    return;
+  }
+
+  const offsetRaw = url.searchParams.get('offset')?.trim() || '';
+  const offset = offsetRaw ? Number.parseInt(offsetRaw, 10) : undefined;
+  if (
+    offsetRaw &&
+    (typeof offset !== 'number' || !Number.isFinite(offset) || offset < 0)
+  ) {
+    sendJson(res, 400, { error: '`offset` must be a non-negative integer.' });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    await getGatewayAdminEmailFolder({
+      folder,
+      ...(typeof limit === 'number' ? { limit } : {}),
+      ...(typeof offset === 'number' ? { offset } : {}),
+    }),
+  );
+}
+
+async function handleApiAdminEmailMessage(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid === 0) {
+    sendJson(res, 400, { error: '`uid` must be a non-zero integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await getGatewayAdminEmailMessage({ folder, uid }));
+}
+
+async function handleApiAdminEmailMessageDelete(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid <= 0) {
+    sendJson(res, 400, { error: '`uid` must be a positive integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await deleteGatewayAdminEmailMessage({ folder, uid }));
+}
+
 async function handleApiAdminAgents(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3140,6 +3229,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
+            return;
+          }
+          if (pathname === '/api/admin/email' && method === 'GET') {
+            await handleApiAdminEmail(res);
+            return;
+          }
+          if (pathname === '/api/admin/email/messages' && method === 'GET') {
+            await handleApiAdminEmailFolder(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'GET') {
+            await handleApiAdminEmailMessage(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'DELETE') {
+            await handleApiAdminEmailMessageDelete(res, url);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {

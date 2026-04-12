@@ -8,6 +8,7 @@ import {
   useId,
   useState,
 } from 'react';
+import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
 type DropdownContextValue = {
@@ -101,7 +102,7 @@ export function DropdownTrigger({
   const { open, onOpenChange, onOpenToggle, setTriggerElement, contentId } =
     useDropdownContext('DropdownTrigger');
 
-  const classNames = [styles.trigger, className].filter(Boolean).join(' ');
+  const classNames = cx(styles.trigger, className);
 
   return (
     <button
@@ -226,7 +227,7 @@ export function DropdownContent({
 
   if (!open) return null;
 
-  const classNames = [styles.content, className].filter(Boolean).join(' ');
+  const classNames = cx(styles.content, className);
 
   return (
     <div
@@ -258,7 +259,7 @@ export function DropdownItem({
 }: DropdownItemProps) {
   const { onOpenChange } = useDropdownContext('DropdownItem');
 
-  const classNames = [styles.item, className].filter(Boolean).join(' ');
+  const classNames = cx(styles.item, className);
 
   return (
     <button

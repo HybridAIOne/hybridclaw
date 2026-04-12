@@ -569,6 +569,127 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminEmailMailbox = vi.fn(() => ({
+    enabled: true,
+    address: 'agent@example.com',
+    folders: [
+      {
+        path: 'INBOX',
+        name: 'Inbox',
+        specialUse: '\\Inbox',
+        total: 12,
+        unseen: 3,
+      },
+    ],
+    defaultFolder: 'INBOX',
+  }));
+  const getGatewayAdminEmailFolder = vi.fn(async () => ({
+    folder: 'INBOX',
+    offset: 0,
+    limit: 20,
+    previousOffset: null,
+    nextOffset: null,
+    messages: [
+      {
+        folder: 'INBOX',
+        uid: 44,
+        messageId: '<msg-44@example.com>',
+        subject: 'Quarterly plan',
+        fromAddress: 'finance@example.com',
+        fromName: 'Finance Ops',
+        preview: 'Please review the updated budget.',
+        receivedAt: '2026-03-11T10:00:00.000Z',
+        seen: false,
+        flagged: false,
+        answered: true,
+        hasAttachments: false,
+      },
+    ],
+  }));
+  const getGatewayAdminEmailMessage = vi.fn(async () => ({
+    message: {
+      folder: 'INBOX',
+      uid: 44,
+      messageId: '<msg-44@example.com>',
+      subject: 'Quarterly plan',
+      fromAddress: 'finance@example.com',
+      fromName: 'Finance Ops',
+      preview: 'Please review the updated budget.',
+      receivedAt: '2026-03-11T10:00:00.000Z',
+      seen: false,
+      flagged: false,
+      answered: true,
+      hasAttachments: false,
+      to: [{ name: 'Agent', address: 'agent@example.com' }],
+      cc: [],
+      bcc: [],
+      replyTo: [],
+      text: 'Full message body',
+      attachments: [],
+      metadata: {
+        agentId: 'main',
+        model: 'hybridai/gpt-5',
+        provider: 'hybridai',
+        totalTokens: 1234,
+        tokenSource: 'api',
+      },
+    },
+    thread: [
+      {
+        folder: 'INBOX',
+        uid: 40,
+        messageId: '<msg-40@example.com>',
+        subject: 'Quarterly plan',
+        fromAddress: 'finance@example.com',
+        fromName: 'Finance Ops',
+        preview: 'Earlier thread context',
+        receivedAt: '2026-03-10T10:00:00.000Z',
+        seen: true,
+        flagged: false,
+        answered: false,
+        hasAttachments: false,
+        to: [{ name: 'Agent', address: 'agent@example.com' }],
+        cc: [],
+        bcc: [],
+        replyTo: [],
+        text: 'Earlier thread context',
+        attachments: [],
+        metadata: null,
+      },
+      {
+        folder: 'INBOX',
+        uid: 44,
+        messageId: '<msg-44@example.com>',
+        subject: 'Quarterly plan',
+        fromAddress: 'finance@example.com',
+        fromName: 'Finance Ops',
+        preview: 'Please review the updated budget.',
+        receivedAt: '2026-03-11T10:00:00.000Z',
+        seen: false,
+        flagged: false,
+        answered: true,
+        hasAttachments: false,
+        to: [{ name: 'Agent', address: 'agent@example.com' }],
+        cc: [],
+        bcc: [],
+        replyTo: [],
+        text: 'Full message body',
+        attachments: [],
+        metadata: {
+          agentId: 'main',
+          model: 'hybridai/gpt-5',
+          provider: 'hybridai',
+          totalTokens: 1234,
+          tokenSource: 'api',
+        },
+      },
+    ],
+  }));
+  const deleteGatewayAdminEmailMessage = vi.fn(async () => ({
+    deleted: true,
+    targetFolder: 'Trash',
+    permanent: false,
+  }));
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
       totalPlugins: 2,
@@ -722,6 +843,13 @@ async function importFreshHealth(options?: {
     defaultAckReaction: 'eyes',
     defaultRateLimitPerUser: 0,
     defaultMaxConcurrentPerChannel: 2,
+    slack: {
+      enabled: false,
+      groupPolicy: 'allowlist',
+      dmPolicy: 'allowlist',
+      defaultRequireMention: true,
+      defaultReplyStyle: 'thread',
+    },
     channels: [],
   }));
   const getGatewayAdminConfig = vi.fn(() => ({
@@ -1005,6 +1133,10 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    deleteGatewayAdminEmailMessage,
+    getGatewayAdminEmailFolder,
+    getGatewayAdminEmailMailbox,
+    getGatewayAdminEmailMessage,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
@@ -1111,6 +1243,10 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    deleteGatewayAdminEmailMessage,
+    getGatewayAdminEmailFolder,
+    getGatewayAdminEmailMailbox,
+    getGatewayAdminEmailMessage,
     getGatewayAgents,
     getGatewayAdminAgents,
     runGatewayPluginTool,
@@ -3199,6 +3335,149 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('returns live admin email mailbox metadata for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/email' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailMailbox).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      enabled: true,
+      address: 'agent@example.com',
+      defaultFolder: 'INBOX',
+    });
+  });
+
+  test('rejects unauthorized requests for live admin email mailbox metadata', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/admin/email',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayAdminEmailMailbox).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('returns live admin email messages for a selected folder', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/email/messages?folder=INBOX&limit=20',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailFolder).toHaveBeenCalledWith({
+      folder: 'INBOX',
+      limit: 20,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      folder: 'INBOX',
+      messages: [
+        {
+          uid: 44,
+          subject: 'Quarterly plan',
+        },
+      ],
+    });
+  });
+
+  test('passes mailbox pagination params for a selected folder', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/email/messages?folder=INBOX&limit=20&offset=40',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailFolder).toHaveBeenCalledWith({
+      folder: 'INBOX',
+      limit: 20,
+      offset: 40,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('returns live admin email message detail for a selected message', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/email/message?folder=INBOX&uid=44',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailMessage).toHaveBeenCalledWith({
+      folder: 'INBOX',
+      uid: 44,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      message: {
+        uid: 44,
+        subject: 'Quarterly plan',
+        text: 'Full message body',
+      },
+    });
+  });
+
+  test('returns live admin email message detail for a synthetic sent message', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/email/message?folder=Sent&uid=-2000113423',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminEmailMessage).toHaveBeenCalledWith({
+      folder: 'Sent',
+      uid: -2000113423,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('deletes a live admin email message for an authorized API request', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/email/message?folder=INBOX&uid=44',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.deleteGatewayAdminEmailMessage).toHaveBeenCalledWith({
+      folder: 'INBOX',
+      uid: 44,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      deleted: true,
+      targetFolder: 'Trash',
+      permanent: false,
     });
   });
 
