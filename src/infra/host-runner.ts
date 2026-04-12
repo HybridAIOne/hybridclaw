@@ -327,7 +327,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
       return null;
     }
     return {
-      approvalId: redactSecrets(parsed.approvalId),
+      approvalId: parsed.approvalId,
       prompt: redactSecrets(parsed.prompt),
       intent: redactSecrets(parsed.intent),
       reason: redactSecrets(parsed.reason),
