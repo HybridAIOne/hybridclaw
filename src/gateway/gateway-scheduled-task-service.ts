@@ -2,6 +2,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
+  DEFAULT_ONE_SHOT_MAX_RETRIES,
   getRuntimeConfig,
   parseSchedulerBoardStatus,
   type RuntimeConfig,
@@ -26,6 +27,7 @@ import {
   parseSchedulerTimestampMs,
   pauseConfigJob,
   rearmScheduler,
+  resetConfigJobRuntime,
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import type { SessionResetPolicy } from '../session/session-reset.js';
@@ -42,6 +44,12 @@ import type {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRunOnceScheduleKind(
+  kind: RuntimeConfig['scheduler']['jobs'][number]['schedule']['kind'],
+): boolean {
+  return kind === 'at' || kind === 'one_shot';
 }
 
 function parseAdminSchedulerJob(
@@ -70,16 +78,18 @@ function parseAdminSchedulerJob(
   if (
     scheduleKind !== 'cron' &&
     scheduleKind !== 'every' &&
-    scheduleKind !== 'at'
+    scheduleKind !== 'at' &&
+    scheduleKind !== 'one_shot'
   ) {
     throw new Error(
-      'Scheduler schedule kind must be `cron`, `every`, or `at`.',
+      'Scheduler schedule kind must be `cron`, `every`, `at`, or `one_shot`.',
     );
   }
 
   let at: string | null = null;
   let everyMs: number | null = null;
   let expr: string | null = null;
+  let maxRetries: number | null = null;
   if (scheduleKind === 'at') {
     at = String(rawSchedule.at || '').trim();
     const parsedAt = new Date(at);
@@ -96,6 +106,22 @@ function parseAdminSchedulerJob(
       throw new Error('`schedule.everyMs` must be at least 10000.');
     }
     everyMs = Math.floor(parsedEveryMs);
+  } else if (scheduleKind === 'one_shot') {
+    const parsedMaxRetries =
+      typeof value.maxRetries === 'number'
+        ? value.maxRetries
+        : Number.parseInt(String(value.maxRetries || ''), 10);
+    if (
+      Number.isFinite(parsedMaxRetries) &&
+      Math.floor(parsedMaxRetries) >= 0 &&
+      Math.floor(parsedMaxRetries) <= 100
+    ) {
+      maxRetries = Math.floor(parsedMaxRetries);
+    } else if (String(value.maxRetries || '').trim()) {
+      throw new Error('`maxRetries` must be an integer between 0 and 100.');
+    } else {
+      maxRetries = DEFAULT_ONE_SHOT_MAX_RETRIES;
+    }
   } else {
     expr = String(rawSchedule.expr || '').trim();
     if (!expr) {
@@ -149,7 +175,10 @@ function parseAdminSchedulerJob(
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),
     ...(agentId ? { agentId } : {}),
-    ...(boardStatus ? { boardStatus } : {}),
+    ...(boardStatus || scheduleKind === 'one_shot'
+      ? { boardStatus: boardStatus || 'backlog' }
+      : {}),
+    ...(maxRetries != null ? { maxRetries } : {}),
     schedule: {
       kind: scheduleKind,
       at,
@@ -223,6 +252,8 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
             null,
           agentId: job.agentId ?? null,
           boardStatus: job.boardStatus ?? null,
+          maxRetries:
+            typeof job.maxRetries === 'number' ? job.maxRetries : null,
           enabled: job.enabled,
           schedule: job.schedule,
           action: job.action,
@@ -232,7 +263,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           nextRunAt: runtime?.nextRunAt || null,
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: null,
+          createdAt: session?.created_at || null,
           sessionId: session?.id || null,
           channelId:
             job.delivery.kind === 'channel'
@@ -262,6 +293,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
             description: `#${task.id}`,
             agentId: null,
             boardStatus: null,
+            maxRetries: null,
             enabled: Boolean(task.enabled),
             schedule: task.run_at
               ? {
@@ -319,6 +351,9 @@ export function upsertGatewayAdminSchedulerJob(input: {
   job: unknown;
 }): GatewayAdminSchedulerResponse {
   const job = parseAdminSchedulerJob(input.job);
+  const previousJob =
+    getRuntimeConfig().scheduler.jobs.find((entry) => entry.id === job.id) ||
+    null;
 
   updateRuntimeConfig((draft) => {
     const existingIndex = draft.scheduler.jobs.findIndex(
@@ -331,6 +366,15 @@ export function upsertGatewayAdminSchedulerJob(input: {
     draft.scheduler.jobs.push(job);
   });
 
+  if (
+    previousJob &&
+    isRunOnceScheduleKind(job.schedule.kind) &&
+    job.boardStatus === 'backlog' &&
+    (previousJob.boardStatus !== 'backlog' ||
+      previousJob.schedule.kind !== job.schedule.kind)
+  ) {
+    resetConfigJobRuntime(job.id);
+  }
   if (job.enabled) {
     resumeConfigJob(job.id);
   }
@@ -409,10 +453,11 @@ export function moveGatewayAdminSchedulerJob(params: {
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
   const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const exists = getRuntimeConfig().scheduler.jobs.some(
-    (job) => job.id === normalizedJobId,
-  );
-  if (!exists) {
+  const existingJob =
+    getRuntimeConfig().scheduler.jobs.find(
+      (job) => job.id === normalizedJobId,
+    ) || null;
+  if (!existingJob) {
     throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
   }
 
@@ -441,6 +486,13 @@ export function moveGatewayAdminSchedulerJob(params: {
     draft.scheduler.jobs.splice(insertIndex, 0, job);
   });
 
+  if (
+    params.boardStatus === 'backlog' &&
+    isRunOnceScheduleKind(existingJob.schedule.kind) &&
+    existingJob.boardStatus !== 'backlog'
+  ) {
+    resetConfigJobRuntime(normalizedJobId);
+  }
   rearmScheduler();
   return getGatewayAdminScheduler();
 }

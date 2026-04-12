@@ -114,7 +114,9 @@ Common advanced areas:
 
 - Discord behavior and policy controls: `discord.*` and `discord.guilds.*`
 - Approval policy controls (workspace-local): `./.hybridclaw/policy.yaml`
-- Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
+- Scheduler jobs: `scheduler.jobs[]` with cron, every, at, or `one_shot`
+  delivery targets (`one_shot` jobs run immediately, retry up to
+  `maxRetries`, and land in review on success or terminal failure)
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`

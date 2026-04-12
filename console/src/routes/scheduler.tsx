@@ -2,14 +2,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   deleteSchedulerJob,
+  fetchChannels,
+  fetchConfig,
   fetchScheduler,
   saveSchedulerJob,
   setSchedulerJobPaused,
 } from '../api/client';
-import type { AdminSchedulerJob, AdminSchedulerResponse } from '../api/types';
+import type {
+  AdminChannelsResponse,
+  AdminConfig,
+  AdminSchedulerJob,
+  AdminSchedulerResponse,
+  GatewayStatus,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
 import { formatDateTime } from '../lib/format';
+import { buildChannelCatalog } from './channels-catalog';
 
 interface SchedulerDraft {
   originalId: string | null;
@@ -19,11 +28,12 @@ interface SchedulerDraft {
   agentId: string;
   boardStatus: 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
   enabled: boolean;
-  scheduleKind: 'cron' | 'every' | 'at';
+  scheduleKind: 'cron' | 'every' | 'at' | 'one_shot';
   scheduleExpr: string;
   scheduleEveryMs: string;
   scheduleAt: string;
   scheduleTz: string;
+  maxRetries: string;
   actionKind: 'agent_turn' | 'system_event';
   actionMessage: string;
   deliveryKind: 'channel' | 'last-channel' | 'webhook';
@@ -31,6 +41,34 @@ interface SchedulerDraft {
   deliveryTo: string;
   deliveryWebhookUrl: string;
 }
+
+type SchedulerChannelOption = {
+  value: string;
+  label: string;
+};
+
+type SchedulerTargetOption = {
+  value: string;
+  label: string;
+};
+
+type SchedulerTargetControl =
+  | {
+      kind: 'none';
+      value: string;
+    }
+  | {
+      kind: 'input';
+      value: string;
+      label: string;
+      placeholder: string;
+    }
+  | {
+      kind: 'select';
+      value: string;
+      label: string;
+      options: SchedulerTargetOption[];
+    };
 
 function isConfigJob(
   job: AdminSchedulerJob | null | undefined,
@@ -53,6 +91,9 @@ function toDateTimeLocal(raw: string | null): string {
 }
 
 function formatSchedule(job: AdminSchedulerJob): string {
+  if (job.schedule.kind === 'one_shot') {
+    return 'one shot';
+  }
   if (job.schedule.kind === 'cron') {
     return job.schedule.expr || 'invalid cron';
   }
@@ -71,6 +112,9 @@ function formatRowMeta(job: AdminSchedulerJob): string {
 
 function formatRuntimeState(job: AdminSchedulerJob): string {
   if (job.disabled) return 'paused';
+  if (job.boardStatus === 'review' && job.lastStatus === 'error') {
+    return 'failed';
+  }
   if (job.lastStatus) return job.lastStatus;
   return job.enabled ? 'ready' : 'inactive';
 }
@@ -103,12 +147,241 @@ function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
         : String(source.schedule.everyMs),
     scheduleAt: toDateTimeLocal(source?.schedule.at || null),
     scheduleTz: source?.schedule.tz || '',
+    maxRetries:
+      typeof source?.maxRetries === 'number' ? String(source.maxRetries) : '3',
     actionKind: source?.action.kind || 'agent_turn',
     actionMessage: source?.action.message || '',
     deliveryKind: source?.delivery.kind || 'channel',
-    deliveryChannel: source?.delivery.channel || 'discord',
+    deliveryChannel: source?.delivery.channel || 'tui',
     deliveryTo: source?.delivery.to || '',
     deliveryWebhookUrl: source?.delivery.webhookUrl || '',
+  };
+}
+
+function buildSchedulerChannelOptions(params: {
+  config?: AdminConfig;
+  status?: GatewayStatus | null;
+  currentChannel: string;
+}): SchedulerChannelOption[] {
+  const options: SchedulerChannelOption[] = [
+    {
+      value: 'tui',
+      label: 'Local TUI',
+    },
+  ];
+  const config = params.config;
+  if (config) {
+    const catalog = buildChannelCatalog(config, {
+      discordTokenConfigured: params.status?.discord?.tokenConfigured,
+      slackBotTokenConfigured: params.status?.slack?.botTokenConfigured,
+      slackAppTokenConfigured: params.status?.slack?.appTokenConfigured,
+      telegramTokenConfigured: params.status?.telegram?.tokenConfigured,
+      whatsappLinked: params.status?.whatsapp?.linked,
+      emailPasswordConfigured: params.status?.email?.passwordConfigured,
+      imessagePasswordConfigured: params.status?.imessage?.passwordConfigured,
+    });
+    for (const item of catalog) {
+      if (item.statusTone !== 'active') continue;
+      options.push({
+        value: item.kind,
+        label: item.label,
+      });
+    }
+  }
+
+  const currentChannel = params.currentChannel.trim();
+  if (
+    currentChannel &&
+    !options.some((option) => option.value === currentChannel)
+  ) {
+    options.push({
+      value: currentChannel,
+      label: `${formatSchedulerChannelLabel(currentChannel)} (current)`,
+    });
+  }
+
+  return options;
+}
+
+function formatSchedulerChannelLabel(channel: string): string {
+  switch (channel) {
+    case 'discord':
+      return 'Discord';
+    case 'slack':
+      return 'Slack';
+    case 'telegram':
+      return 'Telegram';
+    case 'whatsapp':
+      return 'WhatsApp';
+    case 'email':
+      return 'Email';
+    case 'msteams':
+      return 'Microsoft Teams';
+    case 'imessage':
+      return 'iMessage';
+    case 'tui':
+      return 'Local TUI';
+    case 'web':
+      return 'Local Web';
+    default:
+      return channel;
+  }
+}
+
+function buildConfiguredTargetOptions(
+  channel: string,
+  channels: AdminChannelsResponse | undefined,
+): SchedulerTargetOption[] {
+  if (!channels) return [];
+  if (channel === 'discord') {
+    return channels.channels
+      .filter((entry) => entry.transport === 'discord')
+      .map((entry) => ({
+        value: entry.channelId,
+        label: `${entry.guildId} · ${entry.channelId}`,
+      }));
+  }
+  if (channel === 'msteams') {
+    return channels.channels
+      .filter((entry) => entry.transport === 'msteams')
+      .map((entry) => ({
+        value: entry.channelId,
+        label: `${entry.guildId} · ${entry.channelId}`,
+      }));
+  }
+  return [];
+}
+
+function resolveSchedulerTargetValue(params: {
+  channel: string;
+  currentValue: string;
+  options: SchedulerTargetOption[];
+}): string {
+  const currentValue = params.currentValue.trim();
+  if (params.channel === 'tui' || params.channel === 'web') {
+    return params.channel;
+  }
+  if (params.options.length === 0) {
+    return currentValue;
+  }
+  if (params.options.some((option) => option.value === currentValue)) {
+    return currentValue;
+  }
+  return params.options[0].value;
+}
+
+function buildSchedulerTargetControl(params: {
+  channel: string;
+  currentValue: string;
+  channels: AdminChannelsResponse | undefined;
+}): SchedulerTargetControl {
+  const options = buildConfiguredTargetOptions(params.channel, params.channels);
+  const value = resolveSchedulerTargetValue({
+    channel: params.channel,
+    currentValue: params.currentValue,
+    options,
+  });
+
+  if (params.channel === 'tui' || params.channel === 'web') {
+    return {
+      kind: 'none',
+      value,
+    };
+  }
+  if (
+    (params.channel === 'discord' || params.channel === 'msteams') &&
+    options.length === 1
+  ) {
+    return {
+      kind: 'none',
+      value,
+    };
+  }
+  if (
+    (params.channel === 'discord' || params.channel === 'msteams') &&
+    options.length > 1
+  ) {
+    return {
+      kind: 'select',
+      value,
+      label: 'Channel',
+      options,
+    };
+  }
+
+  switch (params.channel) {
+    case 'discord':
+      return {
+        kind: 'input',
+        value,
+        label: 'Channel ID',
+        placeholder: '123456789012345678',
+      };
+    case 'slack':
+      return {
+        kind: 'input',
+        value,
+        label: 'Conversation target',
+        placeholder: 'slack:C1234567890',
+      };
+    case 'telegram':
+      return {
+        kind: 'input',
+        value,
+        label: 'Chat ID',
+        placeholder: 'telegram:-1001234567890',
+      };
+    case 'whatsapp':
+      return {
+        kind: 'input',
+        value,
+        label: 'Chat JID',
+        placeholder: '491234567890@s.whatsapp.net',
+      };
+    case 'email':
+      return {
+        kind: 'input',
+        value,
+        label: 'Recipient',
+        placeholder: 'ops@example.com',
+      };
+    case 'imessage':
+      return {
+        kind: 'input',
+        value,
+        label: 'Handle',
+        placeholder: 'imessage:ops@example.com',
+      };
+    case 'msteams':
+      return {
+        kind: 'input',
+        value,
+        label: 'Channel ID',
+        placeholder: '19:channel-id@thread.tacv2',
+      };
+    default:
+      return {
+        kind: 'input',
+        value,
+        label: 'Target',
+        placeholder: params.channel || 'target',
+      };
+  }
+}
+
+function applyResolvedTarget(
+  draft: SchedulerDraft,
+  targetControl: SchedulerTargetControl,
+): SchedulerDraft {
+  if (draft.deliveryKind !== 'channel') {
+    return {
+      ...draft,
+      deliveryTo: '',
+    };
+  }
+  return {
+    ...draft,
+    deliveryTo: targetControl.value,
   };
 }
 
@@ -186,6 +459,21 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   if (draft.scheduleKind === 'at' && !at) {
     throw new Error('Pick a valid "Run at" timestamp.');
   }
+  const parsedMaxRetries =
+    draft.scheduleKind === 'one_shot'
+      ? Number.parseInt(draft.maxRetries, 10)
+      : null;
+  const maxRetries =
+    parsedMaxRetries == null ? null : Math.floor(parsedMaxRetries);
+  if (
+    draft.scheduleKind === 'one_shot' &&
+    (!Number.isFinite(parsedMaxRetries) ||
+      maxRetries == null ||
+      maxRetries < 0 ||
+      maxRetries > 100)
+  ) {
+    throw new Error('Pick a valid retry count from 0 to 100.');
+  }
 
   return {
     id: draft.id.trim(),
@@ -194,6 +482,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     description: draft.description.trim() || null,
     agentId: draft.agentId.trim() || null,
     boardStatus: draft.boardStatus,
+    maxRetries: draft.scheduleKind === 'one_shot' ? maxRetries : null,
     enabled: draft.enabled,
     schedule: {
       kind: draft.scheduleKind,
@@ -206,7 +495,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
         draft.scheduleKind === 'cron'
           ? draft.scheduleExpr.trim() || null
           : null,
-      tz: draft.scheduleTz.trim(),
+      tz: draft.scheduleKind === 'one_shot' ? '' : draft.scheduleTz.trim(),
     },
     action: {
       kind: draft.actionKind,
@@ -214,7 +503,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     },
     delivery: {
       kind: draft.deliveryKind,
-      channel: draft.deliveryChannel.trim() || 'discord',
+      channel: draft.deliveryChannel.trim() || 'tui',
       to: draft.deliveryKind === 'channel' ? draft.deliveryTo.trim() : '',
       webhookUrl:
         draft.deliveryKind === 'webhook' ? draft.deliveryWebhookUrl.trim() : '',
@@ -332,6 +621,8 @@ function SchedulerTaskDetail(props: {
 function SchedulerJobEditor(props: {
   draft: SchedulerDraft;
   selectedJob: (AdminSchedulerJob & { source: 'config' }) | null;
+  channelOptions: SchedulerChannelOption[];
+  targetControl: SchedulerTargetControl;
   savePending: boolean;
   pausePending: boolean;
   deletePending: boolean;
@@ -437,27 +728,38 @@ function SchedulerJobEditor(props: {
                   ...current,
                   scheduleKind: event.target
                     .value as SchedulerDraft['scheduleKind'],
+                  boardStatus:
+                    event.target.value === 'one_shot'
+                      ? 'backlog'
+                      : current.boardStatus,
+                  maxRetries:
+                    event.target.value === 'one_shot'
+                      ? current.maxRetries.trim() || '3'
+                      : current.maxRetries,
                 }))
               }
             >
               <option value="cron">cron</option>
               <option value="every">every</option>
               <option value="at">at</option>
+              <option value="one_shot">one shot</option>
             </select>
           </label>
-          <label className="field">
-            <span>Timezone</span>
-            <input
-              value={draft.scheduleTz}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  scheduleTz: event.target.value,
-                }))
-              }
-              placeholder="Europe/Berlin"
-            />
-          </label>
+          {draft.scheduleKind !== 'one_shot' ? (
+            <label className="field">
+              <span>Timezone</span>
+              <input
+                value={draft.scheduleTz}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    scheduleTz: event.target.value,
+                  }))
+                }
+                placeholder="Europe/Berlin"
+              />
+            </label>
+          ) : null}
         </div>
 
         {draft.scheduleKind === 'cron' ? (
@@ -504,6 +806,26 @@ function SchedulerJobEditor(props: {
                   scheduleAt: event.target.value,
                 }))
               }
+            />
+          </label>
+        ) : null}
+
+        {draft.scheduleKind === 'one_shot' ? (
+          <label className="field">
+            <span>Retries after failure</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={draft.maxRetries}
+              onChange={(event) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  maxRetries: event.target.value,
+                }))
+              }
+              placeholder="3"
             />
           </label>
         ) : null}
@@ -563,30 +885,58 @@ function SchedulerJobEditor(props: {
           <div className="field-grid">
             <label className="field">
               <span>Channel type</span>
-              <input
+              <select
                 value={draft.deliveryChannel}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
                     ...current,
                     deliveryChannel: event.target.value,
+                    deliveryTo: '',
                   }))
                 }
-                placeholder="discord"
-              />
+              >
+                {props.channelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="field">
-              <span>Channel ID</span>
-              <input
-                value={draft.deliveryTo}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    deliveryTo: event.target.value,
-                  }))
-                }
-                placeholder="1234567890"
-              />
-            </label>
+            {props.targetControl.kind === 'select' ? (
+              <label className="field">
+                <span>{props.targetControl.label}</span>
+                <select
+                  value={props.targetControl.value}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      deliveryTo: event.target.value,
+                    }))
+                  }
+                >
+                  {props.targetControl.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {props.targetControl.kind === 'input' ? (
+              <label className="field">
+                <span>{props.targetControl.label}</span>
+                <input
+                  value={props.targetControl.value}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      deliveryTo: event.target.value,
+                    }))
+                  }
+                  placeholder={props.targetControl.placeholder}
+                />
+              </label>
+            ) : null}
           </div>
         ) : null}
 
@@ -706,10 +1056,28 @@ export function SchedulerPage() {
     queryKey: ['scheduler', auth.token],
     queryFn: () => fetchScheduler(auth.token),
   });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+  });
+  const channelsQuery = useQuery({
+    queryKey: ['channels', auth.token],
+    queryFn: () => fetchChannels(auth.token),
+  });
 
   const selectedJob =
     schedulerQuery.data?.jobs.find((job) => job.id === selectedId) || null;
   const selectedConfigJob = isConfigJob(selectedJob) ? selectedJob : null;
+  const channelOptions = buildSchedulerChannelOptions({
+    config: configQuery.data?.config,
+    status: auth.gatewayStatus,
+    currentChannel: draft.deliveryChannel,
+  });
+  const targetControl = buildSchedulerTargetControl({
+    channel: draft.deliveryChannel,
+    currentValue: draft.deliveryTo,
+    channels: channelsQuery.data,
+  });
 
   const saveMutation = useMutation({
     mutationFn: (nextDraft: SchedulerDraft) =>
@@ -872,6 +1240,8 @@ export function SchedulerPage() {
           <SchedulerJobEditor
             draft={draft}
             selectedJob={selectedConfigJob}
+            channelOptions={channelOptions}
+            targetControl={targetControl}
             savePending={saveMutation.isPending}
             pausePending={pauseMutation.isPending}
             deletePending={deleteMutation.isPending}
@@ -881,7 +1251,9 @@ export function SchedulerPage() {
             saveResult={saveMutation.isSuccess ? saveMutation.data : undefined}
             onDraftChange={(update) => setDraft((current) => update(current))}
             onSave={() => {
-              const nextDraft = prepareDraftForSave(draft);
+              const nextDraft = prepareDraftForSave(
+                applyResolvedTarget(draft, targetControl),
+              );
               setDraft(nextDraft);
               saveMutation.mutate(nextDraft);
             }}

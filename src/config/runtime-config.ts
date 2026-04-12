@@ -140,9 +140,10 @@ export type DiscordPresenceActivityType =
   | 'listening'
   | 'competing'
   | 'custom';
-export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
+export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -406,6 +407,7 @@ export interface RuntimeSchedulerJob {
   description?: string;
   agentId?: string;
   boardStatus?: SchedulerBoardStatus;
+  maxRetries?: number | null;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -2775,8 +2777,14 @@ function normalizeSchedulerScheduleKind(
 ): SchedulerScheduleKind {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'at' || normalized === 'every' || normalized === 'cron')
+  if (
+    normalized === 'at' ||
+    normalized === 'every' ||
+    normalized === 'cron' ||
+    normalized === 'one_shot'
+  ) {
     return normalized;
+  }
   return fallback;
 }
 
@@ -2874,6 +2882,13 @@ function normalizeSchedulerJobList(
       scheduleKind === 'cron'
         ? normalizeString(rawSchedule.expr, '', { allowEmpty: false })
         : '';
+    const maxRetries =
+      scheduleKind === 'one_shot'
+        ? normalizeInteger(item.maxRetries, DEFAULT_ONE_SHOT_MAX_RETRIES, {
+            min: 0,
+            max: 100,
+          })
+        : null;
     if (scheduleKind === 'at' && !atIso) continue;
     if (scheduleKind === 'cron' && !expr) continue;
 
@@ -2907,9 +2922,10 @@ function normalizeSchedulerJobList(
       ...(description ? { description } : {}),
       ...(agentId ? { agentId } : {}),
       ...(boardStatus ? { boardStatus } : {}),
+      ...(maxRetries != null ? { maxRetries } : {}),
       schedule: {
         kind: scheduleKind,
-        at: atIso,
+        at: scheduleKind === 'at' ? atIso : null,
         everyMs,
         expr: scheduleKind === 'cron' ? expr : null,
         tz: normalizeString(rawSchedule.tz, '', { allowEmpty: true }),
