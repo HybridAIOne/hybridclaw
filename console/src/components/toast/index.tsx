@@ -87,6 +87,10 @@ export function useToast(): ToastManager {
 // Module-level counter for unique toast IDs. Not suitable for SSR.
 let nextId = 0;
 
+function clampDuration(value: number): number {
+  return Math.max(0, value);
+}
+
 export function ToastProvider(props: {
   children: ReactNode;
   /** Max visible toasts. Default: 3. */
@@ -95,6 +99,19 @@ export function ToastProvider(props: {
   const limit = props.limit ?? 3;
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [windowBlurred, setWindowBlurred] = useState(false);
+
+  // Single listener for window focus state, shared by all toasts.
+  useEffect(() => {
+    function onBlur() { setWindowBlurred(true); }
+    function onFocus() { setWindowBlurred(false); }
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   const remove = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -114,7 +131,7 @@ export function ToastProvider(props: {
         title: options.title,
         description: options.description,
         type: options.type ?? 'default',
-        duration: Math.max(0, options.duration ?? 5000),
+        duration: clampDuration(options.duration ?? 5000),
         action: options.action,
         exiting: false,
       };
@@ -138,18 +155,11 @@ export function ToastProvider(props: {
     setToasts((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
-        return {
-          ...t,
-          ...(options.title !== undefined && { title: options.title }),
-          ...(options.description !== undefined && {
-            description: options.description,
-          }),
-          ...(options.type !== undefined && { type: options.type }),
-          ...(options.duration !== undefined && {
-            duration: Math.max(0, options.duration),
-          }),
-          ...(options.action !== undefined && { action: options.action }),
-        };
+        const next = { ...t, ...options };
+        if (options.duration !== undefined) {
+          next.duration = clampDuration(options.duration);
+        }
+        return next;
       }),
     );
   }, []);
@@ -221,6 +231,7 @@ export function ToastProvider(props: {
           <ToastViewport
             ref={viewportRef}
             toasts={toasts}
+            windowBlurred={windowBlurred}
             onDismiss={dismiss}
             onRemove={remove}
           />,
@@ -238,6 +249,7 @@ const ToastViewport = forwardRef<
   HTMLDivElement,
   {
     toasts: ToastEntry[];
+    windowBlurred: boolean;
     onDismiss: (id: string) => void;
     onRemove: (id: string) => void;
   }
@@ -254,6 +266,7 @@ const ToastViewport = forwardRef<
         <ToastItem
           key={toast.id}
           toast={toast}
+          windowBlurred={props.windowBlurred}
           onDismiss={props.onDismiss}
           onRemove={props.onRemove}
         />
@@ -268,34 +281,18 @@ const ToastViewport = forwardRef<
 
 function ToastItem(props: {
   toast: ToastEntry;
+  windowBlurred: boolean;
   onDismiss: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const { toast, onDismiss, onRemove } = props;
+  const { toast, windowBlurred, onDismiss, onRemove } = props;
   const elementRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [windowBlurred, setWindowBlurred] = useState(false);
   const remainingRef = useRef(toast.duration);
   const startRef = useRef(0);
 
   const suspended = paused || focused || windowBlurred;
-
-  // Pause auto-dismiss when the browser window loses focus.
-  useEffect(() => {
-    function onBlur() {
-      setWindowBlurred(true);
-    }
-    function onFocus() {
-      setWindowBlurred(false);
-    }
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('focus', onFocus);
-    return () => {
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, []);
 
   useEffect(() => {
     if (toast.duration <= 0 || toast.exiting || suspended) return;
