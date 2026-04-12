@@ -16,6 +16,7 @@ import {
   isDatabaseInitialized,
 } from '../memory/db.js';
 import type { Session } from '../types/session.js';
+import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -77,31 +78,6 @@ function cloneModelConfig(
       ? { fallbacks: [...value.fallbacks] }
       : {}),
   };
-}
-
-function cloneSkillsConfig(value: string[] | undefined): string[] | undefined {
-  return value ? [...value] : undefined;
-}
-
-function normalizeOptionalAgentSkills(value: unknown): string[] | undefined {
-  if (value === null || value === undefined) return undefined;
-
-  const source = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? value.split(',')
-      : null;
-  if (!source) return undefined;
-
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const entry of source) {
-    const skill = normalizeString(entry);
-    if (!skill || seen.has(skill)) continue;
-    seen.add(skill);
-    normalized.push(skill);
-  }
-  return normalized;
 }
 
 function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
@@ -181,16 +157,15 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     typeof (value as { enableRag?: unknown }).enableRag === 'boolean'
       ? (value as { enableRag: boolean }).enableRag
       : undefined;
-  const hasSkills = Object.hasOwn(value, 'skills');
-  const skills = hasSkills
-    ? normalizeOptionalAgentSkills((value as { skills?: unknown }).skills)
-    : undefined;
+  const skills = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { skills?: unknown }).skills,
+  );
   return {
     id,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
-    ...(skills !== undefined ? { skills: [...skills] } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -231,7 +206,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
 
 function applyDefaults(agent: AgentConfig): AgentConfig {
   const model = cloneModelConfig(agent.model ?? configuredDefaults.model);
-  const skills = cloneSkillsConfig(agent.skills);
+  const skills = agent.skills ? [...agent.skills] : undefined;
   const chatbotId = normalizeString(
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
@@ -287,7 +262,7 @@ function syncConfiguredAgentsToDatabase(): void {
     displayName: mainAgent.displayName,
     imageAsset: mainAgent.imageAsset,
     model: cloneModelConfig(mainAgent.model),
-    skills: cloneSkillsConfig(mainAgent.skills),
+    skills: mainAgent.skills,
     workspace: mainAgent.workspace,
     chatbotId: mainAgent.chatbotId,
     enableRag: mainAgent.enableRag,
@@ -300,7 +275,7 @@ function syncConfiguredAgentsToDatabase(): void {
       displayName: agent.displayName,
       imageAsset: agent.imageAsset,
       model: cloneModelConfig(agent.model),
-      skills: cloneSkillsConfig(agent.skills),
+      skills: agent.skills,
       workspace: agent.workspace,
       chatbotId: agent.chatbotId,
       enableRag: agent.enableRag,

@@ -1015,9 +1015,7 @@ export async function packAgent(
       : {}),
     agent: {
       ...(resolved.model ? { model: resolved.model } : {}),
-      ...(resolved.skills !== undefined
-        ? { skills: [...resolved.skills] }
-        : {}),
+      ...(resolved.skills !== undefined ? { skills: resolved.skills } : {}),
       ...(typeof resolved.enableRag === 'boolean'
         ? { enableRag: resolved.enableRag }
         : {}),
@@ -1253,7 +1251,7 @@ export async function unpackAgent(
         : {}),
       ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
       ...(manifest.agent?.skills !== undefined
-        ? { skills: [...manifest.agent.skills] }
+        ? { skills: manifest.agent.skills }
         : {}),
       ...(typeof manifest.agent?.enableRag === 'boolean'
         ? { enableRag: manifest.agent.enableRag }

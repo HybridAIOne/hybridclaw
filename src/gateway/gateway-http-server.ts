@@ -65,6 +65,7 @@ import {
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -2209,14 +2210,22 @@ async function handleApiAdminAgents(
     workspace?: unknown;
   };
 
+  if (
+    body.skills !== undefined &&
+    body.skills !== null &&
+    !Array.isArray(body.skills)
+  ) {
+    sendJson(res, 400, {
+      error: 'Expected `skills` to be an array or null.',
+    });
+    return;
+  }
+
   const skills =
     body.skills === null
       ? null
       : Array.isArray(body.skills)
-        ? body.skills
-            .filter((entry): entry is string => typeof entry === 'string')
-            .map((entry) => entry.trim())
-            .filter(Boolean)
+        ? normalizeTrimmedUniqueStringArray(body.skills)
         : undefined;
 
   const payload = {

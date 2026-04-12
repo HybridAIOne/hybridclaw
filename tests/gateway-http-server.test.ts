@@ -3326,6 +3326,31 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns 400 when admin agent skills is not an array or null', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/agents',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        id: 'writer',
+        skills: 'copy-edit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.createGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Expected `skills` to be an array or null.',
+    });
+  });
+
   test('passes null skill allowlists through admin agent update requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

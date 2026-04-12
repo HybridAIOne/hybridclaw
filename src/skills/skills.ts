@@ -22,6 +22,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -1652,19 +1653,6 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
-function resolveAgentSkillAllowlist(agentId: string): Set<string> | null {
-  const configured = resolveAgentConfig(agentId).skills;
-  if (!Array.isArray(configured)) return null;
-
-  const allowed = new Set<string>();
-  for (const entry of configured) {
-    const skill = String(entry || '').trim();
-    if (!skill) continue;
-    allowed.add(skill);
-  }
-  return allowed;
-}
-
 function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
@@ -1791,7 +1779,11 @@ export function loadSkills(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
-  const allowedSkills = resolveAgentSkillAllowlist(agentId);
+  const configuredSkills = resolveAgentConfig(agentId).skills;
+  const allowedSkills =
+    configuredSkills === undefined
+      ? null
+      : new Set(normalizeTrimmedUniqueStringArray(configuredSkills));
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter(

@@ -60,7 +60,10 @@ import {
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
-import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedStringSet,
+} from '../utils/normalized-strings.js';
 import {
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
@@ -1325,27 +1328,6 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
-function normalizeOptionalAgentSkills(value: unknown): string[] | undefined {
-  if (value === null || value === undefined) return undefined;
-
-  const source = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? value.split(',')
-      : null;
-  if (!source) return undefined;
-
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const entry of source) {
-    const skill = typeof entry === 'string' ? entry.trim() : '';
-    if (!skill || seen.has(skill)) continue;
-    seen.add(skill);
-    normalized.push(skill);
-  }
-  return normalized;
-}
-
 function normalizeSkillChannelDisabled(
   value: unknown,
 ): Partial<Record<SkillConfigChannelKind, string[]>> {
@@ -1534,7 +1516,7 @@ function normalizeAgentConfig(
       ? value.enableRag
       : fallback?.enableRag;
   const skills = Object.hasOwn(value, 'skills')
-    ? normalizeOptionalAgentSkills(value.skills)
+    ? normalizeOptionalTrimmedUniqueStringArray(value.skills)
     : fallback?.skills
       ? [...fallback.skills]
       : undefined;
@@ -1543,7 +1525,7 @@ function normalizeAgentConfig(
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
-    ...(skills !== undefined ? { skills: [...skills] } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),

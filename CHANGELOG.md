@@ -25,6 +25,9 @@
 - **Telegram config reload behavior**: Running gateways now restart the
   Telegram integration automatically when `telegram.*` config changes land, so
   most setup edits apply within a few seconds without a full gateway restart.
+- **Per-agent skill allowlists**: Agent `skills` settings now narrow the
+  globally enabled skill set, while omitting `skills` keeps the existing
+  globally enabled scope for backward compatibility.
 
 ## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
 

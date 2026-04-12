@@ -81,6 +81,7 @@ import type {
   UsageWindow,
 } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   buildMemoryFtsDocument,
   buildMemoryFtsMatchQuery,
@@ -1764,33 +1765,19 @@ function parseAgentSkillsConfig(
     const parsed = JSON.parse(normalized) as unknown;
     if (!Array.isArray(parsed)) return undefined;
 
-    const seen = new Set<string>();
-    const skills: string[] = [];
-    for (const entry of parsed) {
-      if (typeof entry !== 'string') continue;
-      const skill = entry.trim();
-      if (!skill || seen.has(skill)) continue;
-      seen.add(skill);
-      skills.push(skill);
-    }
-    return skills;
+    return normalizeTrimmedUniqueStringArray(parsed);
   } catch {
+    logger.warn(
+      { rawSkills: normalized },
+      'Failed to parse persisted agent skills configuration',
+    );
     return undefined;
   }
 }
 
 function serializeAgentSkillsConfig(skills?: string[]): string | null {
   if (!Array.isArray(skills)) return null;
-
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const entry of skills) {
-    const skill = String(entry || '').trim();
-    if (!skill || seen.has(skill)) continue;
-    seen.add(skill);
-    normalized.push(skill);
-  }
-  return JSON.stringify(normalized);
+  return JSON.stringify(normalizeTrimmedUniqueStringArray(skills));
 }
 
 function mapAgentRow(row: AgentRow): AgentConfig {
