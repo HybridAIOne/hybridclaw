@@ -4,13 +4,16 @@ import {
   buildSlackSlashCommandDefinitions,
   mergeSlackSlashCommandsIntoManifest,
   renderSlackSlashCommandManifest,
+  resolveSlackNativeSlashCommandArgs,
 } from '../src/channels/slack/slash-commands.js';
 
 test('buildSlackSlashCommandDefinitions includes canonical Slack commands', () => {
   const commands = buildSlackSlashCommandDefinitions();
 
   expect(commands.length).toBeGreaterThan(5);
-  expect(commands.some((command) => command.command === '/status')).toBe(true);
+  expect(commands.some((command) => command.command === '/hc-status')).toBe(
+    true,
+  );
   expect(new Set(commands.map((command) => command.command)).size).toBe(
     commands.length,
   );
@@ -52,12 +55,22 @@ test('mergeSlackSlashCommandsIntoManifest preserves unrelated commands', () => {
         description: 'Custom command',
       }),
       expect.objectContaining({
-        command: '/status',
+        command: '/hc-status',
         description: 'Show HybridClaw runtime status (only visible to you)',
         should_escape: false,
       }),
     ]),
   });
+  expect(
+    merged.features?.slash_commands?.some(
+      (command) => command.command === '/status',
+    ),
+  ).toBe(false);
+  expect(
+    merged.features?.slash_commands?.some(
+      (command) => command.command === '/hybridclaw-status',
+    ),
+  ).toBe(false);
 });
 
 test('renderSlackSlashCommandManifest renders yaml with commands scope', () => {
@@ -65,5 +78,26 @@ test('renderSlackSlashCommandManifest renders yaml with commands scope', () => {
 
   expect(output).toContain('oauth_config:');
   expect(output).toContain('- "commands"');
-  expect(output).toContain('command: "/status"');
+  expect(output).toContain('command: "/hc-status"');
+});
+
+test('resolveSlackNativeSlashCommandArgs accepts prefixed and legacy names', () => {
+  expect(
+    resolveSlackNativeSlashCommandArgs({
+      commandName: 'hc-status',
+      text: '',
+    }),
+  ).toEqual([['status']]);
+  expect(
+    resolveSlackNativeSlashCommandArgs({
+      commandName: 'status',
+      text: '',
+    }),
+  ).toEqual([['status']]);
+  expect(
+    resolveSlackNativeSlashCommandArgs({
+      commandName: 'hybridclaw-status',
+      text: '',
+    }),
+  ).toEqual([['status']]);
 });

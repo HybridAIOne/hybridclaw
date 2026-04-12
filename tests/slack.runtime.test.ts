@@ -149,12 +149,16 @@ async function importFreshSlackRuntime() {
     }),
   }));
   vi.doMock('../src/channels/slack/slash-commands.js', () => ({
-    getSlackNativeSlashCommandNames: () => ['status'],
+    getSlackNativeSlashCommandNames: () => ['hc-status', 'hybridclaw-status', 'status'],
     resolveSlackNativeSlashCommandArgs: (params: {
       commandName: string;
       text?: string | null;
     }) => {
-      if (params.commandName === 'status') {
+      if (
+        params.commandName === 'status' ||
+        params.commandName === 'hc-status' ||
+        params.commandName === 'hybridclaw-status'
+      ) {
         return [['status']];
       }
       return null;
@@ -494,7 +498,7 @@ describe('slack runtime', () => {
     });
 
     await state.runtime.initSlack(async () => {}, commandHandler);
-    const slashHandler = state.commandHandlers.get('/status');
+    const slashHandler = state.commandHandlers.get('/hc-status');
     expect(slashHandler).toBeTypeOf('function');
 
     const ack = vi.fn(async () => {});
@@ -502,7 +506,7 @@ describe('slack runtime', () => {
     await slashHandler?.({
       ack,
       command: {
-        command: '/status',
+        command: '/hc-status',
         text: '',
         user_id: 'U1234567890',
         channel_id: 'C1234567890',
@@ -729,7 +733,7 @@ describe('slack runtime', () => {
     );
 
     await state.runtime.initSlack(async () => {}, commandHandler);
-    const slashHandler = state.commandHandlers.get('/status');
+    const slashHandler = state.commandHandlers.get('/hc-status');
     expect(slashHandler).toBeTypeOf('function');
 
     for (let index = 0; index <= 2_000; index += 1) {
@@ -737,7 +741,7 @@ describe('slack runtime', () => {
       await slashHandler?.({
         ack: vi.fn(async () => {}),
         command: {
-          command: '/status',
+          command: '/hc-status',
           text: '',
           user_id: userId,
           channel_id: 'C1234567890',
@@ -752,7 +756,7 @@ describe('slack runtime', () => {
     await slashHandler?.({
       ack: vi.fn(async () => {}),
       command: {
-        command: '/status',
+        command: '/hc-status',
         text: '',
         user_id: 'U0000000000',
         channel_id: 'C1234567890',

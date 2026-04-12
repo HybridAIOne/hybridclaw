@@ -25,6 +25,28 @@ export interface SlackSlashCommandManifestFragment {
 
 export type SlackSlashCommandManifestFormat = 'yaml' | 'json';
 
+const SLACK_NATIVE_COMMAND_PREFIX = 'hc-';
+const SLACK_LEGACY_COMMAND_PREFIXES = ['hybridclaw-'] as const;
+
+function normalizeCanonicalCommandName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function buildSlackManifestCommandName(commandName: string): string {
+  return `/${SLACK_NATIVE_COMMAND_PREFIX}${normalizeCanonicalCommandName(commandName)}`;
+}
+
+function buildSlackLegacyCommandName(commandName: string): string {
+  return `/${normalizeCanonicalCommandName(commandName)}`;
+}
+
+function buildSlackLegacyPrefixedCommandNames(commandName: string): string[] {
+  const normalized = normalizeCanonicalCommandName(commandName);
+  return SLACK_LEGACY_COMMAND_PREFIXES.map(
+    (prefix) => `/${prefix}${normalized}`,
+  );
+}
+
 function buildSlackManifestSlashCommand(
   definition: CanonicalSlashCommandDefinition,
 ): SlackManifestSlashCommand {
@@ -34,7 +56,7 @@ function buildSlackManifestSlashCommand(
     undefined;
 
   return {
-    command: `/${definition.name.trim().toLowerCase()}`,
+    command: buildSlackManifestCommandName(definition.name),
     description: definition.description.trim(),
     should_escape: false,
     ...(usageHint ? { usage_hint: usageHint } : {}),
@@ -75,13 +97,47 @@ const SLACK_NATIVE_SLASH_COMMAND_DEFINITIONS = dedupeSlackManifestSlashCommands(
   buildCanonicalSlashCommandDefinitions([]).map(buildSlackManifestSlashCommand),
 );
 
-const SLACK_NATIVE_SLASH_COMMAND_NAMES =
+const SLACK_NATIVE_MANIFEST_COMMAND_NAMES =
   SLACK_NATIVE_SLASH_COMMAND_DEFINITIONS.map((definition) =>
     definition.command.slice(1),
   ).filter(Boolean);
 
+const SLACK_LEGACY_SLASH_COMMAND_NAMES = buildCanonicalSlashCommandDefinitions(
+  [],
+)
+  .flatMap((definition) => [
+    normalizeCanonicalCommandName(definition.name),
+    ...SLACK_LEGACY_COMMAND_PREFIXES.map(
+      (prefix) => `${prefix}${normalizeCanonicalCommandName(definition.name)}`,
+    ),
+  ])
+  .filter(Boolean);
+
+const SLACK_NATIVE_SLASH_COMMAND_NAMES = [
+  ...new Set([
+    ...SLACK_NATIVE_MANIFEST_COMMAND_NAMES,
+    ...SLACK_LEGACY_SLASH_COMMAND_NAMES,
+  ]),
+];
+
 const SLACK_NATIVE_SLASH_COMMAND_SET = new Set(
   SLACK_NATIVE_SLASH_COMMAND_NAMES,
+);
+
+const SLACK_REPLACED_MANIFEST_COMMAND_NAMES = new Set(
+  buildCanonicalSlashCommandDefinitions([])
+    .flatMap((definition) => [
+      normalizeManifestCommandName(
+        buildSlackManifestCommandName(definition.name),
+      ),
+      normalizeManifestCommandName(
+        buildSlackLegacyCommandName(definition.name),
+      ),
+      ...buildSlackLegacyPrefixedCommandNames(definition.name).map(
+        normalizeManifestCommandName,
+      ),
+    ])
+    .filter(Boolean),
 );
 
 export function buildSlackSlashCommandDefinitions(): SlackManifestSlashCommand[] {
@@ -131,7 +187,11 @@ export function mergeSlackSlashCommandsIntoManifest(
   );
   const preservedSlashCommands = existingSlashCommands.filter((entry) => {
     const commandName = normalizeManifestCommandName(entry.command);
-    return commandName && !hybridClawCommands.has(commandName);
+    return (
+      commandName &&
+      !hybridClawCommands.has(commandName) &&
+      !SLACK_REPLACED_MANIFEST_COMMAND_NAMES.has(commandName)
+    );
   });
 
   return {
@@ -191,7 +251,17 @@ export function resolveSlackNativeSlashCommandArgs(params: {
     return null;
   }
 
+  const canonicalCommandName = [
+    SLACK_NATIVE_COMMAND_PREFIX,
+    ...SLACK_LEGACY_COMMAND_PREFIXES,
+  ].reduce(
+    (value, prefix) =>
+      value.startsWith(prefix) ? value.slice(prefix.length) : value,
+    commandName,
+  );
   const text = String(params.text || '').trim();
-  const slashCommand = text ? `/${commandName} ${text}` : `/${commandName}`;
+  const slashCommand = text
+    ? `/${canonicalCommandName} ${text}`
+    : `/${canonicalCommandName}`;
   return resolveTextChannelSlashCommands(slashCommand);
 }

@@ -291,7 +291,7 @@ test('channels slack manifest prints the slash-command manifest fragment', async
     .map(([message]) => String(message))
     .join('\n');
   expect(output).toContain('oauth_config:');
-  expect(output).toContain('command: "/status"');
+  expect(output).toContain('command: "/hc-status"');
   expect(output).toContain('- "commands"');
 });
 
@@ -338,11 +338,21 @@ test('channels slack register-commands syncs slash commands through Slack app ma
         expect.arrayContaining([
           expect.objectContaining({ command: '/custom' }),
           expect.objectContaining({
-            command: '/status',
+            command: '/hc-status',
             description: 'Show HybridClaw runtime status (only visible to you)',
           }),
         ]),
       );
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/status',
+        ),
+      ).toBe(false);
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/hybridclaw-status',
+        ),
+      ).toBe(false);
       return new Response(
         JSON.stringify({
           ok: true,

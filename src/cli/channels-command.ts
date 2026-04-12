@@ -1794,7 +1794,7 @@ async function registerSlackSlashCommands(args: string[]): Promise<void> {
       '  Reinstall the Slack app if Slack reports pending permission changes.',
     );
     console.log(
-      '  Reopen Slack and type /status to confirm the command is now suggested.',
+      '  Reopen Slack and type /hc-status to confirm the command is now suggested.',
     );
   } finally {
     rl?.close();

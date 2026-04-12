@@ -168,8 +168,11 @@ the event reaches the gateway.
 
 ## Optional: Native Slack Slash Commands
 
-HybridClaw can also handle native Slack slash commands, including `/status`,
-through Socket Mode.
+HybridClaw can also handle native Slack slash commands through Socket Mode.
+
+Slack slash commands are global and not namespaced by app. Because common names
+like `/status` collide with Slack's own built-in commands, HybridClaw registers
+prefixed commands such as `/hc-status`.
 
 Slack does not auto-create these from the bot token alone. You must register
 the slash commands in the Slack app manifest.
@@ -186,13 +189,14 @@ That command:
 
 - exports the current Slack app manifest
 - adds the `commands` bot scope if needed
-- registers the canonical HybridClaw slash commands
+- registers the namespaced HybridClaw slash commands
 - updates the existing app manifest in place
 
 You can get:
 
 - the Slack app id from the Slack app settings page
-- the app configuration access token from the Slack app settings page under
+- the app configuration access token from the Slack app settings page at
+  [api.slack.com/apps](https://api.slack.com/apps) under
   **Your App Configuration Tokens**
 
 If you prefer to paste the manifest manually:
@@ -206,12 +210,31 @@ Then copy the output into the Slack app's **App Manifest** editor.
 Practical rules:
 
 - HybridClaw registers one Slack slash command per top-level HybridClaw command
-  name
-- examples include `/status`, `/help`, `/model`, `/auth`, `/approve`, and
-  `/channel-mode`
+  name, prefixed with `hc-`
+- examples include `/hc-status`, `/hc-help`, `/hc-model`, `/hc-auth`,
+  `/hc-approve`, and `/hc-channel-mode`
 - trailing words are passed through as command arguments
-- example: `/model info` means Slack command `/model` with `info` as the text
-  payload
+- example: `/hc-model info` means Slack command `/hc-model` with `info` as the
+  text payload
+
+HybridClaw still accepts older unprefixed command names if you already created
+them manually, and it also accepts the earlier `/hybridclaw-*` prefixed form if
+you already registered that version. The recommended registration path now uses
+`/hc-*` so Slack's command picker can distinguish the commands from built-in
+Slack commands without being too verbose.
+
+If Slack says the app has pending permission changes after manifest updates,
+reinstall it from the Slack developer UI:
+
+1. Open [api.slack.com/apps](https://api.slack.com/apps)
+2. Select your Slack app
+3. Open **OAuth & Permissions**
+4. Click **Reinstall to Workspace** or **Install to Workspace**
+5. Review the scopes and confirm the install
+
+After reinstalling, reopen Slack and type `/hc-status` in the main message
+composer of a DM or channel. Native Slack slash commands do not appear inside
+message threads.
 
 Native Slack slash command replies are sent as ephemeral responses, matching
 Discord's private guild slash-command behavior.
