@@ -22,10 +22,12 @@
   gap: 12px;
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--panel-bg);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-bg) 76%, transparent);
   color: var(--text);
   box-shadow: var(--shadow-raised);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
   animation: toastSlideIn 200ms ease;
 }
 
@@ -59,8 +61,8 @@
 /* ── Type variants ──────────────────────────────────────────────────────── */
 
 .success {
-  background: var(--success-soft);
-  border-color: var(--success-border);
+  background: color-mix(in srgb, var(--success-soft) 68%, transparent);
+  border-color: color-mix(in srgb, var(--success-border) 72%, transparent);
 }
 
 .success .title {
@@ -68,8 +70,8 @@
 }
 
 .error {
-  background: var(--danger-soft);
-  border-color: var(--danger-border);
+  background: color-mix(in srgb, var(--danger-soft) 68%, transparent);
+  border-color: color-mix(in srgb, var(--danger-border) 72%, transparent);
 }
 
 .error .title {
@@ -77,8 +79,8 @@
 }
 
 .info {
-  background: var(--accent);
-  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+  background: color-mix(in srgb, var(--accent) 68%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 24%, transparent);
 }
 
 .info .title {
