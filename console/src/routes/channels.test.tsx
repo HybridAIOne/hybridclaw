@@ -7,8 +7,8 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
@@ -213,7 +213,9 @@ function renderChannelsPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChannelsPage />
+      <ToastProvider>
+        <ChannelsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -980,7 +982,7 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 
   it('shows change password when passwordConfigured is true without a source', async () => {
@@ -1127,6 +1129,6 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 });

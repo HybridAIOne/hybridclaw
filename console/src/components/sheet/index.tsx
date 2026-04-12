@@ -109,13 +109,14 @@ export function SheetContent({
   ...rest
 }: SheetContentProps) {
   const ctx = useSheetContext();
+  const portalRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const { open, onOpenChange, titleId, descriptionId } = ctx;
 
   useScrollLock(open);
   useFocusTrap(panelRef, open);
   useEscapeKeydown(() => onOpenChange(false), open);
-  useHideOthers(panelRef, open);
+  useHideOthers(portalRef, open);
 
   const sideClass = {
     left: styles.left,
@@ -127,7 +128,7 @@ export function SheetContent({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <>
+    <div ref={portalRef}>
       {/* Overlay — click to dismiss; permanently aria-hidden because Escape
           is the keyboard-accessible dismiss path. */}
       <div
@@ -157,7 +158,7 @@ export function SheetContent({
       >
         {children}
       </section>
-    </>,
+    </div>,
     document.body,
   );
 }

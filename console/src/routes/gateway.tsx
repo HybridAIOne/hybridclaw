@@ -2,14 +2,17 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 
 const GATEWAY_RESTART_POLL_MS = 1000;
 
 export function GatewayPage() {
   const auth = useAuth();
+  const toast = useToast();
   const live = useLiveEvents(auth.token);
   const [polledStatus, setPolledStatus] =
     useState<typeof auth.gatewayStatus>(null);
@@ -27,6 +30,9 @@ export function GatewayPage() {
     },
     onSuccess: () => {
       setIsRestarting(true);
+    },
+    onError: (error) => {
+      toast.error('Gateway restart failed', getErrorMessage(error));
     },
   });
 
@@ -74,11 +80,6 @@ export function GatewayPage() {
     'Gateway restart is unavailable in the current launch mode.';
   const sandboxWarning =
     status.sandbox?.mode === 'host' ? null : status.sandbox?.warning || null;
-  const restartError =
-    restartMutation.error instanceof Error
-      ? restartMutation.error.message
-      : 'Gateway restart failed.';
-
   return (
     <div className="page-stack">
       <PageHeader
@@ -118,10 +119,6 @@ export function GatewayPage() {
       {!restartSupported ? (
         <p className="supporting-text">{restartReason}</p>
       ) : null}
-      {restartMutation.isError ? (
-        <p className="error-banner">{restartError}</p>
-      ) : null}
-
       <div className="metric-grid">
         <MetricCard label="Uptime" value={formatUptime(status.uptime)} />
         <MetricCard label="Sessions" value={String(status.sessions)} />

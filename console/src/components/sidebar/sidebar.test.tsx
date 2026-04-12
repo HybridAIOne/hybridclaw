@@ -672,7 +672,7 @@ describe('Error boundaries', () => {
 describe('useHideOthers', () => {
   afterEach(cleanup);
 
-  it('sets aria-hidden on siblings when mobile drawer is open', () => {
+  it('sets inert on siblings when mobile drawer is open', () => {
     setViewport(800);
     const sibling = document.createElement('div');
     sibling.setAttribute('data-testid', 'app-sibling');
@@ -693,10 +693,10 @@ describe('useHideOthers', () => {
     );
 
     act(() => captured.value?.setOpenMobile(true));
-    expect(sibling.getAttribute('aria-hidden')).toBe('true');
+    expect((sibling as HTMLElement).inert).toBe(true);
 
     act(() => captured.value?.setOpenMobile(false));
-    expect(sibling.hasAttribute('aria-hidden')).toBe(false);
+    expect((sibling as HTMLElement).inert).toBe(false);
 
     document.body.removeChild(sibling);
   });

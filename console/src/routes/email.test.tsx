@@ -7,6 +7,7 @@ import type {
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
 } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { EmailPage } from './email';
 
 const fetchAdminEmailMailboxMock =
@@ -100,7 +101,9 @@ function renderEmailPage(options?: {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <EmailPage />
+      <ToastProvider>
+        <EmailPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

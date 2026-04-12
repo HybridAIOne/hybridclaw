@@ -10,6 +10,7 @@ import type {
   AdminSchedulerResponse,
   GatewayStatus,
 } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { normalizeSchedulerAtInput, SchedulerPage } from './scheduler';
 
 const fetchChannelsMock = vi.fn<() => Promise<AdminChannelsResponse>>();
@@ -318,7 +319,9 @@ function renderSchedulerPage(): void {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <SchedulerPage />
+      <ToastProvider>
+        <SchedulerPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
