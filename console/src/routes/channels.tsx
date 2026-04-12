@@ -78,10 +78,6 @@ function ListField(props: {
   );
 }
 
-function capitalizeLabel(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 function ManagedSecretField(props: {
   label: string;
   secretName:
@@ -183,7 +179,6 @@ function ManagedSecretField(props: {
           </div>
         </div>
       ) : null}
-
     </div>
   );
 }
@@ -2236,7 +2231,6 @@ export function ChannelsPage() {
                 Reset changes
               </button>
             </div>
-
           </div>
         </Panel>
       </div>
