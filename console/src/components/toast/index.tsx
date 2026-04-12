@@ -191,7 +191,7 @@ export function ToastProvider(props: {
         return;
       }
       if (e.key !== 'Escape') return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]:not([data-state="closed"])')) return;
       const target = e.target as HTMLElement | null;
       if (
         target?.tagName === 'INPUT' ||
