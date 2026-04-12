@@ -149,7 +149,11 @@ async function importFreshSlackRuntime() {
     }),
   }));
   vi.doMock('../src/channels/slack/slash-commands.js', () => ({
-    getSlackNativeSlashCommandNames: () => ['hc-status', 'hybridclaw-status', 'status'],
+    getSlackNativeSlashCommandNames: () => [
+      'hc-status',
+      'hybridclaw-status',
+      'status',
+    ],
     resolveSlackNativeSlashCommandArgs: (params: {
       commandName: string;
       text?: string | null;
