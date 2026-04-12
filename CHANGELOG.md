@@ -2,6 +2,42 @@
 
 ## [Coming up]
 
+## [0.12.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.4)
+
+### Added
+
+- **Slack channel transport**: Added a built-in Slack Socket Mode transport
+  with `hybridclaw auth login slack`, DM and channel policy controls,
+  thread-aware session routing, file/media handling, approval buttons, and a
+  dedicated setup guide for operator rollout.
+- **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
+  that run immediately, retry up to `maxRetries`, preserve review state, and
+  surface richer delivery output across the gateway and admin scheduler UI.
+
+### Changed
+
+- **Admin console dialog and toast UX**: Replaced inline banners with
+  accessible dialog/toast primitives, tightened scheduler and jobs feedback
+  flows, and refined the mobile topbar/sidebar interaction.
+- **Per-agent skill filtering**: Agent `skills` settings now narrow the
+  globally enabled skill set, while omitting `skills` keeps the existing
+  global scope for backward compatibility.
+- **Approval presentation across channels**: Gateway approval copy and channel
+  actions now render more consistently, preserve approval ids correctly, and
+  align Discord and Slack approval flows more closely.
+
+### Fixed
+
+- **Slack slash-command ergonomics**: Slack slash commands now use shorter
+  `/hc-*` names, keep runtime command coverage aligned with the shipped
+  manifest, and avoid review regressions in channel setup/documentation flows.
+- **Scheduler delivery state reporting**: One-shot deliveries now report retry
+  and review outcomes more clearly instead of leaving ambiguous scheduler state
+  after gateway or console handoff.
+- **Console accessibility edge cases**: Toast and dialog flows now keep
+  backdrops interactive, ignore closed dialogs in Escape-key handling, and
+  harden focus/visibility coordination during layered UI interactions.
+
 ## [0.12.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.3)
 
 ### Added
