@@ -4,6 +4,14 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+const { runAgentMock } = vi.hoisted(() => ({
+  runAgentMock: vi.fn(),
+}));
+
+vi.mock('../src/agent/agent.js', () => ({
+  runAgent: runAgentMock,
+}));
+
 const ORIGINAL_HOME = process.env.HOME;
 const tempDirs: string[] = [];
 
@@ -24,6 +32,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 afterEach(() => {
+  runAgentMock.mockReset();
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -250,6 +259,7 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
   ).toMatchObject({
     id: 'release-notes',
     source: 'config',
+    createdAt: session.created_at,
     sessionId: session.id,
     channelId: 'tui',
   });
@@ -364,5 +374,86 @@ test('admin jobs context exposes full recent assistant outputs for scheduler ses
   ).toMatchObject({
     sessionId: session.id,
     output: [resultText],
+  });
+});
+
+test('scheduled agent turns persist outputs for admin jobs detail', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    toolExecutions: [],
+    artifacts: [],
+  });
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { getGatewayAdminJobsContext } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { runIsolatedScheduledTask } = await import(
+    '../src/scheduler/scheduled-task-runner.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const session = getOrCreateSession(
+    'scheduler:web-summary',
+    null,
+    'tui',
+    'main',
+  );
+  const onResult = vi.fn(async () => {});
+  const onError = vi.fn();
+
+  await runIsolatedScheduledTask({
+    taskId: 249,
+    prompt: 'summarize the hybridclaw.io webpage',
+    channelId: 'tui',
+    chatbotId: 'test-chatbot',
+    model: 'gpt-4o-mini',
+    agentId: 'main',
+    sessionId: session.id,
+    sessionKey: 'scheduler:web-summary',
+    mainSessionKey: session.main_session_key,
+    onResult,
+    onError,
+  });
+
+  expect(onError).not.toHaveBeenCalled();
+  expect(onResult).toHaveBeenCalledWith({
+    text: 'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    artifacts: [],
+  });
+  expect(
+    memoryService.getRecentMessages(session.id).map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  ).toEqual([
+    {
+      role: 'user',
+      content: 'summarize the hybridclaw.io webpage',
+    },
+    {
+      role: 'assistant',
+      content:
+        'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    },
+  ]);
+  expect(
+    getGatewayAdminJobsContext().sessions.find(
+      (entry) => entry.sessionId === session.id,
+    ),
+  ).toMatchObject({
+    sessionId: session.id,
+    output: [
+      'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    ],
   });
 });

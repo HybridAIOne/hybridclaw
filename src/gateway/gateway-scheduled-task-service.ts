@@ -263,7 +263,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           nextRunAt: runtime?.nextRunAt || null,
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: null,
+          createdAt: session?.created_at || null,
           sessionId: session?.id || null,
           channelId:
             job.delivery.kind === 'channel'

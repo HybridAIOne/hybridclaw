@@ -203,9 +203,13 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
       value: normalized,
     });
   };
+  const pushDate = (label: string, raw: string | null | undefined): void => {
+    if (!String(raw || '').trim()) return;
+    push(label, formatDateTime(raw || null));
+  };
 
-  push('Created', formatDateTime(item.job.createdAt));
-  push('Last run', formatDateTime(item.job.lastRun));
+  pushDate('Created', item.job.createdAt || item.session?.startedAt || null);
+  pushDate('Last run', item.job.lastRun);
   push(
     'Last status',
     item.job.lastStatus
@@ -217,7 +221,7 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
   push(
     'Next run',
     item.job.schedule.kind !== 'at' && item.job.schedule.kind !== 'one_shot'
-      ? formatDateTime(item.job.nextRunAt)
+      ? item.job.nextRunAt
       : null,
   );
   push(
@@ -230,8 +234,8 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
       ? String(item.job.maxRetries)
       : null,
   );
-  push('Session started', formatDateTime(item.session?.startedAt || null));
-  push('Session last active', formatDateTime(item.session?.lastActive || null));
+  pushDate('Session started', item.session?.startedAt || null);
+  pushDate('Session last active', item.session?.lastActive || null);
 
   return entries;
 }
@@ -240,7 +244,12 @@ function collectJobOutputs(item: JobBoardItem): string[] {
   const values =
     item.session?.output && item.session.output.length > 0
       ? item.session.output
-      : [item.session?.lastAnswer || ''];
+      : item.session?.lastAnswer
+        ? [item.session.lastAnswer]
+        : item.job.action.kind === 'system_event' &&
+            item.job.lastStatus === 'success'
+          ? [item.job.action.message]
+          : [''];
   const seen = new Set<string>();
   const outputs: string[] = [];
   for (const rawValue of values) {
