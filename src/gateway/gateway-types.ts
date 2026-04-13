@@ -356,6 +356,10 @@ export interface GatewayStatus {
     expiresAt: number | null;
     reloginRequired: boolean;
   };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
+  };
   sandbox?: {
     mode: 'container' | 'host';
     modeExplicit: boolean;

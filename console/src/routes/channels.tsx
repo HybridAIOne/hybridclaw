@@ -1005,6 +1005,7 @@ function EmailChannelEditor(props: {
   updateDraft: ConfigUpdater;
   passwordConfigured: boolean;
   passwordSource: SecretSource;
+  hybridaiApiKeyConfigured: boolean;
   token: string;
   onSecretSaved: () => void;
 }) {
@@ -1034,7 +1035,7 @@ function EmailChannelEditor(props: {
 
       const handles = result?.handles;
       if (!Array.isArray(handles) || handles.length === 0) {
-        toast.info('No agent handles found on HybridAI.');
+        toast.info('No HybridAI agent handles found.');
         return;
       }
 
@@ -1074,14 +1075,16 @@ function EmailChannelEditor(props: {
           }
         }
         toast.success(
-          `Email config loaded from handle "${withConfig.handle}".`,
+          `HybridAI agent email config loaded from handle "${withConfig.handle}".`,
         );
       } else {
         // No email_config in handles — show available handles info
         const summary = handles
           .map((h) => `${h.handle} (${h.status})`)
           .join(', ');
-        toast.info(`Handles found: ${summary}. No email config attached.`);
+        toast.info(
+          `HybridAI agent handles found: ${summary}. No agent email config attached.`,
+        );
       }
     } catch (error) {
       toast.error('Failed to fetch email config', getErrorMessage(error));
@@ -1108,16 +1111,18 @@ function EmailChannelEditor(props: {
         }
       />
 
-      <div className="button-row">
-        <button
-          type="button"
+      {props.hybridaiApiKeyConfigured ? (
+        <div className="button-row">
+          <button
+            type="button"
           className="ghost-button"
           disabled={fetchingEmailConfig}
           onClick={handleFetchEmailConfig}
         >
-          {fetchingEmailConfig ? 'Fetching…' : 'Fetch Email-Config'}
+          {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
         </button>
       </div>
+      ) : null}
 
       <div className="field-grid">
         <label className="field">
@@ -2388,6 +2393,7 @@ function renderSelectedEditor(
       source: SecretSource;
     };
   },
+  hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
     linked: boolean;
     pairingQrText: string | null;
@@ -2457,6 +2463,7 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
           passwordConfigured={secretStatus.email.configured}
           passwordSource={secretStatus.email.source}
+          hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -2587,6 +2594,8 @@ export function ChannelsPage() {
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
   };
+  const hybridaiApiKeyConfigured =
+    statusQuery.data?.hybridai?.apiKeyConfigured ?? false;
 
   return (
     <div className="page-stack">
@@ -2637,6 +2646,7 @@ export function ChannelsPage() {
                   updateDraft,
                   auth.token,
                   secretStatus,
+                  hybridaiApiKeyConfigured,
                   whatsappStatus,
                   () => {
                     void queryClient.invalidateQueries({

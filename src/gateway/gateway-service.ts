@@ -3635,6 +3635,7 @@ export function buildTokenUsageAuditPayload(
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
+  const hybridai = getHybridAIAuthStatus();
   const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
     await Promise.allSettled([
       localBackendsProbe.get(),
@@ -3748,6 +3749,10 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       accountId: codex.accountId,
       expiresAt: codex.expiresAt,
       reloginRequired: codex.reloginRequired,
+    },
+    hybridai: {
+      apiKeyConfigured: hybridai.authenticated,
+      apiKeySource: hybridai.source,
     },
     sandbox,
     observability: getObservabilityIngestState(),
