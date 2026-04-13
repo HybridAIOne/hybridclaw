@@ -43,16 +43,13 @@ export function withDiscordRetry<T>(
   label: string,
   run: () => Promise<T>,
   options?: {
-    maxAttempts?: number;
-    baseDelayMs?: number;
-    maxDelayMs?: number;
     logMessage?: string;
   },
 ): Promise<T> {
   return withTransportRetry(label, run, {
-    maxAttempts: options?.maxAttempts ?? DISCORD_RETRY_MAX_ATTEMPTS,
-    baseDelayMs: options?.baseDelayMs ?? DISCORD_RETRY_BASE_DELAY_MS,
-    maxDelayMs: options?.maxDelayMs ?? DISCORD_RETRY_MAX_DELAY_MS,
+    maxAttempts: DISCORD_RETRY_MAX_ATTEMPTS,
+    baseDelayMs: DISCORD_RETRY_BASE_DELAY_MS,
+    maxDelayMs: DISCORD_RETRY_MAX_DELAY_MS,
     isRetryable: isRetryableDiscordError,
     extractRetryAfter: extractDiscordRetryDelayMs,
     logMessage: options?.logMessage ?? 'Discord API call failed; retrying',
