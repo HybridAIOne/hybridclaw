@@ -1,5 +1,5 @@
-import type readline from 'node:readline';
 import { EventEmitter } from 'node:events';
+import type readline from 'node:readline';
 
 import { expect, test, vi } from 'vitest';
 
@@ -9,8 +9,13 @@ import {
   renderTuiApprovalPromptLines,
 } from '../src/tui-approval-prompt.js';
 
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const ANSI_PATTERN = new RegExp('\\u001B\\[[0-9;]*[A-Za-z]', 'g');
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const CONTROL_PATTERN = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
+
 function stripAnsi(value: string): string {
-  return value.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  return value.replace(ANSI_PATTERN, '');
 }
 
 test('buildTuiApprovalSelectionOptions keeps once first and skip last', () => {
@@ -75,7 +80,7 @@ test('renderTuiApprovalPromptLines strips disallowed terminal control sequences 
     width: 80,
   });
   const output = lines.join('\n');
-  const text = stripAnsi(output).replace(/[\u0000-\u001F\u007F]/g, '');
+  const text = stripAnsi(output).replace(CONTROL_PATTERN, '');
 
   expect(output).not.toContain('\x1b]0;owned\x07');
   expect(output).not.toContain('\x1b[2J');

@@ -1,4 +1,4 @@
-import readline from 'node:readline';
+import type readline from 'node:readline';
 
 import type { ApprovalScopeMode } from './approval-commands.js';
 import type { TuiApprovalDetails } from './tui-approval.js';
@@ -21,11 +21,15 @@ const TERMINAL_ESCAPE_PATTERN = new RegExp(
   '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
   'g',
 );
-const ALLOWED_SGR_PATTERN = /^\x1b\[[0-9;]*m$/u;
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const ALLOWED_SGR_PATTERN = new RegExp('^\\u001B\\[[0-9;]*m$', 'u');
 // Keep tabs/newlines alone here; the render path only needs to strip control
 // bytes that can mutate the terminal state or cursor position.
-const DISALLOWED_TERMINAL_CONTROL_PATTERN =
-  /[\u0000-\u0008\u000B-\u001A\u001C-\u001F\u007F\u009B]/g;
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const DISALLOWED_TERMINAL_CONTROL_PATTERN = new RegExp(
+  '[\\u0000-\\u0008\\u000B-\\u001A\\u001C-\\u001F\\u007F\\u009B]',
+  'g',
+);
 
 type InternalReadline = readline.Interface & {
   line: string;
@@ -43,7 +47,7 @@ interface TuiApprovalPromptInput {
     event: 'keypress',
     listener: (chunk: string, key: readline.Key) => void,
   ): this;
-};
+}
 
 function getAnsiSequenceLength(value: string, index: number): number {
   if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
@@ -235,10 +239,7 @@ export function renderTuiApprovalPromptLines(params: {
   const intent = sanitizeTerminalText(params.approval.intent);
   const reason = sanitizeTerminalText(params.approval.reason);
   const preview = extractIntentPreview(intent);
-  const { kindLabel, summary } = resolveIntentPresentation(
-    intent,
-    preview,
-  );
+  const { kindLabel, summary } = resolveIntentPresentation(intent, preview);
   const lines = [
     truncateLine(
       `  ${palette.bold}${palette.gold}Approval required${palette.reset}`,
@@ -261,11 +262,7 @@ export function renderTuiApprovalPromptLines(params: {
   }
 
   lines.push('');
-  for (const line of wrapPlainLines(
-    `Why: ${reason}`,
-    safeWidth,
-    '  ',
-  )) {
+  for (const line of wrapPlainLines(`Why: ${reason}`, safeWidth, '  ')) {
     lines.push(line);
   }
   lines.push('');
