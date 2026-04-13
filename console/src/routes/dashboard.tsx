@@ -16,6 +16,7 @@ import {
   formatTokenBreakdown,
   formatUptime,
   formatUsd,
+  pluralize,
 } from '../lib/format';
 import { compareDateTime, compareNumber, compareText } from '../lib/sort';
 
@@ -170,7 +171,7 @@ export function DashboardPage() {
               </small>
               <small>
                 {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
-                {overview.usage.daily.callCount} calls
+                {pluralize(overview.usage.daily.callCount, 'call')}
               </small>
             </div>
             <div className="usage-stack">
@@ -186,7 +187,7 @@ export function DashboardPage() {
               </small>
               <small>
                 {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
-                {overview.usage.monthly.callCount} calls
+                {pluralize(overview.usage.monthly.callCount, 'call')}
               </small>
             </div>
           </div>
@@ -205,7 +206,7 @@ export function DashboardPage() {
                         inputTokens: row.totalInputTokens ?? 0,
                         outputTokens: row.totalOutputTokens ?? 0,
                       })}{' '}
-                      · {row.callCount} calls this month
+                      · {pluralize(row.callCount, 'call')} this month
                     </small>
                   </div>
                   <span>{formatUsd(row.totalCostUsd)}</span>
