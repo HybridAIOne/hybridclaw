@@ -35,19 +35,8 @@ type InternalReadline = readline.Interface & {
   line: string;
   cursor: number;
   _refreshLine?: () => void;
+  _ttyWrite?: (chunk: string, key: readline.Key) => void;
 };
-
-interface TuiApprovalPromptInput {
-  isTTY?: boolean;
-  on(
-    event: 'keypress',
-    listener: (chunk: string, key: readline.Key) => void,
-  ): this;
-  off(
-    event: 'keypress',
-    listener: (chunk: string, key: readline.Key) => void,
-  ): this;
-}
 
 function getAnsiSequenceLength(value: string, index: number): number {
   if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
@@ -95,6 +84,20 @@ function truncateLine(value: string, width: number, reset = ''): string {
   if (!truncated) return output;
 
   return hasAnsi ? `${output}...${reset}` : `${output}...`;
+}
+
+function visibleTerminalLength(value: string): number {
+  let visible = 0;
+  for (let index = 0; index < value.length; ) {
+    const ansiSequenceLength = getAnsiSequenceLength(value, index);
+    if (ansiSequenceLength > 0) {
+      index += ansiSequenceLength;
+      continue;
+    }
+    visible += 1;
+    index += (value.codePointAt(index) || 0) > 0xffff ? 2 : 1;
+  }
+  return visible;
 }
 
 function sentenceCase(value: string): string {
@@ -307,71 +310,68 @@ export async function promptTuiApprovalSelection(params: {
   rl: readline.Interface;
   approval: Pick<TuiApprovalDetails, 'approvalId' | 'intent' | 'reason'>;
   options: TuiApprovalSelectionOption[];
-  input?: TuiApprovalPromptInput;
   output?: NodeJS.WriteStream;
   initialCursor?: number;
   restorePrompt?: boolean;
 }): Promise<TuiApprovalSelectionOption | undefined> {
   const { rl, options } = params;
-  const input = params.input || process.stdin;
   const output = params.output || process.stdout;
   const internal = rl as InternalReadline;
+  const originalTtyWrite = internal._ttyWrite?.bind(internal);
 
   if (options.length === 0) {
     throw new Error('TUI approval prompt requires at least one option.');
   }
 
-  if (!output.isTTY || !input.isTTY) {
+  if (!output.isTTY || !originalTtyWrite) {
     return undefined;
   }
 
   const savedLine = internal.line;
   const savedCursor = internal.cursor;
-  const lineListeners = rl.listeners('line') as Array<(line: string) => void>;
-  const sigintListeners = rl.listeners('SIGINT') as Array<() => void>;
-  let renderedLineCount = 0;
+  let renderedRows = 0;
   let restored = false;
   let cursor = Math.max(
     0,
     Math.min(params.initialCursor ?? 0, options.length - 1),
   );
   let finish = (_value: TuiApprovalSelectionOption) => {};
+  let installedTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   const closeHandler = () => {
     finish('skip');
   };
 
-  const buildClearFrame = () => {
-    if (renderedLineCount <= 0) return '';
-    return `${renderedLineCount > 1 ? `\x1b[${renderedLineCount - 1}A` : ''}\r\x1b[J`;
-  };
-
   const render = () => {
-    const clearFrame = buildClearFrame();
+    const columns = Math.max(1, output.columns || 80);
     const lines = renderTuiApprovalPromptLines({
       approval: params.approval,
       options,
       cursor,
-      width: output.columns || 80,
+      width: columns,
     });
-    output.write(`${clearFrame}\x1b[?25l${lines.join('\n')}`);
-    renderedLineCount = lines.length;
+    output.write(
+      `${renderedRows > 1 ? `\x1b[${renderedRows - 1}A` : ''}\r\x1b[J\x1b[?25l${lines.join('\n')}`,
+    );
+    renderedRows = lines.reduce(
+      (total, line) =>
+        total + Math.max(1, Math.ceil(visibleTerminalLength(line) / columns)),
+      0,
+    );
   };
 
   const restore = () => {
     if (restored) return;
     restored = true;
-    output.write(`${buildClearFrame()}\x1b[?25h`);
-    renderedLineCount = 0;
-    input.off('keypress', handleKeypress);
+    output.write(
+      `${renderedRows > 1 ? `\x1b[${renderedRows - 1}A` : ''}\r\x1b[J\x1b[?25h`,
+    );
+    renderedRows = 0;
     output.off('resize', render);
     rl.off('close', closeHandler);
-    rl.off('SIGINT', handleSigint);
-    for (const listener of lineListeners) {
-      rl.on('line', listener);
+    if (installedTtyWrite && internal._ttyWrite === installedTtyWrite) {
+      internal._ttyWrite = originalTtyWrite;
     }
-    for (const listener of sigintListeners) {
-      rl.on('SIGINT', listener);
-    }
+    installedTtyWrite = undefined;
     internal.line = savedLine;
     internal.cursor = Math.min(savedCursor, savedLine.length);
     if (params.restorePrompt !== false) {
@@ -387,10 +387,6 @@ export async function promptTuiApprovalSelection(params: {
     const selected = options[index];
     if (!selected) return;
     finish(selected);
-  };
-
-  const handleSigint = () => {
-    finish('skip');
   };
 
   const handleKeypress = (chunk: string, key: readline.Key) => {
@@ -437,14 +433,10 @@ export async function promptTuiApprovalSelection(params: {
       resolve(value);
     };
 
-    for (const listener of lineListeners) {
-      rl.off('line', listener);
-    }
-    for (const listener of sigintListeners) {
-      rl.off('SIGINT', listener);
-    }
-    rl.on('SIGINT', handleSigint);
-    input.on('keypress', handleKeypress);
+    installedTtyWrite = (chunk: string, key: readline.Key) => {
+      handleKeypress(chunk, key);
+    };
+    internal._ttyWrite = installedTtyWrite;
     output.on('resize', render);
     rl.on('close', closeHandler);
     render();

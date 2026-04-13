@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import type readline from 'node:readline';
 
 import { expect, test, vi } from 'vitest';
@@ -13,6 +12,16 @@ import {
 const ANSI_PATTERN = new RegExp('\\u001B\\[[0-9;]*[A-Za-z]', 'g');
 // biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
 const CONTROL_PATTERN = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const REDRAW_PATTERN = new RegExp(
+  '^(?:\\u001B\\[\\d+A)?\\r\\u001B\\[J\\u001B\\[\\?25l',
+  'u',
+);
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const RESTORE_PATTERN = new RegExp(
+  '^(?:\\u001B\\[\\d+A)?\\r\\u001B\\[J\\u001B\\[\\?25h$',
+  'u',
+);
 
 function stripAnsi(value: string): string {
   return value.replace(ANSI_PATTERN, '');
@@ -107,6 +116,7 @@ function buildApprovalPromptHarness() {
   const rl = {
     line: '',
     cursor: 0,
+    _ttyWrite: vi.fn(),
     _refreshLine: vi.fn(),
     listeners: vi.fn((event: string) => {
       if (event === 'line') return [lineListener];
@@ -117,22 +127,19 @@ function buildApprovalPromptHarness() {
     off: vi.fn(),
     prompt: vi.fn(),
   } as unknown as readline.Interface;
-  const input = Object.assign(new EventEmitter(), {
-    isTTY: true,
-    on: EventEmitter.prototype.on,
-    off: EventEmitter.prototype.off,
-  });
-
   return {
     rl: rl as unknown as {
       line: string;
       cursor: number;
+      _ttyWrite: (chunk: string, key: readline.Key) => void;
       _refreshLine: () => void;
       listeners: (event: string) => unknown[];
     },
-    input,
     output,
     writes,
+    pressKey: (chunk: string, key: readline.Key) => {
+      rl._ttyWrite(chunk, key);
+    },
   };
 }
 
@@ -148,20 +155,22 @@ test('promptTuiApprovalSelection moves with arrows and confirms the highlighted 
     rl: harness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'session', 'agent', 'skip'],
-    input: harness.input,
     output: harness.output,
   });
 
   expect(harness.writes).toHaveLength(1);
-  harness.input.emit('keypress', '', { name: 'down' });
+  expect(harness.writes[0]?.startsWith('\r\x1b[J\x1b[?25l')).toBe(true);
+  harness.pressKey('', { name: 'down' });
   expect(harness.writes).toHaveLength(2);
-  harness.input.emit('keypress', '', { name: 'down' });
+  expect(harness.writes[1]).toMatch(REDRAW_PATTERN);
+  harness.pressKey('', { name: 'down' });
   expect(harness.writes).toHaveLength(3);
-  harness.input.emit('keypress', '\r', { name: 'return' });
+  expect(harness.writes[2]).toMatch(REDRAW_PATTERN);
+  harness.pressKey('\r', { name: 'return' });
 
   await expect(prompt).resolves.toBe('agent');
   expect(harness.rl._refreshLine).toHaveBeenCalledTimes(1);
-  expect(harness.writes.length).toBeGreaterThan(0);
+  expect(harness.writes.at(-1)).toMatch(RESTORE_PATTERN);
 });
 
 test('promptTuiApprovalSelection can skip prompt redraw before an immediate replay', async () => {
@@ -170,12 +179,11 @@ test('promptTuiApprovalSelection can skip prompt redraw before an immediate repl
     rl: harness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'skip'],
-    input: harness.input,
     output: harness.output,
     restorePrompt: false,
   });
 
-  harness.input.emit('keypress', '\r', { name: 'return' });
+  harness.pressKey('\r', { name: 'return' });
 
   await expect(prompt).resolves.toBe('once');
   expect(harness.rl._refreshLine).not.toHaveBeenCalled();
@@ -187,12 +195,11 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
     rl: numericHarness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'session', 'agent', 'all', 'skip'],
-    input: numericHarness.input,
     output: numericHarness.output,
   });
 
-  numericHarness.input.emit('keypress', 'y', { name: 'y', sequence: 'y' });
-  numericHarness.input.emit('keypress', '4', { name: '4', sequence: '4' });
+  numericHarness.pressKey('y', { name: 'y', sequence: 'y' });
+  numericHarness.pressKey('4', { name: '4', sequence: '4' });
   await expect(numericPrompt).resolves.toBe('all');
 
   const denyHarness = buildApprovalPromptHarness();
@@ -203,11 +210,10 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
       approvalId: 'approve999',
     },
     options: ['once', 'skip'],
-    input: denyHarness.input,
     output: denyHarness.output,
   });
 
-  denyHarness.input.emit('keypress', '\u001b', {
+  denyHarness.pressKey('\u001b', {
     name: 'escape',
     sequence: '\u001b',
   });
@@ -239,7 +245,6 @@ test('promptTuiApprovalSelection throws when called without approval options', a
       rl: harness.rl as unknown as readline.Interface,
       approval: APPROVAL,
       options: [],
-      input: harness.input,
       output: harness.output,
     }),
   ).rejects.toThrow('TUI approval prompt requires at least one option.');
