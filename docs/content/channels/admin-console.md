@@ -31,6 +31,8 @@ and `/secret set` use.
 - you prefer browser forms to long CLI flag lists
 - you need the WhatsApp pairing QR in a browser instead of a terminal
 - you want to verify saved settings without editing `config.json` directly
+- you want to restart a running gateway from `/admin/gateway` without
+  switching back to the CLI
 
 ## Related Pages
 

@@ -88,6 +88,9 @@ hybridclaw gateway restart --foreground
 hybridclaw gateway status
 ```
 
+If the gateway is already running and you have the admin UI open, you can also
+go to `/admin/gateway` and click `Restart Gateway`.
+
 ## Step 3: Verify The Setup
 
 1. If you configured `--allow-from`, send a message from an allowlisted sender

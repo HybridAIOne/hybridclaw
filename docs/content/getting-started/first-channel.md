@@ -53,6 +53,8 @@ Once you pick a transport:
 1. run its setup flow and save the required credentials
 2. start or restart the gateway:
    `hybridclaw gateway restart --foreground`
+   If the admin UI is already open, you can also go to `/admin/gateway` and
+   click `Restart Gateway`.
 3. send one test message from the private scope you configured first
 4. confirm HybridClaw replies through the same transport
 5. if anything fails, check [Diagnostics](../reference/diagnostics.md),

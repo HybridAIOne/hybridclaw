@@ -256,6 +256,9 @@ hybridclaw gateway restart --foreground
 hybridclaw gateway status
 ```
 
+If the gateway is already running and you have the admin UI open, you can also
+go to `/admin/gateway` and click `Restart Gateway`.
+
 ## Step 7: Verify The Setup
 
 1. Open a DM with the Slack app or invite it into a test channel.
@@ -317,6 +320,9 @@ hybridclaw config set slack.replyStyle thread
 ```bash
 hybridclaw gateway restart --foreground
 ```
+
+If the gateway is already running and you have the admin UI open, you can also
+go to `/admin/gateway` and click `Restart Gateway`.
 
 If the gateway was already running, restart it after saving the credentials or
 editing `slack.*` config values.

@@ -43,6 +43,10 @@ hybridclaw channels imessage setup --backend remote --server-url https://bluebub
 hybridclaw gateway restart --foreground
 ```
 
+If the gateway is already running and you have the admin UI open, you can also
+go to `/admin/gateway` and click `Restart Gateway` after the setup command
+finishes.
+
 The setup command keeps group chats disabled by default. Without
 `--allow-from`, inbound iMessage stays disabled and the channel is outbound-only.
 
@@ -128,6 +132,8 @@ hybridclaw gateway start --foreground
 ```
 
 If you already had the gateway running, restart it after editing config.
+If you already have the admin UI open, the browser-side equivalent is
+`/admin/gateway` -> `Restart Gateway`.
 
 ### Step 6: Send a Test Message
 
@@ -344,5 +350,8 @@ After setup is complete:
 3. Confirm the session appears and the reply returns
 4. Test one attachment send
 5. If you plan to use groups, test one controlled allowlisted group next
+
+If the gateway is already up, you can do that restart from `/admin/gateway`
+instead of returning to the CLI.
 
 Do not move to `open` policies until the direct-message path is stable.

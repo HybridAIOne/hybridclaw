@@ -41,6 +41,8 @@ arrays, and objects. Use quoted strings for string values, for example:
 - after startup-affecting channel changes, a gateway restart is still the
   safest fallback:
   `hybridclaw gateway restart --foreground`
+- if the gateway is already running and the admin UI is open, the browser-side
+  equivalent is `/admin/gateway` -> `Restart Gateway`
 
 ## CLI-Only Gaps
 

@@ -75,6 +75,9 @@ Prefer stable AAD object IDs in `msteams.allowFrom`.
 hybridclaw gateway restart --foreground
 ```
 
+If the gateway is already running and you have the admin UI open, you can also
+go to `/admin/gateway` and click `Restart Gateway`.
+
 By default, Teams messages are served from the gateway HTTP port at:
 
 ```text
