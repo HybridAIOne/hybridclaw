@@ -53,7 +53,7 @@ export function AppSidebar(props: {
           <SidebarFooterActions>
             <SidebarFooterMenu>
               <SidebarFooterAction>
-                <ThemeToggle />
+                <ThemeToggle labelClassName={styles.themeToggleLabel} />
               </SidebarFooterAction>
             </SidebarFooterMenu>
           </SidebarFooterActions>
@@ -133,4 +133,3 @@ function SidebarMeta(props: { version?: string }) {
     </div>
   );
 }
-

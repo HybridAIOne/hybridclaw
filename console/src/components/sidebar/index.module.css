@@ -125,7 +125,7 @@
 }
 
 .groupLabel::after {
-  content: '';
+  content: "";
   flex: 1;
   height: 1px;
   background: var(--sidebar-border);
@@ -314,7 +314,7 @@
 .root[data-state="collapsed"] .footerMeta,
 .root[data-state="collapsed"] .footerDivider,
 .root[data-state="collapsed"] .footerButton span:not(.icon),
-.root[data-state="collapsed"] :global(.theme-toggle-label) {
+.root[data-state="collapsed"] .themeToggleLabel {
   display: none;
 }
 

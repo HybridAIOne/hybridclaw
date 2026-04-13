@@ -56,14 +56,16 @@ function ThemeIcon({ theme }: { theme: 'light' | 'dark' | 'system' }) {
   return <SystemIcon />;
 }
 
-export function ThemeToggle() {
-  const { theme, resolved } = useTheme();
-
-  const options: { value: 'light' | 'dark' | 'system'; label: string }[] = [
+const THEME_OPTIONS: { value: 'light' | 'dark' | 'system'; label: string }[] =
+  [
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
     { value: 'system', label: 'System' },
   ];
+
+export function ThemeToggle(props: { labelClassName?: string }) {
+  const { theme, resolved } = useTheme();
+  const label = THEME_OPTIONS.find((o) => o.value === theme)?.label ?? theme;
 
   return (
     <Dropdown>
@@ -73,12 +75,10 @@ export function ThemeToggle() {
         title="Change theme"
       >
         <ThemeIcon theme={theme} />
-        <span className="theme-toggle-label">
-          {theme.charAt(0).toUpperCase() + theme.slice(1)}
-        </span>
+        <span className={props.labelClassName}>{label}</span>
       </DropdownTrigger>
       <DropdownContent className="theme-toggle-menu" align="end">
-        {options.map((option) => (
+        {THEME_OPTIONS.map((option) => (
           <DropdownItem
             key={option.value}
             className="theme-toggle-option"
