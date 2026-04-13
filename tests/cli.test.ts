@@ -6,6 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempDirs: string[] = [];
+const ORIGINAL_HYBRIDCLAW_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
+const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISABLE_CONFIG_WATCHER =
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
 const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
@@ -63,6 +67,10 @@ async function importFreshAgentMigrationCommand(options?: {
 }) {
   vi.resetModules();
   vi.doUnmock('../src/cli/agent-migration-command.js');
+  const runtimeHomeDir = createTempDir();
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHomeDir;
+  process.env.HOME = runtimeHomeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
     value: true,
@@ -431,6 +439,10 @@ async function importFreshCli(options?: {
   };
 }) {
   vi.resetModules();
+  const runtimeHomeDir = createTempDir();
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHomeDir;
+  process.env.HOME = runtimeHomeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   delete process.env.CI;
   Object.defineProperty(process.stdin, 'isTTY', {
@@ -1380,6 +1392,22 @@ afterEach(() => {
   } else {
     process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
       ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
+  }
+  if (ORIGINAL_HYBRIDCLAW_DATA_DIR === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_HYBRIDCLAW_DATA_DIR;
+  }
+  if (ORIGINAL_HOME === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = ORIGINAL_HOME;
+  }
+  if (ORIGINAL_DISABLE_CONFIG_WATCHER === undefined) {
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+  } else {
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
+      ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
   if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
     delete process.env.OPENROUTER_API_KEY;

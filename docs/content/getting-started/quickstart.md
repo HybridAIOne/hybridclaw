@@ -68,6 +68,10 @@ it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
 
+Use `/admin/channels` for transport setup and `/admin/agents` when you need to
+edit an agent's allowlisted workspace markdown files or restore a saved
+revision.
+
 ## Ground A Prompt With Files Or Repo Context
 
 - Web chat accepts uploads and pasted clipboard files or images before send.

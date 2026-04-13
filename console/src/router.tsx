@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentFilesPage } from './routes/agents';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
@@ -50,6 +51,12 @@ const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
+});
+
+const agentFilesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agents',
+  component: AgentFilesPage,
 });
 
 const terminalRoute = createRoute({
@@ -138,6 +145,7 @@ const toolsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  agentFilesRoute,
   terminalRoute,
   gatewayRoute,
   sessionsRoute,

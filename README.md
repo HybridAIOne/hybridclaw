@@ -77,7 +77,8 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, agent files,
+  scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
@@ -92,7 +93,8 @@ operator and maintainer manual lives at
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, agent files,
+  scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
@@ -130,6 +132,7 @@ Once the gateway is running, open HybridClaw locally:
 ## Built for real workflows
 
 - channels
+- versioned agent workspace prompt files
 - browser sessions
 - office docs
 - skills / plugins / MCP

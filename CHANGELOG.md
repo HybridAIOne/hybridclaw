@@ -2,6 +2,12 @@
 
 ## [Coming up]
 
+### Added
+
+- **Admin agent file editor**: The admin console now includes `/admin/agents`
+  for editing each registered agent's allowlisted workspace bootstrap markdown
+  files, with saved revision history and restore controls.
+
 ### Changed
 
 - **Interactive TUI approval picker**: Local TUI approval requests open a
