@@ -1,11 +1,11 @@
 import { execSync } from 'node:child_process';
-import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
   getAvailablePort,
-  waitForHealth,
-  startContainer,
   removeContainer,
+  startContainer,
+  waitForHealth,
 } from './helpers/docker-test-setup.js';
 
 /**
@@ -144,10 +144,9 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   });
 
   test('/docs/getting-started/README.md serves raw markdown', async () => {
-    const res = await fetch(
-      `${GATEWAY_URL}/docs/getting-started/README.md`,
-      { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    );
+    const res = await fetch(`${GATEWAY_URL}/docs/getting-started/README.md`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/markdown');
     const md = await res.text();
@@ -160,7 +159,9 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>');
+    expect(html).toContain(
+      '<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>',
+    );
   });
 
   test('/chat redirects to login (auth enforced in container)', async () => {
@@ -233,14 +234,12 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   test.skipIf(!HAS_REAL_KEY)(
     '/health reports HybridAI provider reachable',
     async () => {
-      await waitForHealth(
-        `${GATEWAY_URL}/health`,
-        30_000,
-        (body) => {
-          const ph = body as { providerHealth?: { hybridai?: { reachable: boolean } } };
-          return ph.providerHealth?.hybridai?.reachable === true;
-        },
-      );
+      await waitForHealth(`${GATEWAY_URL}/health`, 30_000, (body) => {
+        const ph = body as {
+          providerHealth?: { hybridai?: { reachable: boolean } };
+        };
+        return ph.providerHealth?.hybridai?.reachable === true;
+      });
     },
   );
 

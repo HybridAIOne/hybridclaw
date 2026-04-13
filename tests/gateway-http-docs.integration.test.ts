@@ -147,7 +147,10 @@ describe('gateway docs HTTP integration', () => {
           `Expected 200 for ${urlPath} but got ${res.status}`,
         ).toBe(200);
         const html = await res.text();
-        expect(html.length, `Expected non-empty HTML for ${urlPath}`).toBeGreaterThan(0);
+        expect(
+          html.length,
+          `Expected non-empty HTML for ${urlPath}`,
+        ).toBeGreaterThan(0);
       }),
     );
   });
@@ -168,10 +171,9 @@ describe('gateway docs HTTP integration', () => {
       'developer-guide',
     ];
     for (const section of expectedSections) {
-      expect(
-        html,
-        `Sidebar should contain a link for "${section}"`,
-      ).toContain(`/docs/${section}`);
+      expect(html, `Sidebar should contain a link for "${section}"`).toContain(
+        `/docs/${section}`,
+      );
     }
   });
 
@@ -191,7 +193,10 @@ describe('gateway docs HTTP integration', () => {
       linkMatch = linkRegex.exec(html);
     }
 
-    expect(links.size, 'Expected at least one internal /docs/ link').toBeGreaterThan(0);
+    expect(
+      links.size,
+      'Expected at least one internal /docs/ link',
+    ).toBeGreaterThan(0);
 
     await Promise.all(
       [...links].map(async (link) => {

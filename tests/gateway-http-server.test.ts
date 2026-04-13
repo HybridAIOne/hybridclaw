@@ -2559,13 +2559,7 @@ describe('gateway HTTP server', () => {
     );
     fs.symlinkSync(
       externalCategoryPath,
-      path.join(
-        installRoot,
-        'docs',
-        'content',
-        'guides',
-        '_category_.json',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', '_category_.json'),
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -2582,13 +2576,7 @@ describe('gateway HTTP server', () => {
   test('does not render non-http image sources in docs content', async () => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
-      path.join(
-        installRoot,
-        'docs',
-        'content',
-        'guides',
-        'image-schemes.md',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', 'image-schemes.md'),
       [
         '---',
         'title: Image Schemes',

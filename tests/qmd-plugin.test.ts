@@ -1120,7 +1120,9 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
     expect.objectContaining({
       resultCount: 1,
       usedFallbackQuery: true,
-      topResultPaths: ['qmd://hybridclaw/docs/content/extensibility/plugins.md'],
+      topResultPaths: [
+        'qmd://hybridclaw/docs/content/extensibility/plugins.md',
+      ],
     }),
     'QMD prompt context injected',
   );
