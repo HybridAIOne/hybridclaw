@@ -136,6 +136,7 @@ export function McpPage() {
       queryClient.setQueryData(['mcp', auth.token], payload);
       setSelectedName(null);
       setDraft(createDraft());
+      setShowEditor(false);
       toast.success('MCP server deleted.');
     },
     onError: (error) => {
@@ -173,7 +174,10 @@ export function McpPage() {
         }
       />
 
-      {!mcpQuery.isLoading && !mcpQuery.isError && !mcpQuery.data?.servers.length && !showEditor ? (
+      {!mcpQuery.isLoading &&
+      !mcpQuery.isError &&
+      !mcpQuery.data?.servers.length &&
+      !showEditor ? (
         <div className="page-empty">
           <p>
             MCP servers let the agent call external tools over the Model Context
@@ -188,228 +192,231 @@ export function McpPage() {
           </button>
         </div>
       ) : (
-      <div className="two-column-grid">
-        <Panel
-          title="Servers"
-          subtitle={`${mcpQuery.data?.servers.length || 0} configured server${mcpQuery.data?.servers.length === 1 ? '' : 's'}`}
-        >
-          {mcpQuery.isLoading ? (
-            <div className="empty-state">Loading MCP servers...</div>
-          ) : mcpQuery.data?.servers.length ? (
-            <div className="list-stack selectable-list">
-              {mcpQuery.data.servers.map((server) => (
-                <button
-                  key={server.name}
-                  className={
-                    server.name === selectedName
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
-                  onClick={() => {
-                    setSelectedName(server.name);
-                    setShowEditor(true);
-                  }}
-                >
-                  <div>
-                    <strong>{server.name}</strong>
-                    <small>{server.summary}</small>
-                  </div>
-                  <BooleanPill
-                    value={server.enabled}
-                    trueLabel="active"
-                    falseLabel="inactive"
-                  />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state-cta">
-              <p>
-                MCP servers let the agent call external tools over the Model
-                Context Protocol.
-              </p>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={openNewServer}
-              >
-                Add your first server
-              </button>
-            </div>
-          )}
-        </Panel>
-
-        {showEditor ? (
-        <Panel title="Server editor" accent="warm">
-          <div className="stack-form">
-            <div className="field-grid">
-              <label className="field">
-                <span>Name</span>
-                <input
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  placeholder="github"
-                />
-              </label>
-              <label className="field">
-                <span>Transport</span>
-                <select
-                  value={draft.transport}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      transport: event.target.value as McpDraft['transport'],
-                    }))
-                  }
-                >
-                  <option value="stdio">stdio</option>
-                  <option value="http">http</option>
-                  <option value="sse">sse</option>
-                </select>
-              </label>
-            </div>
-
-            <BooleanField
-              label="Server state"
-              value={draft.enabled}
-              trueLabel="on"
-              falseLabel="off"
-              onChange={(enabled) =>
-                setDraft((current) => ({
-                  ...current,
-                  enabled,
-                }))
-              }
-            />
-
-            {draft.transport === 'stdio' ? (
-              <>
-                <label className="field">
-                  <span>Command</span>
-                  <input
-                    value={draft.command}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        command: event.target.value,
-                      }))
+        <div className="two-column-grid">
+          <Panel
+            title="Servers"
+            subtitle={`${mcpQuery.data?.servers.length || 0} configured server${mcpQuery.data?.servers.length === 1 ? '' : 's'}`}
+          >
+            {mcpQuery.isLoading ? (
+              <div className="empty-state">Loading MCP servers...</div>
+            ) : mcpQuery.data?.servers.length ? (
+              <div className="list-stack selectable-list">
+                {mcpQuery.data.servers.map((server) => (
+                  <button
+                    key={server.name}
+                    className={
+                      server.name === selectedName
+                        ? 'selectable-row active'
+                        : 'selectable-row'
                     }
-                    placeholder="docker"
-                  />
-                </label>
+                    type="button"
+                    onClick={() => {
+                      setSelectedName(server.name);
+                      setShowEditor(true);
+                    }}
+                  >
+                    <div>
+                      <strong>{server.name}</strong>
+                      <small>{server.summary}</small>
+                    </div>
+                    <BooleanPill
+                      value={server.enabled}
+                      trueLabel="active"
+                      falseLabel="inactive"
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state-cta">
+                <p>
+                  MCP servers let the agent call external tools over the Model
+                  Context Protocol.
+                </p>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={openNewServer}
+                >
+                  Add your first server
+                </button>
+              </div>
+            )}
+          </Panel>
+
+          {showEditor ? (
+            <Panel title="Server editor" accent="warm">
+              <div className="stack-form">
                 <div className="field-grid">
                   <label className="field">
-                    <span>Arguments</span>
-                    <textarea
-                      rows={4}
-                      value={draft.args}
+                    <span>Name</span>
+                    <input
+                      value={draft.name}
                       onChange={(event) =>
                         setDraft((current) => ({
                           ...current,
-                          args: event.target.value,
+                          name: event.target.value,
                         }))
                       }
-                      placeholder="One argument per line"
+                      placeholder="github"
                     />
                   </label>
                   <label className="field">
-                    <span>Working directory</span>
-                    <input
-                      value={draft.cwd}
+                    <span>Transport</span>
+                    <select
+                      value={draft.transport}
                       onChange={(event) =>
                         setDraft((current) => ({
                           ...current,
-                          cwd: event.target.value,
+                          transport: event.target
+                            .value as McpDraft['transport'],
                         }))
                       }
-                      placeholder="/workspace"
-                    />
+                    >
+                      <option value="stdio">stdio</option>
+                      <option value="http">http</option>
+                      <option value="sse">sse</option>
+                    </select>
                   </label>
                 </div>
-                <label className="field">
-                  <span>Environment JSON</span>
-                  <textarea
-                    rows={5}
-                    value={draft.envJson}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        envJson: event.target.value,
-                      }))
-                    }
-                    placeholder='{"GITHUB_TOKEN":"..."}'
-                  />
-                </label>
-              </>
-            ) : (
-              <>
-                <label className="field">
-                  <span>URL</span>
-                  <input
-                    value={draft.url}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        url: event.target.value,
-                      }))
-                    }
-                    placeholder="https://example.test/mcp"
-                  />
-                </label>
-                <label className="field">
-                  <span>Headers JSON</span>
-                  <textarea
-                    rows={5}
-                    value={draft.headersJson}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        headersJson: event.target.value,
-                      }))
-                    }
-                    placeholder='{"Authorization":"Bearer ..."}'
-                  />
-                </label>
-              </>
-            )}
 
-            <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={saveMutation.isPending}
-                onClick={() => saveMutation.mutate()}
-              >
-                {saveMutation.isPending ? 'Saving...' : 'Save server'}
-              </button>
-              {selectedServer ? (
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => deleteMutation.mutate()}
-                >
-                  {deleteMutation.isPending ? 'Deleting...' : 'Delete server'}
-                </button>
-              ) : null}
-            </div>
+                <BooleanField
+                  label="Server state"
+                  value={draft.enabled}
+                  trueLabel="on"
+                  falseLabel="off"
+                  onChange={(enabled) =>
+                    setDraft((current) => ({
+                      ...current,
+                      enabled,
+                    }))
+                  }
+                />
 
-            {selectedServer ? (
-              <div className="summary-block">
-                <span>Summary</span>
-                <p>{selectedServer.summary}</p>
+                {draft.transport === 'stdio' ? (
+                  <>
+                    <label className="field">
+                      <span>Command</span>
+                      <input
+                        value={draft.command}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            command: event.target.value,
+                          }))
+                        }
+                        placeholder="docker"
+                      />
+                    </label>
+                    <div className="field-grid">
+                      <label className="field">
+                        <span>Arguments</span>
+                        <textarea
+                          rows={4}
+                          value={draft.args}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              args: event.target.value,
+                            }))
+                          }
+                          placeholder="One argument per line"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Working directory</span>
+                        <input
+                          value={draft.cwd}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              cwd: event.target.value,
+                            }))
+                          }
+                          placeholder="/workspace"
+                        />
+                      </label>
+                    </div>
+                    <label className="field">
+                      <span>Environment JSON</span>
+                      <textarea
+                        rows={5}
+                        value={draft.envJson}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            envJson: event.target.value,
+                          }))
+                        }
+                        placeholder='{"GITHUB_TOKEN":"..."}'
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label className="field">
+                      <span>URL</span>
+                      <input
+                        value={draft.url}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            url: event.target.value,
+                          }))
+                        }
+                        placeholder="https://example.test/mcp"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Headers JSON</span>
+                      <textarea
+                        rows={5}
+                        value={draft.headersJson}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            headersJson: event.target.value,
+                          }))
+                        }
+                        placeholder='{"Authorization":"Bearer ..."}'
+                      />
+                    </label>
+                  </>
+                )}
+
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={saveMutation.isPending}
+                    onClick={() => saveMutation.mutate()}
+                  >
+                    {saveMutation.isPending ? 'Saving...' : 'Save server'}
+                  </button>
+                  {selectedServer ? (
+                    <button
+                      className="danger-button"
+                      type="button"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteMutation.mutate()}
+                    >
+                      {deleteMutation.isPending
+                        ? 'Deleting...'
+                        : 'Delete server'}
+                    </button>
+                  ) : null}
+                </div>
+
+                {selectedServer ? (
+                  <div className="summary-block">
+                    <span>Summary</span>
+                    <p>{selectedServer.summary}</p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        </Panel>
-        ) : null}
-      </div>
+            </Panel>
+          ) : null}
+        </div>
       )}
     </div>
   );

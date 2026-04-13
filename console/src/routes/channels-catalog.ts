@@ -61,10 +61,9 @@ function describeDiscord(
 ): ChannelCatalogItem {
   const guildCount = countDiscordGuilds(config);
   const overrideCount = countDiscordOverrides(config);
-  const enabled =
-    (config.discord?.commandsOnly ||
-      config.discord?.groupPolicy !== 'disabled') ??
-    false;
+  const enabled = config.discord
+    ? config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled'
+    : false;
   const tokenConfigured = options.discordTokenConfigured === true;
   const active = enabled && tokenConfigured;
   const configured =
@@ -96,9 +95,10 @@ function describeWhatsApp(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const linked = options.whatsappLinked === true;
-  const enabled =
-    config.whatsapp?.dmPolicy !== 'disabled' ||
-    config.whatsapp?.groupPolicy !== 'disabled';
+  const enabled = config.whatsapp
+    ? config.whatsapp.dmPolicy !== 'disabled' ||
+      config.whatsapp.groupPolicy !== 'disabled'
+    : false;
   const summary = linked
     ? enabled
       ? `Linked device · groups ${config.whatsapp?.groupPolicy}`
