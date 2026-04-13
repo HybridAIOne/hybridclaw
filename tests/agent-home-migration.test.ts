@@ -725,10 +725,7 @@ test('does not import Codex model lists from OpenClaw migration input', async ()
   expect(loggerWarn).toHaveBeenCalledWith(
     {
       provider: 'codex',
-      models: [
-        'openai-codex/custom-preview',
-        'openai-codex/custom-shadow',
-      ],
+      models: ['openai-codex/custom-preview', 'openai-codex/custom-shadow'],
     },
     'Ignoring imported Codex model list; Codex models are discovery-driven and not written to config',
   );

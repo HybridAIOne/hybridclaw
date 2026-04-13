@@ -839,6 +839,7 @@ async function importFreshCli(options?: {
     );
   };
   persistRuntimeConfigState();
+  fs.chmodSync(configPath, 0o600);
   const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const reloadRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const runtimeConfigPath = vi.fn(() => configPath);
