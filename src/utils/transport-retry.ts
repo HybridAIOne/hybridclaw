@@ -44,7 +44,7 @@ export async function withTransportRetry<T>(
         throw error;
       }
 
-      const fallbackMs = Math.min(delayMs, maxDelayMs);
+      const fallbackMs = delayMs;
       const extractedDelayMs = options.extractRetryAfter?.(
         error,
         fallbackMs,
