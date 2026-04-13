@@ -103,6 +103,12 @@ export function McpPage() {
   const [draft, setDraft] = useState<McpDraft>(createDraft());
   const [showEditor, setShowEditor] = useState(false);
 
+  const openNewServer = () => {
+    setSelectedName(null);
+    setDraft(createDraft());
+    setShowEditor(true);
+  };
+
   const mcpQuery = useQuery({
     queryKey: ['mcp', auth.token],
     queryFn: () => fetchMcp(auth.token),
@@ -159,11 +165,7 @@ export function McpPage() {
             <button
               className="ghost-button"
               type="button"
-              onClick={() => {
-                setSelectedName(null);
-                setDraft(createDraft());
-                setShowEditor(true);
-              }}
+              onClick={openNewServer}
             >
               New server
             </button>
@@ -171,8 +173,8 @@ export function McpPage() {
         }
       />
 
-      {!mcpQuery.isLoading && !mcpQuery.data?.servers.length && !showEditor ? (
-        <div className="jobs-board-empty">
+      {!mcpQuery.isLoading && !mcpQuery.isError && !mcpQuery.data?.servers.length && !showEditor ? (
+        <div className="page-empty">
           <p>
             MCP servers let the agent call external tools over the Model Context
             Protocol.
@@ -180,11 +182,7 @@ export function McpPage() {
           <button
             className="primary-button"
             type="button"
-            onClick={() => {
-              setSelectedName(null);
-              setDraft(createDraft());
-              setShowEditor(true);
-            }}
+            onClick={openNewServer}
           >
             Add your first server
           </button>
@@ -234,11 +232,7 @@ export function McpPage() {
               <button
                 className="primary-button"
                 type="button"
-                onClick={() => {
-                  setSelectedName(null);
-                  setDraft(createDraft());
-                  setShowEditor(true);
-                }}
+                onClick={openNewServer}
               >
                 Add your first server
               </button>

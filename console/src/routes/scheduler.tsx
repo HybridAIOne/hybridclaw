@@ -1018,15 +1018,12 @@ export function SchedulerPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const requestedId =
-      new URLSearchParams(window.location.search).get('jobId') || '';
-    return requestedId.trim() || null;
+    const requestedId = new URLSearchParams(window.location.search).get('jobId')?.trim() ?? '';
+    return requestedId || null;
   });
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
   const [showEditor, setShowEditor] = useState<boolean>(() => {
-    const requestedId =
-      new URLSearchParams(window.location.search).get('jobId') || '';
-    return Boolean(requestedId.trim());
+    return Boolean(new URLSearchParams(window.location.search).get('jobId')?.trim());
   });
 
   const schedulerQuery = useQuery({
@@ -1154,6 +1151,12 @@ export function SchedulerPage() {
     window.history.replaceState({}, '', currentUrl.toString());
   }, [selectedId]);
 
+  const openNewJob = () => {
+    setSelectedId(null);
+    setDraft(createDraft());
+    setShowEditor(true);
+  };
+
   return (
     <div className="page-stack">
       <PageHeader
@@ -1162,11 +1165,7 @@ export function SchedulerPage() {
           <button
             className="ghost-button"
             type="button"
-            onClick={() => {
-              setSelectedId(null);
-              setDraft(createDraft());
-              setShowEditor(true);
-            }}
+            onClick={openNewJob}
           >
             New job
           </button>
@@ -1220,11 +1219,7 @@ export function SchedulerPage() {
               <button
                 className="primary-button"
                 type="button"
-                onClick={() => {
-                  setSelectedId(null);
-                  setDraft(createDraft());
-                  setShowEditor(true);
-                }}
+                onClick={openNewJob}
               >
                 New job
               </button>

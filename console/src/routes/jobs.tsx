@@ -731,7 +731,7 @@ export function JobsPage() {
       ) : null}
 
       {allItems.length === 0 ? (
-        <div className="jobs-board-empty">
+        <div className="page-empty">
           <p>Jobs are async tasks created by the agent or triggered manually.</p>
           <a className="primary-button" href="/admin/scheduler">
             New Job

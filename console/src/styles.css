@@ -1882,7 +1882,7 @@ th {
   background: var(--jobs-empty);
 }
 
-.jobs-board-empty {
+.page-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1892,7 +1892,7 @@ th {
   color: var(--muted-foreground);
 }
 
-.jobs-board-empty p {
+.page-empty p {
   margin: 0;
   max-width: 300px;
 }

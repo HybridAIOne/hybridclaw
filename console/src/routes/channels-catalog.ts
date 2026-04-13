@@ -62,7 +62,9 @@ function describeDiscord(
   const guildCount = countDiscordGuilds(config);
   const overrideCount = countDiscordOverrides(config);
   const enabled =
-    (config.discord?.commandsOnly || config.discord?.groupPolicy !== 'disabled') ?? false;
+    (config.discord?.commandsOnly ||
+      config.discord?.groupPolicy !== 'disabled') ??
+    false;
   const tokenConfigured = options.discordTokenConfigured === true;
   const active = enabled && tokenConfigured;
   const configured =
@@ -128,7 +130,8 @@ function describeTelegram(
   const inboundEnabled =
     config.telegram?.dmPolicy !== 'disabled' ||
     config.telegram?.groupPolicy !== 'disabled';
-  const active = (config.telegram?.enabled ?? false) && tokenConfigured && inboundEnabled;
+  const active =
+    (config.telegram?.enabled ?? false) && tokenConfigured && inboundEnabled;
   const configured =
     active ||
     (config.telegram?.enabled ?? false) ||
@@ -164,7 +167,9 @@ function describeSlack(
   const botTokenConfigured = options.slackBotTokenConfigured === true;
   const appTokenConfigured = options.slackAppTokenConfigured === true;
   const active =
-    (config.slack?.enabled ?? false) && botTokenConfigured && appTokenConfigured;
+    (config.slack?.enabled ?? false) &&
+    botTokenConfigured &&
+    appTokenConfigured;
   const configured =
     active ||
     (config.slack?.enabled ?? false) ||
