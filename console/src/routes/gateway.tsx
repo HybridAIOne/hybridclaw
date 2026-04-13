@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
+import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
@@ -282,7 +282,10 @@ export function GatewayPage() {
           )}
         </Panel>
       </div>
-      <AlertDialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+      <AlertDialog
+        open={restartConfirmOpen}
+        onOpenChange={setRestartConfirmOpen}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Restart Gateway?</AlertDialogTitle>

@@ -59,7 +59,7 @@ type DialogContextValue = {
 
 const DialogContext = createContext<DialogContextValue | null>(null);
 
-function useDialogContext() {
+export function useDialogContext() {
   const ctx = useContext(DialogContext);
   if (!ctx) throw new Error('Dialog components must be used within <Dialog>.');
   return ctx;
@@ -129,6 +129,8 @@ export function DialogContent(props: {
   initialFocus?: RefObject<HTMLElement | null>;
   /** When true, clicking the backdrop does not close the dialog. */
   preventCloseOnOutsideClick?: boolean;
+  /** ARIA role. Use "alertdialog" for confirmation prompts. Defaults to "dialog". */
+  role?: 'dialog' | 'alertdialog';
 }) {
   const ctx = useDialogContext();
   const portalRef = useRef<HTMLDivElement>(null);
@@ -184,9 +186,10 @@ export function DialogContent(props: {
         }
       />
       <div className={styles.viewport}>
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is always dialog or alertdialog, both support aria-modal */}
         <div
           ref={panelRef}
-          role="dialog"
+          role={props.role ?? 'dialog'}
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={descriptionId}
