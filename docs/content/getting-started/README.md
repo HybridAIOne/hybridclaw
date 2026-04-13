@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install HybridClaw, run onboarding, authenticate providers, and launch the main surfaces.
+description: Install HybridClaw, run onboarding, authenticate providers, and connect the first transport.
 sidebar_position: 1
 ---
 
@@ -21,7 +21,7 @@ shortest path is:
   web surfaces
 - [Authentication](./authentication.md) for provider login and credential
   storage behavior
-- [Channel Setup](./channels.md) for step-by-step Discord, Slack, Telegram,
-  email, WhatsApp, iMessage, and Microsoft Teams setup commands
-- [Channels](../channels/README.md) for transport-specific setup notes and
-  deeper Slack, iMessage, and Microsoft Teams walkthroughs
+- [Connect Your First Channel](./first-channel.md) for the shortest path from
+  onboarding to one verified transport
+- [Channels](../channels/README.md) for the full supported channel catalog,
+  transport-specific setup notes, and shared channel tooling

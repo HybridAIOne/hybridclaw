@@ -11,7 +11,8 @@ operators, contributors, and advanced users. The structure follows audience and
 job-to-be-done, not repository internals:
 
 - `Getting Started` for first install, onboarding, and first run
-- `Channels` for transport-specific setup such as Slack, iMessage, and Teams
+- `Channels` for the canonical transport manual across Discord, Slack,
+  Telegram, email, WhatsApp, iMessage, and Microsoft Teams
 - `Guides` for operational and task-focused walkthroughs
 - `Extensibility` for tools, skills, plugins, and extension architecture
 - `Developer Guide` for architecture and maintainer-facing internals
@@ -44,8 +45,8 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 ## Browse By Section
 
 - [Getting Started](./getting-started/README.md) for installation,
-  onboarding, provider authentication, and first-run setup
-- [Channels](./channels/README.md) for Slack, iMessage, Microsoft Teams, and
+  onboarding, provider authentication, and connecting the first transport
+- [Channels](./channels/README.md) for the full supported channel catalog and
   transport-specific setup details
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
   remote access, voice/TTS, and optional office tooling
@@ -62,6 +63,8 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   [Installation](./getting-started/installation.md).
 - Need the shortest path to a running gateway and chat UI? Go to
   [Quick Start](./getting-started/quickstart.md).
+- Need to connect one transport without reading the full channel manual? Go to
+  [Connect Your First Channel](./getting-started/first-channel.md).
 - Need command lookup or troubleshooting help? Go to
   [Commands](./reference/commands.md) and
   [Diagnostics](./reference/diagnostics.md).

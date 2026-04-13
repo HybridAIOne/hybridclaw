@@ -1,19 +1,34 @@
 ---
 title: Channels
-description: Transport-specific setup guidance for HybridClaw messaging channels.
+description: Canonical transport documentation for every HybridClaw messaging integration.
 sidebar_position: 1
 ---
 
 # Channels
 
-This section holds transport-specific setup notes and deeper walkthroughs for
-individual messaging integrations.
+This section is the canonical home for channel setup and operations. Use it
+when you want to compare transports, configure one specific integration, or
+manage the shared setup surfaces that multiple channels use.
 
-## In This Section
+If you are still working through first-run onboarding, start with
+[Connect Your First Channel](../getting-started/first-channel.md).
 
-- [Slack](./slack.md) for Socket Mode app setup and token scopes
-- [iMessage](./imessage.md) for local macOS and BlueBubbles-backed setups
-- [Microsoft Teams](./msteams.md) for Entra app registration and webhook setup
+## Start Here
 
-Use [Channel Setup](../getting-started/channels.md) when you want the compact
-CLI-first setup guide across all supported transports.
+- [Overview](./overview.md) for the transport matrix and primary setup commands
+- [Admin Console](./admin-console.md) for browser-based channel setup at
+  `/admin/channels`
+- [Local Config And Secrets](./local-config-and-secrets.md) for local TUI and
+  local web chat config updates
+- [Policies And Allowlists](./policies-and-allowlists.md) for private-by-
+  default rollout patterns
+
+## Transports
+
+- [Discord](./discord.md)
+- [Slack](./slack.md)
+- [Telegram](./telegram.md)
+- [Email](./email.md)
+- [WhatsApp](./whatsapp.md)
+- [iMessage](./imessage.md)
+- [Microsoft Teams](./msteams.md)

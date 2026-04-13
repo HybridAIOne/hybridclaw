@@ -18,6 +18,8 @@ const LEGACY_DEVELOPMENT_ROUTE = '/development';
 const LEGACY_DOCS_REDIRECT_WARNING =
   '299 HybridClaw "Legacy docs redirect; update links to the canonical /docs/... path."';
 const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
+  ['getting-started/channels', 'channels/overview'],
+  ['getting-started/channels.md', 'channels/overview.md'],
   ['imessage', 'channels/imessage'],
   ['imessage.md', 'channels/imessage.md'],
   ['msteams', 'channels/msteams'],

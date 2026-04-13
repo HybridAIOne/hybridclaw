@@ -16,6 +16,9 @@ describe('docs viewer helpers', () => {
     expect(resolveDocPathFromPathname('/docs/extensibility/skills')).toBe(
       'extensibility/skills.md',
     );
+    expect(resolveDocPathFromPathname('/docs/getting-started/channels')).toBe(
+      'channels/overview.md',
+    );
     expect(resolveDocPathFromPathname('/docs/internals/runtime')).toBe(
       'developer-guide/runtime.md',
     );
@@ -44,6 +47,36 @@ describe('docs viewer helpers', () => {
     );
     expect(
       guides?.pages.some((page) => page.path === 'guides/remote-access.md'),
+    ).toBe(true);
+  });
+
+  test('exposes the new channel IA in the docs section metadata', () => {
+    const gettingStarted = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Getting Started',
+    );
+    const channels = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Channels',
+    );
+
+    expect(
+      gettingStarted?.pages.some(
+        (page) => page.path === 'getting-started/first-channel.md',
+      ),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/overview.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/discord.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/telegram.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/email.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/whatsapp.md'),
     ).toBe(true);
   });
 

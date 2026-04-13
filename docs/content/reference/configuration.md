@@ -176,9 +176,30 @@ For the full speech and fallback workflow, see
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
-`HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`,
-`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`,
-`IMESSAGE_PASSWORD`, and `MSTEAMS_APP_PASSWORD`.
+`MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
+`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `VLLM_API_KEY`,
+`BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
+`MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
+
+Local TUI and local web chat sessions manage this store through:
+
+```text
+/secret list
+/secret set <NAME> <VALUE>
+/secret show <NAME>
+/secret unset <NAME>
+/secret route list
+/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route remove <url-prefix> [header]
+```
+
+- there is no top-level `hybridclaw secret ...` CLI yet
+- secret names must use uppercase letters, digits, and underscores
+- built-in runtime keys and arbitrary named secrets share the same encrypted
+  store
+- `/secret route ...` is a convenience surface for editing
+  `tools.httpRequest.authRules[]` without hand-editing `config.json`
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is
@@ -211,5 +232,5 @@ credential checks run.
   tools
 
 For deeper runtime behavior, see [Runtime Internals](../developer-guide/runtime.md).
-For the trust acceptance policy, see [`TRUST_MODEL.md`](../../../TRUST_MODEL.md).
-For technical security guidelines, see [`SECURITY.md`](../../../SECURITY.md).
+For the trust acceptance policy, see [`TRUST_MODEL.md`](https://github.com/HybridAIOne/hybridclaw/blob/main/TRUST_MODEL.md).
+For technical security guidelines, see [`SECURITY.md`](https://github.com/HybridAIOne/hybridclaw/blob/main/SECURITY.md).

@@ -137,44 +137,88 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 ## Auth And Providers
 
 ```bash
-hybridclaw auth login [provider] ...
+hybridclaw auth login
+hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
+hybridclaw auth login codex [--device-code|--browser|--import]
+hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
+hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
+hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
-hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
-hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
-hybridclaw help auth
+hybridclaw help hybridai
+hybridclaw help codex
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help msteams
+hybridclaw help slack
+hybridclaw help local
+hybridclaw help auth
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
 `huggingface`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
+`auth login` without a provider runs the same interactive onboarding flow as
+`hybridclaw onboarding`.
+`auth status` prints local credential-source and config state while redacting
+the secret values themselves.
 
-## Channel Setup
+## Secrets And Routes
+
+Named secrets and gateway-side auth routes currently live on the local TUI/web
+slash-command surface:
+
+```text
+/secret list
+/secret set <name> <value>
+/secret show <name>
+/secret unset <name>
+/secret route list
+/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route remove <url-prefix> [header]
+```
+
+- local-only surface: `/secret ...` is available from local TUI and local web
+  chat sessions, not from Discord or other remote channels
+- there is no top-level `hybridclaw secret ...` CLI yet
+- stored secret names must use uppercase letters, digits, and underscores
+- built-in provider keys and custom names share the same encrypted
+  `~/.hybridclaw/credentials.json` store
+- `/secret route add` manages `tools.httpRequest.authRules[]`, which lets the
+  gateway inject the real auth header for matching `http_request` tool calls
+- use `prefix` for `Bearer <secret>` or `none` for raw header injection
+
+## Channels
 
 ```bash
 hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+hybridclaw channels slack manifest [--format <yaml|json>]
+hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
-hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
+hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
 
 Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
 because they need app credentials rather than a local pairing flow. For the
-step-by-step setup guide, see
-[Getting Started: Channel Setup](../getting-started/channels.md).
+step-by-step setup guides, see [Channels: Overview](../channels/overview.md)
+and [Connect Your First Channel](../getting-started/first-channel.md).
 Local TUI/web sessions can also write channel config and secrets with
-`/config set ...` and `/secret set ...`; see the same guide for channel-specific
-examples and current CLI-only limitations such as WhatsApp pairing.
+`/config set ...` and `/secret set ...`; see
+[Channels: Local Config And Secrets](../channels/local-config-and-secrets.md)
+for channel-specific examples and current CLI-only limitations such as
+WhatsApp pairing.
 
 ## Agents And Packages
 
@@ -294,7 +338,8 @@ the same gateway command surface used by TUI and web chat.
   prompt-memory block the current session would attach for that query
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
-  `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
+  `/concierge`, `/auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`,
+  and `/secret list|set|unset|show|route`
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs
@@ -318,7 +363,8 @@ the same gateway command surface used by TUI and web chat.
   workspace reset flow
 - `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
   servers
-- `/auth status hybridai` shows local HybridAI auth and config state
+- `/auth status <provider>` shows local auth and config state for the
+  supported local-session providers
 - Typing `/` in the TUI opens the slash-command menu with inline filtering and
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,

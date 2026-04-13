@@ -171,10 +171,15 @@ Browse the full manual at
   [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
   [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
+  [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
+  [Overview](https://www.hybridclaw.io/docs/channels/overview),
+  [Discord](https://www.hybridclaw.io/docs/channels/discord),
   [Slack](https://www.hybridclaw.io/docs/channels/slack),
+  [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
+  [Email](https://www.hybridclaw.io/docs/channels/email),
+  [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
   [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
-  [MS Teams](https://www.hybridclaw.io/docs/channels/msteams)
+  [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),

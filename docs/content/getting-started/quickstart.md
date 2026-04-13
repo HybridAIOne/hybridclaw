@@ -87,6 +87,8 @@ Explain this change using @diff and @file:src/gateway/gateway-service.ts:900-104
 
 The gateway auto-connects configured channels:
 
+- Slack when `slack.enabled` is true, `SLACK_BOT_TOKEN` is saved, and
+  `SLACK_APP_TOKEN` is saved
 - Microsoft Teams when `msteams.enabled` is true and
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set
@@ -94,6 +96,9 @@ The gateway auto-connects configured channels:
 - Email when `email.enabled` is true and an email password is configured,
   typically through the stored `EMAIL_PASSWORD` secret
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
+- iMessage when `imessage.enabled` is true and either local Messages access or
+  remote BlueBubbles credentials are configured
 
-For the setup commands and step-by-step flows, see
-[Channel Setup](./channels.md).
+For the setup commands and step-by-step flows, start with
+[Connect Your First Channel](./first-channel.md) or go straight to
+[Channels Overview](../channels/overview.md).

@@ -49,5 +49,5 @@ Next steps:
 
 1. Run [Authentication](./authentication.md) if you have not onboarded yet.
 2. Follow [Quick Start](./quickstart.md) to launch the gateway and surfaces.
-3. Follow [Channel Setup](./channels.md) if you plan to connect Discord,
-   Slack, Telegram, email, WhatsApp, iMessage, or Microsoft Teams.
+3. Follow [Connect Your First Channel](./first-channel.md) to pick one
+   transport and verify the first successful setup.

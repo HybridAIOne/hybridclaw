@@ -2410,6 +2410,18 @@ describe('gateway HTTP server', () => {
     expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
   });
 
+  test('redirects the legacy getting-started channel guide to the canonical channels overview', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/getting-started/channels' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/channels/overview');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
+  });
+
   test('renders section index pages from folder-based routes', async () => {
     const state = await importFreshHealth();
 

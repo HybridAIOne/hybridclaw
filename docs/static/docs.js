@@ -4,6 +4,8 @@ const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
 const LEGACY_DOC_PATH_REWRITES = new Map([
+  ['getting-started/channels', 'channels/overview'],
+  ['getting-started/channels.md', 'channels/overview.md'],
   ['imessage', 'channels/imessage'],
   ['imessage.md', 'channels/imessage.md'],
   ['msteams', 'channels/msteams'],
@@ -31,16 +33,33 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Installation', path: 'getting-started/installation.md' },
       { title: 'Quick Start', path: 'getting-started/quickstart.md' },
       { title: 'Authentication', path: 'getting-started/authentication.md' },
-      { title: 'Channel Setup', path: 'getting-started/channels.md' },
+      {
+        title: 'Connect Your First Channel',
+        path: 'getting-started/first-channel.md',
+      },
     ],
   },
   {
     title: 'Channels',
     pages: [
       { title: 'Channels', path: 'channels/README.md' },
+      { title: 'Overview', path: 'channels/overview.md' },
+      { title: 'Discord', path: 'channels/discord.md' },
       { title: 'Slack', path: 'channels/slack.md' },
+      { title: 'Telegram', path: 'channels/telegram.md' },
+      { title: 'Email', path: 'channels/email.md' },
+      { title: 'WhatsApp', path: 'channels/whatsapp.md' },
       { title: 'iMessage', path: 'channels/imessage.md' },
-      { title: 'MS Teams', path: 'channels/msteams.md' },
+      { title: 'Microsoft Teams', path: 'channels/msteams.md' },
+      { title: 'Admin Console', path: 'channels/admin-console.md' },
+      {
+        title: 'Local Config And Secrets',
+        path: 'channels/local-config-and-secrets.md',
+      },
+      {
+        title: 'Policies And Allowlists',
+        path: 'channels/policies-and-allowlists.md',
+      },
     ],
   },
   {

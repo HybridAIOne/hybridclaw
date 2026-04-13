@@ -1,4 +1,10 @@
-# Setting Up MS Teams
+---
+title: Microsoft Teams
+description: Configure Microsoft Teams with Entra credentials, Azure Bot setup, and the HybridClaw webhook endpoint.
+sidebar_position: 9
+---
+
+# Microsoft Teams
 
 HybridClaw uses the Microsoft Bot Framework webhook flow for Teams. You need
 three things before it can receive messages:
@@ -6,6 +12,10 @@ three things before it can receive messages:
 1. A Microsoft Entra app registration for the bot
 2. An Azure Bot resource with the Microsoft Teams channel enabled
 3. A public HTTPS endpoint that forwards to your local gateway
+
+For shared browser and local config surfaces, also see
+[Admin Console](./admin-console.md), [Local Config And Secrets](./local-config-and-secrets.md),
+and [Policies And Allowlists](./policies-and-allowlists.md).
 
 ## 1. Get the bot credentials
 

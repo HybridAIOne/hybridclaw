@@ -1,4 +1,10 @@
-# How To Set Up iMessage
+---
+title: iMessage
+description: Configure HybridClaw for local macOS Messages access or a remote BlueBubbles relay.
+sidebar_position: 8
+---
+
+# iMessage
 
 HybridClaw supports iMessage in two modes:
 
@@ -6,6 +12,10 @@ HybridClaw supports iMessage in two modes:
 2. `bluebubbles`: HybridClaw runs remotely and uses a separate Mac running BlueBubbles Server
 
 Pick one backend per gateway process.
+
+For shared browser and local config surfaces, also see
+[Admin Console](./admin-console.md), [Local Config And Secrets](./local-config-and-secrets.md),
+and [Policies And Allowlists](./policies-and-allowlists.md).
 
 ## Before You Start
 

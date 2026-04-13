@@ -107,6 +107,16 @@ describe('gateway docs HTTP integration', () => {
     expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
+  it('GET /docs/getting-started/channels returns a marked legacy redirect to /docs/channels/overview', async () => {
+    const res = await fetch(`${baseUrl}/docs/getting-started/channels`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    const location = res.headers.get('location') || '';
+    expect(location).toBe('/docs/channels/overview');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
+  });
+
   it('docs with missing file returns 404 (not a crash)', async () => {
     const res = await fetch(
       `${baseUrl}/docs/this-section-does-not-exist-at-all`,

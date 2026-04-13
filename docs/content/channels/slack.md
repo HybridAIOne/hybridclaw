@@ -1,8 +1,18 @@
-# Setting Up Slack
+---
+title: Slack
+description: Configure a Slack Socket Mode app, scopes, tokens, and optional native Slack slash commands.
+sidebar_position: 4
+---
+
+# Slack
 
 HybridClaw uses Slack Socket Mode for the Slack transport. That means the
 gateway opens an outbound WebSocket to Slack instead of exposing a public
 incoming webhook.
+
+For shared browser and local config surfaces, also see
+[Admin Console](./admin-console.md), [Local Config And Secrets](./local-config-and-secrets.md),
+and [Policies And Allowlists](./policies-and-allowlists.md).
 
 ## Before You Start
 
@@ -238,6 +248,20 @@ message threads.
 
 Native Slack slash command replies are sent as ephemeral responses, matching
 Discord's private guild slash-command behavior.
+
+## Step 6: Start Or Restart The Gateway
+
+```bash
+hybridclaw gateway restart --foreground
+hybridclaw gateway status
+```
+
+## Step 7: Verify The Setup
+
+1. Open a DM with the Slack app or invite it into a test channel.
+2. Send a short message or mention the app in-channel and confirm the reply.
+3. If you enabled native Slack slash commands, run `/hc-status` from the main
+   composer and confirm the ephemeral response.
 
 ## Step 6: Connect The App To HybridClaw
 

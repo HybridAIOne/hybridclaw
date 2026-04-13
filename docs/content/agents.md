@@ -25,7 +25,7 @@ Main docs landing pages:
 
 - [Getting Started](./getting-started/README.md)
 - [Authentication](./getting-started/authentication.md)
-- [Channel Setup](./getting-started/channels.md)
+- [Connect Your First Channel](./getting-started/first-channel.md)
 - [Installation](./getting-started/installation.md)
 - [Quick Start](./getting-started/quickstart.md)
 
@@ -42,9 +42,17 @@ Main docs landing pages:
 ## Channels
 
 - [Channels](./channels/README.md)
+- [Overview](./channels/overview.md)
+- [Discord](./channels/discord.md)
 - [Slack](./channels/slack.md)
+- [Telegram](./channels/telegram.md)
+- [Email](./channels/email.md)
+- [WhatsApp](./channels/whatsapp.md)
 - [iMessage](./channels/imessage.md)
 - [Microsoft Teams](./channels/msteams.md)
+- [Admin Console](./channels/admin-console.md)
+- [Local Config And Secrets](./channels/local-config-and-secrets.md)
+- [Policies And Allowlists](./channels/policies-and-allowlists.md)
 
 ## Extensibility
 
