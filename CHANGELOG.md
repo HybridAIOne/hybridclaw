@@ -2,6 +2,24 @@
 
 ## [Coming up]
 
+### Changed
+
+- **Interactive TUI approval picker**: Local TUI approval requests open a
+  keyboard-driven picker with `Up`/`Down` navigation, `Enter` confirmation,
+  number-key quick select, `Esc` to skip, and a text fallback for
+  non-interactive terminals.
+
+### Fixed
+
+- **TUI approval replay handling**: Replayed or restated approval prompts reuse
+  cached approval details more reliably, and web `/approve` flows preserve
+  pending-approval metadata so follow-up approvals reopen the same picker
+  instead of dropping back to raw text.
+- **TUI exit summaries**: Exit output either shows the remote usage/tool/file
+  totals for the session or an explicit unavailable summary, and gateway
+  history breakdowns resolve canonical TUI session ids consistently for
+  tool/file counts.
+
 ## [0.12.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.4)
 
 ### Added
