@@ -68,12 +68,10 @@ import {
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
-  getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigObservedFile,
   type RuntimeConfigRevision,
-  type RuntimeConfigRevisionState,
   type RuntimeConfigRevisionSummary,
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
@@ -123,12 +121,6 @@ export interface RuntimeSecurityConfig {
   trustModelAcceptedAt: string;
   trustModelVersion: string;
   trustModelAcceptedBy: string;
-}
-
-export interface RuntimeConfigLoadError {
-  trigger: string;
-  path: string;
-  message: string;
 }
 
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -1206,7 +1198,6 @@ let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
   containerMaxConcurrentExplicit: false,
 };
-let currentConfigLoadError: RuntimeConfigLoadError | null = null;
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<RuntimeConfigChangeListener>();
@@ -4726,7 +4717,6 @@ function writeConfigFile(
 function applyConfig(next: RuntimeConfig): void {
   const prev = currentConfig;
   currentConfig = cloneConfig(next);
-  currentConfigLoadError = null;
 
   if (JSON.stringify(prev) === JSON.stringify(currentConfig)) return;
   for (const listener of listeners) {
@@ -4773,11 +4763,6 @@ function reloadFromDisk(trigger: string): void {
       source: 'external',
     });
   } catch (err) {
-    currentConfigLoadError = {
-      trigger,
-      path: CONFIG_PATH,
-      message: err instanceof Error ? err.message : String(err),
-    };
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -4995,11 +4980,6 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
       source: 'external',
     });
   } catch (err) {
-    currentConfigLoadError = {
-      trigger,
-      path: CONFIG_PATH,
-      message: err instanceof Error ? err.message : String(err),
-    };
     throw new Error(
       `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -5008,10 +4988,6 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
 
 export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
-}
-
-export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
-  return currentConfigLoadError ? { ...currentConfigLoadError } : null;
 }
 
 export function resolveDefaultAgentId(
@@ -5049,7 +5025,6 @@ export function onRuntimeConfigChange(
 export type {
   RuntimeConfigChangeMeta,
   RuntimeConfigRevision,
-  RuntimeConfigRevisionState,
   RuntimeConfigRevisionSummary,
 };
 
@@ -5181,10 +5156,6 @@ export function getRuntimeConfigRevision(
   return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
-export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState | null {
-  return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
-}
-
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
   return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
@@ -5215,31 +5186,6 @@ export function restoreRuntimeConfigRevision(
     normalizeRuntimeConfig(parsed as DeepPartial<RuntimeConfig>),
     meta,
   );
-}
-
-export function restoreLastKnownGoodRuntimeConfig(
-  meta?: RuntimeConfigChangeMeta,
-): RuntimeConfig {
-  const state = getLastKnownGoodRuntimeConfigState();
-  if (!state) {
-    throw new Error('No last-known-good runtime config snapshot was found.');
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(state.content) as unknown;
-  } catch (err) {
-    throw new Error(
-      `Last-known-good runtime config snapshot is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (!isRecord(parsed)) {
-    throw new Error(
-      'Last-known-good runtime config snapshot is not an object.',
-    );
-  }
-
-  return saveRuntimeConfigSource(parsed as Record<string, unknown>, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {
