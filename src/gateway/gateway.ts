@@ -63,6 +63,7 @@ import {
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
+import { createVoiceTextStreamFormatter } from '../channels/voice/text.js';
 import {
   getWhatsAppAuthStatus,
   WhatsAppAuthLockError,
@@ -177,6 +178,13 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
+
+function isVoiceRelayDisconnectedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === 'Voice websocket is not connected.'
+  );
+}
 
 function equalStringLists(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false;
@@ -2159,6 +2167,7 @@ async function startVoiceIntegration(): Promise<boolean> {
           };
           let sawTextDelta = false;
           const streamFilter = createSilentReplyStreamFilter();
+          const voiceTextStream = createVoiceTextStreamFormatter();
           const result = await executeTextChannelGatewayTurn({
             sessionId,
             guildId,
@@ -2173,8 +2182,21 @@ async function startVoiceIntegration(): Promise<boolean> {
             onTextDelta: (delta) => {
               const filteredDelta = streamFilter.push(delta);
               if (!filteredDelta) return;
-              sawTextDelta = true;
-              void context.responseStream.push(filteredDelta);
+              for (const voiceDelta of voiceTextStream.push(filteredDelta)) {
+                sawTextDelta = true;
+                void context.responseStream.push(voiceDelta).catch((error) => {
+                  if (
+                    context.abortSignal.aborted ||
+                    isVoiceRelayDisconnectedError(error)
+                  ) {
+                    return;
+                  }
+                  logger.debug(
+                    { error, callSid: context.callSid, channelId },
+                    'Voice text delta streaming failed',
+                  );
+                });
+              }
             },
             onProactiveMessage: async (message) => {
               logger.debug(
@@ -2197,8 +2219,31 @@ async function startVoiceIntegration(): Promise<boolean> {
 
           const trailingDelta = streamFilter.flush();
           if (trailingDelta) {
+            for (const voiceDelta of voiceTextStream.push(trailingDelta)) {
+              sawTextDelta = true;
+              await context.responseStream.push(voiceDelta).catch((error) => {
+                if (
+                  context.abortSignal.aborted ||
+                  isVoiceRelayDisconnectedError(error)
+                ) {
+                  return;
+                }
+                throw error;
+              });
+            }
+          }
+
+          for (const voiceDelta of voiceTextStream.flush()) {
             sawTextDelta = true;
-            await context.responseStream.push(trailingDelta);
+            await context.responseStream.push(voiceDelta).catch((error) => {
+              if (
+                context.abortSignal.aborted ||
+                isVoiceRelayDisconnectedError(error)
+              ) {
+                return;
+              }
+              throw error;
+            });
           }
 
           if (isSilentReply(result.result)) {
@@ -2212,11 +2257,30 @@ async function startVoiceIntegration(): Promise<boolean> {
             await reply(cleanedResultText);
           }
         } catch (error) {
+          if (
+            context.abortSignal.aborted ||
+            isVoiceRelayDisconnectedError(error)
+          ) {
+            logger.debug(
+              { sessionId, channelId, callSid: context.callSid },
+              'Voice message handling aborted after relay disconnect',
+            );
+            return;
+          }
           logger.error(
             { error, sessionId, channelId, callSid: context.callSid },
             'Voice message handling failed',
           );
-          await reply(formatChannelGatewayFailure('Response interrupted.'));
+          try {
+            await reply(formatChannelGatewayFailure('Response interrupted.'));
+          } catch (replyError) {
+            if (
+              !context.abortSignal.aborted &&
+              !isVoiceRelayDisconnectedError(replyError)
+            ) {
+              throw replyError;
+            }
+          }
         }
       },
     );

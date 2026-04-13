@@ -55,6 +55,12 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
+import {
+  buildConfiguredPublicHttpUrl,
+  createTwilioOutboundCall,
+  normalizeTwilioPhoneNumber,
+  resolveVoiceWebhookPaths,
+} from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
@@ -78,6 +84,7 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
+  TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -3334,6 +3341,58 @@ function normalizeSecretRoutePrefix(raw: string | undefined): string {
   return normalized;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = String(hostname || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
+  url?: string;
+  error?: string;
+} {
+  const baseUrl = String(GATEWAY_BASE_URL || '').trim();
+  if (!baseUrl) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return {
+      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
+    };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
+    };
+  }
+
+  if (isLoopbackHostname(parsed.hostname)) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
+    };
+  }
+
+  const paths = resolveVoiceWebhookPaths(webhookBasePath);
+  return {
+    url: buildConfiguredPublicHttpUrl(parsed.toString(), paths.webhookPath),
+  };
+}
+
 function formatHttpRequestAuthRule(
   rule: RuntimeHttpRequestAuthRule,
   index: number,
@@ -6442,7 +6501,9 @@ export async function handleGatewayCommand(
   function isLocalSession(req: GatewayCommandRequest): boolean {
     return (
       req.guildId === null &&
-      (req.channelId === 'web' || req.channelId === 'tui')
+      (req.channelId === 'web' ||
+        req.channelId === 'tui' ||
+        req.channelId === 'cli')
     );
   }
 
@@ -7713,6 +7774,113 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
         );
+      }
+
+      case 'voice': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Voice Command Restricted',
+            '`voice` can place outbound calls and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const voiceConfig = getRuntimeConfig().voice;
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const publicWebhook = resolveVoiceCommandWebhookUrl(
+          voiceConfig.webhookPath,
+        );
+
+        if (!sub || sub === 'info' || sub === 'status') {
+          return infoCommand(
+            'Voice',
+            [
+              `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
+              `Provider: ${voiceConfig.provider}`,
+              `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
+              `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
+              `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
+              publicWebhook.url
+                ? `Webhook: ${publicWebhook.url}`
+                : `Webhook: unavailable (${publicWebhook.error})`,
+              'Usage: `voice call <e164-number>`',
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'call') {
+          if (!voiceConfig.enabled) {
+            return badCommand(
+              'Voice Disabled',
+              'Enable `voice.enabled` before using `voice call`.',
+            );
+          }
+
+          if (voiceConfig.provider !== 'twilio') {
+            return badCommand(
+              'Voice Provider Unsupported',
+              `\`voice call\` currently supports only the Twilio provider, but configured provider is \`${voiceConfig.provider}\`.`,
+            );
+          }
+
+          const to = normalizeTwilioPhoneNumber(req.args.slice(2).join(' '));
+          if (!to) {
+            return badCommand('Usage', 'Usage: `voice call <e164-number>`');
+          }
+
+          const accountSid = voiceConfig.twilio.accountSid.trim();
+          if (!accountSid) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.accountSid` before using `voice call`.',
+            );
+          }
+
+          const from = normalizeTwilioPhoneNumber(
+            voiceConfig.twilio.fromNumber,
+          );
+          if (!from) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.fromNumber` to an E.164 number like `+14155550123` before using `voice call`.',
+            );
+          }
+
+          const authToken = String(TWILIO_AUTH_TOKEN || '').trim();
+          if (!authToken) {
+            return badCommand(
+              'Voice Not Configured',
+              'Store `TWILIO_AUTH_TOKEN` in the encrypted secret store before using `voice call`.',
+            );
+          }
+
+          if (!publicWebhook.url) {
+            return badCommand(
+              'Voice Webhook Not Public',
+              publicWebhook.error ||
+                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+            );
+          }
+
+          try {
+            const call = await createTwilioOutboundCall({
+              accountSid,
+              authToken,
+              from,
+              to,
+              url: publicWebhook.url,
+            });
+            return plainCommand(
+              `Calling ${call.to} from ${call.from} via Twilio (Call SID: ${call.sid}, status: ${call.status}).`,
+            );
+          } catch (error) {
+            return badCommand(
+              'Voice Call Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
       }
 
       case 'config': {

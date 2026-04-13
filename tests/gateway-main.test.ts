@@ -777,6 +777,50 @@ describe('gateway bootstrap', () => {
     expect(state.voiceMessageHandler).not.toBeNull();
   });
 
+  test('voice integration batches streamed text and strips markdown before speaking', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockImplementation(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('**Yes');
+        onTextDelta?.('** that works.');
+        return {
+          status: 'success' as const,
+          result: '**Yes** that works.',
+          toolsUsed: [],
+          artifacts: [],
+        };
+      },
+    );
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'hello',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(responseStream.push).toHaveBeenCalledTimes(1);
+    expect(responseStream.push).toHaveBeenCalledWith('Yes that works.');
+    expect(reply).not.toHaveBeenCalled();
+  });
+
   test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
     const state = await importFreshGatewayMain({
       imessageEnabled: true,

@@ -72,6 +72,15 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  voice?: {
+    enabled: boolean;
+    accountSidConfigured: boolean;
+    fromNumberConfigured: boolean;
+    authTokenConfigured: boolean;
+    authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    webhookPath: string;
+    maxConcurrentCalls: number;
+  };
   whatsapp?: {
     linked: boolean;
     jid: string | null;
@@ -446,6 +455,25 @@ export interface AdminConfig {
     requireMention: boolean;
     textChunkLimit: number;
     mediaMaxMb: number;
+  };
+  voice: {
+    enabled: boolean;
+    provider: 'twilio';
+    twilio: {
+      accountSid: string;
+      authToken: string;
+      fromNumber: string;
+    };
+    relay: {
+      ttsProvider: 'default' | 'google' | 'amazon';
+      voice: string;
+      transcriptionProvider: 'default' | 'deepgram' | 'google';
+      language: string;
+      interruptible: boolean;
+      welcomeGreeting: string;
+    };
+    webhookPath: string;
+    maxConcurrentCalls: number;
   };
   whatsapp: {
     dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';

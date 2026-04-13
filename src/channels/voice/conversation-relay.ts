@@ -174,6 +174,7 @@ export class ConversationRelayResponseStream {
   private closed = false;
   private pendingToken: string | null = null;
   private emittedText = false;
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly send: SendFn,
@@ -194,22 +195,67 @@ export class ConversationRelayResponseStream {
   }
 
   async push(token: string, opts?: { language?: string }): Promise<void> {
-    if (this.closed) return;
-    const normalized = String(token || '');
-    if (!normalized) return;
-    if (this.pendingToken !== null) {
-      await this.sendText(this.pendingToken, false, opts?.language);
-    }
-    this.pendingToken = normalized;
+    await this.enqueue(async () => {
+      if (this.closed) return;
+      const normalized = String(token || '');
+      if (!normalized) return;
+      if (this.pendingToken !== null) {
+        await this.sendText(this.pendingToken, false, opts?.language);
+      }
+      this.pendingToken = normalized;
+    });
   }
 
   async reply(text: string, opts?: { language?: string }): Promise<void> {
-    if (this.closed) return;
-    await this.push(text, opts);
-    await this.finish(opts);
+    await this.enqueue(async () => {
+      if (this.closed) return;
+      const normalized = String(text || '');
+      if (normalized && this.pendingToken !== null) {
+        await this.sendText(this.pendingToken, false, opts?.language);
+      }
+      this.pendingToken = normalized || this.pendingToken;
+      await this.finishNow(opts);
+    });
   }
 
   async finish(opts?: { language?: string }): Promise<void> {
+    await this.enqueue(async () => {
+      await this.finishNow(opts);
+    });
+  }
+
+  async endSession(handoffData?: string): Promise<void> {
+    await this.enqueue(async () => {
+      if (this.closed) return;
+      this.closed = true;
+      await this.send({
+        type: 'end',
+        ...(handoffData ? { handoffData } : {}),
+      });
+      this.options.onFinished?.();
+    });
+  }
+
+  private async sendText(
+    token: string,
+    last: boolean,
+    language?: string,
+  ): Promise<void> {
+    await this.send({
+      type: 'text',
+      token,
+      last,
+      lang: language || this.options.language,
+      interruptible: this.options.interruptible,
+      preemptible: false,
+    });
+    if (!this.emittedText) {
+      this.emittedText = true;
+      this.options.onFirstToken?.();
+    }
+  }
+
+  private async finishNow(opts?: { language?: string }): Promise<void> {
     if (this.closed) return;
     const finalToken = this.pendingToken;
     this.pendingToken = null;
@@ -220,32 +266,9 @@ export class ConversationRelayResponseStream {
     this.options.onFinished?.();
   }
 
-  async endSession(handoffData?: string): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    await this.send({
-      type: 'end',
-      ...(handoffData ? { handoffData } : {}),
-    });
-    this.options.onFinished?.();
-  }
-
-  private async sendText(
-    token: string,
-    last: boolean,
-    language?: string,
-  ): Promise<void> {
-    if (!this.emittedText) {
-      this.emittedText = true;
-      this.options.onFirstToken?.();
-    }
-    await this.send({
-      type: 'text',
-      token,
-      last,
-      lang: language || this.options.language,
-      interruptible: this.options.interruptible,
-      preemptible: false,
-    });
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const next = this.writeChain.then(operation);
+    this.writeChain = next.catch(() => {});
+    return next;
   }
 }

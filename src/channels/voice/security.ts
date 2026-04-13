@@ -12,7 +12,7 @@ function normalizeParamValues(
         ? value.map((entry) => String(entry))
         : [String(value)],
     ])
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 export function buildTwilioSignature(params: {

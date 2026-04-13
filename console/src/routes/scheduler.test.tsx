@@ -148,6 +148,25 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 4000,
       mediaMaxMb: 20,
     },
+    voice: {
+      enabled: false,
+      provider: 'twilio',
+      twilio: {
+        accountSid: '',
+        authToken: '',
+        fromNumber: '',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    },
     whatsapp: {
       dmPolicy: 'disabled',
       groupPolicy: 'disabled',

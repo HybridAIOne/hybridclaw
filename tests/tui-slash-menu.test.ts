@@ -27,6 +27,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
+  expect(labels).toContain('/voice <info|call>');
+  expect(labels).toContain('/voice call <e164-number>');
   expect(labels).toContain('/config [check|reload|set] [key] [value]');
   expect(labels).toContain('/config check');
   expect(labels).toContain('/config reload');

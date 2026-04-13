@@ -71,6 +71,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Remote Access', path: 'guides/remote-access.md' },
       { title: 'Office Dependencies', path: 'guides/office-dependencies.md' },
       { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
+      { title: 'Twilio Voice', path: 'guides/twilio-voice.md' },
       { title: 'Voice TTS', path: 'guides/voice-tts.md' },
     ],
   },

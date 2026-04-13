@@ -117,3 +117,73 @@ test('ConversationRelayResponseStream can send a single reply and end the sessio
     handoffData: '{"reason":"handoff"}',
   });
 });
+
+test('ConversationRelayResponseStream only marks first token after a successful send', async () => {
+  let firstTokenCount = 0;
+  const stream = new ConversationRelayResponseStream(
+    async () => {
+      throw new Error('Voice websocket is not connected.');
+    },
+    {
+      interruptible: true,
+      language: 'en-US',
+      onFirstToken: () => {
+        firstTokenCount += 1;
+      },
+    },
+  );
+
+  await expect(stream.reply('Hello')).rejects.toThrow(
+    'Voice websocket is not connected.',
+  );
+  expect(firstTokenCount).toBe(0);
+});
+
+test('ConversationRelayResponseStream serializes concurrent writes', async () => {
+  const payloads: Array<Record<string, unknown>> = [];
+  let releaseFirst: (() => void) | null = null;
+  const stream = new ConversationRelayResponseStream(
+    async (payload) => {
+      payloads.push(payload);
+      if (payload.token === 'Hello' && payload.last === false) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+    },
+    {
+      interruptible: true,
+      language: 'en-US',
+    },
+  );
+
+  const first = stream.push('Hello');
+  const second = stream.push(' there');
+  const finish = stream.finish();
+
+  for (let attempt = 0; attempt < 5 && releaseFirst === null; attempt += 1) {
+    await Promise.resolve();
+  }
+  expect(releaseFirst).not.toBeNull();
+  releaseFirst?.();
+  await Promise.all([first, second, finish]);
+
+  expect(payloads).toEqual([
+    {
+      type: 'text',
+      token: 'Hello',
+      last: false,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+    {
+      type: 'text',
+      token: ' there',
+      last: true,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+  ]);
+});

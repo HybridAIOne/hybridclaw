@@ -56,6 +56,10 @@ function isTelegramInboundEnabled(config: AdminConfig): boolean {
   );
 }
 
+function isVoiceEnabled(config: AdminConfig): boolean {
+  return config.voice.enabled;
+}
+
 function ListField(props: {
   label: string;
   value: string[];
@@ -85,6 +89,7 @@ function ManagedSecretField(props: {
     | 'SLACK_BOT_TOKEN'
     | 'SLACK_APP_TOKEN'
     | 'TELEGRAM_BOT_TOKEN'
+    | 'TWILIO_AUTH_TOKEN'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD';
   secretLabel: 'token' | 'password';
@@ -1195,6 +1200,257 @@ function EmailChannelEditor(props: {
   );
 }
 
+function VoiceChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  authTokenConfigured: boolean;
+  authTokenSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isVoiceEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            voice: {
+              ...current.voice,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Twilio account SID</span>
+          <input
+            value={props.draft.voice.twilio.accountSid}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  twilio: {
+                    ...current.voice.twilio,
+                    accountSid: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="AC..."
+          />
+        </label>
+        <label className="field">
+          <span>From number</span>
+          <input
+            value={props.draft.voice.twilio.fromNumber}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  twilio: {
+                    ...current.voice.twilio,
+                    fromNumber: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="+14155550123"
+          />
+        </label>
+      </div>
+
+      <ManagedSecretField
+        label="Twilio auth token"
+        secretName="TWILIO_AUTH_TOKEN"
+        secretLabel="token"
+        configValue={props.draft.voice.twilio.authToken}
+        configured={props.authTokenConfigured}
+        source={props.authTokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Webhook path</span>
+          <input
+            value={props.draft.voice.webhookPath}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  webhookPath: event.target.value,
+                },
+              }))
+            }
+            placeholder="/voice"
+          />
+        </label>
+        <label className="field">
+          <span>Max concurrent calls</span>
+          <input
+            type="number"
+            value={String(props.draft.voice.maxConcurrentCalls)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  maxConcurrentCalls: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>TTS provider</span>
+          <select
+            value={props.draft.voice.relay.ttsProvider}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    ttsProvider: event.target
+                      .value as AdminConfig['voice']['relay']['ttsProvider'],
+                  },
+                },
+              }))
+            }
+          >
+            <option value="default">default</option>
+            <option value="google">google</option>
+            <option value="amazon">amazon</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Voice</span>
+          <input
+            value={props.draft.voice.relay.voice}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    voice: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="en-US-Journey-D"
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Transcription provider</span>
+          <select
+            value={props.draft.voice.relay.transcriptionProvider}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    transcriptionProvider: event.target
+                      .value as AdminConfig['voice']['relay']['transcriptionProvider'],
+                  },
+                },
+              }))
+            }
+          >
+            <option value="default">default</option>
+            <option value="deepgram">deepgram</option>
+            <option value="google">google</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Language</span>
+          <input
+            value={props.draft.voice.relay.language}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    language: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="en-US"
+          />
+        </label>
+      </div>
+
+      <BooleanField
+        label="Interruptible"
+        value={props.draft.voice.relay.interruptible}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(interruptible) =>
+          props.updateDraft((current) => ({
+            ...current,
+            voice: {
+              ...current.voice,
+              relay: {
+                ...current.voice.relay,
+                interruptible,
+              },
+            },
+          }))
+        }
+      />
+
+      <label className="field textarea-field">
+        <span>Welcome greeting</span>
+        <textarea
+          rows={3}
+          value={props.draft.voice.relay.welcomeGreeting}
+          onChange={(event) =>
+            props.updateDraft((current) => ({
+              ...current,
+              voice: {
+                ...current.voice,
+                relay: {
+                  ...current.voice.relay,
+                  welcomeGreeting: event.target.value,
+                },
+              },
+            }))
+          }
+        />
+      </label>
+
+      <p className="muted-copy">
+        Voice uses Twilio ConversationRelay. Expose the configured webhook path
+        over public HTTPS and WSS so Twilio can reach both the webhook and the
+        relay socket.
+      </p>
+    </>
+  );
+}
+
 function TeamsChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
@@ -1958,6 +2214,10 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    voice: {
+      configured: boolean;
+      source: SecretSource;
+    };
     email: {
       configured: boolean;
       source: SecretSource;
@@ -2014,6 +2274,17 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
           tokenConfigured={secretStatus.telegram.configured}
           tokenSource={secretStatus.telegram.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
+    case 'voice':
+      return (
+        <VoiceChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          authTokenConfigured={secretStatus.voice.configured}
+          authTokenSource={secretStatus.voice.source}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -2088,6 +2359,7 @@ export function ChannelsPage() {
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
+        voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
@@ -2136,6 +2408,10 @@ export function ChannelsPage() {
     telegram: {
       configured: statusQuery.data?.telegram?.tokenConfigured ?? false,
       source: statusQuery.data?.telegram?.tokenSource ?? null,
+    },
+    voice: {
+      configured: statusQuery.data?.voice?.authTokenConfigured ?? false,
+      source: statusQuery.data?.voice?.authTokenSource ?? null,
     },
     email: {
       configured: statusQuery.data?.email?.passwordConfigured ?? false,

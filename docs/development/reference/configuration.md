@@ -168,7 +168,8 @@ native model audio input for supported sessions. Today that path is enabled for
 `vllm` and attaches the original current-turn audio when no transcript block
 was prepended already.
 
-For the full speech and fallback workflow, see
+For the Twilio phone channel, see [Twilio Voice](../guides/twilio-voice.md).
+For the local speech and fallback workflow, see
 [Voice And TTS](../guides/voice-tts.md).
 
 ## Secrets And Trust

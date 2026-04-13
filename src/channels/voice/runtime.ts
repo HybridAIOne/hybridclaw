@@ -15,6 +15,7 @@ import {
 } from './conversation-relay.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
+import { formatTextForVoice } from './text.js';
 import {
   buildPublicHttpUrl,
   buildPublicWsUrl,
@@ -135,6 +136,20 @@ function resolveTwilioAuthToken(): string {
   return String(TWILIO_AUTH_TOKEN || '').trim();
 }
 
+function decodeCloseReason(reason: Buffer | string): string {
+  const decoded = Buffer.isBuffer(reason)
+    ? reason.toString('utf8').trim()
+    : String(reason || '').trim();
+  return decoded || '<empty>';
+}
+
+function isVoiceRelayDisconnectedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === 'Voice websocket is not connected.'
+  );
+}
+
 function observeReplay(req: IncomingMessage): void {
   const raw = req.headers[DUPLICATE_TWILIO_REQUEST_HEADER];
   const token = Array.isArray(raw) ? raw[0] : raw;
@@ -182,7 +197,9 @@ function transitionSession(
   next: Parameters<VoiceCallSessionStore['transition']>[1],
 ): void {
   try {
+    const previous = sessionStore.get(callSid)?.state;
     sessionStore.transition(callSid, next);
+    logger.debug({ callSid, previous, next }, 'Voice session state changed');
   } catch (error) {
     logger.debug(
       { error, callSid, next },
@@ -266,6 +283,9 @@ async function dispatchPromptToHandler(
 
   const responseStream = new ConversationRelayResponseStream(
     async (payload) => {
+      if (controller.signal.aborted) {
+        return;
+      }
       if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
         throw new Error('Voice websocket is not connected.');
       }
@@ -286,7 +306,7 @@ async function dispatchPromptToHandler(
   );
 
   const reply: VoiceReplyFn = async (text) => {
-    await responseStream.reply(text, { language });
+    await responseStream.reply(formatTextForVoice(text), { language });
   };
 
   try {
@@ -318,7 +338,11 @@ async function dispatchPromptToHandler(
       }
     }
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (controller.signal.aborted || isVoiceRelayDisconnectedError(error)) {
+      logger.debug(
+        { callSid: session.callSid, channelId: session.channelId },
+        'Voice prompt handling aborted after relay disconnect',
+      );
       return;
     }
     logger.warn(
@@ -326,10 +350,19 @@ async function dispatchPromptToHandler(
       'Voice prompt handling failed',
     );
     if (!responseStream.finished) {
-      await responseStream.reply(
-        'Sorry, something went wrong while I was answering that.',
-        { language },
-      );
+      try {
+        await responseStream.reply(
+          'Sorry, something went wrong while I was answering that.',
+          { language },
+        );
+      } catch (replyError) {
+        if (
+          !controller.signal.aborted &&
+          !isVoiceRelayDisconnectedError(replyError)
+        ) {
+          throw replyError;
+        }
+      }
     }
   } finally {
     sessionStore.setController(session.callSid, null);
@@ -341,6 +374,15 @@ async function handleRelayMessage(
   message: ConversationRelayInboundMessage,
 ): Promise<void> {
   if (message.type === 'prompt') {
+    logger.debug(
+      {
+        callSid: session.callSid,
+        language: message.lang || getConfigSnapshot().voice.relay.language,
+        last: message.last,
+        promptLength: message.voicePrompt.length,
+      },
+      'Voice relay prompt fragment received',
+    );
     const merged = mergePromptFragment(
       session.promptBuffer,
       message.voicePrompt,
@@ -359,6 +401,10 @@ async function handleRelayMessage(
     return;
   }
   if (message.type === 'dtmf') {
+    logger.info(
+      { callSid: session.callSid, digit: message.digit },
+      'Voice relay DTMF received',
+    );
     await dispatchPromptToHandler(
       session,
       `The caller pressed the keypad digit "${message.digit}".`,
@@ -367,6 +413,14 @@ async function handleRelayMessage(
     return;
   }
   if (message.type === 'interrupt') {
+    logger.info(
+      {
+        callSid: session.callSid,
+        utteranceUntilInterrupt: message.utteranceUntilInterrupt || '',
+        durationUntilInterruptMs: message.durationUntilInterruptMs,
+      },
+      'Voice relay interrupted',
+    );
     session.controller?.abort();
     transitionSession(session.callSid, 'interrupted');
     return;
@@ -404,6 +458,17 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
           }
           callSid = message.callSid;
           setupReceived = true;
+          logger.info(
+            {
+              callSid: message.callSid,
+              twilioSessionId: message.sessionId,
+              remoteIp,
+              direction: message.direction || '',
+              from: message.from,
+              to: message.to,
+            },
+            'Voice relay setup received',
+          );
           transitionSession(callSid, 'relay-connecting');
           transitionSession(callSid, 'setup-received');
           transitionSession(callSid, 'listening');
@@ -429,7 +494,17 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     })();
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    logger.info(
+      {
+        callSid,
+        remoteIp,
+        code,
+        reason: decodeCloseReason(reason),
+        setupReceived,
+      },
+      'Voice relay websocket closed',
+    );
     if (!callSid) {
       return;
     }
@@ -485,6 +560,14 @@ export async function handleVoiceWebhook(
   if (url.pathname === paths.webhookPath) {
     const body = await readTwilioFormBody(req);
     if (!validateHttpWebhookSignature(req, url, body)) {
+      logger.warn(
+        {
+          remoteIp: resolveRemoteIp(req),
+          path: url.pathname,
+          hasSignature: Boolean(req.headers['x-twilio-signature']),
+        },
+        'Voice webhook rejected: invalid Twilio signature',
+      );
       sendXml(res, 403, buildEmptyTwiml());
       return true;
     }
@@ -496,6 +579,10 @@ export async function handleVoiceWebhook(
 
     const callSid = String(body.CallSid || '').trim();
     if (!callSid) {
+      logger.warn(
+        { remoteIp: resolveRemoteIp(req), path: url.pathname },
+        'Voice webhook rejected: missing CallSid',
+      );
       sendXml(res, 400, buildEmptyTwiml());
       return true;
     }
@@ -511,6 +598,15 @@ export async function handleVoiceWebhook(
       return true;
     }
     transitionSession(callSid, 'twiml-issued');
+    logger.info(
+      {
+        callSid,
+        remoteIp: resolveRemoteIp(req),
+        from: String(body.From || '').trim(),
+        to: String(body.To || '').trim(),
+      },
+      'Voice webhook accepted',
+    );
     sendXml(res, 200, buildRelayTwimlForRequest(req, callSid));
     return true;
   }
@@ -518,6 +614,14 @@ export async function handleVoiceWebhook(
   if (url.pathname === paths.actionPath) {
     const body = await readTwilioFormBody(req);
     if (!validateHttpWebhookSignature(req, url, body)) {
+      logger.warn(
+        {
+          remoteIp: resolveRemoteIp(req),
+          path: url.pathname,
+          hasSignature: Boolean(req.headers['x-twilio-signature']),
+        },
+        'Voice action callback rejected: invalid Twilio signature',
+      );
       sendXml(res, 403, buildEmptyTwiml());
       return true;
     }
@@ -528,6 +632,18 @@ export async function handleVoiceWebhook(
     if (callSid) {
       sessionStore.markActionCallback(callSid);
     }
+    logger.info(
+      {
+        callSid,
+        remoteIp: resolveRemoteIp(req),
+        twilioSessionId: String(body.SessionId || '').trim(),
+        sessionStatus: String(body.SessionStatus || '').trim(),
+        callStatus: String(body.CallStatus || '').trim(),
+        sessionDuration: String(body.SessionDuration || '').trim(),
+        errorMessage: String(body.ErrorMessage || '').trim(),
+      },
+      'Voice action callback received',
+    );
 
     if (
       session &&
@@ -569,18 +685,38 @@ export function handleVoiceUpgrade(
     return false;
   }
   if (draining || !runtimeInitialized) {
+    logger.warn(
+      { remoteIp: resolveRemoteIp(req), path: url.pathname },
+      'Voice relay rejected: runtime unavailable',
+    );
     writeUpgradeError(socket, 503, 'Voice channel unavailable');
     return true;
   }
   if (!validateUpgradeSignature(req, url)) {
+    logger.warn(
+      {
+        remoteIp: resolveRemoteIp(req),
+        path: url.pathname,
+        hasSignature: Boolean(req.headers['x-twilio-signature']),
+      },
+      'Voice relay rejected: invalid Twilio signature',
+    );
     writeUpgradeError(socket, 403, 'Forbidden');
     return true;
   }
   const remoteIp = resolveRemoteIp(req);
   if (!sessionStore.beginPendingConnection(remoteIp)) {
+    logger.warn(
+      { remoteIp, path: url.pathname },
+      'Voice relay rejected: too many pending connections',
+    );
     writeUpgradeError(socket, 429, 'Too Many Connections');
     return true;
   }
+  logger.info(
+    { remoteIp, path: url.pathname },
+    'Voice relay websocket upgrade accepted',
+  );
   websocketServer.handleUpgrade(req, socket, head, (ws: WebSocket) => {
     sessionStore.endPendingConnection(remoteIp);
     websocketServer.emit('connection', ws, req);

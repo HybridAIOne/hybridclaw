@@ -410,6 +410,60 @@ test('registers secret as a local slash/text command', async () => {
   ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
 });
 
+test('registers voice as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('voice')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'voice',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'voice',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'info',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'call',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'voice',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['voice', 'info']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'voice',
+      getString: (name) => (name === 'number' ? '+14155551212' : null),
+      getSubcommand: () => 'call',
+    }),
+  ).toEqual(['voice', 'call', '+14155551212']);
+  expect(mapCanonicalCommandToGatewayArgs(['voice'])).toEqual([
+    'voice',
+    'info',
+  ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['voice', 'call', '+14155551212']),
+  ).toEqual(['voice', 'call', '+14155551212']);
+});
+
 test('parses /concierge profile into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();

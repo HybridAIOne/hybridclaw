@@ -8,6 +8,15 @@ export interface VoiceWebhookPaths {
   actionPath: string;
 }
 
+export interface TwilioOutboundCall {
+  sid: string;
+  status: string;
+  to: string;
+  from: string;
+}
+
+const E164_DIGITS_RE = /^[1-9]\d{6,14}$/;
+
 function normalizePath(pathValue: string): string {
   const normalized = String(pathValue || '').trim() || '/voice';
   const prefixed = normalized.startsWith('/') ? normalized : `/${normalized}`;
@@ -25,6 +34,16 @@ function firstForwardedHeader(
     .trim();
 }
 
+function normalizeBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function resolveVoiceWebhookPaths(
   basePath = getConfigSnapshot().voice.webhookPath,
 ): VoiceWebhookPaths {
@@ -38,9 +57,9 @@ export function resolveVoiceWebhookPaths(
 }
 
 export function resolvePublicBaseUrl(req: IncomingMessage): string {
-  const configured = String(GATEWAY_BASE_URL || '').trim();
+  const configured = normalizeBaseUrl(GATEWAY_BASE_URL);
   if (configured) {
-    return configured.replace(/\/+$/, '');
+    return configured;
   }
 
   const host =
@@ -63,10 +82,105 @@ export function buildPublicHttpUrl(
   return `${base}${normalizedPath}`;
 }
 
+export function buildConfiguredPublicHttpUrl(
+  baseUrl: string,
+  pathValue: string,
+): string {
+  return `${normalizeBaseUrl(baseUrl)}${normalizePath(pathValue)}`;
+}
+
 export function buildPublicWsUrl(
   req: IncomingMessage,
   pathValue: string,
 ): string {
   const httpUrl = buildPublicHttpUrl(req, pathValue);
   return httpUrl.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
+}
+
+export function normalizeTwilioPhoneNumber(raw: string): string | null {
+  const candidate = String(raw || '').trim();
+  if (!candidate) return null;
+
+  const digits = candidate.replace(/[^\d+]/g, '');
+  if (!digits) return null;
+
+  const normalizedDigits = digits.startsWith('+') ? digits.slice(1) : digits;
+  if (!E164_DIGITS_RE.test(normalizedDigits)) return null;
+  return `+${normalizedDigits}`;
+}
+
+function buildTwilioAuthHeader(accountSid: string, authToken: string): string {
+  return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
+}
+
+function extractTwilioErrorMessage(
+  payload: unknown,
+  fallbackText: string,
+): string {
+  if (isRecord(payload)) {
+    const message = payload.message;
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+  }
+  return fallbackText;
+}
+
+export async function createTwilioOutboundCall(params: {
+  accountSid: string;
+  authToken: string;
+  from: string;
+  to: string;
+  url: string;
+}): Promise<TwilioOutboundCall> {
+  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(params.accountSid)}/Calls.json`;
+  const body = new URLSearchParams({
+    To: params.to,
+    From: params.from,
+    Url: params.url,
+    Method: 'POST',
+  });
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: buildTwilioAuthHeader(params.accountSid, params.authToken),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+
+  const rawText = await response.text();
+  let payload: unknown = null;
+  if (rawText.trim()) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!response.ok) {
+    const detail = extractTwilioErrorMessage(
+      payload,
+      rawText.trim() || response.statusText || 'Request failed',
+    );
+    throw new Error(`Twilio call failed (${response.status}): ${detail}`);
+  }
+
+  if (
+    !isRecord(payload) ||
+    typeof payload.sid !== 'string' ||
+    typeof payload.status !== 'string' ||
+    typeof payload.to !== 'string' ||
+    typeof payload.from !== 'string'
+  ) {
+    throw new Error('Twilio call failed: invalid response payload');
+  }
+
+  return {
+    sid: payload.sid,
+    status: payload.status,
+    to: payload.to,
+    from: payload.from,
+  };
 }
