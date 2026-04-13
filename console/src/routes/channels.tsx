@@ -1071,10 +1071,7 @@ function EmailChannelEditor(props: {
         toast.info(`Handles found: ${summary}. No email config attached.`);
       }
     } catch (error) {
-      toast.error(
-        'Failed to fetch email config',
-        getErrorMessage(error),
-      );
+      toast.error('Failed to fetch email config', getErrorMessage(error));
     } finally {
       setFetchingEmailConfig(false);
     }
@@ -1098,10 +1095,10 @@ function EmailChannelEditor(props: {
         }
       />
 
-      <div style={{ marginBottom: '1rem' }}>
+      <div className="button-row">
         <button
           type="button"
-          className="btn btn-secondary"
+          className="ghost-button"
           disabled={fetchingEmailConfig}
           onClick={handleFetchEmailConfig}
         >
