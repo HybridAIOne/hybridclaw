@@ -266,6 +266,7 @@ export function createWhatsAppConnectionManager(params?: {
           keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
         },
         browser: [...WHATSAPP_BROWSER_IDENTITY],
+        fireInitQueries: false,
         getMessage: (key) => messageStore.getMessage(key),
         logger: baileysLogger,
         markOnlineOnConnect: false,
