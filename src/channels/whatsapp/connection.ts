@@ -266,7 +266,7 @@ export function createWhatsAppConnectionManager(params?: {
           keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
         },
         browser: [...WHATSAPP_BROWSER_IDENTITY],
-        fireInitQueries: false,
+        fireInitQueries: false, // Avoid intermittent 400/bad-request from Baileys fetchProps init query; metadata-only and not required for message flow.
         getMessage: (key) => messageStore.getMessage(key),
         logger: baileysLogger,
         markOnlineOnConnect: false,
