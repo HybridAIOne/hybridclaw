@@ -2,9 +2,9 @@ import path from 'node:path';
 
 import { getConfigSnapshot } from '../../config/config.js';
 import { classifyGatewayError } from '../../gateway/gateway-error-utils.js';
-import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
+import { withTransportRetry } from '../../utils/transport-retry.js';
 import {
   callTelegramApi,
   callTelegramMultipartApi,
@@ -99,29 +99,17 @@ async function withTelegramTransportRetry<T>(
     50,
     options?.maxDelayMs ?? TELEGRAM_RETRY_MAX_DELAY_MS,
   );
-  let attempt = 0;
-  let delayMs = Math.max(
+  const delayMs = Math.max(
     50,
     Math.min(options?.baseDelayMs ?? TELEGRAM_RETRY_BASE_DELAY_MS, maxDelayMs),
   );
-
-  while (true) {
-    attempt += 1;
-    try {
-      return await run();
-    } catch (error) {
-      if (attempt >= maxAttempts || !isRetryableTelegramError(error)) {
-        throw error;
-      }
-      const waitMs = Math.min(delayMs, maxDelayMs);
-      logger.warn(
-        { label, attempt, waitMs, error },
-        'Telegram transport failed; retrying',
-      );
-      await sleep(waitMs);
-      delayMs = Math.min(delayMs * 2, maxDelayMs);
-    }
-  }
+  return withTransportRetry(label, run, {
+    maxAttempts,
+    baseDelayMs: delayMs,
+    maxDelayMs,
+    isRetryable: isRetryableTelegramError,
+    logMessage: 'Telegram transport failed; retrying',
+  });
 }
 
 function queueTelegramOutboundDelivery<T>(

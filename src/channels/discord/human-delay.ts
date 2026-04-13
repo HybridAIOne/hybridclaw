@@ -40,9 +40,4 @@ export function getHumanDelayMs(config?: HumanDelayConfig): number {
   const span = resolved.maxMs - resolved.minMs + 1;
   return resolved.minMs + Math.floor(Math.random() * span);
 }
-
-export async function sleep(ms: number): Promise<void> {
-  const waitMs = Math.max(0, Math.floor(ms));
-  if (waitMs <= 0) return;
-  await new Promise((resolve) => setTimeout(resolve, waitMs));
-}
+export { sleep } from '../../utils/sleep.js';

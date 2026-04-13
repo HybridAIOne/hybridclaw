@@ -1,7 +1,7 @@
 import type { TurnContext } from 'botbuilder-core';
 import type { Activity } from 'botframework-schema';
 import { classifyGatewayError } from '../../gateway/gateway-error-utils.js';
-import { logger } from '../../logger.js';
+import { withTransportRetry } from '../../utils/transport-retry.js';
 
 const MSTEAMS_RETRY_MAX_ATTEMPTS = 3;
 const MSTEAMS_RETRY_BASE_DELAY_MS = 500;
@@ -116,39 +116,18 @@ function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
   return fallbackMs;
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function withMSTeamsRetry<T>(
   label: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  let attempt = 0;
-  let delayMs = MSTEAMS_RETRY_BASE_DELAY_MS;
-  while (true) {
-    attempt += 1;
-    try {
-      return await run();
-    } catch (error) {
-      if (
-        attempt >= MSTEAMS_RETRY_MAX_ATTEMPTS ||
-        !isRetryableTeamsError(error)
-      ) {
-        throw error;
-      }
-      const waitMs = Math.min(
-        extractRetryDelayMs(error, delayMs),
-        MSTEAMS_RETRY_MAX_DELAY_MS,
-      );
-      logger.warn(
-        { label, attempt, waitMs, error },
-        'Teams transport failed; retrying',
-      );
-      await sleep(waitMs);
-      delayMs = Math.min(delayMs * 2, MSTEAMS_RETRY_MAX_DELAY_MS);
-    }
-  }
+  return withTransportRetry(label, run, {
+    maxAttempts: MSTEAMS_RETRY_MAX_ATTEMPTS,
+    baseDelayMs: MSTEAMS_RETRY_BASE_DELAY_MS,
+    maxDelayMs: MSTEAMS_RETRY_MAX_DELAY_MS,
+    isRetryable: isRetryableTeamsError,
+    extractRetryAfter: extractRetryDelayMs,
+    logMessage: 'Teams transport failed; retrying',
+  });
 }
 
 export function sendMSTeamsActivityWithRetry(

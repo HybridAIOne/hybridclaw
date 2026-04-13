@@ -1,0 +1,66 @@
+import { logger } from '../logger.js';
+import { sleep } from './sleep.js';
+
+export interface TransportRetryOptions {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs?: number;
+  isRetryable: (error: unknown) => boolean;
+  extractRetryAfter?: (
+    error: unknown,
+    fallbackMs: number,
+    attempt: number,
+  ) => number | null | undefined;
+  logMessage?: string;
+}
+
+function normalizeRetryValue(value: number, minimum: number): number {
+  if (!Number.isFinite(value)) return minimum;
+  return Math.max(minimum, Math.floor(value));
+}
+
+export async function withTransportRetry<T>(
+  label: string,
+  run: () => Promise<T>,
+  options: TransportRetryOptions,
+): Promise<T> {
+  const maxAttempts = normalizeRetryValue(options.maxAttempts, 1);
+  const maxDelayMs =
+    options.maxDelayMs == null
+      ? Number.POSITIVE_INFINITY
+      : normalizeRetryValue(options.maxDelayMs, 0);
+  let attempt = 0;
+  let delayMs = Math.min(
+    normalizeRetryValue(options.baseDelayMs, 0),
+    maxDelayMs,
+  );
+
+  while (true) {
+    attempt += 1;
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt >= maxAttempts || !options.isRetryable(error)) {
+        throw error;
+      }
+
+      const fallbackMs = Math.min(delayMs, maxDelayMs);
+      const extractedDelayMs = options.extractRetryAfter?.(
+        error,
+        fallbackMs,
+        attempt,
+      );
+      const waitMs =
+        extractedDelayMs == null || !Number.isFinite(extractedDelayMs)
+          ? fallbackMs
+          : Math.min(normalizeRetryValue(extractedDelayMs, 0), maxDelayMs);
+
+      logger.warn(
+        { label, attempt, waitMs, error },
+        options.logMessage ?? 'Transport request failed; retrying',
+      );
+      await sleep(waitMs);
+      delayMs = Math.min(delayMs * 2, maxDelayMs);
+    }
+  }
+}
