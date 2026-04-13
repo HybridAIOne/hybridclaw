@@ -2,7 +2,6 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
-import { useToast } from '../components/toast';
 import {
   Dialog,
   DialogClose,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
@@ -293,7 +293,7 @@ export function GatewayPage() {
           <DialogFooter>
             <DialogClose className="ghost-button">Cancel</DialogClose>
             <DialogClose
-              className="primary-button"
+              className="danger-button"
               onClick={() => restartMutation.mutate()}
             >
               Restart
