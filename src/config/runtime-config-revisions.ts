@@ -35,6 +35,16 @@ export interface RuntimeConfigRevision extends RuntimeConfigRevisionSummary {
   content: string;
 }
 
+export interface RuntimeConfigRevisionState {
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  byteLength: number;
+  content: string;
+  updatedAt: string;
+}
+
 export interface RuntimeConfigObservedFile {
   exists: boolean;
   content: string | null;
@@ -216,6 +226,20 @@ function mapRevisionSummaryRow(
   };
 }
 
+function mapRevisionStateRow(
+  row: ConfigRevisionStateRow,
+): RuntimeConfigRevisionState {
+  return {
+    actor: row.actor,
+    route: row.route,
+    source: row.source,
+    md5: row.current_md5,
+    byteLength: Buffer.byteLength(row.current_content, 'utf-8'),
+    content: row.current_content,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function runtimeConfigRevisionStorePath(): string {
   return CONFIG_REVISION_DB_PATH;
 }
@@ -381,6 +405,21 @@ export function getRuntimeConfigRevision(
       )
       .get(configPath, revisionId);
     return row ? mapRevisionRow(row) : null;
+  });
+}
+
+export function getRuntimeConfigRevisionState(
+  configPath: string,
+): RuntimeConfigRevisionState | null {
+  return withRevisionDatabase((database) => {
+    const row = database
+      .prepare<[string], ConfigRevisionStateRow>(
+        `SELECT config_path, current_md5, current_content, actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE config_path = ?`,
+      )
+      .get(configPath);
+    return row ? mapRevisionStateRow(row) : null;
   });
 }
 
