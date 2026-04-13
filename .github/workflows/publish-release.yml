@@ -101,28 +101,22 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
-      - name: Resolve agent image tags
-        id: meta
-        shell: bash
+      - name: Compute lowercase owner
         env:
-          TAG: ${{ needs.validate.outputs.tag }}
-          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
-        run: |
-          set -euo pipefail
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
-          DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
-          TAGS="${GHCR_IMAGE}:${TAG}"
-          if [[ "${TAG}" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
-          fi
-          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
-            if [[ "${TAG}" != *-* ]]; then
-              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
-            fi
-          fi
-          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: |
+            ghcr.io/${{ env.OWNER_LC }}/hybridclaw-agent
+            ${{ needs.validate.outputs.publish_dockerhub == 'true' && 'hybridaione/hybridclaw-agent' || '' }}
+          tags: |
+            type=raw,value=${{ needs.validate.outputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(needs.validate.outputs.tag, '-') }}
+          labels: ${{ needs.validate.outputs.labels }}
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -174,28 +168,22 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
-      - name: Resolve gateway image tags
-        id: meta
-        shell: bash
+      - name: Compute lowercase owner
         env:
-          TAG: ${{ needs.validate.outputs.tag }}
-          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
-        run: |
-          set -euo pipefail
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-gateway"
-          DOCKERHUB_IMAGE="hybridaione/hybridclaw-gateway"
-          TAGS="${GHCR_IMAGE}:${TAG}"
-          if [[ "${TAG}" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
-          fi
-          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
-            if [[ "${TAG}" != *-* ]]; then
-              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
-            fi
-          fi
-          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: |
+            ghcr.io/${{ env.OWNER_LC }}/hybridclaw-gateway
+            ${{ needs.validate.outputs.publish_dockerhub == 'true' && 'hybridaione/hybridclaw-gateway' || '' }}
+          tags: |
+            type=raw,value=${{ needs.validate.outputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(needs.validate.outputs.tag, '-') }}
+          labels: ${{ needs.validate.outputs.labels }}
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
