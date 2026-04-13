@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview } from '../api/client';
 import { useAuth } from '../auth';
+import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
@@ -58,6 +60,7 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
 
 export function DashboardPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const live = useLiveEvents(auth.token);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
@@ -215,29 +218,11 @@ export function DashboardPage() {
           </div>
         </Panel>
 
-        <Panel title="Backend health">
-          <div className="list-stack">
-            {backendEntries.map(([name, backend]) => (
-              <div className="list-row" key={name}>
-                <div>
-                  <strong>{name}</strong>
-                  <small>
-                    {backend.detail ||
-                      (backend.reachable
-                        ? `${backend.latencyMs ?? 0}ms`
-                        : backend.error || 'unreachable')}
-                  </small>
-                </div>
-                <span>{backend.modelCount ?? 0} models</span>
-              </div>
-            ))}
-            {backendEntries.length === 0 ? (
-              <p className="supporting-text">
-                No provider health data is available.
-              </p>
-            ) : null}
-          </div>
-        </Panel>
+        <ProviderHealthPanel
+          title="Backend health"
+          entries={backendEntries}
+          onLogin={() => void navigate({ to: '/config' })}
+        />
       </div>
 
       <Panel title="Recent sessions">

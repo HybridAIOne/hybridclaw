@@ -321,6 +321,8 @@ export interface GatewayProviderHealthEntry {
   error?: string;
   modelCount?: number;
   detail?: string;
+  /** True when the provider requires explicit re-authentication (e.g. expired OAuth token). */
+  loginRequired?: boolean;
 }
 
 export interface GatewayPluginCommandSummary {

@@ -87,6 +87,7 @@ export interface GatewayStatus {
       error?: string;
       modelCount?: number;
       detail?: string;
+      loginRequired?: boolean;
     }
   >;
   localBackends?: Record<
