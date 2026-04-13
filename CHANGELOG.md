@@ -2,6 +2,8 @@
 
 ## [Coming up]
 
+## [0.12.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.5)
+
 ### Added
 
 - **Admin agent file editor**: The admin console now includes `/admin/agents`
