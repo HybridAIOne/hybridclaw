@@ -62,6 +62,11 @@ import {
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import {
+  buildTuiApprovalFollowupDraft,
+  buildTuiApprovalSelectionOptions,
+  promptTuiApprovalSelection,
+} from './tui-approval-prompt.js';
 import type { TuiStartupBannerSkillCategory } from './tui-banner.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
@@ -120,6 +125,8 @@ const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
 type TuiTheme = 'dark' | 'light';
 type TuiReadlineInterface = readline.Interface & {
   history: string[];
+  line: string;
+  cursor: number;
   _refreshLine?: () => void;
 };
 
@@ -489,19 +496,62 @@ function resolvePendingApproval(
 
 async function promptApprovalSelection(
   rl: readline.Interface,
-  requestId: string,
-  allowSession: boolean,
-  allowAgent: boolean,
-  allowAll: boolean,
+  pendingApproval: TuiApprovalDetails,
 ): Promise<string | null> {
-  const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
-  if (allowSession) options.push('session');
-  if (allowAgent) options.push('agent');
-  if (allowAll) options.push('all');
-  options.push('skip');
+  const options = buildTuiApprovalSelectionOptions({
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  });
   clearTuiSlashMenu();
+  const result = await promptTuiApprovalSelection({
+    rl,
+    approval: pendingApproval,
+    options,
+    palette: {
+      reset: RESET,
+      bold: BOLD,
+      muted: MUTED,
+      teal: TEAL,
+      gold: GOLD,
+      green: GREEN,
+      red: RED,
+    },
+  });
+  if (result?.kind === 'select') {
+    return mapApprovalSelectionToCommand(
+      result.option,
+      pendingApproval.approvalId,
+      options,
+    );
+  }
+  if (result?.kind === 'amend') {
+    setTuiInputDraft(
+      rl,
+      buildTuiApprovalFollowupDraft({
+        kind: 'amend',
+        approval: pendingApproval,
+      }),
+    );
+    return null;
+  }
+  if (result?.kind === 'explain') {
+    setTuiInputDraft(
+      rl,
+      buildTuiApprovalFollowupDraft({
+        kind: 'explain',
+        approval: pendingApproval,
+      }),
+    );
+    return null;
+  }
+
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  if (TUI_APPROVAL_PRESENTATION.showText) {
+    printResponse(summary);
+  }
   console.log(
-    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
+    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${pendingApproval.approvalId})${RESET}`,
   );
   options.forEach((option, index) => {
     const label =
@@ -522,7 +572,11 @@ async function promptApprovalSelection(
       resolve,
     );
   });
-  const command = mapApprovalSelectionToCommand(answer, requestId, options);
+  const command = mapApprovalSelectionToCommand(
+    answer,
+    pendingApproval.approvalId,
+    options,
+  );
   if (answer.trim() && !command) {
     printInfo(
       `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
@@ -545,16 +599,7 @@ async function handleTuiPendingApproval(
     allowAgent: pendingApproval.allowAgent,
     allowAll: pendingApproval.allowAll,
   };
-  if (TUI_APPROVAL_PRESENTATION.showText) {
-    printResponse(summary);
-  }
-  const approvalCommand = await promptApprovalSelection(
-    rl,
-    pendingApproval.approvalId,
-    pendingApproval.allowSession,
-    pendingApproval.allowAgent,
-    pendingApproval.allowAll,
-  );
+  const approvalCommand = await promptApprovalSelection(rl, pendingApproval);
   if (approvalCommand) {
     await submitApprovalReplay(approvalCommand, rl);
   }
@@ -1598,6 +1643,16 @@ function promptTuiInput(rl: readline.Interface): void {
   if (tuiExitInProgress || isReadlineClosed(rl)) return;
   clearTuiSlashMenu();
   rl.prompt();
+  syncTuiSlashMenu();
+}
+
+function setTuiInputDraft(rl: readline.Interface, text: string): void {
+  if (tuiExitInProgress || isReadlineClosed(rl)) return;
+  clearTuiSlashMenu();
+  const internal = rl as TuiReadlineInterface;
+  internal.line = text;
+  internal.cursor = text.length;
+  internal._refreshLine?.();
   syncTuiSlashMenu();
 }
 
