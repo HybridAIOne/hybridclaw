@@ -6,42 +6,44 @@ import { wrapTuiBlock } from './tui-thinking.js';
 
 export type TuiApprovalSelectionOption = ApprovalScopeMode | 'skip';
 
-export interface TuiApprovalPromptPalette {
-  reset: string;
-  bold: string;
-  muted: string;
-  teal: string;
-  gold: string;
-  green: string;
-  red: string;
-}
+const TUI_APPROVAL_PROMPT_PALETTE = Object.freeze({
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  muted: '\x1b[90m',
+  teal: '\x1b[36m',
+  gold: '\x1b[33m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+});
 
-export const DEFAULT_TUI_APPROVAL_PROMPT_PALETTE: Readonly<TuiApprovalPromptPalette> =
-  Object.freeze({
-    reset: '\x1b[0m',
-    bold: '\x1b[1m',
-    muted: '\x1b[90m',
-    teal: '\x1b[36m',
-    gold: '\x1b[33m',
-    green: '\x1b[32m',
-    red: '\x1b[31m',
-  });
+// biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
+const TERMINAL_ESCAPE_PATTERN = new RegExp(
+  '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
+  'g',
+);
+const ALLOWED_SGR_PATTERN = /^\x1b\[[0-9;]*m$/u;
+// Keep tabs/newlines alone here; the render path only needs to strip control
+// bytes that can mutate the terminal state or cursor position.
+const DISALLOWED_TERMINAL_CONTROL_PATTERN =
+  /[\u0000-\u0008\u000B-\u001A\u001C-\u001F\u007F\u009B]/g;
 
 type InternalReadline = readline.Interface & {
   line: string;
   cursor: number;
   _refreshLine?: () => void;
-  _ttyWrite?: (chunk: string, key: readline.Key) => void;
 };
 
-function resolveTuiApprovalPromptPalette(
-  palette?: Partial<TuiApprovalPromptPalette>,
-): TuiApprovalPromptPalette {
-  return {
-    ...DEFAULT_TUI_APPROVAL_PROMPT_PALETTE,
-    ...palette,
-  };
-}
+interface TuiApprovalPromptInput {
+  isTTY?: boolean;
+  on(
+    event: 'keypress',
+    listener: (chunk: string, key: readline.Key) => void,
+  ): this;
+  off(
+    event: 'keypress',
+    listener: (chunk: string, key: readline.Key) => void,
+  ): this;
+};
 
 function getAnsiSequenceLength(value: string, index: number): number {
   if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
@@ -60,49 +62,49 @@ function getAnsiSequenceLength(value: string, index: number): number {
   return 0;
 }
 
-function truncateLine(value: string, width: number): string {
+function truncateLine(value: string, width: number, reset = ''): string {
   if (width <= 0) return '';
-  let visibleLength = 0;
-  for (let index = 0; index < value.length; ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      index += ansiSequenceLength;
-      continue;
-    }
-    visibleLength += 1;
-    index += 1;
-  }
-  if (visibleLength <= width) return value;
-
   const targetVisibleLength = width === 1 ? 1 : width - 3;
   let output = '';
-  let writtenVisibleLength = 0;
+  let visibleLength = 0;
+  let truncated = false;
   const hasAnsi = value.includes('\x1b[');
 
-  for (
-    let index = 0;
-    index < value.length && writtenVisibleLength < targetVisibleLength;
-  ) {
+  for (let index = 0; index < value.length; ) {
     const ansiSequenceLength = getAnsiSequenceLength(value, index);
     if (ansiSequenceLength > 0) {
       output += value.slice(index, index + ansiSequenceLength);
       index += ansiSequenceLength;
       continue;
     }
+
+    if (visibleLength >= targetVisibleLength) {
+      truncated = true;
+      break;
+    }
+
     output += value[index] || '';
-    writtenVisibleLength += 1;
+    visibleLength += 1;
     index += 1;
   }
 
-  return hasAnsi
-    ? `${output}...${DEFAULT_TUI_APPROVAL_PROMPT_PALETTE.reset}`
-    : `${output}...`;
+  if (!truncated) return output;
+
+  return hasAnsi ? `${output}...${reset}` : `${output}...`;
 }
 
 function sentenceCase(value: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
   return normalized[0].toUpperCase() + normalized.slice(1);
+}
+
+function sanitizeTerminalText(value: string): string {
+  return String(value || '')
+    .replace(TERMINAL_ESCAPE_PATTERN, (sequence) =>
+      ALLOWED_SGR_PATTERN.test(sequence) ? sequence : '',
+    )
+    .replace(DISALLOWED_TERMINAL_CONTROL_PATTERN, '');
 }
 
 function wrapPlainLines(text: string, width: number, indent = '  '): string[] {
@@ -117,63 +119,86 @@ function extractIntentPreview(intent: string): string | null {
   return preview || null;
 }
 
-function resolveIntentKindLabel(intent: string): string {
-  const normalized = intent.trim().toLowerCase();
-  if (
-    normalized.startsWith('run shell command ') ||
-    normalized.startsWith('run mutating command ') ||
-    normalized.startsWith('run read-only command ') ||
-    normalized.startsWith('run `') ||
-    normalized.startsWith('install dependencies with ')
-  ) {
-    return 'Bash command';
-  }
-  if (normalized.startsWith('run script ')) {
-    return 'Script execution';
-  }
-  if (normalized.startsWith('control a local app')) {
-    return 'Host action';
-  }
-  if (
-    normalized.startsWith('contact new host ') ||
-    normalized.startsWith('access ') ||
-    normalized.startsWith('contact ') ||
-    normalized.startsWith('fetch ')
-  ) {
-    return 'Network request';
-  }
-  if (normalized.startsWith('install python packages ')) {
-    return 'Python packages';
-  }
-  if (normalized.startsWith('install ')) {
-    return 'Dependency install';
-  }
-  return 'Approval request';
-}
-
-function resolveIntentSummary(intent: string, preview: string | null): string {
+function resolveIntentPresentation(
+  intent: string,
+  preview: string | null,
+): { kindLabel: string; summary: string } {
   const normalized = intent.trim();
-  if (!normalized) return 'Approval required';
+  if (!normalized) {
+    return {
+      kindLabel: 'Approval request',
+      summary: 'Approval required',
+    };
+  }
+
   const lower = normalized.toLowerCase();
-  if (preview && lower.startsWith('run shell command ')) {
-    return 'Run shell command';
+  if (
+    lower.startsWith('run shell command ') ||
+    lower.startsWith('run mutating command ') ||
+    lower.startsWith('run read-only command ') ||
+    lower.startsWith('run `') ||
+    lower.startsWith('install dependencies with ')
+  ) {
+    let summary = sentenceCase(normalized);
+    if (preview && lower.startsWith('run shell command ')) {
+      summary = 'Run shell command';
+    } else if (preview && lower.startsWith('run mutating command ')) {
+      summary = 'Run mutating command';
+    } else if (preview && lower.startsWith('run read-only command ')) {
+      summary = 'Run read-only command';
+    } else if (preview && lower.startsWith('install dependencies with ')) {
+      summary = 'Install dependencies';
+    }
+    return {
+      kindLabel: 'Bash command',
+      summary,
+    };
   }
-  if (preview && lower.startsWith('run mutating command ')) {
-    return 'Run mutating command';
+
+  if (lower.startsWith('run script ')) {
+    return {
+      kindLabel: 'Script execution',
+      summary: preview ? 'Run script' : sentenceCase(normalized),
+    };
   }
-  if (preview && lower.startsWith('run read-only command ')) {
-    return 'Run read-only command';
+
+  if (lower.startsWith('control a local app')) {
+    return {
+      kindLabel: 'Host action',
+      summary:
+        preview && lower.startsWith('control a local app with ')
+          ? 'Control a local app'
+          : sentenceCase(normalized),
+    };
   }
-  if (preview && lower.startsWith('run script ')) {
-    return 'Run script';
+  if (
+    lower.startsWith('contact new host ') ||
+    lower.startsWith('access ') ||
+    lower.startsWith('contact ') ||
+    lower.startsWith('fetch ')
+  ) {
+    return {
+      kindLabel: 'Network request',
+      summary: sentenceCase(normalized),
+    };
   }
-  if (preview && lower.startsWith('control a local app with ')) {
-    return 'Control a local app';
+  if (lower.startsWith('install python packages ')) {
+    return {
+      kindLabel: 'Python packages',
+      summary: sentenceCase(normalized),
+    };
   }
-  if (preview && lower.startsWith('install dependencies with ')) {
-    return 'Install dependencies';
+  if (lower.startsWith('install ')) {
+    return {
+      kindLabel: 'Dependency install',
+      summary: sentenceCase(normalized),
+    };
   }
-  return sentenceCase(normalized);
+
+  return {
+    kindLabel: 'Approval request',
+    summary: sentenceCase(normalized),
+  };
 }
 
 function formatApprovalOptionLabel(option: TuiApprovalSelectionOption): string {
@@ -202,19 +227,23 @@ export function renderTuiApprovalPromptLines(params: {
   options: TuiApprovalSelectionOption[];
   cursor: number;
   width: number;
-  palette?: Partial<TuiApprovalPromptPalette>;
 }): string[] {
-  const palette = resolveTuiApprovalPromptPalette(params.palette);
+  const palette = TUI_APPROVAL_PROMPT_PALETTE;
   const safeWidth = Math.max(20, params.width);
   const maxIndex = Math.max(0, params.options.length - 1);
   const cursor = Math.max(0, Math.min(params.cursor, maxIndex));
-  const preview = extractIntentPreview(params.approval.intent);
-  const kindLabel = resolveIntentKindLabel(params.approval.intent);
-  const summary = resolveIntentSummary(params.approval.intent, preview);
+  const intent = sanitizeTerminalText(params.approval.intent);
+  const reason = sanitizeTerminalText(params.approval.reason);
+  const preview = extractIntentPreview(intent);
+  const { kindLabel, summary } = resolveIntentPresentation(
+    intent,
+    preview,
+  );
   const lines = [
     truncateLine(
       `  ${palette.bold}${palette.gold}Approval required${palette.reset}`,
       safeWidth,
+      palette.reset,
     ),
     '',
   ];
@@ -233,7 +262,7 @@ export function renderTuiApprovalPromptLines(params: {
 
   lines.push('');
   for (const line of wrapPlainLines(
-    `Why: ${params.approval.reason}`,
+    `Why: ${reason}`,
     safeWidth,
     '  ',
   )) {
@@ -244,6 +273,7 @@ export function renderTuiApprovalPromptLines(params: {
     truncateLine(
       `  ${palette.bold}Do you want to proceed?${palette.reset}`,
       safeWidth,
+      palette.reset,
     ),
   );
 
@@ -263,12 +293,13 @@ export function renderTuiApprovalPromptLines(params: {
       truncateLine(
         ` ${pointer} ${number} ${optionColor}${formatApprovalOptionLabel(option)}${palette.reset}`,
         safeWidth,
+        palette.reset,
       ),
     );
   }
 
   lines.push('');
-  for (const line of wrapPlainLines('Esc to cancel', safeWidth, '  ')) {
+  for (const line of wrapPlainLines('Esc to skip', safeWidth, '  ')) {
     lines.push(`${palette.muted}${line}${palette.reset}`);
   }
 
@@ -279,23 +310,28 @@ export async function promptTuiApprovalSelection(params: {
   rl: readline.Interface;
   approval: Pick<TuiApprovalDetails, 'approvalId' | 'intent' | 'reason'>;
   options: TuiApprovalSelectionOption[];
-  palette?: Partial<TuiApprovalPromptPalette>;
+  input?: TuiApprovalPromptInput;
   output?: NodeJS.WriteStream;
   initialCursor?: number;
   restorePrompt?: boolean;
 }): Promise<TuiApprovalSelectionOption | undefined> {
   const { rl, options } = params;
-  const palette = resolveTuiApprovalPromptPalette(params.palette);
+  const input = params.input || process.stdin;
   const output = params.output || process.stdout;
   const internal = rl as InternalReadline;
-  const originalTtyWrite = internal._ttyWrite;
 
-  if (!output.isTTY || !originalTtyWrite || options.length === 0) {
+  if (options.length === 0) {
+    throw new Error('TUI approval prompt requires at least one option.');
+  }
+
+  if (!output.isTTY || !input.isTTY) {
     return undefined;
   }
 
   const savedLine = internal.line;
   const savedCursor = internal.cursor;
+  const lineListeners = rl.listeners('line') as Array<(line: string) => void>;
+  const sigintListeners = rl.listeners('SIGINT') as Array<() => void>;
   let renderedLineCount = 0;
   let restored = false;
   let cursor = Math.max(
@@ -307,38 +343,38 @@ export async function promptTuiApprovalSelection(params: {
     finish('skip');
   };
 
-  const clear = () => {
-    if (renderedLineCount <= 0) return;
-    readline.moveCursor(output, 0, -(renderedLineCount - 1));
-    readline.cursorTo(output, 0);
-    readline.clearScreenDown(output);
-    renderedLineCount = 0;
+  const buildClearFrame = () => {
+    if (renderedLineCount <= 0) return '';
+    return `${renderedLineCount > 1 ? `\x1b[${renderedLineCount - 1}A` : ''}\r\x1b[J`;
   };
 
   const render = () => {
-    clear();
-    output.write('\x1b[?25l');
+    const clearFrame = buildClearFrame();
     const lines = renderTuiApprovalPromptLines({
       approval: params.approval,
       options,
       cursor,
       width: output.columns || 80,
-      palette,
     });
-    output.write(lines.join('\n'));
+    output.write(`${clearFrame}\x1b[?25l${lines.join('\n')}`);
     renderedLineCount = lines.length;
   };
 
   const restore = () => {
     if (restored) return;
     restored = true;
-    clear();
-    output.write('\x1b[?25h');
-    if (internal._ttyWrite === handleTtyWrite) {
-      internal._ttyWrite = originalTtyWrite;
-    }
+    output.write(`${buildClearFrame()}\x1b[?25h`);
+    renderedLineCount = 0;
+    input.off('keypress', handleKeypress);
     output.off('resize', render);
     rl.off('close', closeHandler);
+    rl.off('SIGINT', handleSigint);
+    for (const listener of lineListeners) {
+      rl.on('line', listener);
+    }
+    for (const listener of sigintListeners) {
+      rl.on('SIGINT', listener);
+    }
     internal.line = savedLine;
     internal.cursor = Math.min(savedCursor, savedLine.length);
     if (params.restorePrompt !== false) {
@@ -356,7 +392,11 @@ export async function promptTuiApprovalSelection(params: {
     finish(selected);
   };
 
-  const handleTtyWrite = (chunk: string, key: readline.Key) => {
+  const handleSigint = () => {
+    finish('skip');
+  };
+
+  const handleKeypress = (chunk: string, key: readline.Key) => {
     const raw = String(key.sequence ?? chunk ?? '').trim();
 
     if (key.ctrl === true && key.name === 'c') {
@@ -386,11 +426,6 @@ export async function promptTuiApprovalSelection(params: {
       return;
     }
 
-    if (key.name === 'y') {
-      finish('once');
-      return;
-    }
-
     if (/^\d$/u.test(raw)) {
       const index = Number.parseInt(raw, 10) - 1;
       if (Number.isFinite(index) && index >= 0 && index < options.length) {
@@ -405,7 +440,14 @@ export async function promptTuiApprovalSelection(params: {
       resolve(value);
     };
 
-    internal._ttyWrite = handleTtyWrite;
+    for (const listener of lineListeners) {
+      rl.off('line', listener);
+    }
+    for (const listener of sigintListeners) {
+      rl.off('SIGINT', listener);
+    }
+    rl.on('SIGINT', handleSigint);
+    input.on('keypress', handleKeypress);
     output.on('resize', render);
     rl.on('close', closeHandler);
     render();

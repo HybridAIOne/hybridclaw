@@ -1,4 +1,5 @@
 import type readline from 'node:readline';
+import { EventEmitter } from 'node:events';
 
 import { expect, test, vi } from 'vitest';
 
@@ -8,15 +9,9 @@ import {
   renderTuiApprovalPromptLines,
 } from '../src/tui-approval-prompt.js';
 
-const PALETTE = {
-  reset: '',
-  bold: '',
-  muted: '',
-  teal: '',
-  gold: '',
-  green: '',
-  red: '',
-};
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+}
 
 test('buildTuiApprovalSelectionOptions keeps once first and skip last', () => {
   expect(
@@ -38,20 +33,60 @@ test('renderTuiApprovalPromptLines highlights the selected row and help text', (
     options: ['once', 'session', 'skip'],
     cursor: 1,
     width: 80,
-    palette: PALETTE,
+  });
+  const text = stripAnsi(lines.join('\n'));
+
+  expect(text).toContain('Approval required');
+  expect(text).toContain('Bash command');
+  expect(text).toContain('git status');
+  expect(text).toContain('Do you want to proceed?');
+  expect(text).toContain('> 2. Yes for session');
+  expect(text).toContain('Esc to skip');
+});
+
+test('renderTuiApprovalPromptLines truncates ANSI-styled preview lines', () => {
+  const lines = renderTuiApprovalPromptLines({
+    approval: {
+      approvalId: 'approve123',
+      intent:
+        'run shell command `git status --branch --short --show-stash --ahead-behind`',
+      reason: 'this command may change local state',
+    },
+    options: ['once', 'skip'],
+    cursor: 0,
+    width: 24,
   });
 
-  expect(lines.join('\n')).toContain('Approval required');
-  expect(lines.join('\n')).toContain('Bash command');
-  expect(lines.join('\n')).toContain('git status');
-  expect(lines.join('\n')).toContain('Do you want to proceed?');
-  expect(lines.join('\n')).toContain('> 2. Yes for session');
-  expect(lines.join('\n')).toContain('Esc to cancel');
+  expect(
+    lines.some((line) => line.includes('...') && line.endsWith('\x1b[0m')),
+  ).toBe(true);
+});
+
+test('renderTuiApprovalPromptLines strips disallowed terminal control sequences from gateway content', () => {
+  const lines = renderTuiApprovalPromptLines({
+    approval: {
+      approvalId: 'approve123',
+      intent:
+        'run shell command `git status\x1b]0;owned\x07\x1b[31m --short\x1b[0m`',
+      reason: 'this command may \x1b[2Jchange local state\x07',
+    },
+    options: ['once', 'skip'],
+    cursor: 0,
+    width: 80,
+  });
+  const output = lines.join('\n');
+  const text = stripAnsi(output).replace(/[\u0000-\u001F\u007F]/g, '');
+
+  expect(output).not.toContain('\x1b]0;owned\x07');
+  expect(output).not.toContain('\x1b[2J');
+  expect(output).not.toContain('\x07');
+  expect(output).toContain('\x1b[31m --short\x1b[0m');
+  expect(text).toContain('git status --short');
+  expect(text).toContain('Why: this command may change local state');
 });
 
 function buildApprovalPromptHarness() {
   const writes: string[] = [];
-  const originalTtyWrite = vi.fn();
   const output = {
     isTTY: true,
     columns: 80,
@@ -62,26 +97,37 @@ function buildApprovalPromptHarness() {
     on: vi.fn(),
     off: vi.fn(),
   } as unknown as NodeJS.WriteStream;
+  const lineListener = vi.fn();
+  const sigintListener = vi.fn();
   const rl = {
     line: '',
     cursor: 0,
     _refreshLine: vi.fn(),
-    _ttyWrite: originalTtyWrite,
+    listeners: vi.fn((event: string) => {
+      if (event === 'line') return [lineListener];
+      if (event === 'SIGINT') return [sigintListener];
+      return [];
+    }),
     on: vi.fn(),
     off: vi.fn(),
     prompt: vi.fn(),
   } as unknown as readline.Interface;
+  const input = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    on: EventEmitter.prototype.on,
+    off: EventEmitter.prototype.off,
+  });
 
   return {
     rl: rl as unknown as {
       line: string;
       cursor: number;
       _refreshLine: () => void;
-      _ttyWrite: (chunk: string, key: readline.Key) => void;
+      listeners: (event: string) => unknown[];
     },
+    input,
     output,
     writes,
-    originalTtyWrite,
   };
 }
 
@@ -97,16 +143,18 @@ test('promptTuiApprovalSelection moves with arrows and confirms the highlighted 
     rl: harness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'session', 'agent', 'skip'],
+    input: harness.input,
     output: harness.output,
-    palette: PALETTE,
   });
 
-  harness.rl._ttyWrite('', { name: 'down' });
-  harness.rl._ttyWrite('', { name: 'down' });
-  harness.rl._ttyWrite('\r', { name: 'return' });
+  expect(harness.writes).toHaveLength(1);
+  harness.input.emit('keypress', '', { name: 'down' });
+  expect(harness.writes).toHaveLength(2);
+  harness.input.emit('keypress', '', { name: 'down' });
+  expect(harness.writes).toHaveLength(3);
+  harness.input.emit('keypress', '\r', { name: 'return' });
 
   await expect(prompt).resolves.toBe('agent');
-  expect(harness.originalTtyWrite).not.toHaveBeenCalled();
   expect(harness.rl._refreshLine).toHaveBeenCalledTimes(1);
   expect(harness.writes.length).toBeGreaterThan(0);
 });
@@ -117,12 +165,12 @@ test('promptTuiApprovalSelection can skip prompt redraw before an immediate repl
     rl: harness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'skip'],
+    input: harness.input,
     output: harness.output,
-    palette: PALETTE,
     restorePrompt: false,
   });
 
-  harness.rl._ttyWrite('\r', { name: 'return' });
+  harness.input.emit('keypress', '\r', { name: 'return' });
 
   await expect(prompt).resolves.toBe('once');
   expect(harness.rl._refreshLine).not.toHaveBeenCalled();
@@ -134,11 +182,12 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
     rl: numericHarness.rl as unknown as readline.Interface,
     approval: APPROVAL,
     options: ['once', 'session', 'agent', 'all', 'skip'],
+    input: numericHarness.input,
     output: numericHarness.output,
-    palette: PALETTE,
   });
 
-  numericHarness.rl._ttyWrite('4', { name: '4', sequence: '4' });
+  numericHarness.input.emit('keypress', 'y', { name: 'y', sequence: 'y' });
+  numericHarness.input.emit('keypress', '4', { name: '4', sequence: '4' });
   await expect(numericPrompt).resolves.toBe('all');
 
   const denyHarness = buildApprovalPromptHarness();
@@ -149,11 +198,14 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
       approvalId: 'approve999',
     },
     options: ['once', 'skip'],
+    input: denyHarness.input,
     output: denyHarness.output,
-    palette: PALETTE,
   });
 
-  denyHarness.rl._ttyWrite('\u001b', { name: 'escape', sequence: '\u001b' });
+  denyHarness.input.emit('keypress', '\u001b', {
+    name: 'escape',
+    sequence: '\u001b',
+  });
   await expect(denyPrompt).resolves.toBe('skip');
 });
 
@@ -170,7 +222,20 @@ test('promptTuiApprovalSelection returns undefined without a tty renderer', asyn
       approval: APPROVAL,
       options: ['once', 'skip'],
       output,
-      palette: PALETTE,
     }),
   ).resolves.toBeUndefined();
+});
+
+test('promptTuiApprovalSelection throws when called without approval options', async () => {
+  const harness = buildApprovalPromptHarness();
+
+  await expect(
+    promptTuiApprovalSelection({
+      rl: harness.rl as unknown as readline.Interface,
+      approval: APPROVAL,
+      options: [],
+      input: harness.input,
+      output: harness.output,
+    }),
+  ).rejects.toThrow('TUI approval prompt requires at least one option.');
 });
