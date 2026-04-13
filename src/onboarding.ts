@@ -10,9 +10,15 @@ import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
+  getLastKnownGoodRuntimeConfigState,
   getRuntimeConfig,
+  getRuntimeConfigLoadError,
   isSecurityTrustAccepted,
+  listRuntimeConfigRevisions,
+  restoreLastKnownGoodRuntimeConfig,
+  restoreRuntimeConfigRevision,
   runtimeConfigPath,
+  runtimeConfigRevisionPath,
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
@@ -419,6 +425,40 @@ function formatAcceptanceMeta(): string {
   return `${at} (${config.security.trustModelVersion}; by ${by})`;
 }
 
+function buildInvalidRuntimeConfigErrorMessage(commandLabel: string): string {
+  const loadError = getRuntimeConfigLoadError();
+  if (!loadError) return '';
+
+  const lastKnownGood = getLastKnownGoodRuntimeConfigState();
+  const summary =
+    `Failed to load runtime config ${loadError.path}: ${loadError.message}. ` +
+    'HybridClaw is using in-memory defaults, so stored trust acceptance and other settings are unavailable.';
+
+  if (lastKnownGood) {
+    return (
+      `${summary} ` +
+      `Run \`hybridclaw onboarding\` interactively to restore the last known-good saved config snapshot from ${lastKnownGood.updatedAt}. ` +
+      `Revision store: ${runtimeConfigRevisionPath()}.`
+    );
+  }
+
+  const revisions = listRuntimeConfigRevisions();
+  if (revisions.length === 0) {
+    return (
+      `${summary} ` +
+      `No config revisions are saved yet. Fix ${loadError.path} manually, then rerun ${commandLabel}.`
+    );
+  }
+
+  const latest = revisions[0];
+  return (
+    `${summary} ` +
+    `Run \`hybridclaw config revisions\` to inspect saved revisions or ` +
+    `\`hybridclaw config revisions rollback ${latest.id}\` to restore the latest known-good revision. ` +
+    `Revision store: ${runtimeConfigRevisionPath()}.`
+  );
+}
+
 function printHeadline(text: string): void {
   console.log(`\n${ICON_TITLE} ${BOLD}${TEAL}${text}${RESET}\n`);
 }
@@ -720,6 +760,92 @@ async function ensureSecurityTrustAcceptance(
   printSuccess(`Saved trust-model acceptance to ${runtimeConfigPath()}.`);
   console.log();
   return true;
+}
+
+async function ensureValidRuntimeConfig(
+  rl: readline.Interface | null,
+  commandLabel: string,
+): Promise<void> {
+  const loadError = getRuntimeConfigLoadError();
+  if (!loadError) return;
+
+  const lastKnownGood = getLastKnownGoodRuntimeConfigState();
+  const summary =
+    `Failed to load runtime config ${loadError.path}: ${loadError.message}. ` +
+    'HybridClaw is using in-memory defaults, so stored trust acceptance and other settings are unavailable.';
+
+  if (!rl) {
+    throw new Error(buildInvalidRuntimeConfigErrorMessage(commandLabel));
+  }
+
+  printHeadline('Runtime config error');
+  printWarn(summary);
+  printMeta('Active config', runtimeConfigPath());
+  printMeta('Revision store', runtimeConfigRevisionPath());
+
+  if (lastKnownGood) {
+    printInfo('Last known-good saved config snapshot:');
+    console.log(
+      `  ${lastKnownGood.updatedAt} | route=${lastKnownGood.route} | actor=${lastKnownGood.actor}`,
+    );
+    console.log();
+
+    const shouldRestore = await promptYesNo(
+      rl,
+      `Restore ${runtimeConfigPath()} from the last known-good saved config snapshot (${lastKnownGood.updatedAt})?`,
+      true,
+      ICON_SETUP,
+    );
+    if (!shouldRestore) {
+      throw new Error(buildInvalidRuntimeConfigErrorMessage(commandLabel));
+    }
+
+    restoreLastKnownGoodRuntimeConfig({
+      route: 'onboarding.invalid-config-restore-last-known-good',
+      source: 'internal',
+    });
+    printSuccess(
+      `Restored runtime config from the last known-good saved snapshot (${lastKnownGood.updatedAt}).`,
+    );
+    printSuccess(`Updated runtime config at ${runtimeConfigPath()}.`);
+    console.log();
+    return;
+  }
+
+  const revisions = listRuntimeConfigRevisions();
+  if (revisions.length === 0) {
+    printWarn(
+      `No saved config revisions were found. Fix ${runtimeConfigPath()} manually, then rerun ${commandLabel}.`,
+    );
+    throw new Error(summary);
+  }
+
+  printInfo('Recent saved config revisions:');
+  for (const revision of revisions.slice(0, 5)) {
+    console.log(
+      `  #${revision.id} | ${revision.createdAt} | route=${revision.route} | actor=${revision.actor}`,
+    );
+  }
+  console.log();
+
+  const latest = revisions[0];
+  const shouldRollback = await promptYesNo(
+    rl,
+    `Roll back ${runtimeConfigPath()} to revision #${latest.id} from ${latest.createdAt}?`,
+    true,
+    ICON_SETUP,
+  );
+  if (!shouldRollback) {
+    throw new Error(buildInvalidRuntimeConfigErrorMessage(commandLabel));
+  }
+
+  restoreRuntimeConfigRevision(latest.id, {
+    route: `onboarding.invalid-config-rollback#${latest.id}`,
+    source: 'internal',
+  });
+  printSuccess(`Rolled back runtime config to revision #${latest.id}.`);
+  printSuccess(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log();
 }
 
 async function runHybridAIApiKeyOnboarding(params: {
@@ -1154,11 +1280,13 @@ export async function ensureRuntimeCredentials(
 
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
   let rl: readline.Interface | null = null;
+  const commandLabel = options.commandName || 'hybridclaw';
   if (interactive) {
     rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
     });
+    await ensureValidRuntimeConfig(rl, commandLabel);
     try {
       const migrated = await maybeOfferAgentHomeMigrations(
         rl,
@@ -1169,6 +1297,8 @@ export async function ensureRuntimeCredentials(
       rl.close();
       throw new Error('Failed during agent migration offer.', { cause: error });
     }
+  } else {
+    await ensureValidRuntimeConfig(null, commandLabel);
   }
 
   const runtimeConfig = getRuntimeConfig();
@@ -1281,7 +1411,6 @@ export async function ensureRuntimeCredentials(
     );
   }
 
-  const commandLabel = options.commandName || 'hybridclaw';
   if (!rl) {
     throw new Error('Interactive onboarding interface was not initialized.');
   }
