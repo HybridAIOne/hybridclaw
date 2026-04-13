@@ -4,15 +4,14 @@ import { cx } from '../../lib/cx';
 import { HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../ui/alert-dialog';
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../dialog';
 import {
   Sidebar,
   SidebarContent,
@@ -147,23 +146,23 @@ function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
           ) : null}
         </SidebarFooterMenu>
       </SidebarFooterActions>
-      <AlertDialog open={forgetTokenOpen} onOpenChange={setForgetTokenOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Forget token?</AlertDialogTitle>
-            <AlertDialogDescription>
+      <Dialog open={forgetTokenOpen} onOpenChange={setForgetTokenOpen}>
+        <DialogContent size="sm" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Forget token?</DialogTitle>
+            <DialogDescription>
               You will be logged out and will need to enter your token again to
               access the admin console.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={props.onLogout}>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <DialogClose className="danger-button" onClick={props.onLogout}>
               Forget token
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
