@@ -246,13 +246,16 @@ export function createEmailConnectionManager(
     try {
       const uidValidity = resolveMailboxUidValidity(activeClient);
       const storedCursor = persistedCursorState.get(folder);
-      const hasStoredCursor =
-        Boolean(storedCursor) && storedCursor.uidValidity === uidValidity;
-      let lastProcessedUid =
-        hasStoredCursor && storedCursor ? storedCursor.lastProcessedUid : 0;
+      const compatibleStoredCursor =
+        storedCursor && storedCursor.uidValidity === uidValidity
+          ? storedCursor
+          : null;
+      let lastProcessedUid = compatibleStoredCursor
+        ? compatibleStoredCursor.lastProcessedUid
+        : 0;
 
       const maxKnownUid = resolveMailboxUidNext(activeClient) - 1;
-      if (!hasStoredCursor) {
+      if (!compatibleStoredCursor) {
         persistedCursorState.set(folder, {
           uidValidity,
           lastProcessedUid: maxKnownUid,
