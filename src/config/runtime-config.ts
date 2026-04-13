@@ -463,6 +463,22 @@ export interface RuntimeHttpRequestToolConfig {
   authRules: RuntimeHttpRequestAuthRule[];
 }
 
+export interface RuntimeBrowserUseConfig {
+  baseUrl: string;
+  defaultModel: string;
+  defaultProxyCountry: string;
+  enableRecording: boolean;
+  maxCostPerTaskUsd: number;
+  maxSessionTimeoutMinutes: number;
+  preferAgentMode: boolean;
+  deterministicRerun: boolean;
+}
+
+export interface RuntimeBrowserConfig {
+  cloudProvider: 'none' | 'browser-use';
+  browserUse: RuntimeBrowserUseConfig;
+}
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -539,6 +555,7 @@ export interface RuntimeConfig {
     models: string[];
   };
   local: LocalProviderConfig;
+  browser: RuntimeBrowserConfig;
   auxiliaryModels: {
     vision: RuntimeAuxiliaryModelPolicyConfig;
     compression: RuntimeAuxiliaryModelPolicyConfig;
@@ -1004,6 +1021,19 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultContextWindow: 128_000,
     defaultMaxTokens: 8_192,
   },
+  browser: {
+    cloudProvider: 'none',
+    browserUse: {
+      baseUrl: 'https://api.browser-use.com/api/v3',
+      defaultModel: 'claude-sonnet-4.6',
+      defaultProxyCountry: 'us',
+      enableRecording: false,
+      maxCostPerTaskUsd: 1,
+      maxSessionTimeoutMinutes: 30,
+      preferAgentMode: true,
+      deterministicRerun: true,
+    },
+  },
   auxiliaryModels: {
     vision: {
       provider: 'auto',
@@ -1366,6 +1396,63 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function normalizeBrowserCloudProvider(
+  value: unknown,
+  fallback: RuntimeBrowserConfig['cloudProvider'],
+): RuntimeBrowserConfig['cloudProvider'] {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'browser-use' || normalized === 'browser_use') {
+    return 'browser-use';
+  }
+  if (normalized === 'none' || normalized === 'off' || normalized === 'local') {
+    return 'none';
+  }
+  return fallback;
+}
+
+function normalizeBrowserUseConfig(
+  value: unknown,
+  fallback: RuntimeBrowserUseConfig,
+): RuntimeBrowserUseConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    baseUrl: normalizeString(raw.baseUrl, fallback.baseUrl, {
+      allowEmpty: false,
+    }).replace(/\/+$/, ''),
+    defaultModel: normalizeString(raw.defaultModel, fallback.defaultModel, {
+      allowEmpty: false,
+    }),
+    defaultProxyCountry: normalizeString(
+      raw.defaultProxyCountry,
+      fallback.defaultProxyCountry,
+      { allowEmpty: true },
+    ).toLowerCase(),
+    enableRecording: normalizeBoolean(
+      raw.enableRecording,
+      fallback.enableRecording,
+    ),
+    maxCostPerTaskUsd: normalizeNumber(
+      raw.maxCostPerTaskUsd,
+      fallback.maxCostPerTaskUsd,
+      { min: 0 },
+    ),
+    maxSessionTimeoutMinutes: normalizeInteger(
+      raw.maxSessionTimeoutMinutes,
+      fallback.maxSessionTimeoutMinutes,
+      { min: 1, max: 240 },
+    ),
+    preferAgentMode: normalizeBoolean(
+      raw.preferAgentMode,
+      fallback.preferAgentMode,
+    ),
+    deterministicRerun: normalizeBoolean(
+      raw.deterministicRerun,
+      fallback.deterministicRerun,
+    ),
+  };
 }
 
 function normalizeSkillChannelDisabled(
@@ -3480,6 +3567,7 @@ function normalizeRuntimeConfig(
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
+  const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
     : {};
@@ -4089,6 +4177,16 @@ function normalizeRuntimeConfig(
         rawLocal.defaultMaxTokens,
         DEFAULT_RUNTIME_CONFIG.local.defaultMaxTokens,
         { min: 64, max: 1_000_000 },
+      ),
+    },
+    browser: {
+      cloudProvider: normalizeBrowserCloudProvider(
+        rawBrowser.cloudProvider,
+        DEFAULT_RUNTIME_CONFIG.browser.cloudProvider,
+      ),
+      browserUse: normalizeBrowserUseConfig(
+        rawBrowser.browserUse,
+        DEFAULT_RUNTIME_CONFIG.browser.browserUse,
       ),
     },
     auxiliaryModels: {

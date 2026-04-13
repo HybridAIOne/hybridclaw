@@ -25,6 +25,7 @@ const TOOL_GROUPS: ToolGroup[] = [
     label: 'Browser',
     tools: [
       'browser_navigate',
+      'browser_agent_task',
       'browser_snapshot',
       'browser_click',
       'browser_type',
@@ -36,6 +37,9 @@ const TOOL_GROUPS: ToolGroup[] = [
       'browser_pdf',
       'browser_vision',
       'browser_get_images',
+      'browser_save_profile',
+      'browser_load_profile',
+      'browser_get_recording',
       'browser_console',
       'browser_network',
       'browser_close',

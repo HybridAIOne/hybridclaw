@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { browserUseProvider } from './browser-use-provider.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -199,6 +200,15 @@ type BrowserSession = {
   lastUsedAt: number;
 };
 
+type BrowserExecutionStrategy = 'local-cdp' | 'cloud-cdp' | 'cloud-agent';
+
+type ResolvedCdpConnection = {
+  strategy: BrowserExecutionStrategy;
+  cdpUrl?: string;
+  liveUrl?: string | null;
+  cloudSessionId?: string;
+};
+
 type BrowserVisionContext = BrowserModelContext & {
   isLocal?: boolean;
   contextWindow?: number;
@@ -345,7 +355,7 @@ function resolveSharedProfileDir(): string | undefined {
   }
 }
 
-function resolveCdpUrl(explicit?: string): string | undefined {
+function resolveExplicitCdpUrl(explicit?: string): string | undefined {
   const direct = String(explicit || '').trim();
   if (direct) return direct;
   const configured = String(process.env.BROWSER_CDP_URL || '').trim();
@@ -551,50 +561,66 @@ async function terminateSessionProcess(session: BrowserSession): Promise<void> {
   await terminateProcess(readSessionPid(session));
 }
 
-async function closeSession(
-  sessionId: string,
-  options: { createIfMissing?: boolean } = {},
-): Promise<string | null> {
+async function closeSession(sessionId: string): Promise<{
+  warning: string | null;
+  artifacts: Array<{ path: string; filename: string; mimeType: string }>;
+} | null> {
   const sessionKey = normalizeSessionKey(sessionId);
-  const session = options.createIfMissing
-    ? getSession(sessionKey)
-    : activeSessions.get(sessionKey);
-  if (!session) return null;
-  const pidBeforeClose = readSessionPid(session);
-
-  const result = await runAgentBrowser(session.sessionKey, 'close', [], {
-    timeoutMs: BROWSER_CLOSE_TIMEOUT_MS,
-  });
-  if (result.success) {
-    let warning: string | null = null;
-    try {
-      await terminateProcess(pidBeforeClose);
-    } catch (err) {
-      warning =
-        err instanceof Error && err.message
-          ? `daemon termination failed: ${err.message}`
-          : 'daemon termination failed';
-    } finally {
-      removeSessionResources(session);
+  const session = activeSessions.get(sessionKey);
+  let localWarning: string | null = null;
+  if (session) {
+    const pidBeforeClose = readSessionPid(session);
+    const result = await runAgentBrowser(session.sessionKey, 'close', [], {
+      timeoutMs: BROWSER_CLOSE_TIMEOUT_MS,
+    });
+    if (result.success) {
+      try {
+        await terminateProcess(pidBeforeClose);
+      } catch (err) {
+        localWarning =
+          err instanceof Error && err.message
+            ? `daemon termination failed: ${err.message}`
+            : 'daemon termination failed';
+      } finally {
+        removeSessionResources(session);
+      }
+    } else {
+      try {
+        await terminateSessionProcess(session);
+      } catch {
+        // Best effort fallback. The warning below preserves the original error.
+      } finally {
+        removeSessionResources(session);
+      }
+      localWarning = result.error || 'session close returned non-success';
     }
-    return warning;
   }
 
-  try {
-    await terminateSessionProcess(session);
-  } catch {
-    // Best effort fallback. The warning below preserves the original error.
-  } finally {
-    removeSessionResources(session);
-  }
+  const cloudResult = await browserUseProvider.closeLocalSession(
+    sessionKey,
+    BROWSER_ARTIFACT_ROOT,
+  );
+  const warnings = [
+    ...(localWarning ? [localWarning] : []),
+    ...cloudResult.warnings,
+  ];
 
-  return result.error || 'session close returned non-success';
+  if (!session && warnings.length === 0 && cloudResult.artifacts.length === 0) {
+    return null;
+  }
+  return {
+    warning: warnings.length > 0 ? warnings.join('; ') : null,
+    artifacts: cloudResult.artifacts,
+  };
 }
 
 export async function cleanupAllBrowserSessions(): Promise<void> {
-  const sessions = Array.from(activeSessions.values());
-  for (const session of sessions) {
-    await closeSession(session.sessionKey);
+  const tracked = new Set([
+    ...Array.from(activeSessions.keys()),
+    ...browserUseProvider.getTrackedSessionIds(),
+  ]);
+  for (const sessionKey of tracked) {
+    await closeSession(sessionKey);
   }
 }
 
@@ -685,6 +711,108 @@ async function assertNavigationUrl(raw: unknown): Promise<URL> {
     );
   }
   return parsed;
+}
+
+function extractTaskUrlCandidates(task: string): string[] {
+  const matches = task.match(/https?:\/\/[^\s)>"'`]+/gi) || [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const match of matches) {
+    const normalized = match.trim().replace(/[),.;:]+$/, '');
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+async function assertCloudAgentTaskAllowed(task: string): Promise<void> {
+  const candidates = extractTaskUrlCandidates(task);
+  for (const candidate of candidates) {
+    const parsed = await assertNavigationUrl(candidate);
+    if (await isPrivateHost(parsed.hostname)) {
+      throw new Error(
+        `Browser Use cloud task blocked: private or loopback host (${parsed.hostname}). Use the local browser tools flow instead.`,
+      );
+    }
+  }
+
+  const normalizedTask = task.toLowerCase();
+  if (
+    normalizedTask.includes('localhost') ||
+    normalizedTask.includes('127.0.0.1') ||
+    normalizedTask.includes('.local')
+  ) {
+    throw new Error(
+      'Browser Use cloud task blocked: localhost/private targets are not allowed in cloud agent mode.',
+    );
+  }
+}
+
+async function resolveExecutionStrategy(params: {
+  kind: 'cdp' | 'agent';
+  sessionId?: string;
+  url?: URL;
+  proxyCountry?: string;
+  timeoutMinutes?: number;
+}): Promise<BrowserExecutionStrategy> {
+  const explicitCdpUrl = resolveExplicitCdpUrl();
+  if (params.kind === 'agent') {
+    return browserUseProvider.isEnabled() ? 'cloud-agent' : 'local-cdp';
+  }
+  if (explicitCdpUrl) return 'local-cdp';
+  if (!browserUseProvider.isEnabled()) return 'local-cdp';
+  if (params.url && (await isPrivateHost(params.url.hostname))) {
+    return 'local-cdp';
+  }
+  return browserUseProvider.shouldUseCloudCdp({
+    localSessionId: normalizeSessionKey(params.sessionId || 'default'),
+    proxyCountry: params.proxyCountry,
+    timeoutMinutes: params.timeoutMinutes,
+  })
+    ? 'cloud-cdp'
+    : 'local-cdp';
+}
+
+async function resolveCdpConnection(
+  sessionId: string,
+  options: {
+    explicitCdpUrl?: string;
+    url?: URL;
+    proxyCountry?: string;
+    timeoutMinutes?: number;
+  } = {},
+): Promise<ResolvedCdpConnection> {
+  const direct = resolveExplicitCdpUrl(options.explicitCdpUrl);
+  if (direct) {
+    return {
+      strategy: 'local-cdp',
+      cdpUrl: direct,
+    };
+  }
+
+  const strategy = await resolveExecutionStrategy({
+    kind: 'cdp',
+    sessionId,
+    url: options.url,
+    proxyCountry: options.proxyCountry,
+    timeoutMinutes: options.timeoutMinutes,
+  });
+  if (strategy !== 'cloud-cdp') {
+    return { strategy };
+  }
+
+  const cloud = await browserUseProvider.ensureCdpSession({
+    localSessionId: normalizeSessionKey(sessionId),
+    proxyCountry: options.proxyCountry,
+    timeoutMinutes: options.timeoutMinutes,
+  });
+  return {
+    strategy,
+    cdpUrl: cloud.cdpUrl,
+    liveUrl: cloud.liveUrl,
+    cloudSessionId: cloud.id,
+  };
 }
 
 function truncateSnapshot(text: string): { text: string; truncated: boolean } {
@@ -827,6 +955,17 @@ function createTempScreenshotPath(prefix: string): string {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function normalizeOutputSchema(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  const schema = asRecord(value);
+  return schema ? { ...schema } : undefined;
+}
+
+function normalizeArtifactPaths(value: unknown): string[] {
+  return normalizeStringList(value, 32);
 }
 
 function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
@@ -1290,7 +1429,12 @@ async function runAgentBrowser(
   sessionId: string,
   command: string,
   commandArgs: string[] = [],
-  options: { timeoutMs?: number; cdpUrl?: string } = {},
+  options: {
+    timeoutMs?: number;
+    cdpUrl?: string;
+    proxyCountry?: string;
+    timeoutMinutes?: number;
+  } = {},
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const runner = resolveRunner();
   if (!runner) {
@@ -1314,7 +1458,12 @@ async function runAgentBrowser(
     resolvePlaywrightBrowsersPath(),
   );
   const args = [...runner.prefixArgs];
-  const cdpUrl = resolveCdpUrl(options.cdpUrl);
+  const cdpConnection = await resolveCdpConnection(session.sessionKey, {
+    explicitCdpUrl: options.cdpUrl,
+    proxyCountry: options.proxyCountry,
+    timeoutMinutes: options.timeoutMinutes,
+  });
+  const cdpUrl = cdpConnection.cdpUrl;
   if (cdpUrl) {
     args.push('--cdp', cdpUrl);
   }
@@ -1414,11 +1563,29 @@ export async function executeBrowserTool(
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertNavigationUrl(args.url);
+        const connection = await resolveCdpConnection(effectiveSessionId, {
+          url: parsed,
+          proxyCountry: String(args.proxy_country || '').trim() || undefined,
+          timeoutMinutes:
+            typeof args.timeout_minutes === 'number' &&
+            Number.isFinite(args.timeout_minutes)
+              ? Math.floor(args.timeout_minutes)
+              : undefined,
+        });
         const result = await runAgentBrowser(
           effectiveSessionId,
           'open',
           [parsed.toString()],
-          { timeoutMs: 60_000 },
+          {
+            timeoutMs: 60_000,
+            cdpUrl: connection.cdpUrl,
+            proxyCountry: String(args.proxy_country || '').trim() || undefined,
+            timeoutMinutes:
+              typeof args.timeout_minutes === 'number' &&
+              Number.isFinite(args.timeout_minutes)
+                ? Math.floor(args.timeout_minutes)
+                : undefined,
+          },
         );
         if (!result.success)
           return failure(result.error || 'navigation failed');
@@ -1456,6 +1623,11 @@ export async function executeBrowserTool(
           url: data.url || parsed.toString(),
           title,
           session_id: effectiveSessionId,
+          execution_strategy: connection.strategy,
+          ...(connection.cloudSessionId
+            ? { cloud_session_id: connection.cloudSessionId }
+            : {}),
+          ...(connection.liveUrl ? { live_url: connection.liveUrl } : {}),
           content_text_length: contentLength,
           ...(contentPreview ? { content_preview: contentPreview } : {}),
           ...(contentPreview
@@ -1466,6 +1638,66 @@ export async function executeBrowserTool(
           ...(rootShell ? { root_shell: true } : {}),
           read_extraction_hint: extractionHint,
           ...(botWarning ? { bot_detection_warning: botWarning } : {}),
+        });
+      }
+
+      case 'browser_agent_task': {
+        const task = String(args.task || '').trim();
+        if (!task) return failure('task is required');
+        await assertCloudAgentTaskAllowed(task);
+        const strategy = await resolveExecutionStrategy({ kind: 'agent' });
+        if (strategy !== 'cloud-agent') {
+          return failure(
+            'browser_agent_task requires Browser Use cloud. Configure browser.cloudProvider="browser-use" and BROWSER_USE_API_KEY, or use the step-by-step browser_* tools instead.',
+          );
+        }
+        const outputSchema = normalizeOutputSchema(args.output_schema);
+        const artifactPaths = normalizeArtifactPaths(args.artifact_paths);
+        const agentResult = await browserUseProvider.runAgentTask({
+          localSessionId: effectiveSessionId,
+          task,
+          outputSchema,
+          artifactPaths,
+          sessionId: String(args.session_id || '').trim() || undefined,
+          proxyCountry: String(args.proxy_country || '').trim() || undefined,
+          model: String(args.model || '').trim() || undefined,
+          artifactRoot: BROWSER_ARTIFACT_ROOT,
+          progress: (message) => {
+            console.error(`[tool] browser_agent_task: ${message}`);
+          },
+        });
+        return success({
+          execution_strategy: strategy,
+          session_id: agentResult.sessionId,
+          status: agentResult.status,
+          is_task_successful: agentResult.isTaskSuccessful,
+          output: agentResult.output,
+          ...(agentResult.outputText
+            ? { output_text: agentResult.outputText }
+            : {}),
+          step_count: agentResult.stepCount,
+          ...(agentResult.lastStepSummary
+            ? { last_step_summary: agentResult.lastStepSummary }
+            : {}),
+          ...(agentResult.liveUrl ? { live_url: agentResult.liveUrl } : {}),
+          ...(agentResult.profileId
+            ? { profile_id: agentResult.profileId }
+            : {}),
+          ...(agentResult.workspaceId
+            ? { workspace_id: agentResult.workspaceId }
+            : {}),
+          workspace_artifact_paths: agentResult.workspaceArtifactPaths,
+          llm_cost_usd: agentResult.llmCostUsd,
+          proxy_cost_usd: agentResult.proxyCostUsd,
+          browser_cost_usd: agentResult.browserCostUsd,
+          total_cost_usd: agentResult.totalCostUsd,
+          total_input_tokens: agentResult.totalInputTokens,
+          total_output_tokens: agentResult.totalOutputTokens,
+          ...(agentResult.screenshotUrl
+            ? { screenshot_url: agentResult.screenshotUrl }
+            : {}),
+          recording_paths: agentResult.recordingPaths,
+          artifacts: agentResult.artifacts,
         });
       }
 
@@ -1760,6 +1992,68 @@ export async function executeBrowserTool(
         return success({ count: images.length, images });
       }
 
+      case 'browser_save_profile': {
+        if (!browserUseProvider.isEnabled()) {
+          return failure(
+            'Browser Use cloud profiles are not configured. Set browser.cloudProvider="browser-use" and provide BROWSER_USE_API_KEY.',
+          );
+        }
+        const profile = await browserUseProvider.createProfile({
+          localSessionId: effectiveSessionId,
+          name: String(args.name || '').trim() || undefined,
+          userId: String(args.user_id || '').trim() || undefined,
+        });
+        return success({
+          profile_id: profile.profile.id,
+          ...(profile.profile.name ? { name: profile.profile.name } : {}),
+          ...(profile.profile.userId
+            ? { user_id: profile.profile.userId }
+            : {}),
+          applies_to_current_session: profile.appliesToCurrentSession,
+          applies_to_next_session: profile.appliesToNextSession,
+        });
+      }
+
+      case 'browser_load_profile': {
+        if (!browserUseProvider.isEnabled()) {
+          return failure(
+            'Browser Use cloud profiles are not configured. Set browser.cloudProvider="browser-use" and provide BROWSER_USE_API_KEY.',
+          );
+        }
+        const profile = await browserUseProvider.loadProfile({
+          localSessionId: effectiveSessionId,
+          profileId: String(args.profile_id || '').trim() || undefined,
+          query: String(args.query || args.name || '').trim() || undefined,
+          userId: String(args.user_id || '').trim() || undefined,
+        });
+        return success({
+          profile_id: profile.profile.id,
+          ...(profile.profile.name ? { name: profile.profile.name } : {}),
+          ...(profile.profile.userId
+            ? { user_id: profile.profile.userId }
+            : {}),
+          ...(profile.profile.cookieDomains
+            ? { cookie_domains: profile.profile.cookieDomains }
+            : {}),
+          applies_to_current_session: profile.appliesToCurrentSession,
+          applies_to_next_session: profile.appliesToNextSession,
+        });
+      }
+
+      case 'browser_get_recording': {
+        const artifacts = browserUseProvider.getLatestRecordingArtifacts(
+          normalizeSessionKey(effectiveSessionId),
+        );
+        const recordingPaths = artifacts
+          .map((entry) => toWorkspaceRelativePath(entry.path))
+          .filter((entry): entry is string => Boolean(entry));
+        return success({
+          count: recordingPaths.length,
+          recording_paths: recordingPaths,
+          artifacts,
+        });
+      }
+
       case 'browser_console': {
         const clear = args.clear === true;
         const commandArgs = clear ? ['--clear'] : [];
@@ -1883,13 +2177,20 @@ export async function executeBrowserTool(
       }
 
       case 'browser_close': {
-        const warning = await closeSession(effectiveSessionId, {
-          createIfMissing: true,
-        });
-        if (warning) {
+        const closed = await closeSession(effectiveSessionId);
+        if (closed && (closed.warning || closed.artifacts.length > 0)) {
+          const recordingPaths = closed.artifacts
+            .map((entry) => toWorkspaceRelativePath(entry.path))
+            .filter((entry): entry is string => Boolean(entry));
           return success({
             closed: true,
-            warning,
+            ...(closed.warning ? { warning: closed.warning } : {}),
+            ...(closed.artifacts.length > 0
+              ? {
+                  recording_paths: recordingPaths,
+                  artifacts: closed.artifacts,
+                }
+              : {}),
           });
         }
         return success({ closed: true });
@@ -1917,8 +2218,64 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description: 'URL to open (http:// or https://)',
           },
+          proxy_country: {
+            type: 'string',
+            description:
+              'Optional two-letter proxy country override for Browser Use cloud sessions (for example "us" or "de").',
+          },
+          timeout_minutes: {
+            type: 'number',
+            description:
+              'Optional Browser Use cloud session timeout override in minutes.',
+          },
         },
         required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_agent_task',
+      description:
+        'Delegate a multi-step web task to Browser Use cloud agent mode. Prefer this over many step-by-step browser_* calls for workflows like extraction, checkout flows, settings updates, or structured scraping. Private or localhost targets are not allowed in cloud agent mode.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: {
+            type: 'string',
+            description: 'Natural-language task for the browser agent.',
+          },
+          output_schema: {
+            type: 'object',
+            description:
+              'Optional JSON Schema for the final structured output.',
+          },
+          artifact_paths: {
+            type: 'array',
+            description:
+              'Optional relative file paths under .browser-artifacts to upload into the Browser Use workspace for this task.',
+            items: {
+              type: 'string',
+            },
+          },
+          session_id: {
+            type: 'string',
+            description:
+              'Optional Browser Use session id to reuse for follow-up tasks.',
+          },
+          proxy_country: {
+            type: 'string',
+            description:
+              'Optional two-letter proxy country override for a new cloud session.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional Browser Use model override. Defaults to the configured cloud model.',
+          },
+        },
+        required: ['task'],
       },
     },
   },
@@ -2167,6 +2524,74 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_get_images',
       description: 'Extract image URLs and alt text from the current page.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_save_profile',
+      description:
+        'Create a new Browser Use cloud profile and select it for this HybridClaw session. Run this before login-heavy cloud browser flows when you want future Browser Use sessions to preserve auth state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Optional human-readable name for the profile.',
+          },
+          user_id: {
+            type: 'string',
+            description:
+              'Optional application user id to associate with the cloud profile.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_load_profile',
+      description:
+        'Select an existing Browser Use cloud profile for this HybridClaw session. Use before Browser Use cloud tasks when you want to reuse saved cookies or auth state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          profile_id: {
+            type: 'string',
+            description: 'Exact Browser Use profile id to select.',
+          },
+          query: {
+            type: 'string',
+            description:
+              'Optional profile name or id search when profile_id is not provided.',
+          },
+          name: {
+            type: 'string',
+            description: 'Alias for query when selecting by profile name.',
+          },
+          user_id: {
+            type: 'string',
+            description:
+              'Optional application user id filter when searching for a profile.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_get_recording',
+      description:
+        'Return the most recently downloaded Browser Use cloud session recordings for this HybridClaw session. Use after browser_agent_task or browser_close when recording is enabled.',
       parameters: {
         type: 'object',
         properties: {},

@@ -179,6 +179,11 @@ function syncRuntimeSecretExports(): void {
     'HF_TOKEN',
     storedSecrets,
   );
+  BROWSER_USE_API_KEY = readRuntimeSecretValue(
+    ['BROWSER_USE_API_KEY'],
+    'BROWSER_USE_API_KEY',
+    storedSecrets,
+  );
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
@@ -194,6 +199,7 @@ export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
+export let BROWSER_USE_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
@@ -361,6 +367,16 @@ export let LOCAL_HEALTH_CHECK_INTERVAL_MS = 60_000;
 export let LOCAL_HEALTH_CHECK_TIMEOUT_MS = 5_000;
 export let LOCAL_DEFAULT_CONTEXT_WINDOW = 128_000;
 export let LOCAL_DEFAULT_MAX_TOKENS = 8_192;
+export let BROWSER_CLOUD_PROVIDER: RuntimeConfig['browser']['cloudProvider'] =
+  'none';
+export let BROWSER_USE_BASE_URL = 'https://api.browser-use.com/api/v3';
+export let BROWSER_USE_DEFAULT_MODEL = 'claude-sonnet-4.6';
+export let BROWSER_USE_DEFAULT_PROXY_COUNTRY = 'us';
+export let BROWSER_USE_ENABLE_RECORDING = false;
+export let BROWSER_USE_MAX_COST_PER_TASK_USD = 1;
+export let BROWSER_USE_MAX_SESSION_TIMEOUT_MINUTES = 30;
+export let BROWSER_USE_PREFER_AGENT_MODE = true;
+export let BROWSER_USE_DETERMINISTIC_RERUN = true;
 
 export let CONTAINER_IMAGE = 'hybridclaw-agent';
 export let CONTAINER_MEMORY = '512m';
@@ -710,6 +726,26 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   LOCAL_HEALTH_CHECK_TIMEOUT_MS = config.local.healthCheck.timeoutMs;
   LOCAL_DEFAULT_CONTEXT_WINDOW = config.local.defaultContextWindow;
   LOCAL_DEFAULT_MAX_TOKENS = config.local.defaultMaxTokens;
+  BROWSER_CLOUD_PROVIDER = config.browser.cloudProvider;
+  BROWSER_USE_BASE_URL = normalizeConfiguredBaseUrl(
+    process.env.BROWSER_USE_BASE_URL,
+    config.browser.browserUse.baseUrl,
+  );
+  BROWSER_USE_DEFAULT_MODEL = config.browser.browserUse.defaultModel;
+  BROWSER_USE_DEFAULT_PROXY_COUNTRY =
+    config.browser.browserUse.defaultProxyCountry;
+  BROWSER_USE_ENABLE_RECORDING = config.browser.browserUse.enableRecording;
+  BROWSER_USE_MAX_COST_PER_TASK_USD = Math.max(
+    0,
+    config.browser.browserUse.maxCostPerTaskUsd,
+  );
+  BROWSER_USE_MAX_SESSION_TIMEOUT_MINUTES = Math.max(
+    1,
+    Math.min(240, config.browser.browserUse.maxSessionTimeoutMinutes),
+  );
+  BROWSER_USE_PREFER_AGENT_MODE = config.browser.browserUse.preferAgentMode;
+  BROWSER_USE_DETERMINISTIC_RERUN =
+    config.browser.browserUse.deterministicRerun;
 
   CONTAINER_SANDBOX_MODE = resolveSandboxMode(config);
   CONTAINER_IMAGE = config.container.image;

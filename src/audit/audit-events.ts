@@ -41,6 +41,21 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
+function summarizeAuditToolResult(toolName: string, text: string): string {
+  if (!toolName.startsWith('browser_')) {
+    return summarizeToolResult(text);
+  }
+  const parsed = parseJsonObject(text);
+  if (!Object.hasOwn(parsed, 'live_url')) {
+    return summarizeToolResult(text);
+  }
+  const sanitized = {
+    ...parsed,
+    live_url: '[REDACTED]',
+  };
+  return summarizeToolResult(JSON.stringify(sanitized));
+}
+
 const SENSITIVE_ARG_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 
@@ -65,6 +80,94 @@ function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
     out[key] = sanitizeAuditArguments(toolName, raw);
   }
   return out;
+}
+
+function asTrimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function countArrayItems(value: unknown): number | undefined {
+  return Array.isArray(value) ? value.length : undefined;
+}
+
+function emitBrowserToolAuditEvents(input: {
+  sessionId: string;
+  runId: string;
+  toolCallId: string;
+  execution: ToolExecution;
+}): void {
+  const result = parseJsonObject(input.execution.result || '{}');
+  const executionStrategy = asTrimmedString(result.execution_strategy);
+  const cloudSessionId =
+    asTrimmedString(result.cloud_session_id) ||
+    asTrimmedString(result.session_id);
+
+  if (executionStrategy?.startsWith('cloud-') && cloudSessionId) {
+    recordAuditEvent({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      event: {
+        type: 'browser.session',
+        toolCallId: input.toolCallId,
+        toolName: input.execution.name,
+        executionStrategy,
+        cloudSessionId,
+      },
+    });
+  }
+
+  if (input.execution.name !== 'browser_agent_task' || !cloudSessionId) {
+    return;
+  }
+
+  const stepCount = asFiniteNumber(result.step_count);
+  const totalInputTokens = asFiniteNumber(result.total_input_tokens);
+  const totalOutputTokens = asFiniteNumber(result.total_output_tokens);
+  const recordingCount = countArrayItems(result.recording_paths);
+
+  recordAuditEvent({
+    sessionId: input.sessionId,
+    runId: input.runId,
+    event: {
+      type: 'browser.agent_task',
+      toolCallId: input.toolCallId,
+      sessionId: cloudSessionId,
+      status: asTrimmedString(result.status) || 'unknown',
+      executionStrategy: executionStrategy || 'cloud-agent',
+      isTaskSuccessful:
+        typeof result.is_task_successful === 'boolean'
+          ? result.is_task_successful
+          : null,
+      ...(stepCount != null ? { stepCount } : {}),
+      ...(asTrimmedString(result.llm_cost_usd)
+        ? { llmCostUsd: asTrimmedString(result.llm_cost_usd) }
+        : {}),
+      ...(asTrimmedString(result.proxy_cost_usd)
+        ? { proxyCostUsd: asTrimmedString(result.proxy_cost_usd) }
+        : {}),
+      ...(asTrimmedString(result.browser_cost_usd)
+        ? { browserCostUsd: asTrimmedString(result.browser_cost_usd) }
+        : {}),
+      ...(asTrimmedString(result.total_cost_usd)
+        ? { totalCostUsd: asTrimmedString(result.total_cost_usd) }
+        : {}),
+      ...(totalInputTokens != null ? { totalInputTokens } : {}),
+      ...(totalOutputTokens != null ? { totalOutputTokens } : {}),
+      ...(asTrimmedString(result.profile_id)
+        ? { profileId: asTrimmedString(result.profile_id) }
+        : {}),
+      ...(asTrimmedString(result.workspace_id)
+        ? { workspaceId: asTrimmedString(result.workspace_id) }
+        : {}),
+      ...(recordingCount != null ? { recordingCount } : {}),
+    },
+  });
 }
 
 export function emitToolExecutionAuditEvents(input: {
@@ -212,9 +315,19 @@ export function emitToolExecutionAuditEvents(input: {
         toolName: execution.name,
         isError: Boolean(execution.isError),
         blocked: Boolean(execution.blocked),
-        resultSummary: summarizeToolResult(execution.result || ''),
+        resultSummary: summarizeAuditToolResult(
+          execution.name,
+          execution.result || '',
+        ),
         durationMs: execution.durationMs,
       },
+    });
+
+    emitBrowserToolAuditEvents({
+      sessionId,
+      runId,
+      toolCallId,
+      execution,
     });
   });
 }

@@ -110,3 +110,107 @@ test('emits approval request and response events for pending red actions', async
     'tool.call',
   ]);
 });
+
+test('emits Browser Use session and cost audit events for browser_agent_task', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-browser-use-audit',
+    runId: 'run-browser-use-audit',
+    toolExecutions: [
+      {
+        name: 'browser_agent_task',
+        arguments:
+          '{"task":"Extract account balances","output_schema":{"type":"object"}}',
+        result: JSON.stringify({
+          execution_strategy: 'cloud-agent',
+          session_id: 'browser-use-session-123',
+          status: 'idle',
+          is_task_successful: true,
+          step_count: 4,
+          llm_cost_usd: '0.12',
+          proxy_cost_usd: '0.02',
+          browser_cost_usd: '0.03',
+          total_cost_usd: '0.17',
+          total_input_tokens: 345,
+          total_output_tokens: 67,
+          profile_id: 'profile-123',
+          workspace_id: 'workspace-123',
+          live_url: 'https://browser-use.example/live/session-123',
+          recording_paths: [
+            '.browser-artifacts/recordings/session-session-browser-use-audit-1.mp4',
+          ],
+        }),
+        durationMs: 1578,
+        isError: false,
+        blocked: false,
+        approvalTier: 'green',
+        approvalBaseTier: 'green',
+        approvalDecision: 'auto',
+      },
+    ],
+  });
+
+  const events = getRecentStructuredAuditForSession(
+    'session-browser-use-audit',
+    10,
+  );
+  const sessionEvent = events.find(
+    (event) => event.event_type === 'browser.session',
+  );
+  const agentTaskEvent = events.find(
+    (event) => event.event_type === 'browser.agent_task',
+  );
+
+  expect(sessionEvent).toBeDefined();
+  expect(agentTaskEvent).toBeDefined();
+  expect(sessionEvent ? JSON.parse(sessionEvent.payload) : null).toMatchObject({
+    type: 'browser.session',
+    executionStrategy: 'cloud-agent',
+    cloudSessionId: 'browser-use-session-123',
+    toolName: 'browser_agent_task',
+  });
+  expect(
+    sessionEvent ? JSON.parse(sessionEvent.payload) : null,
+  ).not.toHaveProperty('liveUrl');
+  expect(
+    agentTaskEvent ? JSON.parse(agentTaskEvent.payload) : null,
+  ).toMatchObject({
+    type: 'browser.agent_task',
+    sessionId: 'browser-use-session-123',
+    status: 'idle',
+    executionStrategy: 'cloud-agent',
+    isTaskSuccessful: true,
+    stepCount: 4,
+    llmCostUsd: '0.12',
+    totalCostUsd: '0.17',
+    totalInputTokens: 345,
+    totalOutputTokens: 67,
+    profileId: 'profile-123',
+    workspaceId: 'workspace-123',
+    recordingCount: 1,
+  });
+  expect(
+    agentTaskEvent ? JSON.parse(agentTaskEvent.payload) : null,
+  ).not.toHaveProperty('liveUrl');
+  const toolResultEvent = events.find(
+    (event) => event.event_type === 'tool.result',
+  );
+  expect(
+    toolResultEvent ? JSON.parse(toolResultEvent.payload) : null,
+  ).toMatchObject({
+    resultSummary: expect.not.stringContaining(
+      'https://browser-use.example/live/session-123',
+    ),
+  });
+});

@@ -2851,6 +2851,7 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_agent_task':
     case 'browser_snapshot':
     case 'browser_click':
     case 'browser_type':
@@ -2862,6 +2863,9 @@ async function executeToolInternal(
     case 'browser_pdf':
     case 'browser_vision':
     case 'browser_get_images':
+    case 'browser_save_profile':
+    case 'browser_load_profile':
+    case 'browser_get_recording':
     case 'browser_console':
     case 'browser_network':
     case 'browser_close': {

@@ -250,6 +250,19 @@
     "defaultContextWindow": 128000,
     "defaultMaxTokens": 8192
   },
+  "browser": {
+    "cloudProvider": "none",
+    "browserUse": {
+      "baseUrl": "https://api.browser-use.com/api/v3",
+      "defaultModel": "claude-sonnet-4.6",
+      "defaultProxyCountry": "us",
+      "enableRecording": false,
+      "maxCostPerTaskUsd": 1,
+      "maxSessionTimeoutMinutes": 30,
+      "preferAgentMode": true,
+      "deterministicRerun": true
+    }
+  },
   "auxiliaryModels": {
     "vision": {
       "provider": "auto",
