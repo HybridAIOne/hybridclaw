@@ -1,4 +1,5 @@
 import { setTheme, useTheme } from '../theme';
+import type { Theme } from '../theme-bootstrap';
 import {
   Dropdown,
   DropdownContent,
@@ -50,18 +51,17 @@ const SystemIcon = () => (
   </svg>
 );
 
-function ThemeIcon({ theme }: { theme: 'light' | 'dark' | 'system' }) {
+function ThemeIcon({ theme }: { theme: Theme }) {
   if (theme === 'light') return <SunIcon />;
   if (theme === 'dark') return <MoonIcon />;
   return <SystemIcon />;
 }
 
-const THEME_OPTIONS: { value: 'light' | 'dark' | 'system'; label: string }[] =
-  [
-    { value: 'light', label: 'Light' },
-    { value: 'dark', label: 'Dark' },
-    { value: 'system', label: 'System' },
-  ];
+const THEME_OPTIONS: { value: Theme; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+];
 
 export function ThemeToggle(props: { labelClassName?: string }) {
   const { theme, resolved } = useTheme();
