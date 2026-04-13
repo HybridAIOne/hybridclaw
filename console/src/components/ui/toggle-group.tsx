@@ -1,15 +1,10 @@
-import { createContext, useContext } from 'react';
-
-// ── Context ────────────────────────────────────────────────────────────────
-//
-// Mirrors the Radix UI ToggleGroup context pattern: the root sets
-// value/onValueChange/disabled/size and each item reads it.
+import { createContext, useContext, useMemo } from 'react';
+import { cx } from '../../lib/cx';
 
 type ToggleGroupContextValue = {
   value: string;
   onValueChange: (value: string) => void;
   disabled: boolean;
-  size: 'sm' | 'default';
 };
 
 const ToggleGroupContext = createContext<ToggleGroupContextValue | null>(null);
@@ -37,19 +32,22 @@ export function ToggleGroup(props: {
   disabled?: boolean;
   className?: string;
 }) {
-  const size = props.size ?? 'default';
   const disabled = props.disabled ?? false;
-  const sizeClass = size === 'sm' ? ' toggle-group--sm' : '';
-  const extraClass = props.className ? ` ${props.className}` : '';
+  const ctx = useMemo(
+    () => ({ value: props.value, onValueChange: props.onValueChange, disabled }),
+    [props.value, props.onValueChange, disabled],
+  );
 
   return (
-    <ToggleGroupContext.Provider
-      value={{ value: props.value, onValueChange: props.onValueChange, disabled, size }}
-    >
+    <ToggleGroupContext.Provider value={ctx}>
       {/* fieldset carries implicit role="group" — biome-compliant semantic element */}
       <fieldset
         aria-label={props.ariaLabel}
-        className={`binary-toggle${sizeClass}${extraClass}`}
+        className={cx(
+          'binary-toggle',
+          props.size === 'sm' && 'toggle-group--sm',
+          props.className,
+        )}
         data-disabled={disabled || undefined}
       >
         {props.children}
@@ -88,9 +86,7 @@ export function ToggleGroupItem(props: {
       type="button"
       aria-pressed={active}
       data-state={dataState}
-      className={
-        active ? `binary-toggle-button active ${tone}` : 'binary-toggle-button'
-      }
+      className={cx('binary-toggle-button', active && 'active', active && tone)}
       disabled={isDisabled}
       data-disabled={isDisabled || undefined}
       onClick={() => {
