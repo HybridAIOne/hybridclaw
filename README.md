@@ -23,6 +23,25 @@ Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email, or the
 locally, deploy it for business workflows, and keep your agents, secrets, and
 data under your control.
 
+[Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
+[Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
+[Configuration](https://www.hybridclaw.io/docs/reference/configuration) ·
+[Migration](https://www.hybridclaw.io/docs/reference/commands#migration) ·
+[Contributing](./CONTRIBUTING.md) ·
+[Support](./SUPPORT.md)
+
+## Pick your path
+
+- Want the shortest path to a running assistant? Start with
+  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart).
+- Want the full setup flow with providers, channels, and admin surfaces? Start
+  with [Installation](https://www.hybridclaw.io/docs/getting-started/installation)
+  and [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication).
+- Want to migrate from OpenClaw or Hermes? Start with the
+  [migration commands](https://www.hybridclaw.io/docs/reference/commands#migration).
+- Want to contribute from source? Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
+  and the maintainer docs under [docs/content/README.md](./docs/content/README.md).
+
 ## Coming from OpenClaw or Hermes?
 
 ```bash
@@ -142,8 +161,8 @@ Browse the full manual at
   [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
   [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/internals/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/internals/architecture)
+  [Runtime Internals](https://www.hybridclaw.io/docs/developer-guide/runtime) and
+  [Architecture](https://www.hybridclaw.io/docs/developer-guide/architecture)
 - Operations:
   [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
 - Security:
@@ -152,10 +171,15 @@ Browse the full manual at
   [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
   [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
-  [Slack](https://www.hybridclaw.io/docs/slack),
-  [iMessage](https://www.hybridclaw.io/docs/imessage), and
-  [MS Teams](https://www.hybridclaw.io/docs/msteams)
+  [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
+  [Overview](https://www.hybridclaw.io/docs/channels/overview),
+  [Discord](https://www.hybridclaw.io/docs/channels/discord),
+  [Slack](https://www.hybridclaw.io/docs/channels/slack),
+  [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
+  [Email](https://www.hybridclaw.io/docs/channels/email),
+  [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
+  [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
+  [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
@@ -172,20 +196,27 @@ Browse the full manual at
 
 ## Contributing
 
-Mini quick start:
+Contributor quick start:
 
 ```bash
 npm install
 npm run setup
 npm run build
+npm run typecheck
+npm run test:unit
 ```
 
 Use `npm run typecheck`, `npm run lint`, and targeted tests for code changes.
-For docs-only changes, verify links, commands, and examples. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow and check matrix.
+For docs-only changes, verify links, commands, and examples. GitHub issue forms
+cover bug reports, setup help, feature requests, and docs fixes, and the PR
+template asks for validation and scope boundaries up front. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow, check matrix, and
+community guidance.
 
 ## Community
 
 - Discord: [discord.gg/jsVW4vJw27](https://discord.gg/jsVW4vJw27)
 - Issues: [github.com/HybridAIOne/hybridclaw/issues](https://github.com/HybridAIOne/hybridclaw/issues)
 - Discussions: [github.com/HybridAIOne/hybridclaw/discussions](https://github.com/HybridAIOne/hybridclaw/discussions)
+- Support guide: [SUPPORT.md](./SUPPORT.md)
+- Community standards: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)

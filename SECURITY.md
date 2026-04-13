@@ -20,7 +20,7 @@ System prompts include safety constraints for every conversation turn:
 - Do not exfiltrate credentials, tokens, or private keys.
 - Prefer least-privilege actions and avoid destructive operations without explicit intent.
 
-Implementation: [src/prompt-hooks.ts](./src/prompt-hooks.ts)
+Implementation: [src/agent/prompt-hooks.ts](./src/agent/prompt-hooks.ts)
 
 ### 1.1) Browser Authentication Flows
 
@@ -67,7 +67,8 @@ Tool execution runs inside Docker with sandbox constraints:
 - controlled workspace/IPC mounts
 - additional mount allowlist validation
 
-Implementation: [src/container-runner.ts](./src/container-runner.ts), [src/mount-security.ts](./src/mount-security.ts)
+Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
+[src/security/mount-security.ts](./src/security/mount-security.ts)
 
 ### 4) Session Isolation
 
@@ -123,3 +124,20 @@ If compromise is suspected:
 3. Review mount allowlist, workspace files, and `sessionRouting.identityLinks`.
 4. Inspect denied/authorization events with `hybridclaw audit approvals --denied`.
 5. Validate audit integrity with `hybridclaw audit verify`.
+
+## Reporting A Vulnerability
+
+Do not report security vulnerabilities in public GitHub issues or Discussions.
+
+Report vulnerabilities privately to
+[support@hybridai.one](mailto:support@hybridai.one?subject=HybridClaw%20security%20report)
+with:
+
+- affected HybridClaw version
+- deployment details and operating system
+- reproduction steps or proof-of-concept
+- impact assessment
+- suggested mitigation if you have one
+
+Please redact secrets, tokens, and personal data from any attached logs or
+screenshots.

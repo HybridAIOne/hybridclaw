@@ -35,16 +35,22 @@ function makeTempDocsDir(options?: {
 }): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
   const docsDir = path.join(root, 'docs');
-  const developmentDocsDir = path.join(docsDir, 'development');
-  const extensibilityDir = path.join(developmentDocsDir, 'extensibility');
-  const guidesDir = path.join(developmentDocsDir, 'guides');
-  const referenceDir = path.join(developmentDocsDir, 'reference');
+  const contentDocsDir = path.join(docsDir, 'content');
+  const gettingStartedDir = path.join(contentDocsDir, 'getting-started');
+  const channelsDir = path.join(contentDocsDir, 'channels');
+  const extensibilityDir = path.join(contentDocsDir, 'extensibility');
+  const guidesDir = path.join(contentDocsDir, 'guides');
+  const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
+  const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
-  fs.mkdirSync(developmentDocsDir, { recursive: true });
+  fs.mkdirSync(contentDocsDir, { recursive: true });
+  fs.mkdirSync(gettingStartedDir, { recursive: true });
+  fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(extensibilityDir, { recursive: true });
   fs.mkdirSync(guidesDir, { recursive: true });
+  fs.mkdirSync(developerGuideDir, { recursive: true });
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
@@ -66,12 +72,12 @@ function makeTempDocsDir(options?: {
     'utf8',
   );
   fs.writeFileSync(
-    path.join(developmentDocsDir, '_category_.json'),
+    path.join(contentDocsDir, '_category_.json'),
     JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
     'utf8',
   );
   fs.writeFileSync(
-    path.join(developmentDocsDir, 'README.md'),
+    path.join(contentDocsDir, 'README.md'),
     [
       '---',
       'title: HybridClaw Docs',
@@ -81,7 +87,7 @@ function makeTempDocsDir(options?: {
       '',
       '# HybridClaw Docs',
       '',
-      'Start with [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
+      'Start with [Getting Started](./getting-started), [Channels](./channels), [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
       '',
       '## Getting Started',
       '',
@@ -90,6 +96,52 @@ function makeTempDocsDir(options?: {
       '### First Steps',
       '',
       'Read the overview, then pick a subsystem.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(gettingStartedDir, '_category_.json'),
+    JSON.stringify({
+      label: 'Getting Started',
+      position: 1,
+      collapsed: false,
+    }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(gettingStartedDir, 'README.md'),
+    [
+      '---',
+      'title: Getting Started',
+      'description: Install and launch HybridClaw.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Getting Started',
+      '',
+      'Install the CLI and launch your first HybridClaw surfaces from here.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(channelsDir, '_category_.json'),
+    JSON.stringify({ label: 'Channels', position: 2, collapsed: false }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(channelsDir, 'README.md'),
+    [
+      '---',
+      'title: Channels',
+      'description: Transport-specific setup guides.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Channels',
+      '',
+      'Read the deeper setup guides for Slack, iMessage, and Microsoft Teams.',
       '',
     ].join('\n'),
     'utf8',
@@ -110,6 +162,31 @@ function makeTempDocsDir(options?: {
       '## Tutorials',
       '',
       'Start with the main workflow walkthroughs.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developerGuideDir, '_category_.json'),
+    JSON.stringify({
+      label: 'Developer Guide',
+      position: 5,
+      collapsed: false,
+    }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developerGuideDir, 'README.md'),
+    [
+      '---',
+      'title: Developer Guide',
+      'description: Maintainer and runtime internals.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Developer Guide',
+      '',
+      'Read the architecture and runtime internals from here.',
       '',
     ].join('\n'),
     'utf8',
@@ -2289,9 +2366,12 @@ describe('gateway HTTP server', () => {
       '<title>HybridClaw Docs | HybridClaw Docs</title>',
     );
     expect(res.body).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
+    expect(res.body).toContain('href="/docs/getting-started"');
+    expect(res.body).toContain('href="/docs/channels"');
     expect(res.body).toContain('href="/docs/guides"');
     expect(res.body).toContain('href="/docs/reference"');
     expect(res.body).toContain('href="/docs/extensibility"');
+    expect(res.body).toContain('href="/docs/developer-guide"');
     expect(res.body).toContain('aria-label="Search docs"');
     expect(res.body).toContain('>Home</a>');
     expect(res.body).toContain('>GitHub');
@@ -2315,6 +2395,31 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(308);
     expect(res.headers.Location).toBe('/docs/guides');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
+  });
+
+  test('redirects legacy /docs aliases to the canonical docs structure', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/internals' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/developer-guide');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
+  });
+
+  test('redirects the legacy getting-started channel guide to the canonical channels overview', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/getting-started/channels' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/channels/overview');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
   });
 
   test('renders section index pages from folder-based routes', async () => {
@@ -2388,13 +2493,13 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('<!doctype html>');
   });
 
-  test('reuses the cached development docs snapshot across repeated requests', async () => {
+  test('reuses the cached docs snapshot across repeated requests', async () => {
     const installRoot = makeTempDocsDir();
     const state = await importFreshHealth({ docsDir: installRoot });
     const guidesReadmePath = path.join(
       installRoot,
       'docs',
-      'development',
+      'content',
       'guides',
       'README.md',
     );
@@ -2434,13 +2539,13 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('rejects symlinked development markdown pages', async () => {
+  test('rejects symlinked markdown pages outside the docs content tree', async () => {
     const installRoot = makeTempDocsDir();
     const secretPath = path.join(installRoot, 'outside-secret.md');
     fs.writeFileSync(secretPath, '# Secret\n', 'utf8');
     fs.symlinkSync(
       secretPath,
-      path.join(installRoot, 'docs', 'development', 'guides', 'secret.md'),
+      path.join(installRoot, 'docs', 'content', 'guides', 'secret.md'),
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -2466,13 +2571,7 @@ describe('gateway HTTP server', () => {
     );
     fs.symlinkSync(
       externalCategoryPath,
-      path.join(
-        installRoot,
-        'docs',
-        'development',
-        'guides',
-        '_category_.json',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', '_category_.json'),
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -2486,16 +2585,10 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<summary>Guides</summary>');
   });
 
-  test('does not render non-http image sources in development docs', async () => {
+  test('does not render non-http image sources in docs content', async () => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
-      path.join(
-        installRoot,
-        'docs',
-        'development',
-        'guides',
-        'image-schemes.md',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', 'image-schemes.md'),
       [
         '---',
         'title: Image Schemes',
@@ -2524,7 +2617,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
-  test('returns a visible error for malformed development doc frontmatter', async () => {
+  test('returns a visible error for malformed docs frontmatter', async () => {
     const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
     const state = await importFreshHealth({ docsDir: installRoot });
     const req = makeRequest({ url: '/docs/reference/broken' });
@@ -2552,7 +2645,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<h2 id="repeated-section-2">Repeated Section');
   });
 
-  test('renders individual development docs pages by slug', async () => {
+  test('renders individual docs pages by slug', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/docs/extensibility' });
     const res = makeResponse();
