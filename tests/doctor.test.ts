@@ -360,6 +360,7 @@ test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () =>
     `${JSON.stringify({ version: 17, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
     'utf-8',
   );
+  fs.chmodSync(configPath, 0o600);
 
   vi.doMock('../src/agent/tool-summary.js', () => ({
     listKnownToolNames: () => ['read', 'browser_navigate'],

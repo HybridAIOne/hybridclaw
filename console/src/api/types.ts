@@ -599,6 +599,54 @@ export interface AdminSchedulerResponse {
   jobs: AdminSchedulerJob[];
 }
 
+export interface AdminAgentMarkdownFile {
+  name: string;
+  path: string;
+  exists: boolean;
+  updatedAt: string | null;
+  sizeBytes: number | null;
+}
+
+export interface AdminAgentMarkdownRevision {
+  id: string;
+  createdAt: string;
+  sizeBytes: number;
+  sha256: string;
+  source: 'save' | 'restore';
+}
+
+export interface AdminAgent {
+  id: string;
+  name: string | null;
+  model: string | null;
+  skills: string[] | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+  markdownFiles: AdminAgentMarkdownFile[];
+}
+
+export interface AdminAgentsResponse {
+  agents: AdminAgent[];
+}
+
+export interface AdminAgentMarkdownFileResponse {
+  agent: AdminAgent;
+  file: AdminAgentMarkdownFile & {
+    content: string;
+    revisions: AdminAgentMarkdownRevision[];
+  };
+}
+
+export interface AdminAgentMarkdownRevisionResponse {
+  agent: AdminAgent;
+  fileName: string;
+  revision: AdminAgentMarkdownRevision & {
+    content: string;
+  };
+}
+
 export interface AgentCard {
   id: string;
   name: string | null;

@@ -752,6 +752,54 @@ export interface GatewayAdminConfigResponse {
   config: RuntimeConfig;
 }
 
+export interface GatewayAdminAgentMarkdownFile {
+  name: string;
+  path: string;
+  exists: boolean;
+  updatedAt: string | null;
+  sizeBytes: number | null;
+}
+
+export interface GatewayAdminAgentMarkdownRevision {
+  id: string;
+  createdAt: string;
+  sizeBytes: number;
+  sha256: string;
+  source: 'save' | 'restore';
+}
+
+export interface GatewayAdminAgent {
+  id: string;
+  name: string | null;
+  model: string | null;
+  skills: string[] | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+  markdownFiles: GatewayAdminAgentMarkdownFile[];
+}
+
+export interface GatewayAdminAgentsResponse {
+  agents: GatewayAdminAgent[];
+}
+
+export interface GatewayAdminAgentMarkdownFileResponse {
+  agent: GatewayAdminAgent;
+  file: GatewayAdminAgentMarkdownFile & {
+    content: string;
+    revisions: GatewayAdminAgentMarkdownRevision[];
+  };
+}
+
+export interface GatewayAdminAgentMarkdownRevisionResponse {
+  agent: GatewayAdminAgent;
+  fileName: string;
+  revision: GatewayAdminAgentMarkdownRevision & {
+    content: string;
+  };
+}
+
 export interface GatewayAdminModelCatalogEntry {
   id: string;
   discovered: boolean;

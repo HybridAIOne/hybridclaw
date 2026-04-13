@@ -16,6 +16,12 @@ describe('docs viewer helpers', () => {
     expect(resolveDocPathFromPathname('/docs/extensibility/skills')).toBe(
       'extensibility/skills.md',
     );
+    expect(resolveDocPathFromPathname('/docs/getting-started/channels')).toBe(
+      'channels/overview.md',
+    );
+    expect(resolveDocPathFromPathname('/docs/internals/runtime')).toBe(
+      'developer-guide/runtime.md',
+    );
     expect(resolveDocPathFromPathname('/docs/guides/')).toBe(
       'guides/README.md',
     );
@@ -31,8 +37,8 @@ describe('docs viewer helpers', () => {
       '/docs/extensibility/skills.md',
     );
     expect(
-      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
-    ).toBe('/development/extensibility/skills.md');
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/content'),
+    ).toBe('/content/extensibility/skills.md');
   });
 
   test('exposes remote access in the guides section metadata', () => {
@@ -41,6 +47,36 @@ describe('docs viewer helpers', () => {
     );
     expect(
       guides?.pages.some((page) => page.path === 'guides/remote-access.md'),
+    ).toBe(true);
+  });
+
+  test('exposes the new channel IA in the docs section metadata', () => {
+    const gettingStarted = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Getting Started',
+    );
+    const channels = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Channels',
+    );
+
+    expect(
+      gettingStarted?.pages.some(
+        (page) => page.path === 'getting-started/first-channel.md',
+      ),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/overview.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/discord.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/telegram.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/email.md'),
+    ).toBe(true);
+    expect(
+      channels?.pages.some((page) => page.path === 'channels/whatsapp.md'),
     ).toBe(true);
   });
 
@@ -59,13 +95,13 @@ describe('docs viewer helpers', () => {
     ).toBe('/docs/reference/commands?plain=1#agent-install');
   });
 
-  test('can resolve links against a legacy content base path', () => {
-    expect(buildDocMarkdownHref('README.md', '/docs', '/development')).toBe(
-      '/development/README.md',
+  test('can resolve links against the static published markdown content path', () => {
+    expect(buildDocMarkdownHref('README.md', '/docs', '/content')).toBe(
+      '/content/README.md',
     );
     expect(
-      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
-    ).toBe('/development/extensibility/skills.md');
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/content'),
+    ).toBe('/content/extensibility/skills.md');
   });
 
   test('keeps ordered list items in a single <ol> across blank lines', () => {

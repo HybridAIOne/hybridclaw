@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a concrete improvement to HybridClaw.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for concrete, scoped improvements. For broad architecture ideas, roadmap discussion, or open-ended design exploration, please start in GitHub Discussions first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user or maintainer problem first, not just the proposed solution.
+      placeholder: Operators can configure channels from the CLI, but there is no equivalent self-serve visibility in the admin UI for ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: Add a read-only status card that shows ...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: Current workaround is ...
+  - type: textarea
+    id: audience
+    attributes:
+      label: Who benefits
+      description: Explain whether this helps new users, operators, contributors, or plugin/skill authors.
+      placeholder: New self-hosters and maintainers who need ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope boundaries
+      description: Call out what this request does not need to include.
+      placeholder: This does not need to add new provider support or change the storage format.

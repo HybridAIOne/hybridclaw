@@ -35,16 +35,22 @@ function makeTempDocsDir(options?: {
 }): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
   const docsDir = path.join(root, 'docs');
-  const developmentDocsDir = path.join(docsDir, 'development');
-  const extensibilityDir = path.join(developmentDocsDir, 'extensibility');
-  const guidesDir = path.join(developmentDocsDir, 'guides');
-  const referenceDir = path.join(developmentDocsDir, 'reference');
+  const contentDocsDir = path.join(docsDir, 'content');
+  const gettingStartedDir = path.join(contentDocsDir, 'getting-started');
+  const channelsDir = path.join(contentDocsDir, 'channels');
+  const extensibilityDir = path.join(contentDocsDir, 'extensibility');
+  const guidesDir = path.join(contentDocsDir, 'guides');
+  const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
+  const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
-  fs.mkdirSync(developmentDocsDir, { recursive: true });
+  fs.mkdirSync(contentDocsDir, { recursive: true });
+  fs.mkdirSync(gettingStartedDir, { recursive: true });
+  fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(extensibilityDir, { recursive: true });
   fs.mkdirSync(guidesDir, { recursive: true });
+  fs.mkdirSync(developerGuideDir, { recursive: true });
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
@@ -66,12 +72,12 @@ function makeTempDocsDir(options?: {
     'utf8',
   );
   fs.writeFileSync(
-    path.join(developmentDocsDir, '_category_.json'),
+    path.join(contentDocsDir, '_category_.json'),
     JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
     'utf8',
   );
   fs.writeFileSync(
-    path.join(developmentDocsDir, 'README.md'),
+    path.join(contentDocsDir, 'README.md'),
     [
       '---',
       'title: HybridClaw Docs',
@@ -81,7 +87,7 @@ function makeTempDocsDir(options?: {
       '',
       '# HybridClaw Docs',
       '',
-      'Start with [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
+      'Start with [Getting Started](./getting-started), [Channels](./channels), [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
       '',
       '## Getting Started',
       '',
@@ -90,6 +96,52 @@ function makeTempDocsDir(options?: {
       '### First Steps',
       '',
       'Read the overview, then pick a subsystem.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(gettingStartedDir, '_category_.json'),
+    JSON.stringify({
+      label: 'Getting Started',
+      position: 1,
+      collapsed: false,
+    }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(gettingStartedDir, 'README.md'),
+    [
+      '---',
+      'title: Getting Started',
+      'description: Install and launch HybridClaw.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Getting Started',
+      '',
+      'Install the CLI and launch your first HybridClaw surfaces from here.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(channelsDir, '_category_.json'),
+    JSON.stringify({ label: 'Channels', position: 2, collapsed: false }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(channelsDir, 'README.md'),
+    [
+      '---',
+      'title: Channels',
+      'description: Transport-specific setup guides.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Channels',
+      '',
+      'Read the deeper setup guides for Slack, iMessage, and Microsoft Teams.',
       '',
     ].join('\n'),
     'utf8',
@@ -110,6 +162,31 @@ function makeTempDocsDir(options?: {
       '## Tutorials',
       '',
       'Start with the main workflow walkthroughs.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developerGuideDir, '_category_.json'),
+    JSON.stringify({
+      label: 'Developer Guide',
+      position: 5,
+      collapsed: false,
+    }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developerGuideDir, 'README.md'),
+    [
+      '---',
+      'title: Developer Guide',
+      'description: Maintainer and runtime internals.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Developer Guide',
+      '',
+      'Read the architecture and runtime internals from here.',
       '',
     ].join('\n'),
     'utf8',
@@ -819,6 +896,79 @@ async function importFreshHealth(options?: {
     providerStatus: {},
     models: [],
   }));
+  const mainAdminAgentMarkdownFiles = [
+    {
+      name: 'AGENTS.md',
+      path: '/tmp/main/workspace/AGENTS.md',
+      exists: true,
+      updatedAt: '2026-04-13T10:00:00.000Z',
+      sizeBytes: 120,
+    },
+    {
+      name: 'USER.md',
+      path: '/tmp/main/workspace/USER.md',
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+    },
+  ];
+  const writerAdminAgentMarkdownFiles = [
+    {
+      name: 'AGENTS.md',
+      path: '/tmp/writer/workspace/AGENTS.md',
+      exists: true,
+      updatedAt: '2026-04-13T11:00:00.000Z',
+      sizeBytes: 64,
+    },
+    {
+      name: 'USER.md',
+      path: '/tmp/writer/workspace/USER.md',
+      exists: true,
+      updatedAt: '2026-04-13T12:00:00.000Z',
+      sizeBytes: 72,
+    },
+  ];
+  const mainAdminAgentMarkdownRevisions = [
+    {
+      id: 'main-rev-1',
+      createdAt: '2026-04-13T09:00:00.000Z',
+      sizeBytes: 96,
+      sha256: 'mainsha',
+      source: 'save' as const,
+    },
+  ];
+  const writerAdminAgentMarkdownRevisions = [
+    {
+      id: 'writer-rev-1',
+      createdAt: '2026-04-13T11:30:00.000Z',
+      sizeBytes: 72,
+      sha256: 'writersha',
+      source: 'restore' as const,
+    },
+  ];
+  const getTestAdminAgentMarkdownFiles = (agentId: string) =>
+    agentId === 'writer'
+      ? writerAdminAgentMarkdownFiles
+      : mainAdminAgentMarkdownFiles;
+  const getTestAdminAgentMarkdownRevisions = (agentId: string) =>
+    agentId === 'writer'
+      ? writerAdminAgentMarkdownRevisions
+      : mainAdminAgentMarkdownRevisions;
+  const getTestAdminAgentMarkdownFile = (agentId: string, fileName: string) =>
+    getTestAdminAgentMarkdownFiles(agentId).find(
+      (entry) => entry.name === fileName,
+    );
+  const makeTestAdminAgent = (agentId: string) => ({
+    id: agentId,
+    name: agentId === 'writer' ? 'Writer' : 'Main Agent',
+    model: agentId === 'writer' ? null : 'gpt-5',
+    skills: null,
+    chatbotId: null,
+    enableRag: agentId === 'writer' ? null : true,
+    workspace: null,
+    workspacePath: `/tmp/${agentId}/workspace`,
+    markdownFiles: getTestAdminAgentMarkdownFiles(agentId),
+  });
   const getGatewayAdminAgents = vi.fn(() => ({
     agents: [
       {
@@ -830,9 +980,31 @@ async function importFreshHealth(options?: {
         enableRag: true,
         workspace: null,
         workspacePath: '/tmp/main/workspace',
+        markdownFiles: mainAdminAgentMarkdownFiles,
       },
     ],
   }));
+  const getGatewayAdminAgentMarkdownFile = vi.fn(
+    (agentId: string, fileName: string) => ({
+      agent: makeTestAdminAgent(agentId),
+      file: {
+        ...getTestAdminAgentMarkdownFile(agentId, fileName),
+        content: `# ${agentId}:${fileName}\n`,
+        revisions: getTestAdminAgentMarkdownRevisions(agentId),
+      },
+    }),
+  );
+  const getGatewayAdminAgentMarkdownRevision = vi.fn(
+    (params: { agentId: string; fileName: string; revisionId: string }) => ({
+      agent: makeTestAdminAgent(params.agentId),
+      fileName: params.fileName,
+      revision: {
+        ...getTestAdminAgentMarkdownRevisions(params.agentId)[0],
+        id: params.revisionId,
+        content: `# revision ${params.agentId}:${params.fileName}:${params.revisionId}\n`,
+      },
+    }),
+  );
   const getGatewayAdminSessions = vi.fn(() => []);
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
@@ -945,6 +1117,7 @@ async function importFreshHealth(options?: {
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
         workspace: payload.workspace || null,
         workspacePath: '/tmp/main/workspace',
+        markdownFiles: mainAdminAgentMarkdownFiles,
       },
     }),
   );
@@ -970,6 +1143,30 @@ async function importFreshHealth(options?: {
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
         workspace: payload.workspace || null,
         workspacePath: `/tmp/${agentId}/workspace`,
+        markdownFiles:
+          agentId === 'writer'
+            ? writerAdminAgentMarkdownFiles
+            : mainAdminAgentMarkdownFiles,
+      },
+    }),
+  );
+  const saveGatewayAdminAgentMarkdownFile = vi.fn(
+    (params: { agentId: string; fileName: string; content: string }) => ({
+      agent: makeTestAdminAgent(params.agentId),
+      file: {
+        ...getTestAdminAgentMarkdownFile(params.agentId, params.fileName),
+        content: params.content,
+        revisions: getTestAdminAgentMarkdownRevisions(params.agentId),
+      },
+    }),
+  );
+  const restoreGatewayAdminAgentMarkdownRevision = vi.fn(
+    (params: { agentId: string; fileName: string; revisionId: string }) => ({
+      agent: makeTestAdminAgent(params.agentId),
+      file: {
+        ...getTestAdminAgentMarkdownFile(params.agentId, params.fileName),
+        content: `# restored ${params.revisionId}\n`,
+        revisions: getTestAdminAgentMarkdownRevisions(params.agentId),
       },
     }),
   );
@@ -1141,6 +1338,8 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminAgentMarkdownFile,
+    getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -1167,7 +1366,9 @@ async function importFreshHealth(options?: {
     resolveGatewayChatbotId,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
+    restoreGatewayAdminAgentMarkdownRevision,
     saveGatewayAdminConfig,
+    saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
@@ -1260,6 +1461,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMessage,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminAgentMarkdownFile,
+    getGatewayAdminAgentMarkdownRevision,
     runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
@@ -1278,7 +1481,9 @@ async function importFreshHealth(options?: {
     requestGatewayRestart,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
+    restoreGatewayAdminAgentMarkdownRevision,
     updateGatewayAdminAgent,
+    saveGatewayAdminAgentMarkdownFile,
     deleteGatewayAdminAgent,
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
@@ -2331,9 +2536,12 @@ describe('gateway HTTP server', () => {
       '<title>HybridClaw Docs | HybridClaw Docs</title>',
     );
     expect(res.body).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
+    expect(res.body).toContain('href="/docs/getting-started"');
+    expect(res.body).toContain('href="/docs/channels"');
     expect(res.body).toContain('href="/docs/guides"');
     expect(res.body).toContain('href="/docs/reference"');
     expect(res.body).toContain('href="/docs/extensibility"');
+    expect(res.body).toContain('href="/docs/developer-guide"');
     expect(res.body).toContain('aria-label="Search docs"');
     expect(res.body).toContain('>Home</a>');
     expect(res.body).toContain('>GitHub');
@@ -2357,6 +2565,31 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(308);
     expect(res.headers.Location).toBe('/docs/guides');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
+  });
+
+  test('redirects legacy /docs aliases to the canonical docs structure', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/internals' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/developer-guide');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
+  });
+
+  test('redirects the legacy getting-started channel guide to the canonical channels overview', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/getting-started/channels' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/channels/overview');
+    expect(res.headers['X-HybridClaw-Docs-Redirect']).toBe('legacy');
   });
 
   test('renders section index pages from folder-based routes', async () => {
@@ -2430,13 +2663,13 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('<!doctype html>');
   });
 
-  test('reuses the cached development docs snapshot across repeated requests', async () => {
+  test('reuses the cached docs snapshot across repeated requests', async () => {
     const installRoot = makeTempDocsDir();
     const state = await importFreshHealth({ docsDir: installRoot });
     const guidesReadmePath = path.join(
       installRoot,
       'docs',
-      'development',
+      'content',
       'guides',
       'README.md',
     );
@@ -2476,13 +2709,13 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('rejects symlinked development markdown pages', async () => {
+  test('rejects symlinked markdown pages outside the docs content tree', async () => {
     const installRoot = makeTempDocsDir();
     const secretPath = path.join(installRoot, 'outside-secret.md');
     fs.writeFileSync(secretPath, '# Secret\n', 'utf8');
     fs.symlinkSync(
       secretPath,
-      path.join(installRoot, 'docs', 'development', 'guides', 'secret.md'),
+      path.join(installRoot, 'docs', 'content', 'guides', 'secret.md'),
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -2508,13 +2741,7 @@ describe('gateway HTTP server', () => {
     );
     fs.symlinkSync(
       externalCategoryPath,
-      path.join(
-        installRoot,
-        'docs',
-        'development',
-        'guides',
-        '_category_.json',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', '_category_.json'),
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -2528,16 +2755,10 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<summary>Guides</summary>');
   });
 
-  test('does not render non-http image sources in development docs', async () => {
+  test('does not render non-http image sources in docs content', async () => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
-      path.join(
-        installRoot,
-        'docs',
-        'development',
-        'guides',
-        'image-schemes.md',
-      ),
+      path.join(installRoot, 'docs', 'content', 'guides', 'image-schemes.md'),
       [
         '---',
         'title: Image Schemes',
@@ -2566,7 +2787,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
-  test('returns a visible error for malformed development doc frontmatter', async () => {
+  test('returns a visible error for malformed docs frontmatter', async () => {
     const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
     const state = await importFreshHealth({ docsDir: installRoot });
     const req = makeRequest({ url: '/docs/reference/broken' });
@@ -2594,7 +2815,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<h2 id="repeated-section-2">Repeated Section');
   });
 
-  test('renders individual development docs pages by slug', async () => {
+  test('renders individual docs pages by slug', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/docs/extensibility' });
     const res = makeResponse();
@@ -3600,9 +3821,39 @@ describe('gateway HTTP server', () => {
           enableRag: true,
           workspace: null,
           workspacePath: '/tmp/main/workspace',
+          markdownFiles: [
+            {
+              name: 'AGENTS.md',
+              path: '/tmp/main/workspace/AGENTS.md',
+              exists: true,
+              updatedAt: '2026-04-13T10:00:00.000Z',
+              sizeBytes: 120,
+            },
+            {
+              name: 'USER.md',
+              path: '/tmp/main/workspace/USER.md',
+              exists: false,
+              updatedAt: null,
+              sizeBytes: null,
+            },
+          ],
         },
       ],
     });
+  });
+
+  test('returns 404 for admin agent routes with a blank decoded agent id segment', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agents/%20' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(state.deleteGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Not Found' });
   });
 
   test('passes skill allowlists through admin agent creation requests', async () => {
@@ -3643,6 +3894,22 @@ describe('gateway HTTP server', () => {
         enableRag: null,
         workspace: null,
         workspacePath: '/tmp/main/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/main/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T10:00:00.000Z',
+            sizeBytes: 120,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/main/workspace/USER.md',
+            exists: false,
+            updatedAt: null,
+            sizeBytes: null,
+          },
+        ],
       },
     });
   });
@@ -3708,7 +3975,342 @@ describe('gateway HTTP server', () => {
         enableRag: null,
         workspace: null,
         workspacePath: '/tmp/writer/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/writer/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T11:00:00.000Z',
+            sizeBytes: 64,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/writer/workspace/USER.md',
+            exists: true,
+            updatedAt: '2026-04-13T12:00:00.000Z',
+            sizeBytes: 72,
+          },
+        ],
       },
+    });
+  });
+
+  test('returns the selected admin agent markdown file', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentMarkdownFile).toHaveBeenCalledWith(
+      'main',
+      'AGENTS.md',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        skills: null,
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/main/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T10:00:00.000Z',
+            sizeBytes: 120,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/main/workspace/USER.md',
+            exists: false,
+            updatedAt: null,
+            sizeBytes: null,
+          },
+        ],
+      },
+      file: {
+        name: 'AGENTS.md',
+        path: '/tmp/main/workspace/AGENTS.md',
+        exists: true,
+        updatedAt: '2026-04-13T10:00:00.000Z',
+        sizeBytes: 120,
+        content: '# main:AGENTS.md\n',
+        revisions: [
+          {
+            id: 'main-rev-1',
+            createdAt: '2026-04-13T09:00:00.000Z',
+            sizeBytes: 96,
+            sha256: 'mainsha',
+            source: 'save',
+          },
+        ],
+      },
+    });
+  });
+
+  test('returns the selected admin agent markdown revision', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md/revisions/main-rev-1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentMarkdownRevision).toHaveBeenCalledWith({
+      agentId: 'main',
+      fileName: 'AGENTS.md',
+      revisionId: 'main-rev-1',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        skills: null,
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/main/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T10:00:00.000Z',
+            sizeBytes: 120,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/main/workspace/USER.md',
+            exists: false,
+            updatedAt: null,
+            sizeBytes: null,
+          },
+        ],
+      },
+      fileName: 'AGENTS.md',
+      revision: {
+        id: 'main-rev-1',
+        createdAt: '2026-04-13T09:00:00.000Z',
+        sizeBytes: 96,
+        sha256: 'mainsha',
+        source: 'save',
+        content: '# revision main:AGENTS.md:main-rev-1\n',
+      },
+    });
+  });
+
+  test('returns 404 for known admin agent markdown revision not-found errors', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminAgentMarkdownRevision.mockImplementationOnce(() => {
+      throw new Error('Revision "missing-rev" was not found.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md/revisions/missing-rev',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Revision "missing-rev" was not found.',
+    });
+  });
+
+  test('returns 400 for unrelated admin agent errors that contain "not found"', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminAgentMarkdownRevision.mockImplementationOnce(() => {
+      throw new Error('Validation key not found in request body.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md/revisions/main-rev-1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Validation key not found in request body.',
+    });
+  });
+
+  test('saves the selected admin agent markdown file', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer/files/USER.md',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        content: '# Updated writer prompt\n',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminAgentMarkdownFile).toHaveBeenCalledWith({
+      agentId: 'writer',
+      fileName: 'USER.md',
+      content: '# Updated writer prompt\n',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'writer',
+        name: 'Writer',
+        model: null,
+        skills: null,
+        chatbotId: null,
+        enableRag: null,
+        workspace: null,
+        workspacePath: '/tmp/writer/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/writer/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T11:00:00.000Z',
+            sizeBytes: 64,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/writer/workspace/USER.md',
+            exists: true,
+            updatedAt: '2026-04-13T12:00:00.000Z',
+            sizeBytes: 72,
+          },
+        ],
+      },
+      file: {
+        name: 'USER.md',
+        path: '/tmp/writer/workspace/USER.md',
+        exists: true,
+        updatedAt: '2026-04-13T12:00:00.000Z',
+        sizeBytes: 72,
+        content: '# Updated writer prompt\n',
+        revisions: [
+          {
+            id: 'writer-rev-1',
+            createdAt: '2026-04-13T11:30:00.000Z',
+            sizeBytes: 72,
+            sha256: 'writersha',
+            source: 'restore',
+          },
+        ],
+      },
+    });
+  });
+
+  test('restores the selected admin agent markdown revision', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/agents/writer/files/USER.md/revisions/writer-rev-1/restore',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {},
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.restoreGatewayAdminAgentMarkdownRevision).toHaveBeenCalledWith(
+      {
+        agentId: 'writer',
+        fileName: 'USER.md',
+        revisionId: 'writer-rev-1',
+      },
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agent: {
+        id: 'writer',
+        name: 'Writer',
+        model: null,
+        skills: null,
+        chatbotId: null,
+        enableRag: null,
+        workspace: null,
+        workspacePath: '/tmp/writer/workspace',
+        markdownFiles: [
+          {
+            name: 'AGENTS.md',
+            path: '/tmp/writer/workspace/AGENTS.md',
+            exists: true,
+            updatedAt: '2026-04-13T11:00:00.000Z',
+            sizeBytes: 64,
+          },
+          {
+            name: 'USER.md',
+            path: '/tmp/writer/workspace/USER.md',
+            exists: true,
+            updatedAt: '2026-04-13T12:00:00.000Z',
+            sizeBytes: 72,
+          },
+        ],
+      },
+      file: {
+        name: 'USER.md',
+        path: '/tmp/writer/workspace/USER.md',
+        exists: true,
+        updatedAt: '2026-04-13T12:00:00.000Z',
+        sizeBytes: 72,
+        content: '# restored writer-rev-1\n',
+        revisions: [
+          {
+            id: 'writer-rev-1',
+            createdAt: '2026-04-13T11:30:00.000Z',
+            sizeBytes: 72,
+            sha256: 'writersha',
+            source: 'restore',
+          },
+        ],
+      },
+    });
+  });
+
+  test('returns 400 when admin agent markdown content is not a string', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer/files/USER.md',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        content: 42,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminAgentMarkdownFile).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Expected string `content` in request body.',
     });
   });
 
@@ -4895,6 +5497,89 @@ describe('gateway HTTP server', () => {
       result: 'Approved.',
       sessionId: 'session-web-approve',
     });
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('preserves pending approval metadata for /approve yes on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result:
+        'Approval needed for: access clawhub.ai\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['web_fetch'],
+      pendingApproval: {
+        approvalId: 'be945bbf',
+        prompt:
+          'I need your approval before I access clawhub.ai.\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+        intent: 'access clawhub.ai',
+        reason: 'this would contact a new external host',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: 1_710_000_000_000,
+      },
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          sessionId: 'session-web-approve',
+          pendingApproval: {
+            approvalId: 'be945bbf',
+            prompt:
+              'I need your approval before I access clawhub.ai.\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+            intent: 'access clawhub.ai',
+            reason: 'this would contact a new external host',
+            allowSession: true,
+            allowAgent: true,
+            allowAll: true,
+            expiresAt: 1_710_000_000_000,
+          },
+        }),
+      },
+    ]);
 
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });

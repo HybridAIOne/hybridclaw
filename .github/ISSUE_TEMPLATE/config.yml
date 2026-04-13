@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and quick start
+    url: https://www.hybridclaw.io/docs/
+    about: Start here for installation, setup, configuration, and command reference.
+  - name: GitHub Discussions
+    url: https://github.com/HybridAIOne/hybridclaw/discussions
+    about: Use Discussions for questions, design ideas, and broader feature proposals.
+  - name: Discord community
+    url: https://discord.gg/jsVW4vJw27
+    about: Get quick setup help or talk through a problem before opening an issue.
+  - name: Private security reporting
+    url: mailto:support@hybridai.one?subject=HybridClaw%20security%20report
+    about: Report security vulnerabilities privately. Do not open public issues for security bugs.
