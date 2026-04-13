@@ -59,7 +59,7 @@ type DialogContextValue = {
 
 const DialogContext = createContext<DialogContextValue | null>(null);
 
-export function useDialogContext() {
+function useDialogContext() {
   const ctx = useContext(DialogContext);
   if (!ctx) throw new Error('Dialog components must be used within <Dialog>.');
   return ctx;

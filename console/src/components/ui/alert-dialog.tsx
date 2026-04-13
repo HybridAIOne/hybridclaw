@@ -21,12 +21,8 @@
  *   </AlertDialog>
  */
 
-import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from 'react';
-import { DialogContent, useDialogContext } from '../dialog';
-
-// ---------------------------------------------------------------------------
-// Re-exports (structural aliases — no behavioural difference)
-// ---------------------------------------------------------------------------
+import type { ComponentProps } from 'react';
+import { DialogClose, DialogContent } from '../dialog';
 
 export { Dialog as AlertDialog } from '../dialog';
 
@@ -43,58 +39,22 @@ export {
   DialogTitle as AlertDialogTitle,
 } from '../dialog';
 
-// ---------------------------------------------------------------------------
-// AlertDialogCancel — closes the dialog, styled as ghost-button by default
-// ---------------------------------------------------------------------------
-
 export function AlertDialogCancel(
-  props: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode },
+  props: ComponentProps<typeof DialogClose>,
 ) {
-  const { onOpenChange } = useDialogContext();
-  const { children, className, onClick, ...rest } = props;
-
-  return (
-    <button
-      {...rest}
-      type="button"
-      className={className ?? 'ghost-button'}
-      onClick={(e) => {
-        onClick?.(e);
-        onOpenChange(false);
-      }}
-    >
-      {children}
-    </button>
-  );
+  return <DialogClose className="ghost-button" {...props} />;
 }
 
-// ---------------------------------------------------------------------------
-// AlertDialogAction — closes the dialog and fires the action
-// ---------------------------------------------------------------------------
-
 export function AlertDialogAction(
-  props: ButtonHTMLAttributes<HTMLButtonElement> & {
-    children: ReactNode;
+  props: ComponentProps<typeof DialogClose> & {
     variant?: 'default' | 'destructive';
   },
 ) {
-  const { onOpenChange } = useDialogContext();
-  const { children, className, onClick, variant = 'default', ...rest } = props;
-
+  const { variant = 'default', className, ...rest } = props;
   return (
-    <button
+    <DialogClose
+      className={className ?? (variant === 'destructive' ? 'danger-button' : 'primary-button')}
       {...rest}
-      type="button"
-      className={
-        className ??
-        (variant === 'destructive' ? 'danger-button' : 'primary-button')
-      }
-      onClick={(e) => {
-        onClick?.(e);
-        onOpenChange(false);
-      }}
-    >
-      {children}
-    </button>
+    />
   );
 }
