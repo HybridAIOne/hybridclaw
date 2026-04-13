@@ -287,7 +287,9 @@ test('resolves Slack hints from explicit Slack context', () => {
   expect(hints.some((entry) => entry.includes('`slack:current`'))).toBe(true);
   expect(
     hints.some((entry) =>
-      entry.includes('known participants from the current Slack session history'),
+      entry.includes(
+        'known participants from the current Slack session history',
+      ),
     ),
   ).toBe(true);
   expect(
