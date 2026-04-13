@@ -2,6 +2,15 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
@@ -17,6 +26,7 @@ export function GatewayPage() {
   const [polledStatus, setPolledStatus] =
     useState<typeof auth.gatewayStatus>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const status = live.status || polledStatus || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
@@ -98,7 +108,7 @@ export function GatewayPage() {
               type="button"
               className="danger-button"
               disabled={!restartSupported || restartBusy}
-              onClick={() => restartMutation.mutate()}
+              onClick={() => setRestartConfirmOpen(true)}
               title={
                 !restartSupported && !restartBusy ? restartReason : undefined
               }
@@ -271,6 +281,26 @@ export function GatewayPage() {
           )}
         </Panel>
       </div>
+      <Dialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+        <DialogContent size="sm" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Restart Gateway?</DialogTitle>
+            <DialogDescription>
+              This will interrupt all active sessions. The gateway will be
+              unavailable for a few seconds.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <DialogClose
+              className="danger-button"
+              onClick={() => restartMutation.mutate()}
+            >
+              Restart
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
