@@ -101,18 +101,24 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
-      - name: Compute lowercase owner
+      - name: Compute build vars
         env:
           REPO_OWNER: ${{ github.repository_owner }}
-        run: echo "OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
+        run: |
+          OWNER_LC="$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "OWNER_LC=$OWNER_LC" >> "$GITHUB_ENV"
+          IMAGES="ghcr.io/${OWNER_LC}/hybridclaw-agent"
+          if [[ "$PUBLISH_DOCKERHUB" == "true" ]]; then
+            IMAGES="${IMAGES}"$'\n'"hybridaione/hybridclaw-agent"
+          fi
+          { echo "DOCKER_IMAGES<<EOF"; echo "$IMAGES"; echo "EOF"; } >> "$GITHUB_ENV"
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
-          images: |
-            ghcr.io/${{ env.OWNER_LC }}/hybridclaw-agent
-            ${{ needs.validate.outputs.publish_dockerhub == 'true' && 'hybridaione/hybridclaw-agent' || '' }}
+          images: ${{ env.DOCKER_IMAGES }}
           tags: |
             type=raw,value=${{ needs.validate.outputs.tag }}
             type=raw,value=latest,enable=${{ !contains(needs.validate.outputs.tag, '-') }}
@@ -168,18 +174,24 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
-      - name: Compute lowercase owner
+      - name: Compute build vars
         env:
           REPO_OWNER: ${{ github.repository_owner }}
-        run: echo "OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
+        run: |
+          OWNER_LC="$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "OWNER_LC=$OWNER_LC" >> "$GITHUB_ENV"
+          IMAGES="ghcr.io/${OWNER_LC}/hybridclaw-gateway"
+          if [[ "$PUBLISH_DOCKERHUB" == "true" ]]; then
+            IMAGES="${IMAGES}"$'\n'"hybridaione/hybridclaw-gateway"
+          fi
+          { echo "DOCKER_IMAGES<<EOF"; echo "$IMAGES"; echo "EOF"; } >> "$GITHUB_ENV"
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
-          images: |
-            ghcr.io/${{ env.OWNER_LC }}/hybridclaw-gateway
-            ${{ needs.validate.outputs.publish_dockerhub == 'true' && 'hybridaione/hybridclaw-gateway' || '' }}
+          images: ${{ env.DOCKER_IMAGES }}
           tags: |
             type=raw,value=${{ needs.validate.outputs.tag }}
             type=raw,value=latest,enable=${{ !contains(needs.validate.outputs.tag, '-') }}
