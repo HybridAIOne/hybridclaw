@@ -1059,18 +1059,13 @@ function EmailChannelEditor(props: {
         // Save password as runtime secret before showing success
         if (cfg.password) {
           try {
-            await setRuntimeSecret(
-              props.token,
-              'EMAIL_PASSWORD',
-              cfg.password,
-            );
+            await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', cfg.password);
             props.onSecretSaved();
           } catch (err) {
-            toast.error(
-              'Password could not be saved',
-              getErrorMessage(err),
+            toast.error('Password could not be saved', getErrorMessage(err));
+            toast.info(
+              'Email fields were populated, but password was not saved.',
             );
-            toast.info('Email fields were populated, but password was not saved.');
             return;
           }
         }
@@ -1115,13 +1110,13 @@ function EmailChannelEditor(props: {
         <div className="button-row">
           <button
             type="button"
-          className="ghost-button"
-          disabled={fetchingEmailConfig}
-          onClick={handleFetchEmailConfig}
-        >
-          {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
-        </button>
-      </div>
+            className="ghost-button"
+            disabled={fetchingEmailConfig}
+            onClick={handleFetchEmailConfig}
+          >
+            {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
+          </button>
+        </div>
       ) : null}
 
       <div className="field-grid">
