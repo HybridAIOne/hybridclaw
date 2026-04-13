@@ -52,7 +52,7 @@ export async function withTransportRetry<T>(
       const waitMs =
         extractedDelayMs == null
           ? fallbackMs
-          : Math.min(normalizeRetryValue(extractedDelayMs, 0), maxDelayMs);
+          : normalizeRetryValue(extractedDelayMs, 0);
 
       logger.warn(
         { label, attempt, waitMs, error },

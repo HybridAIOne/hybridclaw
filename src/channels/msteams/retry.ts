@@ -92,17 +92,19 @@ function isRetryableTeamsError(error: unknown): boolean {
 
 function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
   const maybe = error as TeamsErrorLike;
+  const clampDelayMs = (delayMs: number): number =>
+    Math.min(delayMs, MSTEAMS_RETRY_MAX_DELAY_MS);
   const retryAfter = maybe.retryAfter ?? maybe.data?.retry_after;
   if (
     typeof retryAfter === 'number' &&
     Number.isFinite(retryAfter) &&
     retryAfter > 0
   ) {
-    return Math.max(50, Math.ceil(retryAfter * 1_000));
+    return clampDelayMs(Math.max(50, Math.ceil(retryAfter * 1_000)));
   }
   if (typeof retryAfter === 'string') {
     const delay = parseHeaderDelayMs(retryAfter, 'retry-after');
-    if (delay !== null) return delay;
+    if (delay !== null) return clampDelayMs(delay);
   }
 
   for (const key of ['x-ms-retry-after-ms', 'retry-after']) {
@@ -110,7 +112,7 @@ function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
       readHeader(maybe.response?.headers, key) ||
       readHeader(maybe.headers, key);
     const delay = parseHeaderDelayMs(headerValue, key);
-    if (delay !== null) return delay;
+    if (delay !== null) return clampDelayMs(delay);
   }
 
   return fallbackMs;

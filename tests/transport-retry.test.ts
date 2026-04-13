@@ -55,6 +55,40 @@ test('withTransportRetry uses extracted retry delays and logs attempts', async (
   );
 });
 
+test('withTransportRetry does not cap extracted retry delays', async () => {
+  vi.useFakeTimers();
+
+  const { retry, warn } = await importFreshTransportRetry();
+  const run = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('transient'))
+    .mockResolvedValueOnce('ok');
+
+  const resultPromise = retry.withTransportRetry('test.transport', run, {
+    maxAttempts: 3,
+    baseDelayMs: 100,
+    maxDelayMs: 150,
+    isRetryable: () => true,
+    extractRetryAfter: () => 250,
+    logMessage: 'Transport failed; retrying',
+  });
+
+  await vi.advanceTimersByTimeAsync(249);
+  expect(run).toHaveBeenCalledTimes(1);
+
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(resultPromise).resolves.toBe('ok');
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      label: 'test.transport',
+      attempt: 1,
+      waitMs: 250,
+    }),
+    'Transport failed; retrying',
+  );
+});
+
 test('withTransportRetry caps exponential backoff at maxDelayMs', async () => {
   vi.useFakeTimers();
 

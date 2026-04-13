@@ -48,6 +48,33 @@ test('withDiscordRetry honors retryAfter headers before succeeding', async () =>
   );
 });
 
+test('withDiscordRetry honors retryAfter delays above the backoff cap', async () => {
+  vi.useFakeTimers();
+
+  const { retry, warn } = await importFreshDiscordRetry();
+  const run = vi
+    .fn()
+    .mockRejectedValueOnce({ status: 429, retryAfter: 10 })
+    .mockResolvedValueOnce('ok');
+
+  const resultPromise = retry.withDiscordRetry('discord.send', run);
+
+  await vi.advanceTimersByTimeAsync(9_999);
+  expect(run).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(resultPromise).resolves.toBe('ok');
+
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      label: 'discord.send',
+      attempt: 1,
+      waitMs: 10_000,
+    }),
+    'Discord API call failed; retrying',
+  );
+});
+
 test('withDiscordRetry retries 5xx errors using jitter when no retryAfter is present', async () => {
   vi.useFakeTimers();
   vi.spyOn(Math, 'random').mockReturnValue(0.4);
