@@ -1017,20 +1017,19 @@ function EmailChannelEditor(props: {
     try {
       const result = (await fetchEmailConfig(props.token)) as {
         handles?: Array<{
+          id?: string;
           handle?: string;
-          label?: string;
           status?: string;
-          email_config?: {
-            address?: string;
-            imap_host?: string;
-            imap_port?: number;
-            imap_secure?: boolean;
-            smtp_host?: string;
-            smtp_port?: number;
-            smtp_secure?: boolean;
-            password?: string;
-          };
         }>;
+        credentials?: {
+          email?: string;
+          password?: string;
+          imap_host?: string;
+          imap_port?: number;
+          smtp_host?: string;
+          smtp_port?: number;
+        } | null;
+        handleId?: string;
       };
 
       const handles = result?.handles;
@@ -1039,48 +1038,49 @@ function EmailChannelEditor(props: {
         return;
       }
 
-      // Find first handle with email_config, or just show what we got
-      const withConfig = handles.find((h) => h.email_config);
-      if (withConfig?.email_config) {
-        const cfg = withConfig.email_config;
-        props.updateDraft((current) => ({
-          ...current,
-          email: {
-            ...current.email,
-            ...(cfg.address ? { address: cfg.address } : {}),
-            ...(cfg.imap_host ? { imapHost: cfg.imap_host } : {}),
-            ...(cfg.imap_port != null ? { imapPort: cfg.imap_port } : {}),
-            ...(cfg.imap_secure != null ? { imapSecure: cfg.imap_secure } : {}),
-            ...(cfg.smtp_host ? { smtpHost: cfg.smtp_host } : {}),
-            ...(cfg.smtp_port != null ? { smtpPort: cfg.smtp_port } : {}),
-            ...(cfg.smtp_secure != null ? { smtpSecure: cfg.smtp_secure } : {}),
-          },
-        }));
-        // Save password as runtime secret before showing success
-        if (cfg.password) {
-          try {
-            await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', cfg.password);
-            props.onSecretSaved();
-          } catch (err) {
-            toast.error('Password could not be saved', getErrorMessage(err));
-            toast.info(
-              'Email fields were populated, but password was not saved.',
-            );
-            return;
-          }
-        }
-        toast.success(
-          `HybridAI agent email config loaded from handle "${withConfig.handle}".`,
-        );
-      } else {
-        // No email_config in handles — show available handles info
+      const creds = result?.credentials;
+      if (!creds) {
         const summary = handles
           .map((h) => `${h.handle} (${h.status})`)
           .join(', ');
         toast.info(
-          `HybridAI agent handles found: ${summary}. No agent email config attached.`,
+          `Handles found: ${summary}. Could not retrieve mailbox credentials.`,
         );
+        return;
       }
+
+      props.updateDraft((current) => ({
+        ...current,
+        email: {
+          ...current.email,
+          ...(creds.email ? { address: creds.email } : {}),
+          ...(creds.imap_host ? { imapHost: creds.imap_host } : {}),
+          ...(creds.imap_port != null ? { imapPort: creds.imap_port } : {}),
+          ...(creds.smtp_host ? { smtpHost: creds.smtp_host } : {}),
+          ...(creds.smtp_port != null ? { smtpPort: creds.smtp_port } : {}),
+        },
+      }));
+
+      // Save password as runtime secret before showing success
+      if (creds.password) {
+        try {
+          await setRuntimeSecret(
+            props.token,
+            'EMAIL_PASSWORD',
+            creds.password,
+          );
+          props.onSecretSaved();
+        } catch (err) {
+          toast.error('Password could not be saved', getErrorMessage(err));
+          toast.info(
+            'Email fields were populated, but password was not saved.',
+          );
+          return;
+        }
+      }
+
+      const label = result.handleId || 'HybridAI';
+      toast.success(`Email config loaded from ${label}.`);
     } catch (error) {
       toast.error('Failed to fetch email config', getErrorMessage(error));
     } finally {
