@@ -1,8 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { cx } from '../../lib/cx';
-import { HybridClaw, LogOut } from '../icons';
-import { ThemeToggle } from '../theme-toggle';
 import {
   Dialog,
   DialogClose,
@@ -12,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
+import { HybridClaw, LogOut } from '../icons';
+import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
   SidebarContent,
@@ -60,11 +60,17 @@ export function AppSidebar(props: {
       <SidebarFooter>
         <div className={styles.footerBlock}>
           <SidebarMeta version={props.version} />
-          <SidebarActions
-            showLogout={props.showLogout}
-            onLogout={props.onLogout}
-          />
+          <SidebarFooterActions>
+            <SidebarFooterMenu>
+              <SidebarFooterAction>
+                <ThemeToggle labelClassName={styles.themeToggleLabel} />
+              </SidebarFooterAction>
+            </SidebarFooterMenu>
+          </SidebarFooterActions>
         </div>
+        {props.showLogout ? (
+          <SidebarLogoutAction onLogout={props.onLogout} />
+        ) : null}
       </SidebarFooter>
     </Sidebar>
   );
@@ -120,30 +126,26 @@ function SidebarMeta(props: { version?: string }) {
   );
 }
 
-function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
+function SidebarLogoutAction(props: { onLogout: () => void }) {
   const [forgetTokenOpen, setForgetTokenOpen] = useState(false);
 
   return (
     <>
+      <div className={styles.footerDivider} />
       <SidebarFooterActions>
         <SidebarFooterMenu>
           <SidebarFooterAction>
-            <ThemeToggle />
+            <button
+              className={styles.footerButton}
+              type="button"
+              onClick={() => setForgetTokenOpen(true)}
+            >
+              <span className={styles.icon} aria-hidden="true">
+                <LogOut />
+              </span>
+              Forget token
+            </button>
           </SidebarFooterAction>
-          {props.showLogout ? (
-            <SidebarFooterAction>
-              <button
-                className={styles.footerButton}
-                type="button"
-                onClick={() => setForgetTokenOpen(true)}
-              >
-                <span className={styles.icon} aria-hidden="true">
-                  <LogOut />
-                </span>
-                Forget token
-              </button>
-            </SidebarFooterAction>
-          ) : null}
         </SidebarFooterMenu>
       </SidebarFooterActions>
       <Dialog open={forgetTokenOpen} onOpenChange={setForgetTokenOpen}>
