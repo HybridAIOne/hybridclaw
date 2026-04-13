@@ -10,6 +10,7 @@ import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
+import { EmailPage } from './routes/email';
 import { GatewayPage } from './routes/gateway';
 import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
@@ -75,6 +76,12 @@ const channelsRoute = createRoute({
   component: ChannelsPage,
 });
 
+const emailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/email',
+  component: EmailPage,
+});
+
 const configRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/config',
@@ -135,6 +142,7 @@ const routeTree = rootRoute.addChildren([
   gatewayRoute,
   sessionsRoute,
   channelsRoute,
+  emailRoute,
   configRoute,
   modelsRoute,
   schedulerRoute,

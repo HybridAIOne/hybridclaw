@@ -263,6 +263,9 @@ test('registers eval as a local slash/text command', async () => {
             label: '/eval list',
           }),
           expect.objectContaining({
+            label: '/eval locomo',
+          }),
+          expect.objectContaining({
             label: '/eval swebench-verified',
           }),
         ]),
@@ -272,6 +275,10 @@ test('registers eval as a local slash/text command', async () => {
   expect(mapCanonicalCommandToGatewayArgs(['eval', 'gaia'])).toEqual([
     'eval',
     'gaia',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['eval', 'locomo'])).toEqual([
+    'eval',
+    'locomo',
   ]);
 });
 

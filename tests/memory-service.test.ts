@@ -49,6 +49,22 @@ function createTempDbPath(): string {
   return path.join(dir, 'test.db');
 }
 
+function createTempRuntimeHome(): string {
+  const homeDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-memory-config-'),
+  );
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const ops = config.ops as Record<string, unknown>;
+  ops.dbPath = path.join(homeDir, '.hybridclaw', 'data', 'hybridclaw.db');
+  delete (config.container as Record<string, unknown>).sandboxMode;
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  return homeDir;
+}
+
 function makeSession(partial?: Partial<Session>): Session {
   return {
     id: 'session:test',
@@ -173,6 +189,232 @@ describe.sequential('semantic memory DB', () => {
     expect(results.length).toBe(1);
     expect(results[0].content.toLowerCase()).toContain('gardening');
     expect(results[0].embedding).toBeNull();
+  });
+
+  test('can use full-text retrieval as the semantic recall backend', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-fts', null, 'channel-fts');
+
+    storeSemanticMemory({
+      sessionId: 's-fts',
+      role: 'assistant',
+      content: 'AtlasFox release checklist and deployment notes.',
+      confidence: 0.9,
+    });
+    storeSemanticMemory({
+      sessionId: 's-fts',
+      role: 'assistant',
+      content: 'Weekend groceries and garden fertilizer reminders.',
+      confidence: 0.9,
+    });
+
+    const results = recallSemanticMemories({
+      sessionId: 's-fts',
+      query: 'atlasfox deployment',
+      backend: 'full-text',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.content).toContain('AtlasFox');
+  });
+
+  test('can use trigram tokenization for full-text semantic recall', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-fts-trigram', null, 'channel-fts-trigram');
+
+    storeSemanticMemory({
+      sessionId: 's-fts-trigram',
+      role: 'assistant',
+      content: 'AtlasFox microservice rollout notes.',
+      confidence: 0.9,
+    });
+
+    const baseline = recallSemanticMemories({
+      sessionId: 's-fts-trigram',
+      query: 'service',
+      backend: 'full-text',
+      tokenizer: 'unicode61',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+    const trigram = recallSemanticMemories({
+      sessionId: 's-fts-trigram',
+      query: 'service',
+      backend: 'full-text',
+      tokenizer: 'trigram',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+
+    expect(baseline).toHaveLength(0);
+    expect(trigram).toHaveLength(1);
+    expect(trigram[0]?.content).toContain('microservice');
+  });
+
+  test('can use porter tokenization for full-text semantic recall', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-fts-porter', null, 'channel-fts-porter');
+
+    storeSemanticMemory({
+      sessionId: 's-fts-porter',
+      role: 'assistant',
+      content: 'AtlasFox adoption rollout notes.',
+      confidence: 0.9,
+    });
+
+    const unicode61 = recallSemanticMemories({
+      sessionId: 's-fts-porter',
+      query: 'adopted',
+      backend: 'full-text',
+      tokenizer: 'unicode61',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+    const porter = recallSemanticMemories({
+      sessionId: 's-fts-porter',
+      query: 'adopted',
+      backend: 'full-text',
+      tokenizer: 'porter',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+
+    expect(unicode61).toHaveLength(0);
+    expect(porter).toHaveLength(1);
+    expect(porter[0]?.content).toContain('adoption');
+  });
+
+  test('can BM25-rerank full-text recall candidates before the final limit', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-fts-rerank', null, 'channel-fts-rerank');
+
+    storeSemanticMemory({
+      sessionId: 's-fts-rerank',
+      role: 'assistant',
+      content: 'AtlasFox release note.',
+      confidence: 0.9,
+      accessedAt: '2026-04-11T12:10:00.000Z',
+    });
+    storeSemanticMemory({
+      sessionId: 's-fts-rerank',
+      role: 'assistant',
+      content: 'AtlasFox deployment checklist and rollback checklist.',
+      confidence: 0.9,
+      accessedAt: '2026-04-11T12:00:00.000Z',
+    });
+
+    const baseline = recallSemanticMemories({
+      sessionId: 's-fts-rerank',
+      query: 'atlasfox deployment checklist',
+      backend: 'full-text',
+      rerank: 'none',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+    const redundantRerank = recallSemanticMemories({
+      sessionId: 's-fts-rerank',
+      query: 'atlasfox deployment checklist',
+      backend: 'full-text',
+      rerank: 'bm25',
+      limit: 2,
+      minConfidence: 0.2,
+    });
+
+    expect(baseline[0]?.content).toContain('AtlasFox release note');
+    expect(redundantRerank[0]?.content).toContain('deployment checklist');
+  });
+
+  test('can BM25-rerank semantic recall candidates before the final limit', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-rerank', null, 'channel-rerank');
+
+    const constantEmbeddingProvider = {
+      embed: () => [1, 0, 0, 0],
+    };
+    const service = new MemoryService(
+      undefined,
+      undefined,
+      constantEmbeddingProvider,
+    );
+
+    service.storeSemanticMemory({
+      sessionId: 's-rerank',
+      role: 'assistant',
+      content: 'Weekend groceries and garden fertilizer reminders.',
+      confidence: 1,
+    });
+    service.storeSemanticMemory({
+      sessionId: 's-rerank',
+      role: 'assistant',
+      content: 'AtlasFox release checklist and deployment notes.',
+      confidence: 0.4,
+    });
+
+    const baseline = service.recallSemanticMemories({
+      sessionId: 's-rerank',
+      query: 'atlasfox deployment',
+      backend: 'cosine',
+      rerank: 'none',
+      limit: 1,
+      minConfidence: 0.2,
+    });
+    const reranked = service.recallSemanticMemories({
+      sessionId: 's-rerank',
+      query: 'atlasfox deployment',
+      backend: 'cosine',
+      rerank: 'bm25',
+      limit: 1,
+      minConfidence: 0.2,
+    });
+
+    expect(baseline[0]?.content).toContain('Weekend groceries');
+    expect(reranked[0]?.content).toContain('AtlasFox');
+  });
+
+  test('can fuse cosine and full-text recall in hybrid mode', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-hybrid', null, 'channel-hybrid');
+
+    const constantEmbeddingProvider = {
+      embed: () => [1, 0, 0, 0],
+    };
+    const service = new MemoryService(
+      undefined,
+      undefined,
+      constantEmbeddingProvider,
+    );
+
+    service.storeSemanticMemory({
+      sessionId: 's-hybrid',
+      role: 'assistant',
+      content: 'Weekend groceries and garden fertilizer reminders.',
+      confidence: 1,
+    });
+    service.storeSemanticMemory({
+      sessionId: 's-hybrid',
+      role: 'assistant',
+      content: 'AtlasFox release checklist and deployment notes.',
+      confidence: 0.4,
+    });
+
+    const results = service.recallSemanticMemories({
+      sessionId: 's-hybrid',
+      query: 'atlasfox deployment',
+      backend: 'hybrid',
+      rerank: 'none',
+      limit: 1,
+      minConfidence: 0.2,
+    });
+
+    expect(results[0]?.content).toContain('AtlasFox');
   });
 
   test('decays stale memories and keeps fresh ones unchanged', () => {
@@ -1392,6 +1634,225 @@ describe('MemoryService', () => {
     expect(recallCalls).toBe(2);
   });
 
+  test('buildPromptMemoryContext honors the semantic prompt hard cap', () => {
+    const recalled: SemanticMemoryEntry[] = Array.from(
+      { length: 5 },
+      (_, i) => ({
+        id: i + 1,
+        session_id: 'session:test',
+        role: 'assistant',
+        source: 'conversation',
+        scope: 'episodic',
+        metadata: {},
+        content: `Memory ${i + 1}`,
+        confidence: 0.9,
+        embedding: null,
+        source_message_id: null,
+        created_at: new Date().toISOString(),
+        accessed_at: new Date().toISOString(),
+        access_count: 0,
+      }),
+    );
+    const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
+      getOrCreateSession: (sessionId, guildId, channelId) =>
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
+      getSessionById: () => makeSession(),
+      getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
+      getRecentMessages: () => [] as StoredMessage[],
+      get: () => null,
+      set: () => {},
+      delete: () => false,
+      list: () => [],
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+      getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
+      addKnowledgeEntity: () => 'entity-id',
+      addKnowledgeRelation: () => 'relation-id',
+      queryKnowledgeGraph: () => [],
+      getCompactionCandidateMessages: () => null,
+      storeMessage: () => 42,
+      storeSemanticMemory: () => 10,
+      recallSemanticMemories: ({ limit }) =>
+        recalled.slice(0, limit || recalled.length).map((row) => ({ ...row })),
+      forgetSemanticMemory: () => false,
+      decaySemanticMemories: () => 0,
+      clearSessionHistory: () => 0,
+      deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
+      updateSessionSummary: () => {},
+      markSessionMemoryFlush: () => {},
+    };
+
+    const service = new MemoryService(backend, {
+      semanticRecallLimit: 5,
+      semanticPromptHardCap: 2,
+    });
+    const result = service.buildPromptMemoryContext({
+      session: makeSession(),
+      query: 'memory',
+      semanticLimit: 20,
+    });
+
+    expect(result.semanticMemories).toHaveLength(2);
+    expect(result.citationIndex).toHaveLength(2);
+    expect(result.promptSummary).toContain('[mem:1]');
+    expect(result.promptSummary).toContain('[mem:2]');
+    expect(result.promptSummary).not.toContain('[mem:3]');
+  });
+
+  test('buildPromptMemoryContext uses runtime semantic recall config', async () => {
+    const originalHome = process.env.HOME;
+    const runtimeHome = createTempRuntimeHome();
+    process.env.HOME = runtimeHome;
+    vi.resetModules();
+
+    try {
+      const runtimeConfigModule = await import(
+        '../src/config/runtime-config.js'
+      );
+      const dbModule = await import('../src/memory/db.js');
+      const memoryServiceModule = await import(
+        '../src/memory/memory-service.js'
+      );
+      const dbPath = createTempDbPath();
+      dbModule.initDatabase({ quiet: true, dbPath });
+      dbModule.getOrCreateSession('runtime-memory-config', null, 'channel-r');
+
+      runtimeConfigModule.updateRuntimeConfig((draft) => {
+        draft.memory.queryMode = 'no-stopwords';
+        draft.memory.backend = 'full-text';
+        draft.memory.rerank = 'bm25';
+        draft.memory.tokenizer = 'porter';
+      });
+
+      const service = new memoryServiceModule.MemoryService(
+        undefined,
+        undefined,
+        {
+          embed: () => [1, 0, 0, 0],
+        },
+      );
+      service.storeSemanticMemory({
+        sessionId: 'runtime-memory-config',
+        role: 'assistant',
+        content: 'Weekend groceries and garden fertilizer reminders.',
+        confidence: 1,
+      });
+      service.storeSemanticMemory({
+        sessionId: 'runtime-memory-config',
+        role: 'assistant',
+        content: 'AtlasFox deployment plan and release checklist.',
+        confidence: 0.4,
+      });
+      const session = dbModule.getSessionById('runtime-memory-config');
+      if (!session) {
+        throw new Error('Expected runtime-memory-config session.');
+      }
+
+      const result = service.buildPromptMemoryContext({
+        session,
+        query: 'what is the atlasfox deployment plan',
+      });
+
+      expect(result.semanticMemories[0]?.content).toContain('AtlasFox');
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      vi.resetModules();
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('explicit semantic recall params override runtime memory config', async () => {
+    const originalHome = process.env.HOME;
+    const runtimeHome = createTempRuntimeHome();
+    process.env.HOME = runtimeHome;
+    vi.resetModules();
+
+    try {
+      const runtimeConfigModule = await import(
+        '../src/config/runtime-config.js'
+      );
+      const dbModule = await import('../src/memory/db.js');
+      const memoryServiceModule = await import(
+        '../src/memory/memory-service.js'
+      );
+      const dbPath = createTempDbPath();
+      dbModule.initDatabase({ quiet: true, dbPath });
+      dbModule.getOrCreateSession('runtime-memory-override', null, 'channel-o');
+
+      runtimeConfigModule.updateRuntimeConfig((draft) => {
+        draft.memory.queryMode = 'no-stopwords';
+        draft.memory.backend = 'full-text';
+        draft.memory.rerank = 'bm25';
+        draft.memory.tokenizer = 'porter';
+      });
+
+      const service = new memoryServiceModule.MemoryService(
+        undefined,
+        undefined,
+        {
+          embed: () => [1, 0, 0, 0],
+        },
+      );
+      service.storeSemanticMemory({
+        sessionId: 'runtime-memory-override',
+        role: 'assistant',
+        content: 'Weekend groceries and garden fertilizer reminders.',
+        confidence: 1,
+      });
+      service.storeSemanticMemory({
+        sessionId: 'runtime-memory-override',
+        role: 'assistant',
+        content: 'AtlasFox deployment plan and release checklist.',
+        confidence: 0.4,
+      });
+
+      const results = service.recallSemanticMemories({
+        sessionId: 'runtime-memory-override',
+        query: 'what is the plan',
+        queryMode: 'raw',
+        backend: 'cosine',
+        rerank: 'none',
+        tokenizer: 'unicode61',
+        limit: 1,
+      });
+
+      expect(results[0]?.content).toContain('Weekend groceries');
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      vi.resetModules();
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
   test('storeTurn writes one interaction semantic memory in OpenFang format', () => {
     const storedSemantic: Array<{
       role: string;
@@ -1564,6 +2025,78 @@ describe('MemoryService', () => {
     expect(semanticWrites).toBe(0);
   });
 
+  test('storeSemanticMemory derives plain array embeddings with the default provider', () => {
+    let capturedEmbedding: number[] | null | undefined;
+    const backend: MemoryBackend = {
+      resetSessionIfExpired: () => false,
+      getOrCreateSession: (sessionId, guildId, channelId) =>
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
+      getSessionById: () => makeSession(),
+      getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
+      getRecentMessages: () => [] as StoredMessage[],
+      get: () => null,
+      set: () => {},
+      delete: () => false,
+      list: () => [],
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+      getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
+      addKnowledgeEntity: () => 'entity-id',
+      addKnowledgeRelation: () => 'relation-id',
+      queryKnowledgeGraph: () => [],
+      getCompactionCandidateMessages: () => null,
+      storeMessage: () => 42,
+      storeSemanticMemory: ({ embedding }) => {
+        capturedEmbedding = embedding;
+        return 10;
+      },
+      recallSemanticMemories: () => [] as SemanticMemoryEntry[],
+      forgetSemanticMemory: () => false,
+      decaySemanticMemories: () => 0,
+      clearSessionHistory: () => 0,
+      deleteMessagesBeforeId: () => 0,
+      deleteMessagesByIds: () => 0,
+      updateSessionSummary: () => {},
+      markSessionMemoryFlush: () => {},
+    };
+
+    const service = new MemoryService(backend, { embeddingDimensions: 32 });
+    service.storeSemanticMemory({
+      sessionId: 'session:test',
+      role: 'assistant',
+      content: 'Rust systems programming notes',
+      confidence: 0.9,
+    });
+
+    expect(Array.isArray(capturedEmbedding)).toBe(true);
+    expect(capturedEmbedding).not.toBeInstanceOf(Float32Array);
+    expect(capturedEmbedding).toHaveLength(32);
+    expect(
+      capturedEmbedding?.every(
+        (value) => typeof value === 'number' && Number.isFinite(value),
+      ),
+    ).toBe(true);
+  });
+
   test('semantic recall increments access_count on repeated identical queries', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
@@ -1592,6 +2125,34 @@ describe('MemoryService', () => {
 
     expect(first[0]?.access_count).toBe(0);
     expect(second[0]?.access_count).toBe(1);
+  });
+
+  test('buildPromptMemoryContext can skip semantic access tracking in read-only mode', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    const session = getOrCreateSession('s-access-readonly', null, 'channel-h');
+
+    storeSemanticMemory({
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Release codename is AtlasFox.',
+      confidence: 1,
+    });
+
+    const service = new MemoryService();
+    const first = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+      touchSemanticRecall: false,
+    });
+    const second = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+      touchSemanticRecall: false,
+    });
+
+    expect(first.semanticMemories[0]?.access_count).toBe(0);
+    expect(second.semanticMemories[0]?.access_count).toBe(0);
   });
 
   test('forgets semantic memory and excludes it from recall', () => {

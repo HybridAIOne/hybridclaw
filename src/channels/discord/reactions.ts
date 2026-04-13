@@ -1,6 +1,7 @@
 import type { Message as DiscordMessage } from 'discord.js';
 
 import { logger } from '../../logger.js';
+import { sleep } from '../../utils/sleep.js';
 
 export type LifecyclePhase =
   | 'queued'
@@ -16,10 +17,6 @@ export type DiscordRetryFn = <T>(
 
 const MIN_REACTION_GAP_MS = 350;
 const DONE_REACTION_VISIBILITY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function findReactionByEmoji(
   message: DiscordMessage,

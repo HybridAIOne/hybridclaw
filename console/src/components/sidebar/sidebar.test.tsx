@@ -5,6 +5,7 @@ import {
   render,
   renderHook,
   screen,
+  within,
 } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -502,7 +503,7 @@ describe('AppSidebar', () => {
     ).toBeDefined();
   });
 
-  it('renders logout button and calls onLogout when showLogout=true', () => {
+  it('opens a confirmation dialog before calling onLogout', () => {
     const onLogout = vi.fn();
     render(
       <SidebarProvider>
@@ -514,10 +515,15 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    const logout = screen.getByRole('button', { name: 'Forget token' });
-    act(() => {
-      fireEvent.click(logout);
-    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget token' }));
+    expect(onLogout).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Forget token?')).toBeDefined();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Forget token' }),
+    );
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
 

@@ -17,6 +17,7 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from './config/config.js';
+import { createApprovalPresentation } from './gateway/approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
   fetchGatewayAdminSkills,
@@ -58,9 +59,14 @@ import {
 } from './providers/model-names.js';
 import {
   formatTuiApprovalSummary,
+  isTuiApprovalRestatement,
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import {
+  buildTuiApprovalSelectionOptions,
+  promptTuiApprovalSelection,
+} from './tui-approval-prompt.js';
 import type { TuiStartupBannerSkillCategory } from './tui-banner.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
@@ -68,6 +74,7 @@ import {
   loadTuiClipboardUploadCandidates,
 } from './tui-clipboard.js';
 import { formatTuiExitWarning, TuiExitController } from './tui-exit.js';
+import { fetchTuiRemoteExitSummary } from './tui-exit-summary.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -84,6 +91,7 @@ import { TuiMultilineInputController } from './tui-input.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
+  buildTuiUnavailableExitSummaryLines,
   generateTuiSessionId,
   type TuiRunOptions,
 } from './tui-session.js';
@@ -326,12 +334,13 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
 );
 const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
+const TUI_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
-let tuiPendingApproval: {
+type TuiCachedApproval = {
   requestId: string;
   summary: string;
   intent: string;
@@ -339,7 +348,9 @@ let tuiPendingApproval: {
   allowSession: boolean;
   allowAgent: boolean;
   allowAll: boolean;
-} | null = null;
+};
+
+let tuiPendingApproval: TuiCachedApproval | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
@@ -457,6 +468,7 @@ async function submitApprovalReplay(
 function resolvePendingApproval(
   result: GatewayChatResult,
   streamedApproval: GatewayChatApprovalEvent | null,
+  cachedApproval?: TuiApprovalDetails | null,
 ): TuiApprovalDetails | null {
   if (streamedApproval) {
     return {
@@ -482,24 +494,58 @@ function resolvePendingApproval(
   }
 
   const prompt = String(result.result || '').trim();
-  return prompt ? parseTuiApprovalPrompt(prompt) : null;
+  if (!prompt) return null;
+  const parsedPrompt = parseTuiApprovalPrompt(prompt);
+  if (parsedPrompt) return parsedPrompt;
+  return cachedApproval && isTuiApprovalRestatement(prompt)
+    ? cachedApproval
+    : null;
+}
+
+function resolveCachedApprovalDetails(
+  pendingApproval: TuiCachedApproval | null,
+): TuiApprovalDetails | null {
+  if (!pendingApproval) return null;
+  return {
+    approvalId: pendingApproval.requestId,
+    intent: pendingApproval.intent,
+    reason: pendingApproval.reason,
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  };
 }
 
 async function promptApprovalSelection(
   rl: readline.Interface,
-  requestId: string,
-  allowSession: boolean,
-  allowAgent: boolean,
-  allowAll: boolean,
+  pendingApproval: TuiApprovalDetails,
 ): Promise<string | null> {
-  const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
-  if (allowSession) options.push('session');
-  if (allowAgent) options.push('agent');
-  if (allowAll) options.push('all');
-  options.push('skip');
+  const options = buildTuiApprovalSelectionOptions({
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  });
   clearTuiSlashMenu();
+  const result = await promptTuiApprovalSelection({
+    rl,
+    approval: pendingApproval,
+    options,
+    restorePrompt: false,
+  });
+  if (result !== undefined) {
+    return mapApprovalSelectionToCommand(
+      result,
+      pendingApproval.approvalId,
+      options,
+    );
+  }
+
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  if (TUI_APPROVAL_PRESENTATION.showText) {
+    printResponse(summary);
+  }
   console.log(
-    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
+    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${pendingApproval.approvalId})${RESET}`,
   );
   options.forEach((option, index) => {
     const label =
@@ -520,13 +566,37 @@ async function promptApprovalSelection(
       resolve,
     );
   });
-  const command = mapApprovalSelectionToCommand(answer, requestId, options);
+  const command = mapApprovalSelectionToCommand(
+    answer,
+    pendingApproval.approvalId,
+    options,
+  );
   if (answer.trim() && !command) {
     printInfo(
       `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
     );
   }
   return command;
+}
+
+async function handleTuiPendingApproval(
+  pendingApproval: TuiApprovalDetails,
+  rl: readline.Interface,
+): Promise<void> {
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  tuiPendingApproval = {
+    requestId: pendingApproval.approvalId,
+    summary,
+    intent: pendingApproval.intent,
+    reason: pendingApproval.reason,
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  };
+  const approvalCommand = await promptApprovalSelection(rl, pendingApproval);
+  if (approvalCommand) {
+    await submitApprovalReplay(approvalCommand, rl);
+  }
 }
 
 function printBanner(
@@ -749,7 +819,11 @@ function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
 
 function isEvalResultsCommandResult(result: GatewayCommandResult): boolean {
   const title = String(result.title || '').trim();
-  return title === 'Terminal-Bench 2.0 Results' || title === 'tau2 Results';
+  return (
+    title === 'Terminal-Bench 2.0 Results' ||
+    title === 'tau2 Results' ||
+    title === 'LOCOMO Results'
+  );
 }
 
 interface TuiSectionCard {
@@ -757,7 +831,268 @@ interface TuiSectionCard {
   rows: string[];
 }
 
-function parseTuiSectionCards(text: string): TuiSectionCard[] {
+function stripAnsiTui(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; ) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
+      index += 2;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+    output += value[index] || '';
+    index += 1;
+  }
+  return output;
+}
+
+function visibleTuiLength(value: string): number {
+  return [...stripAnsiTui(value)].length;
+}
+
+function padAnsiTuiEnd(value: string, width: number): string {
+  return `${value}${' '.repeat(Math.max(0, width - visibleTuiLength(value)))}`;
+}
+
+type TuiAnsiToken =
+  | { kind: 'ansi'; value: string }
+  | { kind: 'char'; value: string };
+
+function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
+  const source = String(value || '');
+  const tokens: TuiAnsiToken[] = [];
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      tokens.push({ kind: 'ansi', value: source.slice(start, index) });
+      continue;
+    }
+    const symbol = [...source.slice(index)][0] || source[index] || '';
+    tokens.push({ kind: 'char', value: symbol });
+    index += symbol.length || 1;
+  }
+  return tokens;
+}
+
+function trimAnsiTuiCell(value: string): string {
+  const tokens = tokenizeAnsiTui(value);
+  const trimmedLeading: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let started = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (started) {
+        trimmedLeading.push(token);
+      } else {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+    if (!started && token.value === ' ') {
+      continue;
+    }
+    if (!started) {
+      trimmedLeading.push(...pendingAnsi);
+      started = true;
+    }
+    trimmedLeading.push(token);
+  }
+
+  const trailingAnsi: TuiAnsiToken[] = [];
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'ansi'
+  ) {
+    trailingAnsi.unshift(trimmedLeading.pop() as TuiAnsiToken);
+  }
+  while (
+    trimmedLeading.length > 0 &&
+    trimmedLeading[trimmedLeading.length - 1]?.kind === 'char' &&
+    trimmedLeading[trimmedLeading.length - 1]?.value === ' '
+  ) {
+    trimmedLeading.pop();
+  }
+  if (trimmedLeading.length === 0) return '';
+  return [...trimmedLeading, ...trailingAnsi]
+    .map((token) => token.value)
+    .join('');
+}
+
+function sliceAnsiTuiVisible(
+  value: string,
+  start: number,
+  width: number,
+): string {
+  if (width <= 0) return '';
+  const end = start + width;
+  const tokens = tokenizeAnsiTui(value);
+  const output: TuiAnsiToken[] = [];
+  const pendingAnsi: TuiAnsiToken[] = [];
+  let visibleIndex = 0;
+  let started = false;
+  let finished = false;
+
+  for (const token of tokens) {
+    if (token.kind === 'ansi') {
+      if (finished) {
+        output.push(token);
+        continue;
+      }
+      if (started || visibleIndex >= start) {
+        pendingAnsi.push(token);
+      }
+      continue;
+    }
+
+    if (visibleIndex >= start && visibleIndex < end) {
+      if (!started) {
+        output.push(...pendingAnsi);
+        pendingAnsi.length = 0;
+        started = true;
+      }
+      output.push(token);
+    } else if (started && visibleIndex >= end) {
+      finished = true;
+      break;
+    }
+    visibleIndex += 1;
+    if (visibleIndex >= end && started) {
+      finished = true;
+    }
+    if (!started) {
+      pendingAnsi.length = 0;
+    }
+  }
+
+  return output.map((token) => token.value).join('');
+}
+
+function truncateAnsiTuiEnd(value: string, width: number): string {
+  if (width <= 0) return '';
+  const source = String(value || '');
+  if (visibleTuiLength(source) <= width) return source;
+  if (width === 1) return '…';
+
+  let output = '';
+  let visibleCount = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      const start = index;
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      output += source.slice(start, index);
+      continue;
+    }
+    const symbol =
+      [...source.slice(index, index + 2)][0] || source[index] || '';
+    const symbolLength = [...symbol].length || 1;
+    if (visibleCount + 1 >= width) {
+      output += '…';
+      return output.endsWith(RESET) ? output : `${output}${RESET}`;
+    }
+    output += symbol;
+    visibleCount += 1;
+    index += symbolLength;
+  }
+  return output;
+}
+
+function looksLikeTuiTableSection(rows: readonly string[]): boolean {
+  if (rows.length < 2) return false;
+  const headerCells = rows[0]?.split(/ {2,}/).filter(Boolean) || [];
+  if (headerCells.length < 3) return false;
+  return /^[- ]+$/u.test(stripAnsiTui(rows[1] || ''));
+}
+
+function reflowTuiTableSection(
+  rows: readonly string[],
+  innerWidth: number,
+): string[] | null {
+  if (!looksLikeTuiTableSection(rows)) return null;
+  const separator = '  ';
+  const sourceWidths = String(rows[1] || '')
+    .split(/ {2,}/)
+    .filter(Boolean)
+    .map((entry) => entry.length);
+  const columnCount = sourceWidths.length;
+  if (columnCount < 3) return null;
+  const parseRow = (row: string): string[] => {
+    let offset = 0;
+    return sourceWidths.map((width, index) => {
+      const cell = trimAnsiTuiCell(sliceAnsiTuiVisible(row, offset, width));
+      offset += width;
+      if (index < sourceWidths.length - 1) {
+        offset += separator.length;
+      }
+      return cell;
+    });
+  };
+  const headerCells = parseRow(rows[0] || '');
+  const bodyRows = rows.slice(2).map((row) => parseRow(row));
+  if (bodyRows.some((row) => row.length !== columnCount)) {
+    return null;
+  }
+  const tableRows = [headerCells, ...bodyRows];
+
+  const metricWidths = Array.from(
+    { length: columnCount - 1 },
+    (_, metricIndex) =>
+      Math.max(
+        visibleTuiLength(tableRows[0]?.[metricIndex + 1] || ''),
+        ...tableRows.map((row) => visibleTuiLength(row[metricIndex + 1] || '')),
+      ),
+  );
+  const minVariantWidth = Math.max(
+    7,
+    visibleTuiLength(tableRows[0]?.[0] || ''),
+  );
+  const availableVariantWidth =
+    innerWidth -
+    metricWidths.reduce((total, width) => total + width, 0) -
+    separator.length * (columnCount - 1);
+  if (availableVariantWidth < minVariantWidth) {
+    return null;
+  }
+  const variantWidth = Math.min(
+    Math.max(
+      minVariantWidth,
+      ...tableRows.slice(1).map((row) => visibleTuiLength(row[0] || '')),
+    ),
+    availableVariantWidth,
+  );
+
+  return tableRows.flatMap((row, index) => {
+    if (index === 1) {
+      return [
+        [variantWidth, ...metricWidths]
+          .map((width) => '-'.repeat(width))
+          .join(separator),
+      ];
+    }
+    const cells = row.map((cell, cellIndex) => {
+      const width =
+        cellIndex === 0 ? variantWidth : metricWidths[cellIndex - 1];
+      return padAnsiTuiEnd(truncateAnsiTuiEnd(cell, width), width);
+    });
+    return [cells.join(separator)];
+  });
+}
+
+export function parseTuiSectionCards(text: string): TuiSectionCard[] {
   const lines = String(text || '')
     .replace(/\r\n?/g, '\n')
     .split('\n');
@@ -794,14 +1129,12 @@ function parseTuiSectionCards(text: string): TuiSectionCard[] {
   return sections;
 }
 
-function renderTuiEvalResultsPanel(
+export function renderTuiEvalResultsPanel(
   sections: readonly TuiSectionCard[],
   columns: number,
 ): string[] {
   const innerWidth = Math.max(16, Math.floor(columns || 80) - 7);
   const lines: string[] = [];
-  const pad = (value: string) =>
-    value + ' '.repeat(Math.max(0, innerWidth - value.length));
   const pushBorder = (
     left: '╭' | '├' | '╰',
     fill: string,
@@ -812,13 +1145,21 @@ function renderTuiEvalResultsPanel(
     );
   };
   const pushRow = (text = '', color = '') => {
-    const content = color ? `${color}${pad(text)}${RESET}` : pad(text);
+    const padded = padAnsiTuiEnd(text, innerWidth);
+    const content = color ? `${color}${padded}${RESET}` : padded;
     lines.push(`  ${MUTED}│${RESET} ${content} ${MUTED}│${RESET}`);
   };
 
   sections.forEach((section, index) => {
     pushBorder(index === 0 ? '╭' : '├', '─', index === 0 ? '╮' : '┤');
     pushRow(section.title, `${BOLD}${GOLD}`);
+    const tableRows = reflowTuiTableSection(section.rows, innerWidth);
+    if (tableRows) {
+      for (const row of tableRows) {
+        pushRow(row);
+      }
+      return;
+    }
     for (const row of section.rows) {
       for (const wrapped of wrapTuiBlock(row, innerWidth, '').split('\n')) {
         pushRow(wrapped);
@@ -1348,26 +1689,29 @@ async function fetchTuiInputHistory(
 }
 
 async function fetchTuiExitSummary(): Promise<{
-  inputTokenCount: number;
-  outputTokenCount: number;
-  costUsd: number;
-  toolCallCount: number;
-  toolBreakdown: Array<{ toolName: string; count: number }>;
-  fileChanges: {
-    readCount: number;
-    modifiedCount: number;
-    createdCount: number;
-    deletedCount: number;
-  };
-} | null> {
-  try {
-    const response = await gatewayHistory(tuiSessionId, 1, {
-      summarySinceMs: tuiSessionStartedAtMs,
-    });
-    return response.summary || null;
-  } catch {
-    return null;
-  }
+  summary: {
+    inputTokenCount: number;
+    outputTokenCount: number;
+    costUsd: number;
+    toolCallCount: number;
+    toolBreakdown: Array<{ toolName: string; count: number }>;
+    fileChanges: {
+      readCount: number;
+      modifiedCount: number;
+      createdCount: number;
+      deletedCount: number;
+    };
+  } | null;
+  error: string | null;
+}> {
+  return fetchTuiRemoteExitSummary({
+    loadRemote: async () => {
+      const response = await gatewayHistory(tuiSessionId, 1, {
+        summarySinceMs: tuiSessionStartedAtMs,
+      });
+      return response.summary || null;
+    },
+  });
 }
 
 async function finalizeTuiExit(): Promise<void> {
@@ -1376,24 +1720,34 @@ async function finalizeTuiExit(): Promise<void> {
   clearTuiSlashMenu();
   tuiSlashMenu = null;
 
-  const summary = await fetchTuiExitSummary();
+  const { summary, error } = await fetchTuiExitSummary();
+  const durationMs = Date.now() - tuiSessionStartedAtMs;
 
   console.log();
   console.log();
-  for (const line of buildTuiExitSummaryLines({
-    sessionId: tuiSessionId,
-    durationMs: Date.now() - tuiSessionStartedAtMs,
-    inputTokenCount: summary?.inputTokenCount ?? 0,
-    outputTokenCount: summary?.outputTokenCount ?? 0,
-    costUsd: summary?.costUsd ?? 0,
-    toolCallCount: summary?.toolCallCount ?? 0,
-    toolBreakdown: summary?.toolBreakdown ?? [],
-    readFileCount: summary?.fileChanges.readCount ?? 0,
-    modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
-    createdFileCount: summary?.fileChanges.createdCount ?? 0,
-    deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
-    resumeCommand: tuiResumeCommand,
-  })) {
+  const summaryLines =
+    summary || !error
+      ? buildTuiExitSummaryLines({
+          sessionId: tuiSessionId,
+          durationMs,
+          inputTokenCount: summary?.inputTokenCount ?? 0,
+          outputTokenCount: summary?.outputTokenCount ?? 0,
+          costUsd: summary?.costUsd ?? 0,
+          toolCallCount: summary?.toolCallCount ?? 0,
+          toolBreakdown: summary?.toolBreakdown ?? [],
+          readFileCount: summary?.fileChanges.readCount ?? 0,
+          modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
+          createdFileCount: summary?.fileChanges.createdCount ?? 0,
+          deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
+          resumeCommand: tuiResumeCommand,
+        })
+      : buildTuiUnavailableExitSummaryLines({
+          sessionId: tuiSessionId,
+          durationMs,
+          error,
+          resumeCommand: tuiResumeCommand,
+        });
+  for (const line of summaryLines) {
     console.log(line);
   }
   console.log();
@@ -1423,27 +1777,7 @@ async function runGatewayCommand(
     const pendingApproval =
       result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
     if (pendingApproval) {
-      const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-        allowAll: pendingApproval.allowAll,
-      };
-      printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
-        rl,
-        pendingApproval.approvalId,
-        pendingApproval.allowSession,
-        pendingApproval.allowAgent,
-        pendingApproval.allowAll,
-      );
-      if (approvalCommand) {
-        await submitApprovalReplay(approvalCommand, rl);
-      }
+      await handleTuiPendingApproval(pendingApproval, rl);
       return;
     }
     printGatewayCommandResult(result);
@@ -1901,7 +2235,11 @@ async function processMessage(
     const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
-    const pendingApproval = resolvePendingApproval(result, streamedApproval);
+    const pendingApproval = resolvePendingApproval(
+      result,
+      streamedApproval,
+      resolveCachedApprovalDetails(tuiPendingApproval),
+    );
 
     s.flushVisibleText();
     s.stop();
@@ -1937,27 +2275,7 @@ async function processMessage(
     }
 
     if (pendingApproval) {
-      const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-        allowAll: pendingApproval.allowAll,
-      };
-      printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
-        rl,
-        pendingApproval.approvalId,
-        pendingApproval.allowSession,
-        pendingApproval.allowAgent,
-        pendingApproval.allowAll,
-      );
-      if (approvalCommand) {
-        await submitApprovalReplay(approvalCommand, rl);
-      }
+      await handleTuiPendingApproval(pendingApproval, rl);
     } else {
       if (isApprovalResponseContent(content)) {
         tuiPendingApproval = null;
@@ -2033,29 +2351,13 @@ async function processFullAutoSteeringMessage(
         printError(result.error || 'Unknown error');
         return;
       }
-      const pendingApproval = resolvePendingApproval(result, null);
+      const pendingApproval = resolvePendingApproval(
+        result,
+        null,
+        resolveCachedApprovalDetails(tuiPendingApproval),
+      );
       if (pendingApproval) {
-        const summary = formatTuiApprovalSummary(pendingApproval);
-        tuiPendingApproval = {
-          requestId: pendingApproval.approvalId,
-          summary,
-          intent: pendingApproval.intent,
-          reason: pendingApproval.reason,
-          allowSession: pendingApproval.allowSession,
-          allowAgent: pendingApproval.allowAgent,
-          allowAll: pendingApproval.allowAll,
-        };
-        printResponse(summary);
-        const approvalCommand = await promptApprovalSelection(
-          rl,
-          pendingApproval.approvalId,
-          pendingApproval.allowSession,
-          pendingApproval.allowAgent,
-          pendingApproval.allowAll,
-        );
-        if (approvalCommand) {
-          await submitApprovalReplay(approvalCommand, rl);
-        }
+        await handleTuiPendingApproval(pendingApproval, rl);
         return;
       }
       printResponse(result.result || 'No response.');

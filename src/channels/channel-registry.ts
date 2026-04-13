@@ -7,6 +7,7 @@ import {
   MSTEAMS_CAPABILITIES,
   SKILL_CONFIG_CHANNEL_KINDS,
   type SkillConfigChannelKind,
+  SLACK_CAPABILITIES,
   SYSTEM_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
   TUI_CAPABILITIES,
@@ -14,6 +15,7 @@ import {
 } from './channel.js';
 import { isEmailAddress } from './email/allowlist.js';
 import { isIMessageHandle } from './imessage/handle.js';
+import { isSlackChannelTarget } from './slack/target.js';
 import { isTelegramChannelId } from './telegram/target.js';
 import { isWhatsAppJid } from './whatsapp/phone.js';
 
@@ -26,6 +28,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   imessage: IMESSAGE_CAPABILITIES,
   msteams: MSTEAMS_CAPABILITIES,
   scheduler: SYSTEM_CAPABILITIES,
+  slack: SLACK_CAPABILITIES,
   telegram: TELEGRAM_CAPABILITIES,
   tui: TUI_CAPABILITIES,
   whatsapp: WHATSAPP_CAPABILITIES,
@@ -105,6 +108,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   }
   if (isWhatsAppJid(normalized)) return 'whatsapp';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
   if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_SNOWFLAKE_RE.test(normalized)) return 'discord';

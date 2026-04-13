@@ -65,6 +65,7 @@ import {
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -106,6 +107,7 @@ import {
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   deleteGatewayAdminAgent,
+  deleteGatewayAdminEmailMessage,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   GatewayRequestError,
@@ -113,6 +115,9 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminEmailFolder,
+  getGatewayAdminEmailMailbox,
+  getGatewayAdminEmailMessage,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
@@ -627,6 +632,9 @@ async function resolveApiChatSlashCommandResult(
 
   const textParts: string[] = [];
   const artifacts: NonNullable<GatewayChatResult['artifacts']> = [];
+  let pendingApproval:
+    | NonNullable<GatewayChatResult['pendingApproval']>
+    | undefined;
   let sessionId = chatRequest.sessionId;
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
@@ -652,6 +660,9 @@ async function resolveApiChatSlashCommandResult(
       }
       if (handled.artifacts.length > 0) {
         artifacts.push(...handled.artifacts);
+      }
+      if (handled.pendingApproval) {
+        pendingApproval = handled.pendingApproval;
       }
       continue;
     }
@@ -696,6 +707,7 @@ async function resolveApiChatSlashCommandResult(
     ...(sessionKey ? { sessionKey } : {}),
     ...(mainSessionKey ? { mainSessionKey } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(pendingApproval ? { pendingApproval } : {}),
   };
 }
 
@@ -2171,6 +2183,91 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
 
+async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminEmailMailbox());
+}
+
+async function handleApiAdminEmailFolder(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const limitRaw = url.searchParams.get('limit')?.trim() || '';
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  if (
+    limitRaw &&
+    (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0)
+  ) {
+    sendJson(res, 400, { error: '`limit` must be a positive integer.' });
+    return;
+  }
+
+  const offsetRaw = url.searchParams.get('offset')?.trim() || '';
+  const offset = offsetRaw ? Number.parseInt(offsetRaw, 10) : undefined;
+  if (
+    offsetRaw &&
+    (typeof offset !== 'number' || !Number.isFinite(offset) || offset < 0)
+  ) {
+    sendJson(res, 400, { error: '`offset` must be a non-negative integer.' });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    await getGatewayAdminEmailFolder({
+      folder,
+      ...(typeof limit === 'number' ? { limit } : {}),
+      ...(typeof offset === 'number' ? { offset } : {}),
+    }),
+  );
+}
+
+async function handleApiAdminEmailMessage(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid === 0) {
+    sendJson(res, 400, { error: '`uid` must be a non-zero integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await getGatewayAdminEmailMessage({ folder, uid }));
+}
+
+async function handleApiAdminEmailMessageDelete(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const folder = url.searchParams.get('folder')?.trim() || '';
+  if (!folder) {
+    sendJson(res, 400, { error: '`folder` is required.' });
+    return;
+  }
+
+  const uidRaw = url.searchParams.get('uid')?.trim() || '';
+  const uid = Number.parseInt(uidRaw, 10);
+  if (!uidRaw || !Number.isFinite(uid) || uid <= 0) {
+    sendJson(res, 400, { error: '`uid` must be a positive integer.' });
+    return;
+  }
+
+  sendJson(res, 200, await deleteGatewayAdminEmailMessage({ folder, uid }));
+}
+
 async function handleApiAdminAgents(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2203,15 +2300,35 @@ async function handleApiAdminAgents(
     id?: unknown;
     name?: unknown;
     model?: unknown;
+    skills?: unknown;
     chatbotId?: unknown;
     enableRag?: unknown;
     workspace?: unknown;
   };
 
+  if (
+    body.skills !== undefined &&
+    body.skills !== null &&
+    !Array.isArray(body.skills)
+  ) {
+    sendJson(res, 400, {
+      error: 'Expected `skills` to be an array or null.',
+    });
+    return;
+  }
+
+  const skills =
+    body.skills === null
+      ? null
+      : Array.isArray(body.skills)
+        ? normalizeTrimmedUniqueStringArray(body.skills)
+        : undefined;
+
   const payload = {
     id: String(body.id || '').trim(),
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
+    skills,
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
@@ -2245,6 +2362,7 @@ async function handleApiAdminAgents(
         updateGatewayAdminAgent(agentId, {
           name: payload.name,
           model: payload.model,
+          skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
           workspace: payload.workspace,
@@ -3140,6 +3258,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
+            return;
+          }
+          if (pathname === '/api/admin/email' && method === 'GET') {
+            await handleApiAdminEmail(res);
+            return;
+          }
+          if (pathname === '/api/admin/email/messages' && method === 'GET') {
+            await handleApiAdminEmailFolder(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'GET') {
+            await handleApiAdminEmailMessage(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/email/message' && method === 'DELETE') {
+            await handleApiAdminEmailMessageDelete(res, url);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {

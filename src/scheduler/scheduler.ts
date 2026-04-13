@@ -7,11 +7,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
-
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { registerChannel } from '../channels/channel-registry.js';
+import { isEmailAddress } from '../channels/email/allowlist.js';
+import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isTelegramChannelId } from '../channels/telegram/target.js';
+import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import {
+  DEFAULT_ONE_SHOT_MAX_RETRIES,
   type RuntimeSchedulerJob,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -32,6 +36,7 @@ const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
+const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
 
 type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
 
@@ -118,13 +123,29 @@ function formatFireTime(timeZone = DEFAULT_SCHEDULER_TIME_ZONE): string {
   });
 }
 
+function describeScheduledDeliveryTarget(
+  channelId: string | undefined,
+): string {
+  const trimmed = channelId?.trim();
+  if (!trimmed) return 'the current session';
+  if (isEmailAddress(trimmed)) return `email to ${trimmed}`;
+  if (DISCORD_CHANNEL_ID_RE.test(trimmed)) return `Discord channel ${trimmed}`;
+  if (isTelegramChannelId(trimmed)) return `Telegram target ${trimmed}`;
+  if (isIMessageHandle(trimmed)) return `iMessage target ${trimmed}`;
+  if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
+  if (trimmed === 'tui') return 'the local TUI inbox';
+  return `channel ${trimmed}`;
+}
+
 export function wrapCronPrompt(
   jobLabel: string,
   message: string,
   timeZone = DEFAULT_SCHEDULER_TIME_ZONE,
+  deliveryChannelId?: string,
 ): string {
   const resolvedTz = resolveSchedulerTimeZone(timeZone);
-  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime(resolvedTz)} (${resolvedTz})\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
+  const deliveryTarget = describeScheduledDeliveryTarget(deliveryChannelId);
+  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime(resolvedTz)} (${resolvedTz})\nDelivery target: ${deliveryTarget}. Your plain-text response will be delivered there automatically.\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
 }
 
 function defaultConfigJobMeta(): ConfigJobMeta {
@@ -250,6 +271,30 @@ function resolveConfigJobLabel(
   return candidate || job.id;
 }
 
+function isTerminalConfigJobBoardStatus(
+  boardStatus: RuntimeSchedulerJob['boardStatus'],
+): boolean {
+  return (
+    boardStatus === 'review' ||
+    boardStatus === 'done' ||
+    boardStatus === 'cancelled'
+  );
+}
+
+function isReviewTrackedRunOnceConfigJob(job: RuntimeSchedulerJob): boolean {
+  return (
+    job.schedule.kind === 'one_shot' ||
+    (job.schedule.kind === 'at' && Boolean(job.boardStatus))
+  );
+}
+
+function resolveRunOnceConfigJobMaxRetries(job: RuntimeSchedulerJob): number {
+  if (typeof job.maxRetries === 'number' && Number.isFinite(job.maxRetries)) {
+    return Math.max(0, Math.floor(job.maxRetries));
+  }
+  return DEFAULT_ONE_SHOT_MAX_RETRIES;
+}
+
 function setConfigJobBoardStatus(
   jobId: string,
   boardStatus: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>,
@@ -306,6 +351,21 @@ function setConfigJobBoardStatus(
     };
   });
   return updatedJob;
+}
+
+function moveConfigJobToReview(jobId: string): RuntimeSchedulerJob | null {
+  const currentStatus = getConfigSnapshot().scheduler.jobs.find(
+    (candidate) => candidate.id === jobId,
+  )?.boardStatus;
+  if (isTerminalConfigJobBoardStatus(currentStatus)) {
+    return null;
+  }
+  if (currentStatus) {
+    return setConfigJobBoardStatus(jobId, 'review', {
+      onlyIfCurrent: currentStatus,
+    });
+  }
+  return setConfigJobBoardStatus(jobId, 'review');
 }
 
 function parseMondayZeroBasedWeekdayValue(value: string): number | null {
@@ -480,6 +540,13 @@ function nextFireMsForConfigJob(
   const meta = getConfigJobMeta(job.id);
   if (meta.disabled) return null;
 
+  if (job.schedule.kind === 'one_shot') {
+    if (meta.oneShotCompleted) return null;
+    if (isTerminalConfigJobBoardStatus(job.boardStatus)) return null;
+    const lastRunMs = meta.lastRun ? new Date(meta.lastRun).getTime() : 0;
+    return lastRunMs > 0 ? lastRunMs + CONFIG_ONESHOT_RETRY_MS : nowMs;
+  }
+
   if (job.schedule.kind === 'at') {
     if (meta.oneShotCompleted) return null;
     if (!job.schedule.at) return null;
@@ -516,7 +583,7 @@ function nextFireMsForConfigJob(
 function reconcileSuccessfulOneShotConfigJob(
   job: RuntimeSchedulerJob,
 ): boolean {
-  if (job.schedule.kind !== 'at' || job.boardStatus === 'backlog') {
+  if (!isReviewTrackedRunOnceConfigJob(job) || job.boardStatus === 'backlog') {
     return false;
   }
   const meta = getConfigJobMeta(job.id);
@@ -616,7 +683,12 @@ function arm(): void {
 
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
-  const prompt = wrapCronPrompt(`#${task.id}`, task.prompt);
+  const prompt = wrapCronPrompt(
+    `#${task.id}`,
+    task.prompt,
+    DEFAULT_SCHEDULER_TIME_ZONE,
+    task.channel_id,
+  );
   await taskRunner({
     source: 'db-task',
     taskId: task.id,
@@ -642,6 +714,7 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
           jobLabel,
           job.action.message,
           job.schedule.tz || undefined,
+          job.delivery.kind === 'channel' ? job.delivery.to : undefined,
         )
       : job.action.message;
   await taskRunner({
@@ -671,6 +744,30 @@ function markConfigJobSuccess(
   if (markOneShotDone) meta.oneShotCompleted = true;
   syncConfigJobNextRunAt(job, Date.now());
   persistSchedulerState();
+}
+
+function markRunOnceConfigJobFailure(job: RuntimeSchedulerJob): {
+  exhaustedRetries: boolean;
+  consecutiveErrors: number;
+} {
+  const meta = getConfigJobMeta(job.id);
+  meta.lastStatus = 'error';
+  meta.consecutiveErrors = Math.max(0, meta.consecutiveErrors) + 1;
+  const exhaustedRetries =
+    meta.consecutiveErrors > resolveRunOnceConfigJobMaxRetries(job);
+  if (exhaustedRetries) {
+    meta.oneShotCompleted = true;
+    meta.nextRunAt = null;
+    meta.disabled = false;
+    moveConfigJobToReview(job.id);
+  } else {
+    syncConfigJobNextRunAt(job, Date.now());
+  }
+  persistSchedulerState();
+  return {
+    exhaustedRetries,
+    consecutiveErrors: meta.consecutiveErrors,
+  };
 }
 
 function markConfigJobFailure(job: RuntimeSchedulerJob): {
@@ -826,6 +923,52 @@ async function tick(): Promise<void> {
       const jobLabel = resolveConfigJobLabel(job);
 
       try {
+        if (job.schedule.kind === 'one_shot') {
+          if (
+            meta.oneShotCompleted ||
+            isTerminalConfigJobBoardStatus(job.boardStatus)
+          ) {
+            continue;
+          }
+          const lastRunMs = meta.lastRun ? new Date(meta.lastRun).getTime() : 0;
+          if (lastRunMs > 0 && nowMs - lastRunMs < CONFIG_ONESHOT_RETRY_MS) {
+            continue;
+          }
+          meta.lastRun = now.toISOString();
+          persistSchedulerState();
+          const runningJob =
+            job.boardStatus === 'in_progress'
+              ? job
+              : setConfigJobBoardStatus(job.id, 'in_progress') || job;
+          logger.info(
+            { jobId: job.id, jobLabel },
+            'Config one-shot job firing',
+          );
+          dispatchConfigJob(runningJob)
+            .then(() => {
+              const completedJob = moveConfigJobToReview(job.id) || runningJob;
+              markConfigJobSuccess(completedJob, true);
+            })
+            .catch((err) => {
+              const failure = markRunOnceConfigJobFailure(runningJob);
+              logger.error(
+                { jobId: job.id, jobLabel, err },
+                'Config one-shot job failed',
+              );
+              if (failure.exhaustedRetries) {
+                logger.warn(
+                  {
+                    jobId: job.id,
+                    jobLabel,
+                    consecutiveErrors: failure.consecutiveErrors,
+                  },
+                  'Config one-shot job exhausted retries and moved to review',
+                );
+              }
+            });
+          continue;
+        }
+
         if (
           job.boardStatus === 'backlog' &&
           job.action.kind === 'agent_turn' &&
@@ -852,18 +995,30 @@ async function tick(): Promise<void> {
                 job;
               markConfigJobSuccess(
                 completedJob,
-                completedJob.schedule.kind === 'at',
+                isReviewTrackedRunOnceConfigJob(completedJob),
               );
             })
             .catch((err) => {
-              // Backlog-assigned jobs share the same failure counter and
-              // auto-disable threshold as other config-backed scheduler jobs.
-              const failure = markConfigJobFailure(runningJob || job);
+              const runOnceFailure = isReviewTrackedRunOnceConfigJob(
+                runningJob || job,
+              );
+              const failure = runOnceFailure
+                ? markRunOnceConfigJobFailure(runningJob || job)
+                : markConfigJobFailure(runningJob || job);
               logger.error(
                 { jobId: job.id, jobLabel, agentId: job.agentId, err },
                 'Assigned backlog job failed',
               );
-              if (failure.disabled) {
+              if ('exhaustedRetries' in failure && failure.exhaustedRetries) {
+                logger.warn(
+                  {
+                    jobId: job.id,
+                    jobLabel,
+                    consecutiveErrors: failure.consecutiveErrors,
+                  },
+                  'Config one-shot job exhausted retries and moved to review',
+                );
+              } else if ('disabled' in failure && failure.disabled) {
                 logger.warn(
                   {
                     jobId: job.id,
@@ -892,15 +1047,30 @@ async function tick(): Promise<void> {
           );
           dispatchConfigJob(job)
             .then(() => {
-              markConfigJobSuccess(job, true);
+              const completedJob = isReviewTrackedRunOnceConfigJob(job)
+                ? moveConfigJobToReview(job.id) || job
+                : job;
+              markConfigJobSuccess(completedJob, true);
             })
             .catch((err) => {
-              const failure = markConfigJobFailure(job);
+              const runOnceFailure = isReviewTrackedRunOnceConfigJob(job);
+              const failure = runOnceFailure
+                ? markRunOnceConfigJobFailure(job)
+                : markConfigJobFailure(job);
               logger.error(
                 { jobId: job.id, jobLabel, err },
                 'Config one-shot job failed',
               );
-              if (failure.disabled) {
+              if ('exhaustedRetries' in failure && failure.exhaustedRetries) {
+                logger.warn(
+                  {
+                    jobId: job.id,
+                    jobLabel,
+                    consecutiveErrors: failure.consecutiveErrors,
+                  },
+                  'Config one-shot job exhausted retries and moved to review',
+                );
+              } else if ('disabled' in failure && failure.disabled) {
                 logger.warn(
                   {
                     jobId: job.id,
@@ -1095,6 +1265,32 @@ export function resumeConfigJob(jobId: string): boolean {
   logger.info(
     { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
     'Config scheduler job resumed',
+  );
+  return true;
+}
+
+export function resetConfigJobRuntime(jobId: string): boolean {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return false;
+  const jobs = getConfigSnapshot().scheduler.jobs;
+  pruneConfigJobMeta(jobs);
+  const job = jobs.find((candidate) => candidate.id === normalizedJobId);
+  if (!job) return false;
+
+  const meta = getConfigJobMeta(normalizedJobId);
+  meta.lastRun = null;
+  meta.lastStatus = null;
+  meta.nextRunAt = null;
+  meta.consecutiveErrors = 0;
+  meta.disabled = false;
+  meta.oneShotCompleted = false;
+  syncConfigJobNextRunAt(job, Date.now());
+  persistSchedulerState();
+  rearmScheduler();
+
+  logger.info(
+    { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
+    'Config scheduler job runtime reset',
   );
   return true;
 }

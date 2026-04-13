@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
@@ -11,6 +13,7 @@ function cloneConfig<T>(value: T): T {
 
 export function ConfigPage() {
   const auth = useAuth();
+  const toast = useToast();
   const [rawMode, setRawMode] = useState(false);
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
@@ -27,6 +30,10 @@ export function ConfigPage() {
     onSuccess: (payload) => {
       setDraft(cloneConfig(payload.config));
       setRawJson(JSON.stringify(payload.config, null, 2));
+      toast.success('Runtime config saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -91,9 +98,7 @@ export function ConfigPage() {
                     setDraft(parsed);
                     saveMutation.mutate(parsed);
                   } catch (error) {
-                    window.alert(
-                      error instanceof Error ? error.message : String(error),
-                    );
+                    toast.error('Invalid JSON', getErrorMessage(error));
                   }
                 }}
               >
@@ -369,14 +374,6 @@ export function ConfigPage() {
             {saveMutation.isPending ? 'Saving...' : 'Save config'}
           </button>
         </div>
-        {saveMutation.isSuccess ? (
-          <p className="success-banner">Runtime config saved.</p>
-        ) : null}
-        {saveMutation.isError ? (
-          <p className="error-banner">
-            {(saveMutation.error as Error).message}
-          </p>
-        ) : null}
       </Panel>
     </div>
   );

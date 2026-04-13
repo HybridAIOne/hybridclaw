@@ -36,7 +36,12 @@ import {
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
 } from '../../config/config.js';
+import {
+  type ApprovalPresentation,
+  getApprovalVisibleText,
+} from '../../gateway/approval-presentation.js';
 import { parseConciergeChoiceCustomId } from '../../gateway/concierge-choice.js';
+import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import {
@@ -107,6 +112,7 @@ import {
   type LifecyclePhase,
   LifecycleReactionController,
 } from './reactions.js';
+import { withDiscordRetry } from './retry.js';
 import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   resolveDiscordLocalFileForSend,
@@ -158,8 +164,11 @@ export interface MessageRunContext {
   mentionLookup: MentionLookup;
   emitLifecyclePhase: (phase: LifecyclePhase) => void;
   sendApprovalNotification?: (params: {
-    text: string;
-    approvalId: string;
+    approval: Pick<
+      GatewayChatApprovalEvent,
+      'approvalId' | 'prompt' | 'summary'
+    >;
+    presentation: ApprovalPresentation;
     userId: string;
   }) => Promise<{ disableButtons: () => Promise<void> } | null>;
 }
@@ -191,8 +200,6 @@ let messageHandler: MessageHandler;
 let commandHandler: CommandHandler;
 let activeConversationRuns = 0;
 let botMentionRegex: RegExp | null = null;
-const DISCORD_RETRY_MAX_ATTEMPTS = 3;
-const DISCORD_RETRY_BASE_DELAY_MS = 500;
 const GUILD_INBOUND_HISTORY_LIMIT = 20;
 const GUILD_INBOUND_HISTORY_MAX_CHARS = 6_000;
 const PARTICIPANT_CONTEXT_MAX_USERS = 30;
@@ -559,15 +566,6 @@ function buildParticipantContext(
   ].join('\n');
 }
 
-interface DiscordErrorLike {
-  status?: number;
-  httpStatus?: number;
-  retryAfter?: number;
-  data?: {
-    retry_after?: number;
-  };
-}
-
 const DISCORD_READY_WAIT_TIMEOUT_MS = 10_000;
 const DISCORD_READY_WAIT_INTERVAL_MS = 100;
 
@@ -902,56 +900,6 @@ function isRateLimitExempt(msg: DiscordMessage): boolean {
 
 function parseCommand(content: string): ParsedCommand {
   return parseCommandInbound(content, botMentionRegex, DISCORD_PREFIX);
-}
-
-function isRetryableDiscordError(error: unknown): boolean {
-  const maybe = error as DiscordErrorLike;
-  const status = maybe.status ?? maybe.httpStatus;
-  return (
-    status === 429 ||
-    (typeof status === 'number' && status >= 500 && status <= 599)
-  );
-}
-
-function retryDelayMs(error: unknown, fallbackMs: number): number {
-  const maybe = error as DiscordErrorLike;
-  const retryAfterSeconds = maybe.retryAfter ?? maybe.data?.retry_after;
-  if (
-    typeof retryAfterSeconds === 'number' &&
-    Number.isFinite(retryAfterSeconds) &&
-    retryAfterSeconds > 0
-  ) {
-    return Math.max(50, Math.ceil(retryAfterSeconds * 1_000));
-  }
-  return fallbackMs + Math.floor(Math.random() * 250);
-}
-
-async function withDiscordRetry<T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  let attempt = 0;
-  let delayMs = DISCORD_RETRY_BASE_DELAY_MS;
-  while (true) {
-    attempt += 1;
-    try {
-      return await fn();
-    } catch (error) {
-      if (
-        attempt >= DISCORD_RETRY_MAX_ATTEMPTS ||
-        !isRetryableDiscordError(error)
-      ) {
-        throw error;
-      }
-      const waitMs = retryDelayMs(error, delayMs);
-      logger.warn(
-        { label, attempt, waitMs, error },
-        'Discord API call failed; retrying',
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      delayMs = Math.min(delayMs * 2, 4_000);
-    }
-  }
 }
 
 function cleanIncomingContent(content: string): string {
@@ -1745,14 +1693,28 @@ export async function initDiscord(
             stream,
             mentionLookup,
             emitLifecyclePhase,
-            sendApprovalNotification: async ({ text, approvalId, userId }) => {
-              const row = buildApprovalActionRow(approvalId);
+            sendApprovalNotification: async ({
+              approval,
+              presentation,
+              userId,
+            }) => {
+              const row = buildApprovalActionRow(approval.approvalId);
+              const visibleText = getApprovalVisibleText(
+                approval,
+                presentation,
+              );
+              const components = presentation.showButtons ? [row] : [];
               const sent = await withDiscordRetry('approval-notification', () =>
                 sourceMessage.reply({
-                  content: `<@${userId}> ${text}`,
-                  components: [row],
+                  content: visibleText
+                    ? `<@${userId}> ${visibleText}`
+                    : `<@${userId}>`,
+                  ...(components.length > 0 ? { components } : {}),
                 }),
               );
+              if (!presentation.showButtons) {
+                return null;
+              }
               return {
                 disableButtons: () => disableApprovalButtons(sent),
               };
@@ -2142,14 +2104,25 @@ export async function initDiscord(
           stream,
           mentionLookup,
           emitLifecyclePhase,
-          sendApprovalNotification: async ({ text, approvalId, userId }) => {
-            const row = buildApprovalActionRow(approvalId);
+          sendApprovalNotification: async ({
+            approval,
+            presentation,
+            userId,
+          }) => {
+            const row = buildApprovalActionRow(approval.approvalId);
+            const visibleText = getApprovalVisibleText(approval, presentation);
+            const components = presentation.showButtons ? [row] : [];
             const sent = await withDiscordRetry('approval-notification', () =>
               msg.reply({
-                content: `<@${userId}> ${text}`,
-                components: [row],
+                content: visibleText
+                  ? `<@${userId}> ${visibleText}`
+                  : `<@${userId}>`,
+                ...(components.length > 0 ? { components } : {}),
               }),
             );
+            if (!presentation.showButtons) {
+              return null;
+            }
             return {
               disableButtons: () => disableApprovalButtons(sent),
             };

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
@@ -21,6 +22,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -1417,9 +1419,42 @@ export interface SkillInvocation {
   args: string;
 }
 
-export interface ExpandedSkillInvocation {
+export function resolveSkillInvocationForTurn(params: {
   content: string;
-  invocation: SkillInvocation | null;
+  skills: Skill[];
+  previousUserContent?: string | null;
+}): SkillInvocation | null {
+  const directInvocation = parseSkillInvocation(params.content, params.skills);
+  if (directInvocation) {
+    return directInvocation;
+  }
+
+  const currentContent = params.content.trim();
+  if (
+    !currentContent ||
+    currentContent.startsWith('/') ||
+    currentContent.startsWith('$')
+  ) {
+    return null;
+  }
+
+  const previousContent = params.previousUserContent?.trim() || '';
+  if (!previousContent) {
+    return null;
+  }
+
+  const previousInvocation = parseSkillInvocation(
+    previousContent,
+    params.skills,
+  );
+  if (!previousInvocation) {
+    return null;
+  }
+
+  return {
+    skill: previousInvocation.skill,
+    args: currentContent,
+  };
 }
 
 function parseToolExecutionArguments(
@@ -1557,7 +1592,7 @@ export function expandSkillInvocation(
   content: string,
   skills: Skill[],
 ): string {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
+  const invocation = resolveSkillInvocationForTurn({ content, skills });
   if (!invocation) return content;
 
   return expandResolvedSkillInvocation(invocation, invocation.args);
@@ -1583,19 +1618,6 @@ export function expandResolvedSkillInvocation(
   }
 
   return lines.join('\n');
-}
-
-export function expandSkillInvocationWithResolution(
-  content: string,
-  skills: Skill[],
-): ExpandedSkillInvocation {
-  const invocation = resolveExplicitSkillInvocation(content, skills);
-  return {
-    content: invocation
-      ? expandResolvedSkillInvocation(invocation, invocation.args)
-      : content,
-    invocation,
-  };
 }
 
 export interface SkillCatalogEntry {
@@ -1757,10 +1779,18 @@ export function loadSkills(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
+  const configuredSkills = resolveAgentConfig(agentId).skills;
+  const allowedSkills =
+    configuredSkills === undefined
+      ? null
+      : new Set(normalizeTrimmedUniqueStringArray(configuredSkills));
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter(
-    (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
+    (skill) =>
+      checkEligibility(skill).available &&
+      !disabled.has(skill.name) &&
+      (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
   pruneStaleSyncedSkills(guarded, workspaceDir);

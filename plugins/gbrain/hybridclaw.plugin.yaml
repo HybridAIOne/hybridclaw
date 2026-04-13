@@ -1,0 +1,53 @@
+id: gbrain
+name: GBrain Knowledge Brain
+version: 0.1.0
+kind: memory
+description: Query an external GBrain knowledge brain for prompt context and expose its CLI operations as prefixed plugin tools.
+entrypoint: src/index.js
+requires:
+  bins:
+    - name: gbrain
+      configKey: command
+credentials:
+  - GBRAIN_DATABASE_URL
+  - DATABASE_URL
+  - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY
+externalDependencies:
+  - name: GBrain CLI
+    check: gbrain --version
+    installHint: Install gbrain from https://github.com/garrytan/gbrain and ensure the CLI is on PATH, or point config.command at the compiled binary.
+    installUrl: https://github.com/garrytan/gbrain
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      default: gbrain
+    workingDirectory:
+      type: string
+    searchMode:
+      type: string
+      enum: [query, search]
+      default: query
+    maxResults:
+      type: number
+      default: 5
+      minimum: 1
+      maximum: 20
+    maxSnippetChars:
+      type: number
+      default: 700
+      minimum: 100
+      maximum: 4000
+    maxInjectedChars:
+      type: number
+      default: 5000
+      minimum: 500
+      maximum: 20000
+    timeoutMs:
+      type: number
+      default: 12000
+      minimum: 1000
+      maximum: 60000

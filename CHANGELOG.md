@@ -2,15 +2,88 @@
 
 ## [Coming up]
 
+### Changed
+
+- **Interactive TUI approval picker**: Local TUI approval requests open a
+  keyboard-driven picker with `Up`/`Down` navigation, `Enter` confirmation,
+  number-key quick select, `Esc` to skip, and a text fallback for
+  non-interactive terminals.
+
+### Fixed
+
+- **TUI approval replay handling**: Replayed or restated approval prompts reuse
+  cached approval details more reliably, and web `/approve` flows preserve
+  pending-approval metadata so follow-up approvals reopen the same picker
+  instead of dropping back to raw text.
+- **TUI exit summaries**: Exit output either shows the remote usage/tool/file
+  totals for the session or an explicit unavailable summary, and gateway
+  history breakdowns resolve canonical TUI session ids consistently for
+  tool/file counts.
+
+## [0.12.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.4)
+
+### Added
+
+- **Slack channel transport**: Added a built-in Slack Socket Mode transport
+  with `hybridclaw auth login slack`, DM and channel policy controls,
+  thread-aware session routing, file/media handling, approval buttons, and a
+  dedicated setup guide for operator rollout.
+- **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
+  that run immediately, retry up to `maxRetries`, preserve review state, and
+  surface richer delivery output across the gateway and admin scheduler UI.
+
+### Changed
+
+- **Admin console dialog and toast UX**: Replaced inline banners with
+  accessible dialog/toast primitives, tightened scheduler and jobs feedback
+  flows, and refined the mobile topbar/sidebar interaction.
+- **Per-agent skill filtering**: Agent `skills` settings narrow the
+  globally enabled skill set, while omitting `skills` keeps the existing
+  global scope for backward compatibility.
+- **Approval presentation across channels**: Gateway approval copy and channel
+  actions render more consistently across Discord, Slack, and
+  gateway-managed approval surfaces.
+
+## [0.12.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.3)
+
 ### Added
 
 - **Telegram Bot API transport**: Added a built-in Telegram channel with
   BotFather token setup, DM/group policy controls, admin Channels support,
   managed `TELEGRAM_BOT_TOKEN` storage, inbound media handling, and canonical
   outbound `telegram:<chatId>` send targets.
+- **Built-in memory inspection command**: Added local `/memory inspect
+  [sessionId]`, `/memory query <query>`, and `hybridclaw gateway memory inspect
+  [sessionId]` diagnostics to show `MEMORY.md`, today's daily note, recent raw
+  history, `session_summary`, recent semantic-memory rows, canonical
+  cross-session recall state, and the exact prompt-memory block the current
+  session would attach for a query.
+- **Admin email mailbox surfaces**: Added admin-console and gateway support for
+  browsing the configured built-in email mailbox, listing folders and message
+  metadata, and composing or replying from the operator UI without leaving the
+  HybridClaw runtime.
+- **Native LOCOMO eval workflow**: Added managed `hybridclaw eval locomo ...`
+  and local `/eval locomo ...` flows with official dataset setup, QA and
+  retrieval modes, detached run logs, and retrieval sweeps across backend,
+  rerank, tokenizer, and embedding settings.
+- **Bundled GBrain plugin**: Added the bundled `gbrain` plugin so HybridClaw
+  can query an external GBrain knowledge brain for prompt-time recall, expose
+  discovered `gbrain_*` tools, and provide `/gbrain ...` passthrough operations
+  from local sessions.
+- **Bundled manim-video skill**: Added a repo-shipped `manim-video` skill with
+  setup helpers, reference packs, and render guidance for scripted explainer
+  videos and animation workflows.
 
 ### Changed
 
+- **Model catalog and provider routing**: `/model list` plus selector surfaces
+  now use provider-scoped model catalogs for Codex, OpenRouter, Mistral, and
+  Hugging Face, Codex models use explicit `openai-codex/...` ids, and status
+  output carries discovered model metadata more consistently.
+- **Admin console navigation and channel UX**: The embedded console now uses a
+  structured sidebar taxonomy, a clearer channel catalog, richer channel/email
+  surfaces, and refreshed icons/layout so operators can reach models, channels,
+  plugins, tools, and gateway state from one navigation frame.
 - **Shared inbound media cache**: Email, Telegram, WhatsApp, and Microsoft
   Teams now stage locally downloaded inbound media under the shared
   `uploaded-media-cache` runtime directory instead of per-channel temp
@@ -19,6 +92,21 @@
 - **Telegram config reload behavior**: Running gateways now restart the
   Telegram integration automatically when `telegram.*` config changes land, so
   most setup edits apply within a few seconds without a full gateway restart.
+- **Per-agent skill allowlists**: Agent `skills` settings now narrow the
+  globally enabled skill set, while omitting `skills` keeps the existing
+  globally enabled scope for backward compatibility.
+
+### Fixed
+
+- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
+  reported by a reachable gateway, avoiding unnecessary container rebuild
+  checks when the running gateway is already in host mode and vice versa.
+- **HybridAI auxiliary model prefixes**: Auxiliary-model routing now strips the
+  leading provider prefix correctly so HybridAI requests do not fail when the
+  configured model name already carries a provider namespace.
+- **GBrain tool discovery robustness**: The bundled GBrain plugin now times out
+  cleanly when `gbrain --tools-json` hangs and reports parse failures with
+  stdout/stderr previews during discovery.
 
 ## [0.12.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.2)
 

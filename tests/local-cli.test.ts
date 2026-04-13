@@ -280,6 +280,111 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   expect(secrets.DISCORD_TOKEN).toBe('discord-token-123');
 });
 
+test('channels slack manifest prints the slash-command manifest fragment', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main(['channels', 'slack', 'manifest']);
+
+  const output = logSpy.mock.calls
+    .map(([message]) => String(message))
+    .join('\n');
+  expect(output).toContain('oauth_config:');
+  expect(output).toContain('command: "/hc-status"');
+  expect(output).toContain('- "commands"');
+});
+
+test('channels slack register-commands syncs slash commands through Slack app manifests', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const originalFetch = globalThis.fetch;
+  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/apps.manifest.export')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          manifest: {
+            display_information: { name: 'HybridClaw Dev' },
+            oauth_config: { scopes: { bot: ['chat:write'] } },
+            features: {
+              slash_commands: [
+                {
+                  command: '/custom',
+                  description: 'Custom command',
+                  should_escape: true,
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url.endsWith('/apps.manifest.update')) {
+      const payload = JSON.parse(String(init?.body || '{}')) as {
+        manifest?: string;
+      };
+      const manifest = JSON.parse(String(payload.manifest || '{}')) as {
+        oauth_config?: { scopes?: { bot?: string[] } };
+        features?: {
+          slash_commands?: Array<{ command?: string; description?: string }>;
+        };
+      };
+      expect(manifest.oauth_config?.scopes?.bot).toContain('commands');
+      expect(manifest.features?.slash_commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ command: '/custom' }),
+          expect.objectContaining({
+            command: '/hc-status',
+            description: 'Show HybridClaw runtime status (only visible to you)',
+          }),
+        ]),
+      );
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/status',
+        ),
+      ).toBe(false);
+      expect(
+        manifest.features?.slash_commands?.some(
+          (command) => command.command === '/hybridclaw-status',
+        ),
+      ).toBe(false);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  globalThis.fetch = fetchMock as typeof fetch;
+  try {
+    await cli.main([
+      'channels',
+      'slack',
+      'register-commands',
+      '--app-id',
+      'A1234567890',
+      '--config-token',
+      'xoxe-1234567890',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(logSpy).toHaveBeenCalledWith(
+    'Updated Slack app manifest for A1234567890.',
+  );
+  expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Registered'));
+});
+
 test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
@@ -627,7 +732,6 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
         },
         codex: {
           baseUrl: 'https://chatgpt.com/backend-api/codex',
-          models: ['openai-codex/gpt-5-codex'],
         },
         local: {
           backends: {

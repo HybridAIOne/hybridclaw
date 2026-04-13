@@ -11,6 +11,7 @@ import {
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import { formatError, formatInfo } from '../utils/text-format.js';
+import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -22,7 +23,10 @@ import {
   handleGatewayCommand,
   renderGatewayCommand,
 } from './gateway-service.js';
-import type { GatewayCommandResult } from './gateway-types.js';
+import type {
+  GatewayChatResult,
+  GatewayCommandResult,
+} from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
@@ -40,6 +44,7 @@ export interface HandledTextChannelApprovalResult {
   sessionKey?: string;
   mainSessionKey?: string;
   approvalId?: string;
+  pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
   text: string | null;
   artifacts: ArtifactMetadata[];
 }
@@ -360,7 +365,7 @@ export async function handleTextChannelApprovalCommand(params: {
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
-      prompt: pendingApproval.prompt || resultText,
+      prompt: getApprovalPromptText(pendingApproval, resultText),
       userId,
       expiresAt: pendingApproval.expiresAt,
     });
@@ -370,6 +375,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionKey: approvalResult.sessionKey,
       mainSessionKey: approvalResult.mainSessionKey,
       approvalId: pendingApproval.approvalId,
+      pendingApproval: approvalResult.pendingApproval,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
     };

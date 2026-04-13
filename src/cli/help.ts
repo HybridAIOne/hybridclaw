@@ -13,7 +13,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Telegram, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -47,6 +47,7 @@ Commands:
 
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+       hybridclaw eval locomo [setup|run|status|stop|results|logs]
        hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
        hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -57,6 +58,22 @@ Examples:
   hybridclaw eval list
   hybridclaw eval env
   hybridclaw eval env --fresh-agent
+  hybridclaw eval locomo
+  hybridclaw eval locomo setup
+  hybridclaw eval locomo run --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20
+  hybridclaw eval locomo run --mode retrieval --matrix --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
+  hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -72,14 +89,22 @@ Examples:
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Only \`terminal-bench-2.0\` and \`tau2\` have active HybridClaw implementations today.
+  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
+  - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
+  - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
+  - \`locomo --mode retrieval --matrix\` runs the default retrieval sweep across backend, rerank, and tokenizer combinations and prints one comparison table.
+  - \`locomo --mode retrieval --matrix backend|rerank|tokenizer|embedding\` runs a single-dimension sweep and keeps the other retrieval settings at their defaults.
+  - Retrieval-mode knobs are benchmark-only: \`--retrieval-query raw|no-stopwords\`, \`--retrieval-backend cosine|full-text|hybrid\`, \`--retrieval-rerank none|bm25\` (default: \`bm25\`), \`--retrieval-tokenizer unicode61|porter|trigram\`, and \`--retrieval-embedding hashed|transformers\`.
+  - \`locomo --num-samples\` limits conversation records; use \`--max-questions\` for fast smoke runs over a small QA slice.
+  - By default, \`locomo --mode qa\` creates one fresh template-seeded agent workspace per conversation sample. Use \`--current-agent\` to reuse the current agent workspace.
   - \`terminal-bench-2.0 run --num-tasks 10\` runs the native HybridClaw Terminal-Bench harness against local task containers.
   - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
   - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
   - For \`tau2 run\`, omitted \`--agent-llm\` and \`--user-llm\` flags default to \`$HYBRIDCLAW_EVAL_MODEL\`.
   - TUI and web sessions receive proactive ASCII progress bars for supported evals like \`tau2 run --num-tasks ...\`.
-  - The default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
+  - Outside suite-specific overrides, the default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
   - \`--fresh-agent\` uses a temporary template-seeded agent workspace for each eval request.
   - \`--ablate-system\` removes HybridClaw's injected system prompt for the eval request.
   - Prompt parts include hook names like \`memory\`, \`runtime\`, \`safety\`, \`bootstrap\` and bootstrap subparts like \`soul\`, \`identity\`, \`user\`, \`tools\`, \`memory-file\`, and \`skills\`.
@@ -114,6 +139,7 @@ Interactive slash commands inside TUI:
   /help
   /info
   /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
+  /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
@@ -124,7 +150,7 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
@@ -173,9 +199,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -190,25 +216,30 @@ Examples:
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
+  hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status msteams
+  hybridclaw auth status slack
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout msteams
+  hybridclaw auth logout slack
 
 Notes:
   - \`auth login\` without a provider runs the normal interactive onboarding flow.
   - \`local logout\` disables configured local backends and clears any saved vLLM API key.
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
+  - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
-  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
+  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
+  - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
 
 export function printChannelsUsage(): void {
@@ -216,6 +247,8 @@ export function printChannelsUsage(): void {
 
 Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -239,6 +272,9 @@ Notes:
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
+  - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
+  - \`hybridclaw channels slack manifest\` prints a Slack app manifest fragment for HybridClaw slash commands.
+  - \`hybridclaw channels slack register-commands\` updates an existing Slack app manifest through Slack's app manifest API.
   - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
   - iMessage setup stores \`IMESSAGE_PASSWORD\` only when \`--password\` is provided for the remote relay backend.
   - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
@@ -339,6 +375,24 @@ Notes:
   - \`--tenant-id\` is optional.
   - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
   - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
+}
+
+export function printSlackUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
+  hybridclaw auth status slack
+  hybridclaw auth logout slack
+  hybridclaw channels slack manifest [--format <yaml|json>]
+  hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+
+Notes:
+  - \`auth login slack\` enables the Slack integration in ${runtimeConfigPath()}.
+  - \`auth login slack\` stores \`SLACK_BOT_TOKEN\` and \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
+  - Slack uses Socket Mode, so both a bot token and an app token are required.
+  - \`channels slack manifest\` prints a Slack app manifest fragment that adds HybridClaw slash commands plus the \`commands\` bot scope.
+  - \`channels slack register-commands\` exports your app manifest, merges the HybridClaw slash commands, and updates it through Slack's app manifest API.
+  - \`channels slack register-commands\` needs a Slack app configuration access token (\`xoxe-...\`) and the Slack app id (\`A...\`).
+  - If either auth token is omitted during \`auth login slack\` and the terminal is interactive, HybridClaw prompts for the missing value.`);
 }
 
 export function printCodexUsage(): void {
@@ -458,6 +512,7 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <skill-name> <dependency>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -465,10 +520,10 @@ Commands:
   hybridclaw skill history <skill-name>
   hybridclaw skill sync [--skip-skill-scan] <source>
   hybridclaw skill import [--force] [--skip-skill-scan] <source>
-  hybridclaw skill install <skill-name> [install-id]
 
 Notes:
-  - \`list\` shows declared install options from skill frontmatter.
+  - \`list\` shows declared dependency ids from skill frontmatter.
+  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -479,7 +534,7 @@ Notes:
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
+  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
 }
 
 export function printToolUsage(): void {
@@ -615,6 +670,7 @@ Topics:
   config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
+  slack       Help for Slack auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
@@ -697,6 +753,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'msteams':
     case 'teams':
       printMSTeamsUsage();
+      return true;
+    case 'slack':
+      printSlackUsage();
       return true;
     case 'local':
       printLocalUsage();

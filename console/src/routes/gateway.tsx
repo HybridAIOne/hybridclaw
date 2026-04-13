@@ -2,18 +2,31 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
+import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 
 const GATEWAY_RESTART_POLL_MS = 1000;
 
 export function GatewayPage() {
   const auth = useAuth();
+  const toast = useToast();
   const live = useLiveEvents(auth.token);
   const [polledStatus, setPolledStatus] =
     useState<typeof auth.gatewayStatus>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const status = live.status || polledStatus || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
@@ -27,6 +40,9 @@ export function GatewayPage() {
     },
     onSuccess: () => {
       setIsRestarting(true);
+    },
+    onError: (error) => {
+      toast.error('Gateway restart failed', getErrorMessage(error));
     },
   });
 
@@ -74,11 +90,6 @@ export function GatewayPage() {
     'Gateway restart is unavailable in the current launch mode.';
   const sandboxWarning =
     status.sandbox?.mode === 'host' ? null : status.sandbox?.warning || null;
-  const restartError =
-    restartMutation.error instanceof Error
-      ? restartMutation.error.message
-      : 'Gateway restart failed.';
-
   return (
     <div className="page-stack">
       <PageHeader
@@ -97,7 +108,7 @@ export function GatewayPage() {
               type="button"
               className="danger-button"
               disabled={!restartSupported || restartBusy}
-              onClick={() => restartMutation.mutate()}
+              onClick={() => setRestartConfirmOpen(true)}
               title={
                 !restartSupported && !restartBusy ? restartReason : undefined
               }
@@ -118,10 +129,6 @@ export function GatewayPage() {
       {!restartSupported ? (
         <p className="supporting-text">{restartReason}</p>
       ) : null}
-      {restartMutation.isError ? (
-        <p className="error-banner">{restartError}</p>
-      ) : null}
-
       <div className="metric-grid">
         <MetricCard label="Uptime" value={formatUptime(status.uptime)} />
         <MetricCard label="Sessions" value={String(status.sessions)} />
@@ -274,6 +281,26 @@ export function GatewayPage() {
           )}
         </Panel>
       </div>
+      <Dialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+        <DialogContent size="sm" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Restart Gateway?</DialogTitle>
+            <DialogDescription>
+              This will interrupt all active sessions. The gateway will be
+              unavailable for a few seconds.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <DialogClose
+              className="danger-button"
+              onClick={() => restartMutation.mutate()}
+            >
+              Restart
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

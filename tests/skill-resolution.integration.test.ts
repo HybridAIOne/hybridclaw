@@ -296,6 +296,62 @@ Beta body.
     expect(names).toContain('multi-beta');
   });
 
+  it('loadSkills applies per-agent skill allowlists and preserves explicit empty lists', () => {
+    const extraDir = path.join(tmpDir, 'agent-filter-skills');
+    writeSkill(
+      extraDir,
+      'draft-outline',
+      `---
+name: draft-outline
+description: Outline drafting skill
+---
+
+Outline body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'copy-edit',
+      `---
+name: copy-edit
+description: Copy editing skill
+---
+
+Edit body.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+      draft.skills.disabled = [];
+      draft.agents.list = [
+        { id: 'main', name: 'Main Agent' },
+        {
+          id: 'writer',
+          name: 'Writer Agent',
+          skills: ['copy-edit', 'missing-skill'],
+        },
+        {
+          id: 'silent',
+          name: 'Silent Agent',
+          skills: [],
+        },
+      ];
+    });
+
+    const mainSkills = skillsMod.loadSkills('main');
+    expect(mainSkills.some((skill) => skill.name === 'draft-outline')).toBe(
+      true,
+    );
+    expect(mainSkills.some((skill) => skill.name === 'copy-edit')).toBe(true);
+
+    expect(skillsMod.loadSkills('writer').map((skill) => skill.name)).toEqual([
+      'copy-edit',
+    ]);
+    expect(skillsMod.loadSkills('silent')).toEqual([]);
+  });
+
   it('sorts discovered skills by category and then by name', () => {
     const extraDir = path.join(tmpDir, 'extra-categories');
     writeSkill(

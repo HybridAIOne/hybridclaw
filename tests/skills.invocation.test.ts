@@ -7,6 +7,7 @@ import { afterEach, expect, test } from 'vitest';
 import {
   expandSkillInvocation,
   resolveObservedSkillName,
+  resolveSkillInvocationForTurn,
   type Skill,
 } from '../src/skills/skills.js';
 
@@ -103,6 +104,31 @@ test('expands $skill mentions into explicit skill instructions', () => {
 
   expect(expanded).toContain('[Explicit skill invocation]');
   expect(expanded).toContain('Skill input: next track');
+});
+
+test('inherits the previous explicit skill for a short follow-up turn', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const resolved = resolveSkillInvocationForTurn({
+    content: 'Continue and play the next track',
+    skills: [appleMusic],
+    previousUserContent: '/apple_music queue Phil Collins',
+  });
+
+  expect(resolved?.skill.name).toBe('apple-music');
+  expect(resolved?.args).toBe('Continue and play the next track');
+});
+
+test('does not inherit the previous explicit skill for a new slash-style turn', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const resolved = resolveSkillInvocationForTurn({
+    content: '/help',
+    skills: [appleMusic],
+    previousUserContent: '/apple_music queue Phil Collins',
+  });
+
+  expect(resolved).toBeNull();
 });
 
 test('resolves a single implicitly read skill as observed skill use', () => {

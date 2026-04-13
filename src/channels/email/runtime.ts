@@ -1,3 +1,4 @@
+import { ImapFlow } from 'imapflow';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
@@ -7,6 +8,8 @@ import { registerChannel } from '../channel-registry.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
+import { resolveSentFolderPath } from './mailbox-folders.js';
+import type { EmailDeliveryMetadata } from './metadata.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
 export type EmailReplyFn = (content: string) => Promise<void>;
@@ -43,6 +46,7 @@ export interface EmailAttachmentSendParams {
   references?: string[] | null;
   filename?: string | null;
   mimeType?: string | null;
+  metadata?: EmailDeliveryMetadata | null;
 }
 
 export interface EmailTextSendOptions {
@@ -51,6 +55,7 @@ export interface EmailTextSendOptions {
   bcc?: string[] | null;
   inReplyTo?: string | null;
   references?: string[] | null;
+  metadata?: EmailDeliveryMetadata | null;
 }
 
 export interface EmailRuntime {
@@ -66,6 +71,57 @@ export interface EmailRuntime {
 
 function createEmailShutdownAbortError(): Error {
   return new Error('Email runtime shutting down.');
+}
+
+async function appendSentCopiesToImap(
+  config: ReturnType<typeof getConfigSnapshot>['email'],
+  password: string,
+  sentCopies: Array<{ messageId: string | null; raw: Buffer }>,
+): Promise<void> {
+  if (sentCopies.length === 0) return;
+
+  const client = new ImapFlow({
+    host: config.imapHost,
+    port: config.imapPort,
+    secure: config.imapSecure,
+    auth: {
+      user: config.address,
+      pass: password,
+    },
+    disableAutoIdle: true,
+    logger: false,
+  });
+
+  await client.connect();
+  try {
+    const sentFolder = await resolveSentFolderPath(client);
+    if (!sentFolder) {
+      return;
+    }
+
+    const lock = await client.getMailboxLock(sentFolder);
+    try {
+      for (const sentCopy of sentCopies) {
+        if (sentCopy.messageId) {
+          const existing =
+            (await client.search(
+              { header: { 'message-id': sentCopy.messageId } },
+              { uid: true },
+            )) || [];
+          if (existing.length > 0) {
+            continue;
+          }
+        }
+        await client.append(sentFolder, sentCopy.raw, ['\\Seen'], new Date());
+      }
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => {
+      client.close();
+    });
+  }
 }
 
 function resolveRuntimeConfig(): {
@@ -162,12 +218,27 @@ export function createEmailRuntime(): EmailRuntime {
     ensureRuntimeActive();
     const tracker = ensureThreadTracker();
     const transport = await ensureTransport();
-    const { address } = ensureRuntimeConfig();
+    const runtime = ensureRuntimeConfig();
+    const { address } = runtime;
     const result = await sendEmail({
       ...params,
       transport,
       selfAddress: address,
       threadContext: tracker.get(params.to),
+    });
+    await appendSentCopiesToImap(
+      runtime.config,
+      runtime.password,
+      result.sentCopies,
+    ).catch((error) => {
+      logger.warn(
+        {
+          error,
+          to: params.to,
+          sentCopyCount: result.sentCopies.length,
+        },
+        'Failed to append sent email copy to IMAP Sent folder',
+      );
     });
     if (result.threadContext) {
       tracker.remember(params.to, result.threadContext);
@@ -187,6 +258,7 @@ export function createEmailRuntime(): EmailRuntime {
       bcc: options?.bcc,
       inReplyTo: options?.inReplyTo,
       references: options?.references,
+      metadata: options?.metadata,
     });
   };
 
@@ -201,6 +273,7 @@ export function createEmailRuntime(): EmailRuntime {
       bcc: params.bcc,
       inReplyTo: params.inReplyTo,
       references: params.references,
+      metadata: params.metadata,
       attachment: {
         filePath: params.filePath,
         filename: params.filename || null,

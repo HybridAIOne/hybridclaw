@@ -15,6 +15,28 @@ import {
 } from '../agents/agent-types.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  MemoryEmbeddingDtype,
+  MemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import {
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+  DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+  DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+  DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+  normalizeMemoryEmbeddingDtype,
+  normalizeMemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
+import type {
+  MemoryQueryMode,
+  MemoryRecallBackend,
+  MemoryRecallRerank,
+  MemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
+import {
+  normalizeMemoryRecallBackend,
+  normalizeMemoryRecallTokenizer,
+} from '../memory/semantic-recall.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
@@ -38,15 +60,22 @@ import {
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
-import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedStringSet,
+} from '../utils/normalized-strings.js';
 import {
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
+  getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
+  getRuntimeConfigRevisionStateMetadata as getTrackedRuntimeConfigRevisionStateMetadata,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigObservedFile,
   type RuntimeConfigRevision,
+  type RuntimeConfigRevisionState,
+  type RuntimeConfigRevisionStateMetadata,
   type RuntimeConfigRevisionSummary,
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
@@ -55,7 +84,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 18;
+export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_DB_PATH = path.join(
@@ -98,6 +127,12 @@ export interface RuntimeSecurityConfig {
   trustModelAcceptedBy: string;
 }
 
+export interface RuntimeConfigLoadError {
+  trigger: string;
+  path: string;
+  message: string;
+}
+
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordSendPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordCommandMode = 'public' | 'restricted';
@@ -118,9 +153,10 @@ export type DiscordPresenceActivityType =
   | 'listening'
   | 'competing'
   | 'custom';
-export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
+export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -144,6 +180,9 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SlackReplyStyle = 'thread' | 'top-level';
 export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
@@ -314,6 +353,18 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSlackConfig {
+  enabled: boolean;
+  groupPolicy: SlackGroupPolicy;
+  dmPolicy: SlackDmPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  requireMention: boolean;
+  textChunkLimit: number;
+  replyStyle: SlackReplyStyle;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeTelegramConfig {
   enabled: boolean;
   botToken: string;
@@ -369,6 +420,7 @@ export interface RuntimeSchedulerJob {
   description?: string;
   agentId?: string;
   boardStatus?: SchedulerBoardStatus;
+  maxRetries?: number | null;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -455,6 +507,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
   imessage: RuntimeIMessageConfig;
@@ -469,7 +522,6 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
-    models: string[];
   };
   openrouter: {
     enabled: boolean;
@@ -535,6 +587,17 @@ export interface RuntimeConfig {
     decayRate: number;
     consolidationIntervalHours: number;
     consolidationLanguage: string;
+    semanticPromptHardCap: number;
+    embedding: {
+      provider: MemoryEmbeddingProviderKind;
+      model: string;
+      revision: string;
+      dtype: MemoryEmbeddingDtype;
+    };
+    queryMode: MemoryQueryMode;
+    backend: MemoryRecallBackend;
+    rerank: MemoryRecallRerank;
+    tokenizer: MemoryRecallTokenizer;
   };
   ops: {
     healthHost: string;
@@ -670,17 +733,6 @@ export type RuntimeConfigChangeListener = (
   prev: RuntimeConfig,
 ) => void;
 
-const LEGACY_SINGLE_CODEX_MODEL_LIST = ['openai-codex/gpt-5-codex'];
-const DEFAULT_CODEX_MODEL_LIST = [
-  'openai-codex/gpt-5-codex',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex-spark',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.1-codex-max',
-  'openai-codex/gpt-5.2',
-  'openai-codex/gpt-5.1-codex-mini',
-] as const;
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -824,6 +876,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       'teams.microsoft.com',
     ],
   },
+  slack: {
+    enabled: false,
+    groupPolicy: 'allowlist',
+    dmPolicy: 'allowlist',
+    allowFrom: [],
+    groupAllowFrom: [],
+    requireMention: true,
+    textChunkLimit: 12_000,
+    replyStyle: 'thread',
+    mediaMaxMb: 20,
+  },
   telegram: {
     enabled: false,
     botToken: '',
@@ -891,7 +954,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
-    models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   openrouter: {
     enabled: false,
@@ -1036,6 +1098,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     decayRate: 0.1,
     consolidationIntervalHours: 24,
     consolidationLanguage: 'en',
+    semanticPromptHardCap: 12,
+    embedding: {
+      provider: DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+      model: DEFAULT_MEMORY_TRANSFORMERS_MODEL,
+      revision: DEFAULT_MEMORY_TRANSFORMERS_REVISION,
+      dtype: DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
+    },
+    queryMode: 'no-stopwords',
+    backend: 'hybrid',
+    rerank: 'bm25',
+    tokenizer: 'porter',
   },
   ops: {
     healthHost: '127.0.0.1',
@@ -1135,6 +1208,7 @@ let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
   containerMaxConcurrentExplicit: false,
 };
+let currentConfigLoadError: RuntimeConfigLoadError | null = null;
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<RuntimeConfigChangeListener>();
@@ -1481,11 +1555,17 @@ function normalizeAgentConfig(
     typeof value.enableRag === 'boolean'
       ? value.enableRag
       : fallback?.enableRag;
+  const skills = Object.hasOwn(value, 'skills')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.skills)
+    : fallback?.skills
+      ? [...fallback.skills]
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
+    ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -1643,22 +1723,6 @@ function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
     const serverConfig = normalizeMcpServerConfig(rawConfig);
     if (!serverConfig) continue;
     normalized[name] = serverConfig;
-  }
-  return normalized;
-}
-
-function normalizeCodexModelArray(
-  value: unknown,
-  fallback: string[],
-): string[] {
-  const normalized = normalizeStringArray(value, fallback);
-  if (
-    normalized.length === LEGACY_SINGLE_CODEX_MODEL_LIST.length &&
-    normalized.every(
-      (model, index) => model === LEGACY_SINGLE_CODEX_MODEL_LIST[index],
-    )
-  ) {
-    return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
 }
@@ -1828,6 +1892,51 @@ function normalizeTelegramPolicy(
   return fallback;
 }
 
+function normalizeSlackGroupPolicy(
+  value: unknown,
+  fallback: SlackGroupPolicy,
+): SlackGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackDmPolicy(
+  value: unknown,
+  fallback: SlackDmPolicy,
+): SlackDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSlackReplyStyle(
+  value: unknown,
+  fallback: SlackReplyStyle,
+): SlackReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
+  return fallback;
+}
+
 function normalizeIMessageBackend(
   value: unknown,
   fallback: IMessageBackend,
@@ -1958,6 +2067,43 @@ function normalizeTelegramConfig(
         max: 4_000,
       },
     ),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeSlackConfig(
+  value: unknown,
+  fallback: RuntimeSlackConfig,
+): RuntimeSlackConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    groupPolicy: normalizeSlackGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    dmPolicy: normalizeSlackDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 40_000,
+      },
+    ),
+    replyStyle: normalizeSlackReplyStyle(raw.replyStyle, fallback.replyStyle),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,
@@ -2651,8 +2797,14 @@ function normalizeSchedulerScheduleKind(
 ): SchedulerScheduleKind {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'at' || normalized === 'every' || normalized === 'cron')
+  if (
+    normalized === 'at' ||
+    normalized === 'every' ||
+    normalized === 'cron' ||
+    normalized === 'one_shot'
+  ) {
     return normalized;
+  }
   return fallback;
 }
 
@@ -2750,6 +2902,13 @@ function normalizeSchedulerJobList(
       scheduleKind === 'cron'
         ? normalizeString(rawSchedule.expr, '', { allowEmpty: false })
         : '';
+    const maxRetries =
+      scheduleKind === 'one_shot'
+        ? normalizeInteger(item.maxRetries, DEFAULT_ONE_SHOT_MAX_RETRIES, {
+            min: 0,
+            max: 100,
+          })
+        : null;
     if (scheduleKind === 'at' && !atIso) continue;
     if (scheduleKind === 'cron' && !expr) continue;
 
@@ -2783,9 +2942,10 @@ function normalizeSchedulerJobList(
       ...(description ? { description } : {}),
       ...(agentId ? { agentId } : {}),
       ...(boardStatus ? { boardStatus } : {}),
+      ...(maxRetries != null ? { maxRetries } : {}),
       schedule: {
         kind: scheduleKind,
-        at: atIso,
+        at: scheduleKind === 'at' ? atIso : null,
         everyMs,
         expr: scheduleKind === 'cron' ? expr : null,
         tz: normalizeString(rawSchedule.tz, '', { allowEmpty: true }),
@@ -3309,6 +3469,7 @@ function normalizeRuntimeConfig(
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
@@ -3515,10 +3676,6 @@ function normalizeRuntimeConfig(
   const modelList = normalizeStringArray(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
-  );
-  const codexModelList = normalizeCodexModelArray(
-    rawCodex.models,
-    DEFAULT_RUNTIME_CONFIG.codex.models,
   );
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
@@ -3761,6 +3918,7 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
     telegram: normalizeTelegramConfig(
       rawTelegram,
       DEFAULT_RUNTIME_CONFIG.telegram,
@@ -3806,7 +3964,6 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
-      models: codexModelList,
     },
     openrouter: {
       enabled: normalizeBoolean(
@@ -4174,6 +4331,77 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.memory.consolidationLanguage,
         { allowEmpty: false },
       ).toLowerCase(),
+      semanticPromptHardCap: normalizeInteger(
+        rawMemory.semanticPromptHardCap,
+        DEFAULT_RUNTIME_CONFIG.memory.semanticPromptHardCap,
+        { min: 1, max: 50 },
+      ),
+      embedding: {
+        provider: normalizeMemoryEmbeddingProviderKind(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.provider
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
+        ),
+        model: normalizeString(
+          isRecord(rawMemory.embedding) ? rawMemory.embedding.model : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.model,
+          { allowEmpty: false },
+        ),
+        revision: normalizeString(
+          isRecord(rawMemory.embedding)
+            ? rawMemory.embedding.revision
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.revision,
+          { allowEmpty: false },
+        ),
+        dtype: normalizeMemoryEmbeddingDtype(
+          normalizeString(
+            isRecord(rawMemory.embedding)
+              ? rawMemory.embedding.dtype
+              : undefined,
+            DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+            { allowEmpty: false },
+          ),
+          DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
+        ),
+      },
+      queryMode:
+        normalizeString(
+          rawMemory.queryMode,
+          DEFAULT_RUNTIME_CONFIG.memory.queryMode,
+          { allowEmpty: false },
+        ) === 'no-stopwords'
+          ? 'no-stopwords'
+          : 'raw',
+      backend: normalizeMemoryRecallBackend(
+        normalizeString(
+          rawMemory.backend,
+          DEFAULT_RUNTIME_CONFIG.memory.backend,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.backend,
+      ),
+      rerank:
+        normalizeString(
+          rawMemory.rerank,
+          DEFAULT_RUNTIME_CONFIG.memory.rerank,
+          { allowEmpty: false },
+        ) === 'bm25'
+          ? 'bm25'
+          : 'none',
+      tokenizer: normalizeMemoryRecallTokenizer(
+        normalizeString(
+          rawMemory.tokenizer,
+          DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+          { allowEmpty: false },
+        ),
+        DEFAULT_RUNTIME_CONFIG.memory.tokenizer,
+      ),
     },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
@@ -4500,6 +4728,7 @@ function writeConfigFile(
 function applyConfig(next: RuntimeConfig): void {
   const prev = currentConfig;
   currentConfig = cloneConfig(next);
+  currentConfigLoadError = null;
 
   if (JSON.stringify(prev) === JSON.stringify(currentConfig)) return;
   for (const listener of listeners) {
@@ -4546,6 +4775,11 @@ function reloadFromDisk(trigger: string): void {
       source: 'external',
     });
   } catch (err) {
+    currentConfigLoadError = {
+      trigger,
+      path: CONFIG_PATH,
+      message: err instanceof Error ? err.message : String(err),
+    };
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -4763,6 +4997,11 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
       source: 'external',
     });
   } catch (err) {
+    currentConfigLoadError = {
+      trigger,
+      path: CONFIG_PATH,
+      message: err instanceof Error ? err.message : String(err),
+    };
     throw new Error(
       `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -4771,6 +5010,10 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
 
 export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
+}
+
+export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
+  return currentConfigLoadError ? { ...currentConfigLoadError } : null;
 }
 
 export function resolveDefaultAgentId(
@@ -4808,6 +5051,8 @@ export function onRuntimeConfigChange(
 export type {
   RuntimeConfigChangeMeta,
   RuntimeConfigRevision,
+  RuntimeConfigRevisionState,
+  RuntimeConfigRevisionStateMetadata,
   RuntimeConfigRevisionSummary,
 };
 
@@ -4939,6 +5184,14 @@ export function getRuntimeConfigRevision(
   return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
+export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState | null {
+  return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
+}
+
+export function getLastKnownGoodRuntimeConfigMetadata(): RuntimeConfigRevisionStateMetadata | null {
+  return getTrackedRuntimeConfigRevisionStateMetadata(CONFIG_PATH);
+}
+
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
   return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
@@ -4969,6 +5222,31 @@ export function restoreRuntimeConfigRevision(
     normalizeRuntimeConfig(parsed as DeepPartial<RuntimeConfig>),
     meta,
   );
+}
+
+export function restoreLastKnownGoodRuntimeConfig(
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const state = getLastKnownGoodRuntimeConfigState();
+  if (!state) {
+    throw new Error('No last-known-good runtime config snapshot was found.');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(state.content) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Last-known-good runtime config snapshot is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!isRecord(parsed)) {
+    throw new Error(
+      'Last-known-good runtime config snapshot is not an object.',
+    );
+  }
+
+  return saveRuntimeConfigSource(parsed as Record<string, unknown>, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {

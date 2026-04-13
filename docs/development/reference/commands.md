@@ -16,8 +16,10 @@ hybridclaw gateway stop
 hybridclaw gateway status
 hybridclaw gateway <command...>
 hybridclaw gateway compact
+hybridclaw gateway memory inspect [sessionId]
 hybridclaw gateway reset [yes|no]
 hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -44,6 +46,10 @@ example `sessions` or `bot info`.
 `gateway compact` archives older session history into memory while preserving a
 recent active tail, and `gateway reset [yes|no]` clears history plus the
 current workspace after confirmation.
+`gateway memory inspect [sessionId]` is a local diagnostic that shows the
+current built-in memory layers for a session: `MEMORY.md`, today's daily note,
+recent raw history, compacted `session_summary`, recent semantic-memory rows,
+and canonical cross-session recall state.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
 
@@ -55,6 +61,21 @@ HybridClaw's loopback OpenAI-compatible API.
 ```bash
 hybridclaw eval list
 hybridclaw eval env
+hybridclaw eval locomo setup
+hybridclaw eval locomo run --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20
+hybridclaw eval locomo run --mode retrieval --matrix --budget 4000
+hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
+hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
+hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
+hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
 hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
@@ -64,11 +85,32 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `tau2` and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- `locomo --mode qa` runs a native HybridClaw QA harness against the official
+  LoCoMo conversations, generates answers through the local OpenAI-compatible
+  gateway, and scores those answers with LoCoMo-style question metrics
+- `locomo --mode retrieval` skips model generation, ingests each conversation
+  into an isolated native memory session, and scores evidence hit-rate from
+  recalled semantic memories
+- `locomo --mode retrieval --matrix` runs the default retrieval sweep across
+  backend, rerank, and tokenizer combinations and renders one comparison table
+- `locomo --mode retrieval --matrix backend|rerank|tokenizer|embedding` runs a
+  single-dimension sweep and keeps the other retrieval settings at their
+  defaults
+- retrieval-mode knobs are benchmark-only: `--retrieval-query
+  raw|no-stopwords`, `--retrieval-backend cosine|full-text|hybrid`,
+  `--retrieval-rerank none|bm25` (default: `bm25`),
+  `--retrieval-tokenizer unicode61|porter|trigram`, and
+  `--retrieval-embedding hashed|transformers`
+- `locomo --num-samples` limits conversation records; use `--max-questions`
+  for quick smoke tests over a small question slice
+- by default, `locomo --mode qa` creates one fresh template-seeded agent
+  workspace per conversation sample; use `--current-agent` to reuse the current
+  agent workspace
 - `swebench-verified`, `agentbench`, and `gaia` currently print starter
   recipes and setup guidance rather than a native managed runner
-- the default eval mode keeps the current agent workspace but opens a fresh
-  OpenAI-compatible session per request
+- outside suite-specific overrides, the default eval mode keeps the current
+  agent workspace but opens a fresh OpenAI-compatible session per request
 - `--fresh-agent` uses a temporary template-seeded agent workspace for each
   eval request
 - detached run logs and summaries are stored under
@@ -100,6 +142,7 @@ hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
 hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
+hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw help auth
@@ -109,7 +152,7 @@ hybridclaw help huggingface
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, and `msteams`.
+`huggingface`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 
@@ -122,11 +165,13 @@ hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <pho
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
 hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
+hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
 
-Microsoft Teams setup uses `auth login` instead of `channels setup` because it
-needs app credentials and a webhook handoff instead of a pairing flow. For the
-step-by-step setup guide, see [Getting Started: Channel Setup](../getting-started/channels.md).
+Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
+because they need app credentials rather than a local pairing flow. For the
+step-by-step setup guide, see
+[Getting Started: Channel Setup](../getting-started/channels.md).
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see the same guide for channel-specific
 examples and current CLI-only limitations such as WhatsApp pairing.
@@ -171,10 +216,10 @@ hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
+hybridclaw skill install <skill-name> <dependency>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
-hybridclaw skill install <skill-name> [install-id]
 hybridclaw tool list
 hybridclaw tool enable <tool-name>
 hybridclaw tool disable <tool-name>
@@ -196,6 +241,9 @@ hybridclaw audit instructions [--sync]
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`skill install <skill-name> <dependency>` runs one declared dependency from the
+named skill. Use `skill list` first to discover the dependency ids exposed by a
+skill.
 `update` checks for a newer installed release and can upgrade a global npm
 install; source checkouts receive git-based update instructions instead.
 
@@ -240,6 +288,10 @@ the same gateway command surface used by TUI and web chat.
 
 - `/help` shows the same canonical slash-command list in TUI and embedded web
   chat, filtered per surface and kept in a consistent alphabetical order
+- local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
+  the built-in memory layers for the current or an explicit session id
+- local TUI/web sessions support `/memory query <query>` to preview the exact
+  prompt-memory block the current session would attach for that query
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
@@ -252,10 +304,15 @@ the same gateway command surface used by TUI and web chat.
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,
-  `/skill import`, `/skill learn`, `/schedule`, `/status`, and related slash
-  commands
+  `/skill install`, `/skill import`, `/skill learn`, `/schedule`, `/status`,
+  and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
+- local TUI and web chat support `/skill list` to inspect dependency ids and
+  `/skill install <skill> <dependency>` to run one declared skill dependency
+- an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
+  the next plain-text follow-up in the same session; a new slash command
+  cancels that carry-over
 - `/status` shows both the current session and current agent
 - `/compact` runs session compaction, and `/reset` runs the confirmed
   workspace reset flow
@@ -266,9 +323,13 @@ the same gateway command surface used by TUI and web chat.
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,
   provider, and chatbot context before the first prompt
+- Pending approvals in the TUI open an interactive picker with `Up` / `Down`
+  navigation, `Enter` confirmation, number-key quick select, and `Esc` to
+  skip; non-interactive terminals keep the text prompt fallback
 - pressing `Up` or `Down` on an empty prompt recalls earlier prompts
 - press `Ctrl-C` or `Ctrl-D` twice within five seconds to exit the TUI
-- on exit, HybridClaw prints token/file/tool totals and a ready-to-run
+- on exit, HybridClaw prints token/file/tool totals when remote history is
+  available, otherwise an explicit unavailable summary, plus a ready-to-run
   `hybridclaw tui --resume <sessionId>` command for that session
 
 Example secret flow:
@@ -280,3 +341,11 @@ Example secret flow:
 
 With that route in place, the model can use `http_request` to call matching
 URLs without seeing the plaintext API key.
+
+Example skill dependency flow:
+
+```text
+/skill list
+/skill install manim-video uv-manim
+/skill install manim-video brew-ffmpeg
+```

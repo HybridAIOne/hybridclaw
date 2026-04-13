@@ -6,11 +6,12 @@ sidebar_position: 4
 
 # Bundled Skills
 
-HybridClaw currently ships with 32 bundled skills. A few notable categories:
+HybridClaw currently ships with 33 bundled skills. A few notable categories:
 
 - office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
 - planning and engineering: `project-manager`, `feature-planning`,
   `code-review`, `code-simplification`
+- visual explainers and animation: `manim-video`
 - platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`,
   `wordpress`, `google-workspace`, `discord`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
@@ -24,7 +25,8 @@ HybridClaw currently ships with 32 bundled skills. A few notable categories:
 
 ```bash
 hybridclaw skill list
-hybridclaw skill install pdf [install-id]
+hybridclaw skill install pdf brew-poppler
+hybridclaw skill install pdf brew-qpdf
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
 hybridclaw skill inspect <name>

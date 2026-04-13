@@ -51,6 +51,9 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  agentId?: string;
+  model?: string;
+  provider?: string;
   memoryCitations?: MemoryCitation[];
   components?: GatewayMessageComponents;
   sessionId?: string;
@@ -385,6 +388,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slack?: {
+    botTokenConfigured: boolean;
+    botTokenSource: 'env' | 'runtime-secrets' | null;
+    appTokenConfigured: boolean;
+    appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -447,6 +456,86 @@ export interface GatewayAdminSession {
   taskCount: number;
   createdAt: string;
   lastActive: string;
+}
+
+export interface GatewayAdminEmailFolder {
+  path: string;
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unseen: number;
+}
+
+export interface GatewayAdminEmailMessageSummary {
+  folder: string;
+  uid: number;
+  messageId: string | null;
+  subject: string;
+  fromAddress: string | null;
+  fromName: string | null;
+  preview: string | null;
+  receivedAt: string | null;
+  seen: boolean;
+  flagged: boolean;
+  answered: boolean;
+  hasAttachments: boolean;
+}
+
+export interface GatewayAdminEmailParticipant {
+  name: string | null;
+  address: string | null;
+}
+
+export interface GatewayAdminEmailAttachment {
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface GatewayAdminEmailMessageMetadata {
+  agentId: string | null;
+  model: string | null;
+  provider: string | null;
+  totalTokens: number | null;
+  tokenSource: 'api' | 'estimated' | null;
+}
+
+export interface GatewayAdminEmailMessageDetail
+  extends GatewayAdminEmailMessageSummary {
+  to: GatewayAdminEmailParticipant[];
+  cc: GatewayAdminEmailParticipant[];
+  bcc: GatewayAdminEmailParticipant[];
+  replyTo: GatewayAdminEmailParticipant[];
+  text: string | null;
+  attachments: GatewayAdminEmailAttachment[];
+  metadata: GatewayAdminEmailMessageMetadata | null;
+}
+
+export interface GatewayAdminEmailMailboxResponse {
+  enabled: boolean;
+  address: string;
+  folders: GatewayAdminEmailFolder[];
+  defaultFolder: string | null;
+}
+
+export interface GatewayAdminEmailFolderResponse {
+  folder: string;
+  offset: number;
+  limit: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
+  messages: GatewayAdminEmailMessageSummary[];
+}
+
+export interface GatewayAdminEmailMessageResponse {
+  message: GatewayAdminEmailMessageDetail | null;
+  thread: GatewayAdminEmailMessageDetail[];
+}
+
+export interface GatewayAdminEmailDeleteResponse {
+  deleted: true;
+  targetFolder: string | null;
+  permanent: boolean;
 }
 
 export interface GatewayAdminUsageSummary {
@@ -618,6 +707,13 @@ export interface GatewayAdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  slack: {
+    enabled: boolean;
+    groupPolicy: RuntimeConfig['slack']['groupPolicy'];
+    dmPolicy: RuntimeConfig['slack']['dmPolicy'];
+    defaultRequireMention: boolean;
+    defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -674,6 +770,7 @@ export interface GatewayAdminSchedulerJob {
   description: string | null;
   agentId: string | null;
   boardStatus: NonNullable<RuntimeSchedulerJob['boardStatus']> | null;
+  maxRetries: number | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];

@@ -414,9 +414,7 @@ test('checkProviders treats probe failures as provider health failures', async (
         defaultModel: 'gpt-5-nano',
         models: ['gpt-5'],
       },
-      codex: {
-        models: [],
-      },
+      codex: {},
       openrouter: {
         enabled: false,
         models: [],

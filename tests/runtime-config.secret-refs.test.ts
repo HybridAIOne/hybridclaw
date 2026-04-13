@@ -65,6 +65,46 @@ afterEach(() => {
 });
 
 describe('runtime config secret refs', () => {
+  test('loads memory recall settings from config.json', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const memory = config.memory as Record<string, unknown>;
+      memory.semanticPromptHardCap = 27;
+      memory.embedding = {
+        provider: 'transformers',
+        model: 'onnx-community/embeddinggemma-300m-ONNX',
+        revision: '75a84c732f1884df76bec365346230e32f582c82',
+        dtype: 'q4',
+      };
+      memory.queryMode = 'no-stopwords';
+      memory.backend = 'full-text';
+      memory.rerank = 'bm25';
+      memory.tokenizer = 'porter';
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfig().memory.semanticPromptHardCap).toBe(
+      27,
+    );
+    expect(runtimeConfig.getRuntimeConfig().memory.embedding.provider).toBe(
+      'transformers',
+    );
+    expect(runtimeConfig.getRuntimeConfig().memory.embedding.model).toBe(
+      'onnx-community/embeddinggemma-300m-ONNX',
+    );
+    expect(runtimeConfig.getRuntimeConfig().memory.embedding.revision).toBe(
+      '75a84c732f1884df76bec365346230e32f582c82',
+    );
+    expect(runtimeConfig.getRuntimeConfig().memory.embedding.dtype).toBe('q4');
+    expect(runtimeConfig.getRuntimeConfig().memory.queryMode).toBe(
+      'no-stopwords',
+    );
+    expect(runtimeConfig.getRuntimeConfig().memory.backend).toBe('full-text');
+    expect(runtimeConfig.getRuntimeConfig().memory.rerank).toBe('bm25');
+    expect(runtimeConfig.getRuntimeConfig().memory.tokenizer).toBe('porter');
+  });
+
   test('resolves store and env secret refs for targeted config fields', async () => {
     const homeDir = makeTempHome();
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
@@ -79,7 +119,7 @@ describe('runtime config secret refs', () => {
     writeRawRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
       ops.webApiToken = { source: 'store', id: 'WEB_API_TOKEN' };
-      ops.gatewayApiToken = '${TEST_GATEWAY_TOKEN}';
+      ops.gatewayApiToken = '$' + '{TEST_GATEWAY_TOKEN}';
 
       const imessage = config.imessage as Record<string, unknown>;
       imessage.enabled = true;
