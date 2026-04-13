@@ -1055,14 +1055,27 @@ function EmailChannelEditor(props: {
             ...(cfg.smtp_secure != null ? { smtpSecure: cfg.smtp_secure } : {}),
           },
         }));
+        // Save password as runtime secret before showing success
+        if (cfg.password) {
+          try {
+            await setRuntimeSecret(
+              props.token,
+              'EMAIL_PASSWORD',
+              cfg.password,
+            );
+            props.onSecretSaved();
+          } catch (err) {
+            toast.error(
+              'Password could not be saved',
+              getErrorMessage(err),
+            );
+            toast.info('Email fields were populated, but password was not saved.');
+            return;
+          }
+        }
         toast.success(
           `Email config loaded from handle "${withConfig.handle}".`,
         );
-        // If a password was included, save it as runtime secret
-        if (cfg.password) {
-          await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', cfg.password);
-          props.onSecretSaved();
-        }
       } else {
         // No email_config in handles — show available handles info
         const summary = handles
