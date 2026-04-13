@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import {
   Dialog,
   DialogClose,
@@ -11,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
-import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader, Panel } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
@@ -188,29 +188,26 @@ export function SessionsPage() {
         </Panel>
       </div>
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent size="sm">
+        <DialogContent size="sm" role="alertdialog">
           <DialogHeader>
-            <DialogTitle>Delete session</DialogTitle>
+            <DialogTitle>Delete session?</DialogTitle>
             <DialogDescription>
-              {selectedSession
-                ? `Delete session ${selectedSession.id} and all related records? This cannot be undone.`
-                : 'This cannot be undone.'}
+              This will permanently remove the session and all associated audit
+              events.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose className="ghost-button">Cancel</DialogClose>
-            <button
+            <DialogClose
               className="danger-button"
-              type="button"
               onClick={() => {
-                setDeleteConfirmOpen(false);
                 if (selectedSession) {
                   deleteMutation.mutate(selectedSession.id);
                 }
               }}
             >
               Delete
-            </button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
