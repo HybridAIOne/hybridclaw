@@ -1,0 +1,110 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(10 15 25 / 0.5);
+  animation: alertDialogFadeIn 150ms ease;
+}
+
+.viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 51;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.content {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--panel-bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+  animation: alertDialogSlideIn 150ms ease;
+}
+
+.sm {
+  max-width: 360px;
+}
+
+.lg {
+  max-width: 560px;
+}
+
+.header {
+  display: grid;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.description {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+@keyframes alertDialogFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes alertDialogSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+
+.backdrop.exiting {
+  animation: alertDialogFadeOut 150ms ease forwards;
+}
+
+.content.exiting {
+  animation: alertDialogSlideOut 150ms ease forwards;
+}
+
+@keyframes alertDialogFadeOut {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes alertDialogSlideOut {
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .content,
+  .backdrop.exiting,
+  .content.exiting {
+    animation: none;
+  }
+}

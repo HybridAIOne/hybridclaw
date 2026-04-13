@@ -3,6 +3,16 @@ import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
@@ -17,6 +27,7 @@ export function GatewayPage() {
   const [polledStatus, setPolledStatus] =
     useState<typeof auth.gatewayStatus>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const status = live.status || polledStatus || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
@@ -98,7 +109,7 @@ export function GatewayPage() {
               type="button"
               className="danger-button"
               disabled={!restartSupported || restartBusy}
-              onClick={() => restartMutation.mutate()}
+              onClick={() => setRestartConfirmOpen(true)}
               title={
                 !restartSupported && !restartBusy ? restartReason : undefined
               }
@@ -271,6 +282,23 @@ export function GatewayPage() {
           )}
         </Panel>
       </div>
+      <AlertDialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restart Gateway?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will interrupt all active sessions. The gateway will be
+              unavailable for a few seconds.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => restartMutation.mutate()}>
+              Restart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
