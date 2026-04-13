@@ -91,22 +91,10 @@ async function withTelegramTransportRetry<T>(
     maxDelayMs?: number;
   },
 ): Promise<T> {
-  const maxAttempts = Math.max(
-    1,
-    options?.maxAttempts ?? TELEGRAM_RETRY_MAX_ATTEMPTS,
-  );
-  const maxDelayMs = Math.max(
-    50,
-    options?.maxDelayMs ?? TELEGRAM_RETRY_MAX_DELAY_MS,
-  );
-  const delayMs = Math.max(
-    50,
-    Math.min(options?.baseDelayMs ?? TELEGRAM_RETRY_BASE_DELAY_MS, maxDelayMs),
-  );
   return withTransportRetry(label, run, {
-    maxAttempts,
-    baseDelayMs: delayMs,
-    maxDelayMs,
+    maxAttempts: options?.maxAttempts ?? TELEGRAM_RETRY_MAX_ATTEMPTS,
+    baseDelayMs: options?.baseDelayMs ?? TELEGRAM_RETRY_BASE_DELAY_MS,
+    maxDelayMs: options?.maxDelayMs ?? TELEGRAM_RETRY_MAX_DELAY_MS,
     isRetryable: isRetryableTelegramError,
     logMessage: 'Telegram transport failed; retrying',
   });
