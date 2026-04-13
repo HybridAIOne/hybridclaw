@@ -8,7 +8,6 @@ import type {
   AdminSchedulerResponse,
   JobSession,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
 import { JobsPage } from './jobs';
 
 const fetchJobsContextMock = vi.fn();
