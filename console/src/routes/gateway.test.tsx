@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../components/toast';
 
@@ -153,7 +153,10 @@ describe('GatewayPage', () => {
 
     renderGatewayPage();
     fireEvent.click(screen.getByRole('button', { name: 'Restart Gateway' }));
+    const dialog = screen.getByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Restart' }));
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
       await flushMicrotasks();
     });
 

@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   buildTuiExitSummaryLines,
+  buildTuiUnavailableExitSummaryLines,
   formatTuiSessionDuration,
   generateTuiSessionId,
   resolveTuiRunOptions,
@@ -72,6 +73,23 @@ test('buildTuiExitSummaryLines formats the session summary block', () => {
     'Tokens:     12,847 in / 8,203 out  (~$0.42)',
     'Tool calls: 23 (14 edit, 6 bash, 3 read)',
     'Files:      3 read, 7 modified, 2 created, 1 deleted',
+    '',
+    'Resume: hybridclaw tui --resume 20260316_122238_532f05',
+  ]);
+});
+
+test('buildTuiUnavailableExitSummaryLines formats the unavailable summary block', () => {
+  expect(
+    buildTuiUnavailableExitSummaryLines({
+      sessionId: '20260316_122238_532f05',
+      durationMs: 461_000,
+      error: 'Gateway history returned no summary.',
+      resumeCommand: 'hybridclaw tui --resume',
+    }),
+  ).toEqual([
+    'Session 20260316_122238_532f05 completed in 7m 41s',
+    '',
+    'Summary:    unavailable (Gateway history returned no summary.)',
     '',
     'Resume: hybridclaw tui --resume 20260316_122238_532f05',
   ]);

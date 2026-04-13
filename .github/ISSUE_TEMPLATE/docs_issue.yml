@@ -1,0 +1,30 @@
+name: Documentation issue
+description: Report missing, confusing, or incorrect documentation.
+title: "[Docs]: "
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Affected page or file
+      description: Link the docs page URL or file path if you know it.
+      placeholder: https://www.hybridclaw.io/docs/getting-started/quickstart or README.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+      placeholder: The quickstart shows `...`, but the current command is `...`.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested fix
+      description: If you already know the correction, include it here.
+      placeholder: Replace `...` with `...` and add one sentence explaining ...
+  - type: textarea
+    id: audience
+    attributes:
+      label: Who is blocked or confused
+      placeholder: First-time contributors following the local setup flow.

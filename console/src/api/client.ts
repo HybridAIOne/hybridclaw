@@ -1,6 +1,10 @@
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthResponse,
+  AdminAgent,
+  AdminAgentMarkdownFileResponse,
+  AdminAgentMarkdownRevisionResponse,
+  AdminAgentsResponse,
   AdminAuditResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
@@ -181,6 +185,75 @@ export function adminTerminalSocketUrl(
 
 export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
+}
+
+export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
+  const payload = await requestJson<AdminAgentsResponse>('/api/admin/agents', {
+    token,
+  });
+  return payload.agents;
+}
+
+export function fetchAdminAgentMarkdownFile(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}`,
+    { token },
+  );
+}
+
+export function saveAdminAgentMarkdownFile(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    content: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { content: params.content },
+    },
+  );
+}
+
+export function fetchAdminAgentMarkdownRevision(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<AdminAgentMarkdownRevisionResponse> {
+  return requestJson<AdminAgentMarkdownRevisionResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}/revisions/${encodeURIComponent(params.revisionId)}`,
+    { token },
+  );
+}
+
+export function restoreAdminAgentMarkdownRevision(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}/revisions/${encodeURIComponent(params.revisionId)}/restore`,
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function fetchJobsContext(

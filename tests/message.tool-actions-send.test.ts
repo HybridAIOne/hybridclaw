@@ -66,7 +66,7 @@ async function importFreshMessageToolActions() {
                 created_at: '2026-03-13 20:01:00',
               },
             ]
-        : [],
+          : [],
   );
   const getMemoryValue = vi.fn((sessionId: string, key: string) =>
     sessionId === 'teams:dm:user-aad-id' &&
@@ -112,7 +112,7 @@ async function importFreshMessageToolActions() {
       created_at: '2026-03-13T18:00:00.000Z',
     },
   ];
-  let knownSlackSessions = [
+  const knownSlackSessions = [
     {
       id: slackSessionId,
       guild_id: 'T1234567890',
@@ -121,7 +121,10 @@ async function importFreshMessageToolActions() {
       created_at: '2026-03-13T19:00:00.000Z',
     },
   ];
-  const getAllSessions = vi.fn(() => [...knownTeamsSessions, ...knownSlackSessions]);
+  const getAllSessions = vi.fn(() => [
+    ...knownTeamsSessions,
+    ...knownSlackSessions,
+  ]);
   const getSessionById = vi.fn((sessionId: string) => {
     if (sessionId === 'wa:test') {
       return { id: sessionId, channel_id: '491234567890@s.whatsapp.net' };

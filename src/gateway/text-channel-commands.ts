@@ -23,7 +23,10 @@ import {
   handleGatewayCommand,
   renderGatewayCommand,
 } from './gateway-service.js';
-import type { GatewayCommandResult } from './gateway-types.js';
+import type {
+  GatewayChatResult,
+  GatewayCommandResult,
+} from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
@@ -41,6 +44,7 @@ export interface HandledTextChannelApprovalResult {
   sessionKey?: string;
   mainSessionKey?: string;
   approvalId?: string;
+  pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
   text: string | null;
   artifacts: ArtifactMetadata[];
 }
@@ -371,6 +375,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionKey: approvalResult.sessionKey,
       mainSessionKey: approvalResult.mainSessionKey,
       approvalId: pendingApproval.approvalId,
+      pendingApproval: approvalResult.pendingApproval,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
     };
