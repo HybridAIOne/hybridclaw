@@ -50,11 +50,35 @@ export function AppSidebar(props: {
       <SidebarFooter>
         <div className={styles.footerBlock}>
           <SidebarMeta version={props.version} />
-          <SidebarActions
-            showLogout={props.showLogout}
-            onLogout={props.onLogout}
-          />
+          <SidebarFooterActions>
+            <SidebarFooterMenu>
+              <SidebarFooterAction>
+                <ThemeToggle />
+              </SidebarFooterAction>
+            </SidebarFooterMenu>
+          </SidebarFooterActions>
         </div>
+        {props.showLogout ? (
+          <>
+            <div className={styles.footerDivider} />
+            <SidebarFooterActions>
+              <SidebarFooterMenu>
+                <SidebarFooterAction>
+                  <button
+                    className={styles.footerButton}
+                    type="button"
+                    onClick={props.onLogout}
+                  >
+                    <span className={styles.icon} aria-hidden="true">
+                      <LogOut />
+                    </span>
+                    Forget token
+                  </button>
+                </SidebarFooterAction>
+              </SidebarFooterMenu>
+            </SidebarFooterActions>
+          </>
+        ) : null}
       </SidebarFooter>
     </Sidebar>
   );
@@ -110,28 +134,3 @@ function SidebarMeta(props: { version?: string }) {
   );
 }
 
-function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
-  return (
-    <SidebarFooterActions>
-      <SidebarFooterMenu>
-        <SidebarFooterAction>
-          <ThemeToggle />
-        </SidebarFooterAction>
-        {props.showLogout ? (
-          <SidebarFooterAction>
-            <button
-              className={styles.footerButton}
-              type="button"
-              onClick={props.onLogout}
-            >
-              <span className={styles.icon} aria-hidden="true">
-                <LogOut />
-              </span>
-              Forget token
-            </button>
-          </SidebarFooterAction>
-        ) : null}
-      </SidebarFooterMenu>
-    </SidebarFooterActions>
-  );
-}

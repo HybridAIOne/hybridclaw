@@ -104,7 +104,6 @@
   gap: 8px;
 }
 
-.groupLabel,
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
@@ -115,7 +114,21 @@
 }
 
 .groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   padding: 0 8px;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.groupLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sidebar-border);
 }
 
 .menu {
@@ -243,6 +256,12 @@
   gap: 6px;
 }
 
+.footerDivider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--sidebar-border);
+}
+
 .footerActions,
 .footerMenu,
 .footerAction {
@@ -293,7 +312,9 @@
 .root[data-state="collapsed"] .groupLabel,
 .root[data-state="collapsed"] .brandText,
 .root[data-state="collapsed"] .footerMeta,
-.root[data-state="collapsed"] .footerButton span:not(.icon) {
+.root[data-state="collapsed"] .footerDivider,
+.root[data-state="collapsed"] .footerButton span:not(.icon),
+.root[data-state="collapsed"] :global(.theme-toggle-label) {
   display: none;
 }
 

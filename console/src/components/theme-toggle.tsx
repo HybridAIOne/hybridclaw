@@ -73,6 +73,9 @@ export function ThemeToggle() {
         title="Change theme"
       >
         <ThemeIcon theme={theme} />
+        <span className="theme-toggle-label">
+          {theme.charAt(0).toUpperCase() + theme.slice(1)}
+        </span>
       </DropdownTrigger>
       <DropdownContent className="theme-toggle-menu" align="end">
         {options.map((option) => (
