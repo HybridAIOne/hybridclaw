@@ -181,6 +181,163 @@ test('interactive onboarding suggests starting the TUI after HybridAI setup', as
   expect(output).toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
 
+test('interactive onboarding offers last-known-good restore when runtime config is invalid JSON', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.writeFileSync(
+    configPath,
+    '{\n  "security": {\n    "trustModelAccepted": true,\n  }\n}\n',
+    'utf-8',
+  );
+  expect(() =>
+    runtimeConfig.reloadRuntimeConfig('test-invalid-config'),
+  ).toThrow(/Failed to reload runtime config/);
+
+  const answers = ['y'];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw gateway restart --foreground',
+    requireCredentials: false,
+  });
+
+  const output = lines.join('\n');
+  expect(output).toContain('Runtime config error');
+  expect(output).toContain(
+    'Restored runtime config from the last known-good saved snapshot',
+  );
+  expect(output).not.toContain('Security trust model acceptance');
+  expect(JSON.parse(fs.readFileSync(configPath, 'utf-8'))).toMatchObject({
+    security: {
+      trustModelAccepted: true,
+      trustModelVersion: '2026-02-28',
+    },
+  });
+});
+
+test('declining invalid runtime config restore only loads revision metadata', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.writeFileSync(
+    configPath,
+    '{\n  "security": {\n    "trustModelAccepted": true,\n  }\n}\n',
+    'utf-8',
+  );
+  expect(() =>
+    runtimeConfig.reloadRuntimeConfig('test-invalid-config'),
+  ).toThrow(/Failed to reload runtime config/);
+
+  const getLastKnownGoodMetadataSpy = vi.spyOn(
+    runtimeConfig,
+    'getLastKnownGoodRuntimeConfigMetadata',
+  );
+  const getLastKnownGoodStateSpy = vi.spyOn(
+    runtimeConfig,
+    'getLastKnownGoodRuntimeConfigState',
+  );
+  const listRevisionsSpy = vi.spyOn(
+    runtimeConfig,
+    'listRuntimeConfigRevisions',
+  );
+
+  const answers = ['n'];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  const resultPromise = onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw gateway restart --foreground',
+    requireCredentials: false,
+  });
+
+  await expect(resultPromise).rejects.toThrow(/Failed to load runtime config/);
+  await expect(resultPromise).rejects.toThrow(
+    /last known-good saved config snapshot/,
+  );
+  expect(getLastKnownGoodMetadataSpy).toHaveBeenCalledTimes(1);
+  expect(getLastKnownGoodStateSpy).not.toHaveBeenCalled();
+  expect(listRevisionsSpy).not.toHaveBeenCalled();
+  expect(lines.join('\n')).toContain('Runtime config error');
+});
+
 test('first-run onboarding offers Hermes migration before auth setup', async () => {
   const homeDir = makeTempHome();
   const hermesRoot = path.join(homeDir, '.hermes');
@@ -310,6 +467,48 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
     fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
   ).not.toContain('hai-imported-from-hermes');
   expect(migrateAgentHomeMock).toHaveBeenCalled();
+});
+
+test('non-interactive onboarding reports invalid runtime config before trust acceptance', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: false,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: false,
+    configurable: true,
+  });
+
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.writeFileSync(configPath, '{ not valid json !!!', 'utf-8');
+  expect(() =>
+    runtimeConfig.reloadRuntimeConfig('test-invalid-config'),
+  ).toThrow(/Failed to reload runtime config/);
+
+  const onboarding = await import('../src/onboarding.ts');
+  const resultPromise = onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw gateway restart --foreground',
+    requireCredentials: false,
+  });
+  await expect(resultPromise).rejects.toThrow(/Failed to load runtime config/);
+  await expect(resultPromise).rejects.toThrow(/hybridclaw onboarding/);
+  await expect(resultPromise).rejects.toThrow(
+    /last known-good saved config snapshot/,
+  );
 });
 
 test('interactive onboarding does not print the start hint when TUI is already launching', async () => {
