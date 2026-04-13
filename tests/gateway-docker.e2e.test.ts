@@ -70,11 +70,11 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
 
   const requiredFiles = [
     // Browsable docs (markdown source)
-    'docs/development/README.md',
-    'docs/development/getting-started/README.md',
-    'docs/development/getting-started/installation.md',
-    'docs/development/getting-started/quickstart.md',
-    'docs/development/getting-started/authentication.md',
+    'docs/content/README.md',
+    'docs/content/getting-started/README.md',
+    'docs/content/getting-started/installation.md',
+    'docs/content/getting-started/quickstart.md',
+    'docs/content/getting-started/authentication.md',
     // SPA entry points
     'docs/index.html',
     'docs/chat.html',
@@ -215,6 +215,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(308);
     expect(res.headers.get('location')).toBe('/docs');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
   test('/development/getting-started redirects to /docs/getting-started', async () => {
@@ -224,6 +225,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(308);
     expect(res.headers.get('location')).toBe('/docs/getting-started');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
   // ── Provider health (real key only) ──────────────────────────────────

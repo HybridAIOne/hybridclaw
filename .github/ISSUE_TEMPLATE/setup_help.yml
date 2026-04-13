@@ -1,0 +1,70 @@
+name: Setup or installation help
+description: Get help with installing, configuring, or starting HybridClaw.
+title: "[Setup]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please try these quick checks:
+
+        - read the install and quick-start docs
+        - run `hybridclaw doctor`
+        - include exact commands and full error output
+        - redact tokens, API keys, and personal data
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      placeholder: I am trying to install HybridClaw locally and start the gateway for the first time.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you run?
+      description: Include exact commands in order.
+      placeholder: |
+        1. `npm install -g @hybridaione/hybridclaw`
+        2. `hybridclaw onboarding`
+        3. `hybridclaw gateway`
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.4 / Ubuntu 24.04 / Windows 11 via WSL2
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: 22.14.0
+  - type: input
+    id: version
+    attributes:
+      label: HybridClaw version
+      placeholder: 0.12.4
+  - type: input
+    id: install_method
+    attributes:
+      label: Install method
+      placeholder: npm global / local source checkout / Docker image
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `hybridclaw doctor`
+      render: shell
+  - type: textarea
+    id: error
+    attributes:
+      label: Full error output
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you already tried?
+      placeholder: I reran onboarding, rebuilt the container image, and confirmed Docker is running.

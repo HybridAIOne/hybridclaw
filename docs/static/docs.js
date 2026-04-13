@@ -3,6 +3,21 @@ const LEGACY_DOCS_BASE_PATH = '/development';
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
+const LEGACY_DOC_PATH_REWRITES = new Map([
+  ['imessage', 'channels/imessage'],
+  ['imessage.md', 'channels/imessage.md'],
+  ['msteams', 'channels/msteams'],
+  ['msteams.md', 'channels/msteams.md'],
+  ['slack', 'channels/slack'],
+  ['slack.md', 'channels/slack.md'],
+  ['internals', 'developer-guide'],
+  ['internals/README.md', 'developer-guide/README.md'],
+  ['tools/web-search', 'reference/tools/web-search'],
+  ['tools/web-search.md', 'reference/tools/web-search.md'],
+]);
+const LEGACY_DOC_PREFIX_REWRITES = [
+  { from: 'internals/', to: 'developer-guide/' },
+];
 
 export const DEVELOPMENT_DOCS_SECTIONS = [
   {
@@ -17,8 +32,15 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Quick Start', path: 'getting-started/quickstart.md' },
       { title: 'Authentication', path: 'getting-started/authentication.md' },
       { title: 'Channel Setup', path: 'getting-started/channels.md' },
-      { title: 'iMessage', path: 'imessage.md' },
-      { title: 'MS Teams', path: 'msteams.md' },
+    ],
+  },
+  {
+    title: 'Channels',
+    pages: [
+      { title: 'Channels', path: 'channels/README.md' },
+      { title: 'Slack', path: 'channels/slack.md' },
+      { title: 'iMessage', path: 'channels/imessage.md' },
+      { title: 'MS Teams', path: 'channels/msteams.md' },
     ],
   },
   {
@@ -57,13 +79,16 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
-    title: 'Internals',
+    title: 'Developer Guide',
     pages: [
-      { title: 'Internals', path: 'internals/README.md' },
-      { title: 'Architecture', path: 'internals/architecture.md' },
-      { title: 'Runtime', path: 'internals/runtime.md' },
-      { title: 'Memory', path: 'internals/memory.md' },
-      { title: 'Session Routing', path: 'internals/session-routing.md' },
+      { title: 'Developer Guide', path: 'developer-guide/README.md' },
+      { title: 'Architecture', path: 'developer-guide/architecture.md' },
+      { title: 'Runtime', path: 'developer-guide/runtime.md' },
+      { title: 'Memory', path: 'developer-guide/memory.md' },
+      {
+        title: 'Session Routing',
+        path: 'developer-guide/session-routing.md',
+      },
     ],
   },
   {
@@ -75,6 +100,8 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Diagnostics', path: 'reference/diagnostics.md' },
       { title: 'FAQ', path: 'reference/faq.md' },
       { title: 'Model Selection', path: 'reference/model-selection.md' },
+      { title: 'Tools', path: 'reference/tools/README.md' },
+      { title: 'Web Search Tool', path: 'reference/tools/web-search.md' },
     ],
   },
 ];
@@ -85,7 +112,6 @@ const DOCS_BY_PATH = new Map(
   ),
 );
 const KNOWN_DOC_PATHS = new Set(DOCS_BY_PATH.keys());
-const ROOT_LEVEL_DOC_PATHS = new Set(['imessage.md', 'msteams.md']);
 const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
   section.pages.map((page) => ({
     label: page.title,
@@ -105,6 +131,23 @@ export function normalizeDocPath(input) {
 function normalizeBasePath(basePath = DOCS_BASE_PATH) {
   const normalized = normalizeDocPath(basePath);
   return normalized ? `/${normalized.replace(/\/$/, '')}` : '';
+}
+
+function rewriteLegacyDocPath(docPath) {
+  const normalized = normalizeDocPath(docPath);
+  if (!normalized || normalized === 'index.html') {
+    return normalized;
+  }
+  const exactRewrite = LEGACY_DOC_PATH_REWRITES.get(normalized);
+  if (exactRewrite) {
+    return exactRewrite;
+  }
+  for (const rewrite of LEGACY_DOC_PREFIX_REWRITES) {
+    if (normalized.startsWith(rewrite.from)) {
+      return `${rewrite.to}${normalized.slice(rewrite.from.length)}`;
+    }
+  }
+  return normalized;
 }
 
 function splitHref(rawHref) {
@@ -174,7 +217,7 @@ export function resolveDocPathFromPathname(
     remainder = remainder.slice(LEGACY_DOCS_BASE_PATH.length);
   }
 
-  remainder = normalizeDocPath(remainder);
+  remainder = rewriteLegacyDocPath(remainder);
   if (!remainder || remainder === 'index.html') {
     return 'README.md';
   }
@@ -192,7 +235,7 @@ export function resolveDocPathFromPathname(
 
 export function buildDocHtmlHref(docPath, basePath = DOCS_BASE_PATH) {
   const normalizedBasePath = normalizeBasePath(basePath);
-  const normalizedDocPath = normalizeDocPath(docPath);
+  const normalizedDocPath = rewriteLegacyDocPath(docPath);
   if (!normalizedDocPath || normalizedDocPath === 'README.md') {
     return `${normalizedBasePath}/`;
   }
@@ -207,10 +250,7 @@ export function buildDocMarkdownHref(
   basePath = DOCS_BASE_PATH,
   contentBasePath = basePath,
 ) {
-  const normalizedDocPath = normalizeDocPath(docPath);
-  if (ROOT_LEVEL_DOC_PATHS.has(normalizedDocPath)) {
-    return `/${normalizedDocPath}`;
-  }
+  const normalizedDocPath = rewriteLegacyDocPath(docPath);
   return `${normalizeBasePath(contentBasePath)}/${normalizedDocPath}`;
 }
 
@@ -255,17 +295,20 @@ export function resolveDocLinkHref(
   }
 
   if (resolved.href.endsWith('.md')) {
-    if (KNOWN_DOC_PATHS.has(resolved.href)) {
-      return `${buildDocHtmlHref(resolved.href, basePath)}${resolved.suffix || ''}`;
+    const canonicalDocPath = rewriteLegacyDocPath(resolved.href);
+    if (KNOWN_DOC_PATHS.has(canonicalDocPath)) {
+      return `${buildDocHtmlHref(canonicalDocPath, basePath)}${resolved.suffix || ''}`;
     }
     return `/${resolved.href}${resolved.suffix || ''}`;
   }
 
-  const withMarkdownExtension = `${resolved.href}.md`;
+  const withMarkdownExtension = rewriteLegacyDocPath(`${resolved.href}.md`);
   if (KNOWN_DOC_PATHS.has(withMarkdownExtension)) {
     return `${buildDocHtmlHref(withMarkdownExtension, basePath)}${resolved.suffix || ''}`;
   }
-  const readmePath = `${resolved.href.replace(/\/$/, '')}/README.md`;
+  const readmePath = rewriteLegacyDocPath(
+    `${resolved.href.replace(/\/$/, '')}/README.md`,
+  );
   if (KNOWN_DOC_PATHS.has(readmePath)) {
     return `${buildDocHtmlHref(readmePath, basePath)}${resolved.suffix || ''}`;
   }

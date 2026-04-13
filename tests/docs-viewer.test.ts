@@ -16,6 +16,9 @@ describe('docs viewer helpers', () => {
     expect(resolveDocPathFromPathname('/docs/extensibility/skills')).toBe(
       'extensibility/skills.md',
     );
+    expect(resolveDocPathFromPathname('/docs/internals/runtime')).toBe(
+      'developer-guide/runtime.md',
+    );
     expect(resolveDocPathFromPathname('/docs/guides/')).toBe(
       'guides/README.md',
     );
@@ -31,8 +34,8 @@ describe('docs viewer helpers', () => {
       '/docs/extensibility/skills.md',
     );
     expect(
-      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
-    ).toBe('/development/extensibility/skills.md');
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/content'),
+    ).toBe('/content/extensibility/skills.md');
   });
 
   test('exposes remote access in the guides section metadata', () => {
@@ -59,13 +62,13 @@ describe('docs viewer helpers', () => {
     ).toBe('/docs/reference/commands?plain=1#agent-install');
   });
 
-  test('can resolve links against a legacy content base path', () => {
-    expect(buildDocMarkdownHref('README.md', '/docs', '/development')).toBe(
-      '/development/README.md',
+  test('can resolve links against the static published markdown content path', () => {
+    expect(buildDocMarkdownHref('README.md', '/docs', '/content')).toBe(
+      '/content/README.md',
     );
     expect(
-      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
-    ).toBe('/development/extensibility/skills.md');
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/content'),
+    ).toBe('/content/extensibility/skills.md');
   });
 
   test('keeps ordered list items in a single <ol> across blank lines', () => {

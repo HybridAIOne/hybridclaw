@@ -14,5 +14,5 @@ Claude-specific notes:
 Useful entry points:
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md) for contributor setup and PR workflow
-- [docs/development/README.md](./docs/development/README.md) for deeper
+- [docs/content/README.md](./docs/content/README.md) for deeper
   maintainer and runtime reference docs

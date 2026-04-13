@@ -16,7 +16,7 @@
   <noscript>
     <main style="max-width: 860px; margin: 0 auto; padding: 48px 20px; font-family: system-ui, sans-serif; color: #e6edf8; background: #08111f;">
       <h1>HybridClaw Docs</h1>
-      <p>JavaScript is required for the browsable docs shell. You can still open the raw markdown directly, starting with <a href="/development/README.md">/development/README.md</a>.</p>
+      <p>JavaScript is required for the browsable docs shell. You can still open the raw markdown directly, starting with <a href="/content/README.md">/content/README.md</a>.</p>
     </main>
   </noscript>
   <script type="module">
@@ -24,9 +24,9 @@
 
     mountDocsApp({
       basePath: '/docs',
-      contentBasePath: '/development',
+      contentBasePath: '/content',
     }).catch((error) => {
-      console.error('Failed to mount development docs app', error);
+      console.error('Failed to mount docs app', error);
     });
   </script>
 </body>
