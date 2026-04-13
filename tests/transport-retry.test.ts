@@ -130,3 +130,22 @@ test('withTransportRetry fails fast on non-finite extracted retry delays', async
     }),
   ).rejects.toThrow('Retry values must be finite numbers');
 });
+
+test('withTransportRetry does not retry non-retryable errors', async () => {
+  const { retry, warn } = await importFreshTransportRetry();
+  const error = new Error('not retryable');
+  const run = vi.fn().mockRejectedValueOnce(error);
+
+  await expect(
+    retry.withTransportRetry('test.transport', run, {
+      maxAttempts: 3,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => false,
+      logMessage: 'Transport failed; retrying',
+    }),
+  ).rejects.toThrow('not retryable');
+
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(warn).not.toHaveBeenCalled();
+});
