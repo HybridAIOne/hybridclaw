@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -31,7 +32,6 @@ import {
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
-import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import type {
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
@@ -2979,7 +2979,9 @@ async function handleApiAdminEmailConfigFetch(
       (payload as Record<string, unknown>)?.message ||
       (payload as Record<string, unknown>)?.error ||
       `HybridAI API returned HTTP ${response.status}`;
-    sendJson(res, response.status >= 500 ? 502 : response.status, {
+    // Map all upstream errors to 502 so that 401/403 from HybridAI doesn't
+    // get mistaken for a gateway auth failure (which would clear WEB_API_TOKEN).
+    sendJson(res, 502, {
       error: String(msg),
     });
     return;
