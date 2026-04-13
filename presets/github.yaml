@@ -1,0 +1,18 @@
+name: github
+description: GitHub API, repo pages, and raw content
+rules:
+  - action: allow
+    host: github.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: api.github.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: raw.githubusercontent.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

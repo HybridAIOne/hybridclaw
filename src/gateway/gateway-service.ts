@@ -63,6 +63,7 @@ import {
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import { runPolicyCommand } from '../commands/policy-command.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -7991,6 +7992,29 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
         );
+      }
+
+      case 'policy': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Policy Restricted',
+            '`policy` manages local workspace network rules and is only available from local TUI/web sessions.',
+          );
+        }
+        const runtime = resolveSessionRuntimeTarget(session);
+        const result = runPolicyCommand(req.args.slice(1), {
+          workspacePath: runtime.workspacePath,
+        });
+        if (result.kind === 'error') {
+          return badCommand(
+            result.title || 'Policy Command Failed',
+            result.text,
+          );
+        }
+        if (result.kind === 'info') {
+          return infoCommand(result.title || 'Policy', result.text);
+        }
+        return plainCommand(result.text);
       }
 
       case 'stop':

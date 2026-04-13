@@ -92,6 +92,7 @@ const SLASH_COMMANDS = [
   '/info',
   '/mcp',
   '/model',
+  '/policy',
   '/rag',
   '/ralph',
   '/reset',

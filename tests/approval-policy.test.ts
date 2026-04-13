@@ -15,6 +15,13 @@ function tempTrustStorePath(name: string): string {
   return path.join(dir, `${name}.json`);
 }
 
+function writeTempPolicy(raw: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-policy-'));
+  const policyPath = path.join(dir, 'policy.yaml');
+  fs.writeFileSync(policyPath, `${raw.trim()}\n`, 'utf-8');
+  return policyPath;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
@@ -371,14 +378,18 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    const originalPrompt = 'Fetch from example.com';
+    const originalPrompt = 'Write the report to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
 
     const first = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      toolName: 'bash',
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(first.decision).toBe('required');
+    expect(first.actionKey).toBe('bash:workspace-fence');
 
     const prelude = runtime.handleApprovalResponse([
       userMessage('yes for session'),
@@ -386,8 +397,8 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.approvalMode).toBe('session');
 
     const second = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      toolName: 'bash',
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(second.decision).toBe('approved_session');
@@ -397,11 +408,14 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    const originalPrompt = 'Fetch from example.com';
+    const originalPrompt = 'Write the report to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
 
     const first = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      toolName: 'bash',
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(first.decision).toBe('required');
@@ -412,29 +426,44 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.approvalMode).toBe('session');
 
     const second = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      toolName: 'bash',
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(second.decision).toBe('approved_session');
   });
 
-  test('network approvals reuse site scope across subdomains', () => {
+  test('unlisted network access is implicit yellow by default', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'https://images.google.de' }),
+      latestUserPrompt: 'Open Google Images',
+    });
+
+    expect(evaluation.actionKey).toBe('network:google.de');
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.reason).toBe(
+      'network default policy denies unlisted hosts',
+    );
+  });
+
+  test('network approvals reuse site scope across subdomains after a successful run', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Open Google Images';
-
     const first = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
       argsJson: JSON.stringify({ url: 'https://images.google.de' }),
       latestUserPrompt: originalPrompt,
     });
-    expect(first.decision).toBe('required');
+    expect(first.decision).toBe('implicit');
     expect(first.actionKey).toBe('network:google.de');
-
-    const prelude = runtime.handleApprovalResponse([userMessage('yes')]);
-    expect(prelude?.approvalMode).toBe('once');
+    runtime.afterToolExecution(first, true);
 
     const second = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
@@ -442,7 +471,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: originalPrompt,
     });
     expect(second.actionKey).toBe('network:google.de');
-    expect(second.decision).toBe('promoted');
+    expect(second.decision).toBe('implicit');
     expect(second.tier).toBe('yellow');
   });
 
@@ -460,7 +489,8 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: 'Call the completions API',
     });
 
-    expect(evaluation.decision).toBe('required');
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
     expect(evaluation.actionKey).toBe('network:hybridai.one');
   });
 
@@ -470,9 +500,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     );
 
     const evaluation = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://example.com' }),
-      latestUserPrompt: 'Fetch page',
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'touch /Users/example/out.txt' }),
+      latestUserPrompt: 'Write the output to a host file',
     });
     expect(evaluation.decision).toBe('required');
     expect(evaluation.pinned).toBe(false);
@@ -526,11 +556,13 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    const originalPrompt = 'Open images.google.de';
-    const argsJson = JSON.stringify({ url: 'https://images.google.de' });
+    const originalPrompt = 'Write the output to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
 
     const first = runtime.evaluateToolCall({
-      toolName: 'browser_navigate',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: originalPrompt,
     });
@@ -548,7 +580,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.replayPrompt).toContain(originalPrompt);
 
     const second = runtime.evaluateToolCall({
-      toolName: 'browser_navigate',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: originalPrompt,
     });
@@ -668,15 +700,17 @@ describe('TrustedCoworkerApprovalRuntime', () => {
   test('yes for agent persists trust across runtime restarts', () => {
     const trustStorePath = tempTrustStorePath('agent-trust');
     const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
-    const prompt = 'Fetch from example.com';
-    const argsJson = JSON.stringify({ url: 'https://example.com' });
+    const prompt = 'Write the report to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
 
     const runtime = new TrustedCoworkerApprovalRuntime(
       policyPath,
       trustStorePath,
     );
     const first = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -688,7 +722,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.approvalMode).toBe('agent');
 
     const second = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -699,7 +733,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       trustStorePath,
     );
     const third = restarted.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -710,8 +744,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const agentTrustStorePath = tempTrustStorePath('agent-trust');
     const allTrustStorePath = tempTrustStorePath('all-trust');
     const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
-    const prompt = 'Fetch from example.com';
-    const argsJson = JSON.stringify({ url: 'https://example.com' });
+    const prompt = 'Write the report to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
 
     const runtime = new TrustedCoworkerApprovalRuntime(
       policyPath,
@@ -719,7 +755,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       allTrustStorePath,
     );
     const first = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -731,7 +767,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.approvalMode).toBe('all');
 
     const second = runtime.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -743,7 +779,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       allTrustStorePath,
     );
     const third = restarted.evaluateToolCall({
-      toolName: 'web_fetch',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -846,8 +882,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
     vi.resetModules();
 
-    const prompt = 'Open example.com';
-    const argsJson = JSON.stringify({ url: 'https://example.com' });
+    const prompt = 'Write the report to a host file';
+    const argsJson = JSON.stringify({
+      command: 'touch /Users/example/report.txt',
+    });
     const trustStorePath = path.join(workspaceRoot, 'approval-trust.json');
 
     const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
@@ -855,7 +893,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
 
     const runtime = new HostModeApprovalRuntime();
     const first = runtime.evaluateToolCall({
-      toolName: 'browser_navigate',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -870,11 +908,11 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const persisted = JSON.parse(fs.readFileSync(trustStorePath, 'utf-8')) as {
       allowlistedActions?: string[];
     };
-    expect(persisted.allowlistedActions).toContain('network:example.com');
+    expect(persisted.allowlistedActions).toContain('bash:workspace-fence');
 
     const restarted = new HostModeApprovalRuntime();
     const second = restarted.evaluateToolCall({
-      toolName: 'browser_navigate',
+      toolName: 'bash',
       argsJson,
       latestUserPrompt: prompt,
     });
@@ -901,6 +939,107 @@ describe('TrustedCoworkerApprovalRuntime', () => {
 
     expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
     expect(evaluation.tier).toBe('yellow');
+  });
+
+  test('deny network rules hard-block matching hosts', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  workspace_fence: true
+
+network:
+  default: deny
+  rules:
+    - action: deny
+      host: "api.github.com"
+      methods: ["GET"]
+      paths: ["/repos/**"]
+      agent: "*"
+`);
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata',
+    });
+
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('denied');
+    expect(evaluation.reason).toBe('this host is blocked by approval policy');
+  });
+
+  test('network rules honor method, path, and agent scoping', () => {
+    const policyPath = writeTempPolicy(`
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "api.github.com"
+      methods: ["GET"]
+      paths: ["/repos/**"]
+      agent: "research"
+`);
+    vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'research');
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const allowed = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata',
+    });
+    const wrongMethod = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'POST',
+      }),
+      latestUserPrompt: 'Create the repo metadata',
+    });
+
+    vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'main');
+    const wrongAgent = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata',
+    });
+
+    expect(allowed.tier).toBe('green');
+    expect(allowed.decision).toBe('auto');
+    expect(wrongMethod.tier).toBe('yellow');
+    expect(wrongMethod.decision).toBe('implicit');
+    expect(wrongAgent.tier).toBe('yellow');
+    expect(wrongAgent.decision).toBe('implicit');
+  });
+
+  test('legacy trusted_network_hosts entries migrate to allow rules on load', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  trusted_network_hosts: ["api.github.com"]
+`);
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+      }),
+      latestUserPrompt: 'Open the GitHub API docs',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.reason).toBe(
+      'this host is allowlisted in approval policy',
+    );
   });
 
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {

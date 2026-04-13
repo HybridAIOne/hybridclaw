@@ -4,9 +4,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 
+import {
+  DEFAULT_NETWORK_DEFAULT,
+  DEFAULT_NETWORK_RULES,
+  normalizeNetworkAgent,
+  normalizeNetworkPathPattern,
+  normalizeNetworkPort,
+  readNetworkPolicyState,
+} from '../shared/network-policy.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import type { ChatMessage } from './types.js';
+import type {
+  NetworkPolicyAction,
+  NetworkRule,
+} from '../shared/network-policy.js';
+
+export {
+  DEFAULT_NETWORK_DEFAULT,
+  DEFAULT_NETWORK_RULES,
+  normalizeNetworkRule,
+} from '../shared/network-policy.js';
+export type { NetworkPolicyAction, NetworkRule } from '../shared/network-policy.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
 
@@ -30,7 +49,9 @@ export interface ApprovalPolicyRule {
 
 export interface ApprovalPolicyConfig {
   pinnedRed: ApprovalPolicyRule[];
-  trustedNetworkHosts: string[];
+  networkDefault: NetworkPolicyAction;
+  networkRules: NetworkRule[];
+  networkPresets: string[];
   workspaceFence: boolean;
   maxPendingApprovals: number;
   approvalTimeoutSecs: number;
@@ -52,6 +73,7 @@ interface ClassifiedAction {
   writeIntent: boolean;
   promotableRed: boolean;
   stickyYellow: boolean;
+  hardDeny?: boolean;
 }
 
 interface PendingApproval {
@@ -115,6 +137,7 @@ const LEGACY_AGENT_TRUST_STORE_PATH = path.join(
   '.hybridclaw',
   'approval-trust.json',
 );
+const AGENT_ID_ENV = 'HYBRIDCLAW_AGENT_ID';
 const YELLOW_IMPLICIT_DELAY_MS = 5_000;
 const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
   1,
@@ -136,13 +159,15 @@ const SCRATCH_ROOTS = Array.from(
   ),
 );
 
-const DEFAULT_POLICY: ApprovalPolicyConfig = {
+export const DEFAULT_POLICY: ApprovalPolicyConfig = {
   pinnedRed: [
     { pattern: 'rm\\s+-rf\\s+/' },
     { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
     { tools: ['force_push'] },
   ],
-  trustedNetworkHosts: ['hybridclaw.io'],
+  networkDefault: DEFAULT_NETWORK_DEFAULT,
+  networkRules: DEFAULT_NETWORK_RULES,
+  networkPresets: [],
   workspaceFence: true,
   maxPendingApprovals: 3,
   approvalTimeoutSecs: 120,
@@ -282,16 +307,28 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
   return absoluteRe.test(absoluteCandidate);
 }
 
-function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
+export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const policy: Partial<ApprovalPolicyConfig> = {};
   const lines = raw.split(/\r?\n/);
 
-  let section: 'approval' | 'audit' | '' = '';
+  let section: 'approval' | 'audit' | 'network' | '' = '';
   let inPinnedRed = false;
   let pinnedRuleIndent = -1;
   let currentRule: ApprovalPolicyRule | null = null;
   let currentListKey: 'tools' | 'paths' | null = null;
   const pinnedRules: ApprovalPolicyRule[] = [];
+  let inNetworkRules = false;
+  let networkRulesDeclared = false;
+  let networkRuleIndent = -1;
+  let networkSectionSeen = false;
+  let currentNetworkRule: Record<string, unknown> | null = null;
+  let currentNetworkListKey: 'methods' | 'paths' | null = null;
+  const rawNetworkRules: Record<string, unknown>[] = [];
+  let inNetworkPresets = false;
+  let networkPresetsIndent = -1;
+  let networkDefaultRaw: string | undefined;
+  const networkPresets: string[] = [];
+  let legacyTrustedHosts: string[] = [];
 
   const flushRule = (): void => {
     if (!currentRule) return;
@@ -303,6 +340,15 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
     if (hasContent) pinnedRules.push(currentRule);
     currentRule = null;
     currentListKey = null;
+  };
+
+  const flushNetworkRule = (): void => {
+    if (!currentNetworkRule) return;
+    if (String(currentNetworkRule.host || '').trim()) {
+      rawNetworkRules.push({ ...currentNetworkRule });
+    }
+    currentNetworkRule = null;
+    currentNetworkListKey = null;
   };
 
   const applyRuleField = (
@@ -329,6 +375,61 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
     }
   };
 
+  const applyNetworkRuleField = (
+    rule: Record<string, unknown>,
+    key: string,
+    rawValue: string,
+  ): void => {
+    const value = rawValue.trim();
+    if (key === 'action') {
+      rule.action = value.replace(/^['"]|['"]$/g, '');
+      return;
+    }
+    if (key === 'host') {
+      rule.host = value.replace(/^['"]|['"]$/g, '');
+      return;
+    }
+    if (key === 'port') {
+      const unquoted = value.replace(/^['"]|['"]$/g, '');
+      rule.port = /^\d+$/.test(unquoted)
+        ? Number.parseInt(unquoted, 10)
+        : unquoted;
+      return;
+    }
+    if (key === 'agent') {
+      rule.agent = value.replace(/^['"]|['"]$/g, '');
+      return;
+    }
+    if (key === 'comment') {
+      rule.comment = value.replace(/^['"]|['"]$/g, '');
+      return;
+    }
+    if (key === 'methods' || key === 'paths') {
+      const parsed = parseInlineList(value);
+      if (parsed.length > 0) {
+        if (key === 'methods') rule.methods = parsed;
+        if (key === 'paths') rule.paths = parsed;
+        currentNetworkListKey = null;
+        return;
+      }
+      const scalarList = value
+        ? value
+            .split(',')
+            .map((item) => item.trim().replace(/^['"]|['"]$/g, ''))
+            .filter(Boolean)
+        : [];
+      if (scalarList.length > 0) {
+        if (key === 'methods') rule.methods = scalarList;
+        if (key === 'paths') rule.paths = scalarList;
+        currentNetworkListKey = null;
+        return;
+      }
+      if (key === 'methods') rule.methods = [];
+      if (key === 'paths') rule.paths = [];
+      currentNetworkListKey = key;
+    }
+  };
+
   for (const rawLine of lines) {
     const noComment = rawLine.replace(/\s+#.*$/, '');
     if (!noComment.trim()) continue;
@@ -337,14 +438,30 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
 
     if (line === 'approval:') {
       flushRule();
+      flushNetworkRule();
       section = 'approval';
       inPinnedRed = false;
+      inNetworkRules = false;
+      inNetworkPresets = false;
+      continue;
+    }
+    if (line === 'network:') {
+      flushRule();
+      flushNetworkRule();
+      section = 'network';
+      networkSectionSeen = true;
+      inPinnedRed = false;
+      inNetworkRules = false;
+      inNetworkPresets = false;
       continue;
     }
     if (line === 'audit:') {
       flushRule();
+      flushNetworkRule();
       section = 'audit';
       inPinnedRed = false;
+      inNetworkRules = false;
+      inNetworkPresets = false;
       continue;
     }
     if (section === '' && line.endsWith(':')) continue;
@@ -403,7 +520,7 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
           DEFAULT_POLICY.workspaceFence,
         );
       } else if (key === 'trusted_network_hosts') {
-        policy.trustedNetworkHosts =
+        legacyTrustedHosts =
           parseInlineList(rawValue).length > 0 ? parseInlineList(rawValue) : [];
       } else if (key === 'max_pending_approvals') {
         policy.maxPendingApprovals = Math.max(
@@ -415,6 +532,99 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
           5,
           parseIntStrict(rawValue, DEFAULT_POLICY.approvalTimeoutSecs),
         );
+      }
+      continue;
+    }
+
+    if (section === 'network') {
+      if (line === 'rules:') {
+        flushNetworkRule();
+        inNetworkRules = true;
+        inNetworkPresets = false;
+        networkRulesDeclared = true;
+        networkRuleIndent = -1;
+        continue;
+      }
+      if (line === 'presets:') {
+        flushNetworkRule();
+        inNetworkRules = false;
+        inNetworkPresets = true;
+        networkPresetsIndent = indent;
+        continue;
+      }
+      if (inNetworkRules && line.startsWith('-')) {
+        if (networkRuleIndent < 0) networkRuleIndent = indent;
+        if (indent <= networkRuleIndent) {
+          flushNetworkRule();
+          currentNetworkRule = {};
+          const rest = line.slice(1).trim();
+          if (!rest) continue;
+          const kv = rest.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+          if (!kv) continue;
+          applyNetworkRuleField(currentNetworkRule, kv[1], kv[2]);
+          continue;
+        }
+      }
+      if (inNetworkRules && currentNetworkRule) {
+        if (line.startsWith('-') && currentNetworkListKey) {
+          const item = line
+            .slice(1)
+            .trim()
+            .replace(/^['"]|['"]$/g, '');
+          if (item) {
+            if (currentNetworkListKey === 'methods') {
+              const existingMethods = Array.isArray(currentNetworkRule.methods)
+                ? currentNetworkRule.methods
+                : [];
+              currentNetworkRule.methods = [
+                ...existingMethods,
+                item,
+              ];
+            } else {
+              const existingPaths = Array.isArray(currentNetworkRule.paths)
+                ? currentNetworkRule.paths
+                : [];
+              currentNetworkRule.paths = [
+                ...existingPaths,
+                item,
+              ];
+            }
+          }
+          continue;
+        }
+        const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+        if (kv) {
+          applyNetworkRuleField(currentNetworkRule, kv[1], kv[2]);
+          continue;
+        }
+      }
+      if (
+        inNetworkRules &&
+        networkRuleIndent >= 0 &&
+        indent <= networkRuleIndent &&
+        !line.startsWith('-')
+      ) {
+        flushNetworkRule();
+        inNetworkRules = false;
+      }
+      if (inNetworkPresets) {
+        if (line.startsWith('-')) {
+          const preset = line
+            .slice(1)
+            .trim()
+            .replace(/^['"]|['"]$/g, '');
+          if (preset) networkPresets.push(preset);
+          continue;
+        }
+        if (indent <= networkPresetsIndent) {
+          inNetworkPresets = false;
+        }
+      }
+      const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
+      if (!kv) continue;
+      const [, key, rawValue] = kv;
+      if (key === 'default') {
+        networkDefaultRaw = rawValue.replace(/^['"]|['"]$/g, '');
       }
       continue;
     }
@@ -437,11 +647,43 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   }
 
   flushRule();
+  flushNetworkRule();
   if (pinnedRules.length > 0) policy.pinnedRed = pinnedRules;
+  if (networkSectionSeen || legacyTrustedHosts.length > 0) {
+    const document: Record<string, unknown> = {};
+    const networkDocument: Record<string, unknown> = {};
+    if (networkDefaultRaw !== undefined) {
+      networkDocument.default = networkDefaultRaw;
+    }
+    if (networkRulesDeclared) {
+      networkDocument.rules = rawNetworkRules;
+    }
+    if (networkPresets.length > 0) {
+      networkDocument.presets = networkPresets;
+    }
+    if (legacyTrustedHosts.length > 0) {
+      document.approval = {
+        trusted_network_hosts: legacyTrustedHosts,
+      };
+    }
+    if (networkSectionSeen) {
+      document.network = networkDocument;
+    }
+    const networkState = readNetworkPolicyState(document);
+    policy.networkDefault = networkState.defaultAction;
+    policy.networkRules = networkState.rules.map((rule) => ({
+      ...rule,
+      methods: [...rule.methods],
+      paths: [...rule.paths],
+    }));
+    if (networkState.presets.length > 0) {
+      policy.networkPresets = [...networkState.presets];
+    }
+  }
   return policy;
 }
 
-function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
+export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
   let filePolicy: Partial<ApprovalPolicyConfig> = {};
   try {
     if (fs.existsSync(policyPath)) {
@@ -457,11 +699,25 @@ function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
         ? filePolicy.pinnedRed
         : DEFAULT_POLICY.pinnedRed,
-    trustedNetworkHosts:
-      Array.isArray(filePolicy.trustedNetworkHosts) &&
-      filePolicy.trustedNetworkHosts.length > 0
-        ? filePolicy.trustedNetworkHosts.map(normalizeHostScope)
-        : DEFAULT_POLICY.trustedNetworkHosts.map(normalizeHostScope),
+    networkDefault:
+      filePolicy.networkDefault === 'allow' ||
+      filePolicy.networkDefault === 'deny'
+        ? filePolicy.networkDefault
+        : DEFAULT_POLICY.networkDefault,
+    networkRules: Array.isArray(filePolicy.networkRules)
+      ? filePolicy.networkRules.map((rule) => ({
+          ...rule,
+          methods: [...rule.methods],
+          paths: [...rule.paths],
+        }))
+      : DEFAULT_POLICY.networkRules.map((rule) => ({
+          ...rule,
+          methods: [...rule.methods],
+          paths: [...rule.paths],
+        })),
+    networkPresets: Array.isArray(filePolicy.networkPresets)
+      ? [...filePolicy.networkPresets]
+      : [],
     workspaceFence:
       typeof filePolicy.workspaceFence === 'boolean'
         ? filePolicy.workspaceFence
@@ -529,7 +785,7 @@ function extractHostsFromUrlLikeText(input: string): string[] {
   return [...hosts];
 }
 
-function normalizeHostScope(host: string): string {
+export function normalizeHostScope(host: string): string {
   const normalized = host.trim().toLowerCase().replace(/\.$/, '');
   if (!normalized) return 'unknown-host';
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return normalized;
@@ -559,12 +815,102 @@ function normalizeHostScope(host: string): string {
   return labels.slice(-2).join('.');
 }
 
-function extractHostScopes(hosts: string[]): string[] {
-  const scopes = new Set<string>();
-  for (const host of hosts) {
-    scopes.add(normalizeHostScope(host));
+function defaultPortForProtocol(protocol: string): number {
+  const normalized = protocol.trim().toLowerCase();
+  if (normalized === 'http:') return 80;
+  if (normalized === 'https:') return 443;
+  return 443;
+}
+
+function globHostPatternToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+function matchesHostPattern(pattern: string, candidateHost: string): boolean {
+  const normalizedPattern = pattern.trim().toLowerCase().replace(/\.$/, '');
+  const normalizedCandidate = candidateHost
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!normalizedPattern || !normalizedCandidate) return false;
+  if (normalizedPattern === normalizedCandidate) return true;
+  if (normalizedPattern.includes('*')) {
+    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
   }
-  return [...scopes];
+  if (
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedPattern) ||
+    normalizedPattern.includes(':')
+  ) {
+    return false;
+  }
+  if (normalizedPattern === normalizeHostScope(normalizedPattern)) {
+    return normalizeHostScope(normalizedCandidate) === normalizedPattern;
+  }
+  return false;
+}
+
+function matchesMethodPattern(
+  allowedMethods: string[],
+  candidateMethod: string,
+): boolean {
+  if (allowedMethods.includes('*')) return true;
+  const normalizedCandidate = candidateMethod.trim().toUpperCase() || 'GET';
+  return allowedMethods.includes(normalizedCandidate);
+}
+
+function matchesNetworkPathPattern(
+  allowedPaths: string[],
+  candidatePath: string,
+): boolean {
+  const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
+  return allowedPaths.some((pattern) =>
+    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
+      normalizedCandidate,
+    ),
+  );
+}
+
+function matchesAgentPattern(
+  ruleAgent: string,
+  candidateAgent: string,
+): boolean {
+  if (ruleAgent === '*') return true;
+  return ruleAgent === normalizeNetworkAgent(candidateAgent);
+}
+
+function parseUrlNetworkTarget(rawUrl: string): {
+  host: string;
+  port: number;
+  path: string;
+} | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.trim().toLowerCase();
+    if (!host) return null;
+    const pathValue = parsed.pathname || '/';
+    return {
+      host,
+      port: parsed.port
+        ? normalizeNetworkPort(parsed.port)
+        : defaultPortForProtocol(parsed.protocol),
+      path: pathValue || '/',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function inferBashHttpMethod(command: string): string {
+  const explicit = command.match(/\b(?:-X|--request)\s+([A-Za-z]+)/i);
+  if (explicit?.[1]) return explicit[1].toUpperCase();
+  if (/\b(?:--data(?:-raw|-binary)?|-d|--form|-F)\b/i.test(command)) {
+    return 'POST';
+  }
+  if (/\bwget\b/i.test(command)) return 'GET';
+  return 'GET';
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -1017,9 +1363,45 @@ export class TrustedCoworkerApprovalRuntime {
     );
   }
 
-  private isTrustedNetworkHost(host: string): boolean {
-    const normalized = normalizeHostScope(host);
-    return this.loadedPolicy.trustedNetworkHosts.includes(normalized);
+  private getCurrentAgentId(): string {
+    return String(process.env[AGENT_ID_ENV] || '')
+      .trim()
+      .toLowerCase();
+  }
+
+  private evaluateNetworkAccess(params: {
+    host: string;
+    port: number;
+    method: string;
+    path: string;
+    agentId?: string;
+  }): { decision: NetworkPolicyAction | 'prompt'; matchedRule?: NetworkRule } {
+    const normalizedHost = String(params.host || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, '');
+    const normalizedMethod =
+      String(params.method || '')
+        .trim()
+        .toUpperCase() || 'GET';
+    const normalizedPath = params.path || '/';
+    const normalizedAgent = normalizeNetworkAgent(
+      params.agentId || this.getCurrentAgentId(),
+    );
+
+    for (const rule of this.loadedPolicy.networkRules) {
+      if (!matchesHostPattern(rule.host, normalizedHost)) continue;
+      if (rule.port !== params.port) continue;
+      if (!matchesMethodPattern(rule.methods, normalizedMethod)) continue;
+      if (!matchesNetworkPathPattern(rule.paths, normalizedPath)) continue;
+      if (!matchesAgentPattern(rule.agent, normalizedAgent)) continue;
+      return { decision: rule.action, matchedRule: rule };
+    }
+
+    return {
+      decision:
+        this.loadedPolicy.networkDefault === 'allow' ? 'allow' : 'prompt',
+    };
   }
 
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
@@ -1227,6 +1609,22 @@ export class TrustedCoworkerApprovalRuntime {
     let decision: ApprovalDecision = 'auto';
 
     if (baseTier === 'red') {
+      if (classified.hardDeny) {
+        return {
+          baseTier,
+          tier: 'red',
+          decision: 'denied',
+          actionKey: classified.actionKey,
+          fingerprint,
+          intent: classified.intent,
+          consequenceIfDenied: classified.consequenceIfDenied,
+          reason: classified.reason,
+          commandPreview: classified.commandPreview,
+          pinned: pinnedByPolicy,
+          hostHints: classified.hostHints,
+        };
+      }
+
       const oneShotApproved = this.oneShotFingerprints.has(fingerprint);
       const sessionApproved =
         !pinnedByPolicy &&
@@ -1463,6 +1861,80 @@ export class TrustedCoworkerApprovalRuntime {
     map.set(key, (map.get(key) || 0) + 1);
   }
 
+  private classifyNetworkTargets(params: {
+    targets: Array<{
+      host: string;
+      port: number;
+      path: string;
+      method: string;
+    }>;
+    intent: string;
+    consequenceIfDenied: string;
+    commandPreview: string;
+  }): ClassifiedAction {
+    const primaryHost = normalizeHostScope(params.targets[0]?.host || '');
+    const hostHints = [
+      ...new Set(
+        params.targets.map((target) => normalizeHostScope(target.host)),
+      ),
+    ];
+    let matchedAllowRule = false;
+
+    for (const target of params.targets) {
+      const evaluation = this.evaluateNetworkAccess(target);
+      if (evaluation.decision === 'deny') {
+        return {
+          tier: 'red',
+          actionKey: `network:${primaryHost}`,
+          intent: params.intent,
+          consequenceIfDenied: params.consequenceIfDenied,
+          reason: 'this host is blocked by approval policy',
+          commandPreview: params.commandPreview,
+          pathHints: [],
+          hostHints,
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+          hardDeny: true,
+        };
+      }
+      if (evaluation.decision === 'prompt') {
+        return {
+          tier: 'yellow',
+          actionKey: `network:${primaryHost}`,
+          intent: params.intent,
+          consequenceIfDenied: params.consequenceIfDenied,
+          reason: 'network default policy denies unlisted hosts',
+          commandPreview: params.commandPreview,
+          pathHints: [],
+          hostHints,
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+        };
+      }
+      if (evaluation.matchedRule?.action === 'allow') {
+        matchedAllowRule = true;
+      }
+    }
+
+    return {
+      tier: 'green',
+      actionKey: `network:${primaryHost}`,
+      intent: params.intent,
+      consequenceIfDenied: params.consequenceIfDenied,
+      reason: matchedAllowRule
+        ? 'this host is allowlisted in approval policy'
+        : 'network default policy allows this host',
+      commandPreview: params.commandPreview,
+      pathHints: [],
+      hostHints,
+      writeIntent: false,
+      promotableRed: false,
+      stickyYellow: true,
+    };
+  }
+
   private classifyAction(
     toolName: string,
     args: Record<string, unknown>,
@@ -1574,55 +2046,95 @@ export class TrustedCoworkerApprovalRuntime {
 
     if (lowerTool === 'web_search') {
       const provider = normalizeText(args.provider).toLowerCase();
-      const providerHosts = (() => {
+      const providerTargets = (() => {
         switch (provider) {
           case 'brave':
-            return ['api.search.brave.com'];
+            return [
+              {
+                host: 'api.search.brave.com',
+                port: 443,
+                path: '/',
+                method: 'GET',
+              },
+            ];
           case 'perplexity':
-            return ['api.perplexity.ai'];
+            return [
+              {
+                host: 'api.perplexity.ai',
+                port: 443,
+                path: '/',
+                method: 'POST',
+              },
+            ];
           case 'tavily':
-            return ['api.tavily.com'];
+            return [
+              { host: 'api.tavily.com', port: 443, path: '/', method: 'POST' },
+            ];
           case 'duckduckgo':
-            return ['html.duckduckgo.com'];
+            return [
+              {
+                host: 'html.duckduckgo.com',
+                port: 443,
+                path: '/',
+                method: 'GET',
+              },
+            ];
           case 'searxng':
-            return extractHostScopes(
-              extractHostsFromUrlLikeText(process.env.SEARXNG_BASE_URL || ''),
-            );
+            return extractHostsFromUrlLikeText(
+              process.env.SEARXNG_BASE_URL || '',
+            ).map((host) => ({
+              host,
+              port: 443,
+              path: '/',
+              method: 'GET',
+            }));
           default:
             return [
-              'api.search.brave.com',
-              'api.perplexity.ai',
-              'api.tavily.com',
-              'html.duckduckgo.com',
+              {
+                host: 'api.search.brave.com',
+                port: 443,
+                path: '/',
+                method: 'GET',
+              },
+              {
+                host: 'api.perplexity.ai',
+                port: 443,
+                path: '/',
+                method: 'POST',
+              },
+              { host: 'api.tavily.com', port: 443, path: '/', method: 'POST' },
+              {
+                host: 'html.duckduckgo.com',
+                port: 443,
+                path: '/',
+                method: 'GET',
+              },
             ];
         }
       })();
-      const primaryHost = providerHosts[0] || 'web-search';
-      const unseen = providerHosts.filter(
-        (host) =>
-          !this.isTrustedNetworkHost(host) && !this.seenNetworkHosts.has(host),
-      );
-      const allTrusted =
-        providerHosts.length > 0 &&
-        providerHosts.every((host) => this.isTrustedNetworkHost(host));
-      return {
-        tier: allTrusted ? 'green' : unseen.length > 0 ? 'red' : 'yellow',
-        actionKey: `network:${primaryHost}`,
+      if (providerTargets.length === 0) {
+        return {
+          tier: 'yellow',
+          actionKey: 'network:web-search',
+          intent: `search the web via ${provider || 'configured providers'}`,
+          consequenceIfDenied:
+            'I will avoid external search providers and continue with local context only.',
+          reason: 'this is an external network action',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+        };
+      }
+      return this.classifyNetworkTargets({
+        targets: providerTargets,
         intent: `search the web via ${provider || 'configured providers'}`,
         consequenceIfDenied:
           'I will avoid external search providers and continue with local context only.',
-        reason: allTrusted
-          ? 'this host is allowlisted in approval policy'
-          : unseen.length > 0
-            ? 'this would contact a new external host'
-            : 'this is an external network action',
         commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
-        hostHints: providerHosts,
-        writeIntent: false,
-        promotableRed: unseen.length > 0,
-        stickyYellow: true,
-      };
+      });
     }
 
     if (
@@ -1632,33 +2144,38 @@ export class TrustedCoworkerApprovalRuntime {
       lowerTool === 'browser_navigate'
     ) {
       const rawUrl = normalizeText(args.url);
-      const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));
-      const primaryHost = hostScopes[0] || 'unknown-host';
-      const unseen = hostScopes.filter(
-        (host) =>
-          !this.isTrustedNetworkHost(host) && !this.seenNetworkHosts.has(host),
-      );
-      const allTrusted =
-        hostScopes.length > 0 &&
-        hostScopes.every((host) => this.isTrustedNetworkHost(host));
-      return {
-        tier: allTrusted ? 'green' : unseen.length > 0 ? 'red' : 'yellow',
-        actionKey: `network:${primaryHost}`,
-        intent: `access ${primaryHost}`,
+      const target = parseUrlNetworkTarget(rawUrl);
+      if (!target) {
+        return {
+          tier: 'yellow',
+          actionKey: 'network:unknown-host',
+          intent: 'access external host',
+          consequenceIfDenied:
+            'I will avoid contacting that host and use existing local context only.',
+          reason: 'this is an external network action',
+          commandPreview: normalizePreview(rawUrl),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+        };
+      }
+      return this.classifyNetworkTargets({
+        targets: [
+          {
+            ...target,
+            method:
+              lowerTool === 'http_request'
+                ? String(args.method || 'GET')
+                : 'GET',
+          },
+        ],
+        intent: `access ${normalizeHostScope(target.host)}`,
         consequenceIfDenied:
           'I will avoid contacting that host and use existing local context only.',
-        reason: allTrusted
-          ? 'this host is allowlisted in approval policy'
-          : unseen.length > 0
-            ? 'this would contact a new external host'
-            : 'this is an external network action',
         commandPreview: normalizePreview(rawUrl),
-        pathHints: [],
-        hostHints: hostScopes,
-        writeIntent: false,
-        promotableRed: unseen.length > 0,
-        stickyYellow: true,
-      };
+      });
     }
 
     if (lowerTool === 'vision_analyze' || lowerTool === 'image') {
@@ -1780,8 +2297,20 @@ export class TrustedCoworkerApprovalRuntime {
     const inspectionSurface = buildBashInspectionSurface(command);
     const lower = command.toLowerCase();
     const hosts = extractHostsFromUrlLikeText(command);
+    const httpTargets = [...command.matchAll(URL_RE)]
+      .map((match) => parseUrlNetworkTarget(match[0]))
+      .filter(
+        (
+          target,
+        ): target is {
+          host: string;
+          port: number;
+          path: string;
+        } => Boolean(target),
+      );
+    const httpHostSet = new Set(httpTargets.map((target) => target.host));
     const unseenHosts = hosts.filter(
-      (host) => !this.seenNetworkHosts.has(host),
+      (host) => !httpHostSet.has(host) && !this.seenNetworkHosts.has(host),
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
@@ -1867,6 +2396,18 @@ export class TrustedCoworkerApprovalRuntime {
         promotableRed: false,
         stickyYellow: true,
       };
+    }
+
+    if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
+      return this.classifyNetworkTargets({
+        targets: httpTargets.map((target) => ({
+          ...target,
+          method: inferBashHttpMethod(command),
+        })),
+        intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
+        consequenceIfDenied: 'I will keep the task local and avoid that host.',
+        commandPreview: normalizePreview(command),
+      });
     }
 
     if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {

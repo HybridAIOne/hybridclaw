@@ -77,6 +77,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'policy',
   'dream',
   'secret',
   'concierge',
@@ -197,6 +198,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  policy: {
+    command: '/policy [status|list|allow|deny|delete|preset|default|reset]',
+    description: 'Inspect or update workspace HTTP/network policy',
   },
   export: {
     command: '/export session [sessionId] | /export trace [sessionId|all]',
@@ -508,6 +513,12 @@ export function mapCanonicalCommandToGatewayArgs(
         return ['config', 'set', key, value];
       }
       return null;
+    }
+
+    case 'policy': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'status') return ['policy'];
+      return ['policy', ...parts.slice(1)];
     }
 
     case 'secret':
@@ -1153,6 +1164,203 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'string',
           name: 'value',
           description: 'JSON value or plain string',
+        },
+      ],
+    },
+    {
+      name: 'policy',
+      description: 'Inspect or update workspace HTTP/network access policy',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+      tuiMenuEntries: [
+        {
+          id: 'policy.status',
+          label: '/policy',
+          insertText: '/policy',
+          description:
+            'Show the current default stance, rule count, and presets',
+        },
+        {
+          id: 'policy.list',
+          label: '/policy list',
+          insertText: '/policy list',
+          description: 'List current workspace policy rules',
+        },
+        {
+          id: 'policy.allow',
+          label: '/policy allow <host>',
+          insertText: '/policy allow ',
+          description: 'Add an allow rule for one host or host glob',
+        },
+        {
+          id: 'policy.preset.list',
+          label: '/policy preset list',
+          insertText: '/policy preset list',
+          description: 'List bundled network policy presets',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show the current default stance and preset summary',
+        },
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List current workspace policy rules',
+          options: [
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent filter',
+            },
+            {
+              kind: 'string',
+              name: 'json',
+              description: 'Optional --json flag',
+              choices: [{ name: '--json', value: '--json' }],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'allow',
+          description: 'Add an allow rule',
+          options: [
+            {
+              kind: 'string',
+              name: 'host',
+              description: 'Host or host glob',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent id',
+            },
+            {
+              kind: 'string',
+              name: 'methods',
+              description: 'Comma-separated HTTP methods',
+            },
+            {
+              kind: 'string',
+              name: 'paths',
+              description: 'Comma-separated URL path globs',
+            },
+            {
+              kind: 'string',
+              name: 'port',
+              description: 'Optional port number',
+            },
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional human-readable note',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'deny',
+          description: 'Add a deny rule',
+          options: [
+            {
+              kind: 'string',
+              name: 'host',
+              description: 'Host or host glob',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent id',
+            },
+            {
+              kind: 'string',
+              name: 'methods',
+              description: 'Comma-separated HTTP methods',
+            },
+            {
+              kind: 'string',
+              name: 'paths',
+              description: 'Comma-separated URL path globs',
+            },
+            {
+              kind: 'string',
+              name: 'port',
+              description: 'Optional port number',
+            },
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional human-readable note',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'delete',
+          description: 'Delete one rule by list index or host',
+          options: [
+            {
+              kind: 'string',
+              name: 'target',
+              description: 'Rule index or host pattern',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reset',
+          description: 'Reset workspace policy to the default network rules',
+        },
+        {
+          kind: 'subcommand',
+          name: 'default',
+          description: 'Set the default allow or deny stance',
+          options: [
+            {
+              kind: 'string',
+              name: 'mode',
+              description: 'Default network stance',
+              required: true,
+              choices: [
+                { name: 'allow', value: 'allow' },
+                { name: 'deny', value: 'deny' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'preset',
+          description: 'List, apply, or remove bundled network presets',
+          options: [
+            {
+              kind: 'string',
+              name: 'action',
+              description: 'Preset action',
+              choices: [
+                { name: 'list', value: 'list' },
+                { name: 'add', value: 'add' },
+                { name: 'remove', value: 'remove' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Preset name',
+            },
+            {
+              kind: 'string',
+              name: 'dry-run',
+              description: 'Optional --dry-run flag for preset add',
+              choices: [{ name: '--dry-run', value: '--dry-run' }],
+            },
+          ],
         },
       ],
     },
@@ -2264,6 +2472,73 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'reload' && !key && !value) return ['config', 'reload'];
       if (action !== 'set' || !key || !value) return null;
       return ['config', 'set', key, value];
+    }
+
+    case 'policy': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'status') return ['policy'];
+      if (subcommand === 'list') {
+        const agent = normalizeStringOption(interaction, 'agent');
+        const json = normalizeStringOption(interaction, 'json');
+        return [
+          'policy',
+          'list',
+          ...(agent ? ['--agent', agent] : []),
+          ...(json === '--json' ? ['--json'] : []),
+        ];
+      }
+      if (subcommand === 'allow' || subcommand === 'deny') {
+        const host = normalizeStringOption(interaction, 'host', true);
+        if (!host) return null;
+        const agent = normalizeStringOption(interaction, 'agent');
+        const methods = normalizeStringOption(interaction, 'methods');
+        const paths = normalizeStringOption(interaction, 'paths');
+        const port = normalizeStringOption(interaction, 'port');
+        const comment = normalizeStringOption(interaction, 'comment');
+        return [
+          'policy',
+          subcommand,
+          host,
+          ...(agent ? ['--agent', agent] : []),
+          ...(methods ? ['--methods', methods] : []),
+          ...(paths ? ['--paths', paths] : []),
+          ...(port ? ['--port', port] : []),
+          ...(comment ? ['--comment', comment] : []),
+        ];
+      }
+      if (subcommand === 'delete') {
+        const target = normalizeStringOption(interaction, 'target', true);
+        return target ? ['policy', 'delete', target] : null;
+      }
+      if (subcommand === 'reset') return ['policy', 'reset'];
+      if (subcommand === 'default') {
+        const mode = normalizeStringOption(interaction, 'mode', true);
+        return mode === 'allow' || mode === 'deny'
+          ? ['policy', 'default', mode]
+          : null;
+      }
+      if (subcommand === 'preset') {
+        const action = normalizeStringOption(interaction, 'action');
+        const name = normalizeStringOption(interaction, 'name');
+        const dryRun = normalizeStringOption(interaction, 'dry-run');
+        if (!action || action === 'list') return ['policy', 'preset', 'list'];
+        if (action === 'add') {
+          return name
+            ? [
+                'policy',
+                'preset',
+                'add',
+                name,
+                ...(dryRun === '--dry-run' ? ['--dry-run'] : []),
+              ]
+            : null;
+        }
+        if (action === 'remove') {
+          return name ? ['policy', 'preset', 'remove', name] : null;
+        }
+        return null;
+      }
+      return null;
     }
 
     case 'secret': {
