@@ -10,11 +10,8 @@ import {
 } from '../../config/config.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import type { MemoryCitation } from '../../types/memory.js';
-import {
-  getHumanDelayMs,
-  type HumanDelayConfig,
-  sleep,
-} from './human-delay.js';
+import { sleep } from '../../utils/sleep.js';
+import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { type MentionLookup, rewriteUserMentions } from './mentions.js';
 
 export { formatError, formatInfo } from '../../utils/text-format.js';

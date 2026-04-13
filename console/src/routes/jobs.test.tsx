@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type {
   AdminSchedulerJob,
   AdminSchedulerResponse,
   JobSession,
 } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { JobsPage } from './jobs';
 
 const fetchJobsContextMock = vi.fn();
@@ -90,7 +90,9 @@ function renderJobsPage(): void {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <JobsPage />
+      <ToastProvider>
+        <JobsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

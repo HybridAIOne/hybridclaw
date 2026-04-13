@@ -188,29 +188,26 @@ export function SessionsPage() {
         </Panel>
       </div>
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent size="sm">
+        <DialogContent size="sm" role="alertdialog">
           <DialogHeader>
-            <DialogTitle>Delete session</DialogTitle>
+            <DialogTitle>Delete session?</DialogTitle>
             <DialogDescription>
-              {selectedSession
-                ? `Delete session ${selectedSession.id} and all related records? This cannot be undone.`
-                : 'This cannot be undone.'}
+              This will permanently remove the session and all associated audit
+              events.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose className="ghost-button">Cancel</DialogClose>
-            <button
+            <DialogClose
               className="danger-button"
-              type="button"
               onClick={() => {
-                setDeleteConfirmOpen(false);
                 if (selectedSession) {
                   deleteMutation.mutate(selectedSession.id);
                 }
               }}
             >
               Delete
-            </button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

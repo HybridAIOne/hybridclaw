@@ -523,10 +523,20 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     await screen.findByRole('button', { name: /WhatsApp/i });
+    await waitFor(() => {
+      expect(validateTokenMock).toHaveBeenCalledTimes(1);
+    });
+
     fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'WhatsApp settings' }),
+      ).toBeTruthy();
+    });
 
     expect(
-      screen.getByRole('img', { name: 'WhatsApp pairing QR' }).textContent,
+      (await screen.findByRole('img', { name: 'WhatsApp pairing QR' }))
+        .textContent,
     ).toBe('▄▄\n██');
   });
 

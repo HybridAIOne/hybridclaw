@@ -23,6 +23,25 @@ Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email, or the
 locally, deploy it for business workflows, and keep your agents, secrets, and
 data under your control.
 
+[Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
+[Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
+[Configuration](https://www.hybridclaw.io/docs/reference/configuration) ·
+[Migration](https://www.hybridclaw.io/docs/reference/commands#migration) ·
+[Contributing](./CONTRIBUTING.md) ·
+[Support](./SUPPORT.md)
+
+## Pick your path
+
+- Want the shortest path to a running assistant? Start with
+  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart).
+- Want the full setup flow with providers, channels, and admin surfaces? Start
+  with [Installation](https://www.hybridclaw.io/docs/getting-started/installation)
+  and [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication).
+- Want to migrate from OpenClaw or Hermes? Start with the
+  [migration commands](https://www.hybridclaw.io/docs/reference/commands#migration).
+- Want to contribute from source? Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
+  and the maintainer docs under [docs/content/README.md](./docs/content/README.md).
+
 ## Coming from OpenClaw or Hermes?
 
 ```bash
@@ -58,7 +77,8 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
+  scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
@@ -73,9 +93,25 @@ operator and maintainer manual lives at
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin` for channels, scheduler, audit, and config
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
+  scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+
+## Operator workflows
+
+- `/admin/agents` edits allowlisted bootstrap markdown files such as
+  `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
+  browser.
+- `hybridclaw tui` includes a keyboard-driven approval picker and prints a
+  ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
+- `hybridclaw onboarding` and related local setup flows can restore the last
+  known-good saved config snapshot or roll back to a tracked revision when
+  `config.json` becomes invalid.
+- Channel delivery stays predictable: email seeds its first mailbox cursor from
+  the current head instead of replaying old inbox mail, retry-aware transports
+  honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
+  init-query bad-request failures.
 
 ## How HybridClaw compares
 
@@ -111,6 +147,7 @@ Once the gateway is running, open HybridClaw locally:
 ## Built for real workflows
 
 - channels
+- versioned agent workspace prompt files with saved revisions and restore
 - browser sessions
 - office docs
 - skills / plugins / MCP
@@ -127,7 +164,8 @@ Once the gateway is running, open HybridClaw locally:
 - **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
-  chatbot context before the first prompt
+  chatbot context before the first prompt, an interactive approval picker for
+  pending approvals, and an exit summary with a ready-to-run resume command
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
@@ -141,8 +179,8 @@ Browse the full manual at
   [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
   [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/internals/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/internals/architecture)
+  [Runtime Internals](https://www.hybridclaw.io/docs/developer-guide/runtime) and
+  [Architecture](https://www.hybridclaw.io/docs/developer-guide/architecture)
 - Operations:
   [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
 - Security:
@@ -151,10 +189,15 @@ Browse the full manual at
   [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
   [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Channel Setup](https://www.hybridclaw.io/docs/getting-started/channels),
-  [Slack](https://www.hybridclaw.io/docs/slack),
-  [iMessage](https://www.hybridclaw.io/docs/imessage), and
-  [MS Teams](https://www.hybridclaw.io/docs/msteams)
+  [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
+  [Overview](https://www.hybridclaw.io/docs/channels/overview),
+  [Discord](https://www.hybridclaw.io/docs/channels/discord),
+  [Slack](https://www.hybridclaw.io/docs/channels/slack),
+  [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
+  [Email](https://www.hybridclaw.io/docs/channels/email),
+  [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
+  [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
+  [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
@@ -171,20 +214,27 @@ Browse the full manual at
 
 ## Contributing
 
-Mini quick start:
+Contributor quick start:
 
 ```bash
 npm install
 npm run setup
 npm run build
+npm run typecheck
+npm run test:unit
 ```
 
 Use `npm run typecheck`, `npm run lint`, and targeted tests for code changes.
-For docs-only changes, verify links, commands, and examples. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow and check matrix.
+For docs-only changes, verify links, commands, and examples. GitHub issue forms
+cover bug reports, setup help, feature requests, and docs fixes, and the PR
+template asks for validation and scope boundaries up front. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow, check matrix, and
+community guidance.
 
 ## Community
 
 - Discord: [discord.gg/jsVW4vJw27](https://discord.gg/jsVW4vJw27)
 - Issues: [github.com/HybridAIOne/hybridclaw/issues](https://github.com/HybridAIOne/hybridclaw/issues)
 - Discussions: [github.com/HybridAIOne/hybridclaw/discussions](https://github.com/HybridAIOne/hybridclaw/discussions)
+- Support guide: [SUPPORT.md](./SUPPORT.md)
+- Community standards: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)

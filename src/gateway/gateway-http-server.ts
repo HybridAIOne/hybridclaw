@@ -111,6 +111,8 @@ import {
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   GatewayRequestError,
+  getGatewayAdminAgentMarkdownFile,
+  getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
@@ -135,6 +137,8 @@ import {
   handleGatewayCommand,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
+  restoreGatewayAdminAgentMarkdownRevision,
+  saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSkillEnabled,
@@ -632,6 +636,9 @@ async function resolveApiChatSlashCommandResult(
 
   const textParts: string[] = [];
   const artifacts: NonNullable<GatewayChatResult['artifacts']> = [];
+  let pendingApproval:
+    | NonNullable<GatewayChatResult['pendingApproval']>
+    | undefined;
   let sessionId = chatRequest.sessionId;
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
@@ -657,6 +664,9 @@ async function resolveApiChatSlashCommandResult(
       }
       if (handled.artifacts.length > 0) {
         artifacts.push(...handled.artifacts);
+      }
+      if (handled.pendingApproval) {
+        pendingApproval = handled.pendingApproval;
       }
       continue;
     }
@@ -701,6 +711,7 @@ async function resolveApiChatSlashCommandResult(
     ...(sessionKey ? { sessionKey } : {}),
     ...(mainSessionKey ? { mainSessionKey } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(pendingApproval ? { pendingApproval } : {}),
   };
 }
 
@@ -2261,98 +2272,187 @@ async function handleApiAdminEmailMessageDelete(
   sendJson(res, 200, await deleteGatewayAdminEmailMessage({ folder, uid }));
 }
 
-async function handleApiAdminAgents(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const method = req.method || 'GET';
-  if (method === 'GET') {
-    sendJson(res, 200, getGatewayAdminAgents());
-    return;
-  }
+type ApiAdminAgentPayloadBody = {
+  id?: unknown;
+  name?: unknown;
+  model?: unknown;
+  skills?: unknown;
+  chatbotId?: unknown;
+  enableRag?: unknown;
+  workspace?: unknown;
+};
 
-  if (method === 'DELETE') {
-    const pathname = url.pathname;
-    const agentId = pathname.split('/').pop()?.trim() || '';
-    if (!agentId || agentId === 'agents') {
-      sendJson(res, 400, { error: 'Missing agent id in request path.' });
-      return;
+type ApiAdminAgentPayload = {
+  id?: string;
+  name?: string;
+  model?: string;
+  skills?: string[] | null;
+  chatbotId?: string;
+  enableRag?: boolean;
+  workspace?: string;
+};
+
+type ApiAdminAgentsRouteMatch =
+  | { kind: 'collection'; isKnownPath: true }
+  | { kind: 'agent'; isKnownPath: true; agentId: string }
+  | { kind: 'file'; isKnownPath: true; agentId: string; fileName: string }
+  | {
+      kind: 'revision';
+      isKnownPath: true;
+      agentId: string;
+      fileName: string;
+      revisionId: string;
     }
-    try {
-      sendJson(res, 200, deleteGatewayAdminAgent(agentId));
-    } catch (error) {
-      sendJson(res, 400, {
-        error: error instanceof Error ? error.message : String(error),
-      });
+  | {
+      kind: 'restore';
+      isKnownPath: true;
+      agentId: string;
+      fileName: string;
+      revisionId: string;
     }
-    return;
+  | { kind: 'unknown'; isKnownPath: boolean };
+
+function parseApiAdminAgentsRoute(url: URL): ApiAdminAgentsRouteMatch {
+  const segments = url.pathname.split('/').filter(Boolean);
+  const agentId = segments[3] ? decodeApiPathSegment(segments[3]).trim() : '';
+  const fileName = segments[5] ? decodeApiPathSegment(segments[5]).trim() : '';
+  const revisionId = segments[7]
+    ? decodeApiPathSegment(segments[7]).trim()
+    : '';
+  const hasFilesPrefix = segments[4] === 'files';
+  const hasRevisionsPrefix = segments[6] === 'revisions';
+
+  if (segments.length === 3) {
+    return { kind: 'collection', isKnownPath: true };
   }
-
-  const body = (await readJsonBody(req)) as {
-    id?: unknown;
-    name?: unknown;
-    model?: unknown;
-    skills?: unknown;
-    chatbotId?: unknown;
-    enableRag?: unknown;
-    workspace?: unknown;
-  };
-
+  if (segments.length === 4 && agentId) {
+    return { kind: 'agent', isKnownPath: true, agentId };
+  }
+  if (segments.length === 6 && hasFilesPrefix && agentId && fileName) {
+    return { kind: 'file', isKnownPath: true, agentId, fileName };
+  }
   if (
-    body.skills !== undefined &&
-    body.skills !== null &&
-    !Array.isArray(body.skills)
+    segments.length === 8 &&
+    hasFilesPrefix &&
+    hasRevisionsPrefix &&
+    agentId &&
+    fileName &&
+    revisionId
   ) {
-    sendJson(res, 400, {
-      error: 'Expected `skills` to be an array or null.',
-    });
-    return;
+    return {
+      kind: 'revision',
+      isKnownPath: true,
+      agentId,
+      fileName,
+      revisionId,
+    };
+  }
+  if (
+    segments.length === 9 &&
+    hasFilesPrefix &&
+    hasRevisionsPrefix &&
+    agentId &&
+    fileName &&
+    revisionId &&
+    segments[8] === 'restore'
+  ) {
+    return {
+      kind: 'restore',
+      isKnownPath: true,
+      agentId,
+      fileName,
+      revisionId,
+    };
   }
 
-  const skills =
-    body.skills === null
-      ? null
-      : Array.isArray(body.skills)
-        ? normalizeTrimmedUniqueStringArray(body.skills)
-        : undefined;
+  return {
+    kind: 'unknown',
+    isKnownPath:
+      (segments.length === 5 && hasFilesPrefix) ||
+      (segments.length === 7 && hasFilesPrefix && hasRevisionsPrefix),
+  };
+}
 
-  const payload = {
-    id: String(body.id || '').trim(),
+function sendApiAdminAgentError(res: ServerResponse, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const isKnownNotFoundMessage =
+    /^Agent ["`].+["`] was not found\.$/.test(message) ||
+    /^Revision ["`].+["`] was not found\.$/.test(message);
+  const status =
+    error instanceof GatewayRequestError
+      ? error.statusCode
+      : isKnownNotFoundMessage
+        ? 404
+        : 400;
+  sendJson(res, status, { error: message });
+}
+
+function sendMethodNotAllowed(res: ServerResponse): void {
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function requireAdminAgentIdPathValue(agentId: string): string {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    throw new GatewayRequestError(400, 'Missing agent id in request path.');
+  }
+  return normalizedAgentId;
+}
+
+function normalizeApiAdminAgentSkills(
+  skills: unknown,
+): string[] | null | undefined {
+  if (skills === undefined) return undefined;
+  if (skills === null) return null;
+  if (!Array.isArray(skills)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `skills` to be an array or null.',
+    );
+  }
+  return normalizeTrimmedUniqueStringArray(skills);
+}
+
+async function readApiAdminAgentPayload(
+  req: IncomingMessage,
+  options?: { requireId?: boolean },
+): Promise<ApiAdminAgentPayload> {
+  const body = (await readJsonBody(req)) as ApiAdminAgentPayloadBody;
+  const payload: ApiAdminAgentPayload = {
+    id: String(body.id || '').trim() || undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
-    skills,
+    skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
   };
+  if (options?.requireId && !payload.id) {
+    throw new GatewayRequestError(
+      400,
+      'Expected non-empty `id` in request body.',
+    );
+  }
+  return payload;
+}
 
-  if (method === 'POST') {
-    if (!payload.id) {
-      sendJson(res, 400, { error: 'Expected non-empty `id` in request body.' });
-      return;
-    }
-    try {
-      sendJson(res, 200, createGatewayAdminAgent(payload));
-    } catch (error) {
-      sendJson(res, 400, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+async function handleApiAdminAgentCollectionResource(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+): Promise<void> {
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminAgents());
     return;
   }
-
-  if (method === 'PUT') {
-    const agentId = url.pathname.split('/').pop()?.trim() || '';
-    if (!agentId || agentId === 'agents') {
-      sendJson(res, 400, { error: 'Missing agent id in request path.' });
-      return;
-    }
+  if (method === 'POST') {
     try {
+      const payload = await readApiAdminAgentPayload(req, { requireId: true });
       sendJson(
         res,
         200,
-        updateGatewayAdminAgent(agentId, {
+        createGatewayAdminAgent({
+          id: payload.id || '',
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
@@ -2362,15 +2462,191 @@ async function handleApiAdminAgents(
         }),
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendJson(res, /not found/i.test(message) ? 404 : 400, {
-        error: message,
-      });
+      sendApiAdminAgentError(res, error);
     }
     return;
   }
+  sendMethodNotAllowed(res);
+}
 
-  sendJson(res, 405, { error: 'Method Not Allowed' });
+async function handleApiAdminAgentResource(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  agentId: string,
+): Promise<void> {
+  try {
+    const normalizedAgentId = requireAdminAgentIdPathValue(agentId);
+    if (method === 'DELETE') {
+      sendJson(res, 200, deleteGatewayAdminAgent(normalizedAgentId));
+      return;
+    }
+    if (method === 'PUT') {
+      const payload = await readApiAdminAgentPayload(req);
+      sendJson(
+        res,
+        200,
+        updateGatewayAdminAgent(normalizedAgentId, {
+          name: payload.name,
+          model: payload.model,
+          skills: payload.skills,
+          chatbotId: payload.chatbotId,
+          enableRag: payload.enableRag,
+          workspace: payload.workspace,
+        }),
+      );
+      return;
+    }
+    sendMethodNotAllowed(res);
+  } catch (error) {
+    sendApiAdminAgentError(res, error);
+  }
+}
+
+async function handleApiAdminAgentFileResource(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  params: {
+    agentId: string;
+    fileName: string;
+  },
+): Promise<void> {
+  if (method === 'GET') {
+    try {
+      sendJson(
+        res,
+        200,
+        getGatewayAdminAgentMarkdownFile(params.agentId, params.fileName),
+      );
+    } catch (error) {
+      sendApiAdminAgentError(res, error);
+    }
+    return;
+  }
+  if (method === 'PUT') {
+    try {
+      const body = (await readJsonBody(req)) as { content?: unknown };
+      if (typeof body.content !== 'string') {
+        throw new GatewayRequestError(
+          400,
+          'Expected string `content` in request body.',
+        );
+      }
+      sendJson(
+        res,
+        200,
+        saveGatewayAdminAgentMarkdownFile({
+          agentId: params.agentId,
+          fileName: params.fileName,
+          content: body.content,
+        }),
+      );
+    } catch (error) {
+      sendApiAdminAgentError(res, error);
+    }
+    return;
+  }
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminAgentRevisionResource(
+  res: ServerResponse,
+  method: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<void> {
+  if (method === 'GET') {
+    try {
+      sendJson(
+        res,
+        200,
+        getGatewayAdminAgentMarkdownRevision({
+          agentId: params.agentId,
+          fileName: params.fileName,
+          revisionId: params.revisionId,
+        }),
+      );
+    } catch (error) {
+      sendApiAdminAgentError(res, error);
+    }
+    return;
+  }
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminAgentRevisionRestoreResource(
+  res: ServerResponse,
+  method: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<void> {
+  if (method === 'POST') {
+    try {
+      sendJson(
+        res,
+        200,
+        restoreGatewayAdminAgentMarkdownRevision({
+          agentId: params.agentId,
+          fileName: params.fileName,
+          revisionId: params.revisionId,
+        }),
+      );
+    } catch (error) {
+      sendApiAdminAgentError(res, error);
+    }
+    return;
+  }
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminAgents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  const route = parseApiAdminAgentsRoute(url);
+
+  switch (route.kind) {
+    case 'collection':
+      await handleApiAdminAgentCollectionResource(req, res, method);
+      return;
+    case 'agent':
+      await handleApiAdminAgentResource(req, res, method, route.agentId);
+      return;
+    case 'file':
+      await handleApiAdminAgentFileResource(req, res, method, {
+        agentId: route.agentId,
+        fileName: route.fileName,
+      });
+      return;
+    case 'revision':
+      await handleApiAdminAgentRevisionResource(res, method, {
+        agentId: route.agentId,
+        fileName: route.fileName,
+        revisionId: route.revisionId,
+      });
+      return;
+    case 'restore':
+      await handleApiAdminAgentRevisionRestoreResource(res, method, {
+        agentId: route.agentId,
+        fileName: route.fileName,
+        revisionId: route.revisionId,
+      });
+      return;
+    case 'unknown':
+      sendJson(res, route.isKnownPath ? 405 : 404, {
+        error: route.isKnownPath ? 'Method Not Allowed' : 'Not Found',
+      });
+      return;
+  }
 }
 
 function handleApiAdminSessions(res: ServerResponse): void {
@@ -3234,10 +3510,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
-            (pathname === '/api/admin/agents' &&
-              (method === 'GET' || method === 'POST')) ||
-            (pathname.startsWith('/api/admin/agents/') &&
-              (method === 'PUT' || method === 'DELETE'))
+            pathname === '/api/admin/agents' ||
+            pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
             return;

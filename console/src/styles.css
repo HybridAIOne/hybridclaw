@@ -1050,6 +1050,25 @@ th {
   line-height: 1.55;
 }
 
+.agent-file-meta {
+  min-width: 0;
+}
+
+.agent-file-meta .supporting-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-file-editor-title {
+  font-weight: 700;
+  color: var(--foreground);
+}
+
 .summary-block-header,
 .jobs-output-actions {
   display: flex;

@@ -14,7 +14,7 @@ import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
 
-const BOOTSTRAP_FILES = [
+export const WORKSPACE_BOOTSTRAP_FILES = [
   'AGENTS.md',
   'SOUL.md',
   'IDENTITY.md',
@@ -133,7 +133,9 @@ function writeWorkspaceOnboardingState(
   fs.renameSync(tempPath, statePath);
 }
 
-function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
+function readTemplateFile(
+  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
+): string {
   const templatePath = path.join(TEMPLATES_DIR, filename);
   return fs.readFileSync(templatePath, 'utf-8');
 }
@@ -176,7 +178,7 @@ function normalizeContextFileContent(params: {
 
 function isWorkspaceFileCustomized(
   wsDir: string,
-  filename: (typeof BOOTSTRAP_FILES)[number],
+  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
 ): boolean {
   const filePath = path.join(wsDir, filename);
   if (!fs.existsSync(filePath)) return false;
@@ -231,7 +233,7 @@ function hasOnboardingEvidenceAfterBootstrap(params: {
   const transcriptPath = path.join(params.wsDir, '.session-transcripts');
   if (hasPathChangedAfter(referenceMs, transcriptPath)) return true;
 
-  const customizedFiles: Array<(typeof BOOTSTRAP_FILES)[number]> = [
+  const customizedFiles: Array<(typeof WORKSPACE_BOOTSTRAP_FILES)[number]> = [
     'USER.md',
     'MEMORY.md',
     'IDENTITY.md',
@@ -318,7 +320,7 @@ export function ensureBootstrapFiles(
   };
   const nowIso = () => new Date().toISOString();
 
-  for (const filename of BOOTSTRAP_FILES) {
+  for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     if (ONE_TIME_BOOTSTRAP_FILES.has(filename)) continue;
     const destPath = path.join(wsDir, filename);
     if (fs.existsSync(destPath)) continue;
@@ -424,7 +426,7 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
 
-  for (const filename of BOOTSTRAP_FILES) {
+  for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     const filePath = path.join(wsDir, filename);
     if (!fs.existsSync(filePath)) continue;
 

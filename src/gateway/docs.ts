@@ -7,7 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
 
 const SITE_DIR = resolveInstallPath('docs');
-const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'development');
+const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'content');
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
@@ -15,6 +15,25 @@ const DEVELOPMENT_DOCS_CACHE_TTL_MS = 1_000;
 
 export const DOCS_ROUTE = '/docs';
 const LEGACY_DEVELOPMENT_ROUTE = '/development';
+const LEGACY_DOCS_REDIRECT_WARNING =
+  '299 HybridClaw "Legacy docs redirect; update links to the canonical /docs/... path."';
+const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
+  ['getting-started/channels', 'channels/overview'],
+  ['getting-started/channels.md', 'channels/overview.md'],
+  ['imessage', 'channels/imessage'],
+  ['imessage.md', 'channels/imessage.md'],
+  ['msteams', 'channels/msteams'],
+  ['msteams.md', 'channels/msteams.md'],
+  ['slack', 'channels/slack'],
+  ['slack.md', 'channels/slack.md'],
+  ['internals', 'developer-guide'],
+  ['internals/README.md', 'developer-guide/README.md'],
+  ['tools/web-search', 'reference/tools/web-search'],
+  ['tools/web-search.md', 'reference/tools/web-search.md'],
+]);
+const LEGACY_DOCS_PREFIX_REWRITES: Array<{ from: string; to: string }> = [
+  { from: 'internals/', to: 'developer-guide/' },
+];
 
 const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -147,6 +166,14 @@ function humanizeSegment(segment: string): string {
     .join(' ');
 }
 
+function normalizeDocPath(input: string): string {
+  return String(input || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/');
+}
+
 function parseDevelopmentDoc(
   raw: string,
   relativePath: string,
@@ -240,45 +267,83 @@ function resolveDevelopmentDocFile(relativePath: string): string | null {
   return resolveContainedFilePath(DEVELOPMENT_DOCS_DIR, candidate);
 }
 
-function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
+function extractDocsRouteRelativePath(pathname: string): {
+  relativePath: string;
+  routeBase: string;
+} | null {
   const recognizedRoutes = [DOCS_ROUTE, LEGACY_DEVELOPMENT_ROUTE];
   for (const route of recognizedRoutes) {
     if (pathname === route || pathname === `${route}/`) {
-      return 'README.md';
+      return { routeBase: route, relativePath: '' };
     }
     if (!pathname.startsWith(`${route}/`)) continue;
-    const rawRelativePath = pathname.slice(route.length + 1);
-    if (!rawRelativePath) return 'README.md';
-
-    const normalized = path.posix
-      .normalize(rawRelativePath.replaceAll('\\', '/'))
-      .replace(/^\/+/, '')
-      .replace(/\/+$/, '');
-    if (!normalized || normalized === '.' || normalized.startsWith('../')) {
-      return null;
-    }
-
-    const extension = path.posix.extname(normalized);
-    if (extension && extension !== '.md') return null;
-
-    const withoutExtension =
-      extension === '.md' ? normalized.slice(0, -3) : normalized;
-    if (!withoutExtension || withoutExtension === 'README') return 'README.md';
-
-    const candidates =
-      extension === '.md'
-        ? [normalized]
-        : path.posix.basename(withoutExtension).toUpperCase() === 'README'
-          ? [`${withoutExtension}.md`]
-          : [`${withoutExtension}.md`, `${withoutExtension}/README.md`];
-
-    for (const candidate of candidates) {
-      if (resolveDevelopmentDocFile(candidate)) return candidate;
-    }
-
-    return candidates[0] || null;
+    return {
+      routeBase: route,
+      relativePath: pathname.slice(route.length + 1),
+    };
   }
   return null;
+}
+
+function rewriteLegacyDocsRelativePath(rawRelativePath: string): string {
+  const normalized = normalizeDocPath(rawRelativePath);
+  if (!normalized || normalized === 'index.html') return normalized;
+
+  const exactRewrite = LEGACY_DOCS_EXACT_REWRITES.get(normalized);
+  if (exactRewrite) return exactRewrite;
+
+  for (const rewrite of LEGACY_DOCS_PREFIX_REWRITES) {
+    if (normalized.startsWith(rewrite.from)) {
+      return `${rewrite.to}${normalized.slice(rewrite.from.length)}`;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeRequestedDevelopmentDocRelativePath(
+  rawRelativePath: string,
+): string | null {
+  if (!rawRelativePath) return 'README.md';
+
+  const normalized = path.posix
+    .normalize(rawRelativePath.replaceAll('\\', '/'))
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized === 'index.html' ||
+    normalized.startsWith('../')
+  ) {
+    return normalized === 'index.html' ? 'README.md' : null;
+  }
+
+  const extension = path.posix.extname(normalized);
+  if (extension && extension !== '.md') return null;
+
+  const withoutExtension =
+    extension === '.md' ? normalized.slice(0, -3) : normalized;
+  if (!withoutExtension || withoutExtension === 'README') return 'README.md';
+
+  const candidates =
+    extension === '.md'
+      ? [normalized]
+      : path.posix.basename(withoutExtension).toUpperCase() === 'README'
+        ? [`${withoutExtension}.md`]
+        : [`${withoutExtension}.md`, `${withoutExtension}/README.md`];
+
+  for (const candidate of candidates) {
+    if (resolveDevelopmentDocFile(candidate)) return candidate;
+  }
+
+  return candidates[0] || null;
+}
+
+function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
+  const extracted = extractDocsRouteRelativePath(pathname);
+  if (!extracted) return null;
+  return normalizeRequestedDevelopmentDocRelativePath(extracted.relativePath);
 }
 
 function routePathForDevelopmentDoc(relativePath: string): string {
@@ -293,6 +358,44 @@ function routePathForDevelopmentDoc(relativePath: string): string {
 function markdownPathForDevelopmentDoc(relativePath: string): string {
   const normalized = path.posix.normalize(relativePath).replace(/^\/+/, '');
   return `${DOCS_ROUTE}/${normalized}`;
+}
+
+function buildDocsRedirectLocation(
+  relativePath: string,
+  wantsMarkdown: boolean,
+): string {
+  if (!relativePath || relativePath === 'README.md') {
+    return wantsMarkdown ? `${DOCS_ROUTE}/README.md` : DOCS_ROUTE;
+  }
+  if (wantsMarkdown) {
+    const normalized = relativePath.endsWith('.md')
+      ? relativePath
+      : `${relativePath}.md`;
+    return `${DOCS_ROUTE}/${normalized}`;
+  }
+  return routePathForDevelopmentDoc(relativePath);
+}
+
+function resolveLegacyDocsRedirectLocation(url: URL): string | null {
+  const extracted = extractDocsRouteRelativePath(url.pathname);
+  if (!extracted) return null;
+
+  const wantsMarkdown = url.pathname.endsWith('.md');
+  const rewrittenRelativePath = rewriteLegacyDocsRelativePath(
+    extracted.relativePath,
+  );
+  const usesLegacyRoute = extracted.routeBase === LEGACY_DEVELOPMENT_ROUTE;
+  const usesLegacyPath =
+    normalizeDocPath(extracted.relativePath) !== rewrittenRelativePath;
+
+  if (!usesLegacyRoute && !usesLegacyPath) return null;
+
+  const normalizedRelativePath = normalizeRequestedDevelopmentDocRelativePath(
+    rewrittenRelativePath,
+  );
+  if (!normalizedRelativePath) return null;
+
+  return `${buildDocsRedirectLocation(normalizedRelativePath, wantsMarkdown)}${url.search}`;
 }
 
 function searchDevelopmentDocs(
@@ -2017,24 +2120,16 @@ function renderDevelopmentDocsErrorPage(message: string): string {
 export function serveDocs(url: URL, res: ServerResponse): boolean {
   const pathname = url.pathname;
   const searchQuery = String(url.searchParams.get('search') || '').trim();
-  if (
-    pathname === LEGACY_DEVELOPMENT_ROUTE ||
-    pathname === `${LEGACY_DEVELOPMENT_ROUTE}/` ||
-    pathname.startsWith(`${LEGACY_DEVELOPMENT_ROUTE}/`)
-  ) {
-    const wantsMarkdown = pathname.endsWith('.md');
-    if (!wantsMarkdown) {
-      const redirectLocation =
-        pathname === LEGACY_DEVELOPMENT_ROUTE
-          ? `${DOCS_ROUTE}${url.search}`
-          : `${pathname.replace(LEGACY_DEVELOPMENT_ROUTE, DOCS_ROUTE)}${url.search}`;
-      res.writeHead(308, {
-        'Cache-Control': 'no-cache',
-        Location: redirectLocation,
-      });
-      res.end();
-      return true;
-    }
+  const legacyRedirectLocation = resolveLegacyDocsRedirectLocation(url);
+  if (legacyRedirectLocation) {
+    res.writeHead(308, {
+      'Cache-Control': 'no-cache',
+      Location: legacyRedirectLocation,
+      Warning: LEGACY_DOCS_REDIRECT_WARNING,
+      'X-HybridClaw-Docs-Redirect': 'legacy',
+    });
+    res.end();
+    return true;
   }
 
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);

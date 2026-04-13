@@ -19,6 +19,8 @@ async function importFreshDelivery() {
   }));
   vi.doMock('../src/channels/discord/human-delay.js', () => ({
     getHumanDelayMs,
+  }));
+  vi.doMock('../src/utils/sleep.js', () => ({
     sleep,
   }));
   vi.doMock('../src/channels/discord/mentions.js', () => ({
@@ -40,6 +42,7 @@ afterEach(() => {
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/memory/chunk.js');
   vi.doUnmock('../src/channels/discord/human-delay.js');
+  vi.doUnmock('../src/utils/sleep.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.resetModules();
 });

@@ -35,6 +35,21 @@ export interface RuntimeConfigRevision extends RuntimeConfigRevisionSummary {
   content: string;
 }
 
+export interface RuntimeConfigRevisionState {
+  actor: string;
+  route: string;
+  source: string;
+  content: string;
+  updatedAt: string;
+}
+
+export interface RuntimeConfigRevisionStateMetadata {
+  actor: string;
+  route: string;
+  source: string;
+  updatedAt: string;
+}
+
 export interface RuntimeConfigObservedFile {
   exists: boolean;
   content: string | null;
@@ -64,10 +79,20 @@ interface ConfigRevisionSummaryRow {
   replaced_by_md5: string | null;
 }
 
-interface ConfigRevisionStateRow {
-  config_path: string;
+interface ConfigRevisionTrackedStateRow {
   current_md5: string;
   current_content: string;
+}
+
+interface ConfigRevisionStateRow {
+  current_content: string;
+  actor: string;
+  route: string;
+  source: string;
+  updated_at: string;
+}
+
+interface ConfigRevisionStateMetadataRow {
   actor: string;
   route: string;
   source: string;
@@ -216,6 +241,29 @@ function mapRevisionSummaryRow(
   };
 }
 
+function mapRevisionStateRow(
+  row: ConfigRevisionStateRow,
+): RuntimeConfigRevisionState {
+  return {
+    actor: row.actor,
+    route: row.route,
+    source: row.source,
+    content: row.current_content,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapRevisionStateMetadataRow(
+  row: ConfigRevisionStateMetadataRow,
+): RuntimeConfigRevisionStateMetadata {
+  return {
+    actor: row.actor,
+    route: row.route,
+    source: row.source,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function runtimeConfigRevisionStorePath(): string {
   return CONFIG_REVISION_DB_PATH;
 }
@@ -232,8 +280,8 @@ export function syncRuntimeConfigRevisionState(
     return database
       .transaction(() => {
         const state = database
-          .prepare<[string], ConfigRevisionStateRow>(
-            `SELECT config_path, current_md5, current_content, actor, route, source, updated_at
+          .prepare<[string], ConfigRevisionTrackedStateRow>(
+            `SELECT current_md5, current_content
              FROM config_revision_state
              WHERE config_path = ?`,
           )
@@ -381,6 +429,36 @@ export function getRuntimeConfigRevision(
       )
       .get(configPath, revisionId);
     return row ? mapRevisionRow(row) : null;
+  });
+}
+
+export function getRuntimeConfigRevisionState(
+  configPath: string,
+): RuntimeConfigRevisionState | null {
+  return withRevisionDatabase((database) => {
+    const row = database
+      .prepare<[string], ConfigRevisionStateRow>(
+        `SELECT current_content, actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE config_path = ?`,
+      )
+      .get(configPath);
+    return row ? mapRevisionStateRow(row) : null;
+  });
+}
+
+export function getRuntimeConfigRevisionStateMetadata(
+  configPath: string,
+): RuntimeConfigRevisionStateMetadata | null {
+  return withRevisionDatabase((database) => {
+    const row = database
+      .prepare<[string], ConfigRevisionStateMetadataRow>(
+        `SELECT actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE config_path = ?`,
+      )
+      .get(configPath);
+    return row ? mapRevisionStateMetadataRow(row) : null;
   });
 }
 

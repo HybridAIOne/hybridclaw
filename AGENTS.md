@@ -363,7 +363,7 @@ When the user says "bump release":
 - Do not include personal identity, real phone numbers, or live config values
   in tests, examples, docs, or commits.
 - Do not edit `.dockerignore` without verifying the resulting Docker image
-  still contains all runtime-required files (especially `docs/development/`).
+  still contains all runtime-required files (especially `docs/content/`).
   Build the image and confirm the affected paths exist inside it before
   marking the change complete.
 - Do not edit `node_modules/` or vendored files.
@@ -406,7 +406,7 @@ When multiple agents may be working on this repo concurrently:
 | `CONTRIBUTING.md`           | Human contributors  | Quickstart, PR workflow         |
 | `SECURITY.md`               | Security reviewers  | Runtime security controls       |
 | `TRUST_MODEL.md`            | Operators           | Trust acceptance policy         |
-| `docs/development/`         | Maintainers         | Architecture, runtime, testing  |
+| `docs/content/`             | Maintainers         | User docs, developer guide, reference |
 | `templates/*.md`            | Product runtime     | Agent workspace bootstrap       |
 
 ---

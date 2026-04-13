@@ -24,6 +24,13 @@ export interface TuiExitSummary {
   resumeCommand: string;
 }
 
+export interface TuiUnavailableExitSummary {
+  sessionId: string;
+  durationMs: number;
+  error: string;
+  resumeCommand: string;
+}
+
 function padTimestampPart(value: number): string {
   return String(Math.max(0, Math.trunc(value))).padStart(2, '0');
 }
@@ -126,6 +133,18 @@ export function buildTuiExitSummaryLines(summary: TuiExitSummary): string[] {
     `Tokens:     ${formatInteger(summary.inputTokenCount)} in / ${formatInteger(summary.outputTokenCount)} out  (~${formatApproxUsd(summary.costUsd)})`,
     toolCallsLine,
     `Files:      ${formatInteger(summary.readFileCount)} read, ${formatInteger(summary.modifiedFileCount)} modified, ${formatInteger(summary.createdFileCount)} created, ${formatInteger(summary.deletedFileCount)} deleted`,
+    '',
+    `Resume: ${summary.resumeCommand} ${summary.sessionId}`,
+  ];
+}
+
+export function buildTuiUnavailableExitSummaryLines(
+  summary: TuiUnavailableExitSummary,
+): string[] {
+  return [
+    `Session ${summary.sessionId} completed in ${formatTuiSessionDuration(summary.durationMs)}`,
+    '',
+    `Summary:    unavailable (${summary.error})`,
     '',
     `Resume: ${summary.resumeCommand} ${summary.sessionId}`,
   ];
