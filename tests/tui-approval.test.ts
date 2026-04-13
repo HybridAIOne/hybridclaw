@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiApprovalSummary,
+  isTuiApprovalRestatement,
   parseTuiApprovalPrompt,
 } from '../src/tui-approval.js';
 
@@ -153,4 +154,31 @@ test('parses session-only approval prompts for command-style approvals', () => {
     allowAgent: false,
     allowAll: false,
   });
+});
+
+test('detects prose approval restatements that omit the canonical approval id block', () => {
+  expect(
+    isTuiApprovalRestatement(
+      [
+        '> Use web_fetch to read hybridclaw.com',
+        '',
+        'I can do that, but I need your explicit approval first.',
+        '',
+        'Reply with one of:',
+        '- `yes` (approve just this fetch)',
+        '- `yes for session`',
+        '- `yes for agent`',
+        '- `yes for all`',
+        '- `no`',
+      ].join('\n'),
+    ),
+  ).toBe(true);
+});
+
+test('does not treat ordinary assistant prose as an approval restatement', () => {
+  expect(
+    isTuiApprovalRestatement(
+      'I can explain the docs page from memory, but fetching it would be more accurate.',
+    ),
+  ).toBe(false);
 });

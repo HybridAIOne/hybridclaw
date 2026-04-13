@@ -59,11 +59,11 @@ import {
 } from './providers/model-names.js';
 import {
   formatTuiApprovalSummary,
+  isTuiApprovalRestatement,
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
 import {
-  buildTuiApprovalFollowupDraft,
   buildTuiApprovalSelectionOptions,
   promptTuiApprovalSelection,
 } from './tui-approval-prompt.js';
@@ -74,6 +74,7 @@ import {
   loadTuiClipboardUploadCandidates,
 } from './tui-clipboard.js';
 import { formatTuiExitWarning, TuiExitController } from './tui-exit.js';
+import { fetchTuiRemoteExitSummary } from './tui-exit-summary.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -125,8 +126,6 @@ const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
 type TuiTheme = 'dark' | 'light';
 type TuiReadlineInterface = readline.Interface & {
   history: string[];
-  line: string;
-  cursor: number;
   _refreshLine?: () => void;
 };
 
@@ -466,6 +465,7 @@ async function submitApprovalReplay(
 function resolvePendingApproval(
   result: GatewayChatResult,
   streamedApproval: GatewayChatApprovalEvent | null,
+  cachedApproval?: TuiApprovalDetails | null,
 ): TuiApprovalDetails | null {
   if (streamedApproval) {
     return {
@@ -491,7 +491,12 @@ function resolvePendingApproval(
   }
 
   const prompt = String(result.result || '').trim();
-  return prompt ? parseTuiApprovalPrompt(prompt) : null;
+  if (!prompt) return null;
+  const parsedPrompt = parseTuiApprovalPrompt(prompt);
+  if (parsedPrompt) return parsedPrompt;
+  return cachedApproval && isTuiApprovalRestatement(prompt)
+    ? cachedApproval
+    : null;
 }
 
 async function promptApprovalSelection(
@@ -508,6 +513,7 @@ async function promptApprovalSelection(
     rl,
     approval: pendingApproval,
     options,
+    restorePrompt: false,
     palette: {
       reset: RESET,
       bold: BOLD,
@@ -518,32 +524,12 @@ async function promptApprovalSelection(
       red: RED,
     },
   });
-  if (result?.kind === 'select') {
+  if (result !== undefined) {
     return mapApprovalSelectionToCommand(
-      result.option,
+      result,
       pendingApproval.approvalId,
       options,
     );
-  }
-  if (result?.kind === 'amend') {
-    setTuiInputDraft(
-      rl,
-      buildTuiApprovalFollowupDraft({
-        kind: 'amend',
-        approval: pendingApproval,
-      }),
-    );
-    return null;
-  }
-  if (result?.kind === 'explain') {
-    setTuiInputDraft(
-      rl,
-      buildTuiApprovalFollowupDraft({
-        kind: 'explain',
-        approval: pendingApproval,
-      }),
-    );
-    return null;
   }
 
   const summary = formatTuiApprovalSummary(pendingApproval);
@@ -1646,16 +1632,6 @@ function promptTuiInput(rl: readline.Interface): void {
   syncTuiSlashMenu();
 }
 
-function setTuiInputDraft(rl: readline.Interface, text: string): void {
-  if (tuiExitInProgress || isReadlineClosed(rl)) return;
-  clearTuiSlashMenu();
-  const internal = rl as TuiReadlineInterface;
-  internal.line = text;
-  internal.cursor = text.length;
-  internal._refreshLine?.();
-  syncTuiSlashMenu();
-}
-
 function refreshPrompt(rl: readline.Interface): void {
   if (tuiExitInProgress || isReadlineClosed(rl)) return;
   clearTuiSlashMenu();
@@ -1705,26 +1681,29 @@ async function fetchTuiInputHistory(
 }
 
 async function fetchTuiExitSummary(): Promise<{
-  inputTokenCount: number;
-  outputTokenCount: number;
-  costUsd: number;
-  toolCallCount: number;
-  toolBreakdown: Array<{ toolName: string; count: number }>;
-  fileChanges: {
-    readCount: number;
-    modifiedCount: number;
-    createdCount: number;
-    deletedCount: number;
-  };
-} | null> {
-  try {
-    const response = await gatewayHistory(tuiSessionId, 1, {
-      summarySinceMs: tuiSessionStartedAtMs,
-    });
-    return response.summary || null;
-  } catch {
-    return null;
-  }
+  summary: {
+    inputTokenCount: number;
+    outputTokenCount: number;
+    costUsd: number;
+    toolCallCount: number;
+    toolBreakdown: Array<{ toolName: string; count: number }>;
+    fileChanges: {
+      readCount: number;
+      modifiedCount: number;
+      createdCount: number;
+      deletedCount: number;
+    };
+  } | null;
+  error: string | null;
+}> {
+  return fetchTuiRemoteExitSummary({
+    loadRemote: async () => {
+      const response = await gatewayHistory(tuiSessionId, 1, {
+        summarySinceMs: tuiSessionStartedAtMs,
+      });
+      return response.summary || null;
+    },
+  });
 }
 
 async function finalizeTuiExit(): Promise<void> {
@@ -1733,11 +1712,11 @@ async function finalizeTuiExit(): Promise<void> {
   clearTuiSlashMenu();
   tuiSlashMenu = null;
 
-  const summary = await fetchTuiExitSummary();
+  const { summary, error } = await fetchTuiExitSummary();
 
   console.log();
   console.log();
-  for (const line of buildTuiExitSummaryLines({
+  const summaryLines = buildTuiExitSummaryLines({
     sessionId: tuiSessionId,
     durationMs: Date.now() - tuiSessionStartedAtMs,
     inputTokenCount: summary?.inputTokenCount ?? 0,
@@ -1750,7 +1729,11 @@ async function finalizeTuiExit(): Promise<void> {
     createdFileCount: summary?.fileChanges.createdCount ?? 0,
     deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
     resumeCommand: tuiResumeCommand,
-  })) {
+  });
+  if (!summary && error) {
+    summaryLines.splice(2, 3, `Summary:    unavailable (${error})`);
+  }
+  for (const line of summaryLines) {
     console.log(line);
   }
   console.log();
@@ -2238,7 +2221,20 @@ async function processMessage(
     const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
-    const pendingApproval = resolvePendingApproval(result, streamedApproval);
+    const pendingApproval = resolvePendingApproval(
+      result,
+      streamedApproval,
+      tuiPendingApproval
+        ? {
+            approvalId: tuiPendingApproval.requestId,
+            intent: tuiPendingApproval.intent,
+            reason: tuiPendingApproval.reason,
+            allowSession: tuiPendingApproval.allowSession,
+            allowAgent: tuiPendingApproval.allowAgent,
+            allowAll: tuiPendingApproval.allowAll,
+          }
+        : null,
+    );
 
     s.flushVisibleText();
     s.stop();
@@ -2350,7 +2346,20 @@ async function processFullAutoSteeringMessage(
         printError(result.error || 'Unknown error');
         return;
       }
-      const pendingApproval = resolvePendingApproval(result, null);
+      const pendingApproval = resolvePendingApproval(
+        result,
+        null,
+        tuiPendingApproval
+          ? {
+              approvalId: tuiPendingApproval.requestId,
+              intent: tuiPendingApproval.intent,
+              reason: tuiPendingApproval.reason,
+              allowSession: tuiPendingApproval.allowSession,
+              allowAgent: tuiPendingApproval.allowAgent,
+              allowAll: tuiPendingApproval.allowAll,
+            }
+          : null,
+      );
       if (pendingApproval) {
         await handleTuiPendingApproval(pendingApproval, rl);
         return;

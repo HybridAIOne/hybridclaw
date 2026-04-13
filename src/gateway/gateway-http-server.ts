@@ -632,6 +632,9 @@ async function resolveApiChatSlashCommandResult(
 
   const textParts: string[] = [];
   const artifacts: NonNullable<GatewayChatResult['artifacts']> = [];
+  let pendingApproval:
+    | NonNullable<GatewayChatResult['pendingApproval']>
+    | undefined;
   let sessionId = chatRequest.sessionId;
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
@@ -657,6 +660,9 @@ async function resolveApiChatSlashCommandResult(
       }
       if (handled.artifacts.length > 0) {
         artifacts.push(...handled.artifacts);
+      }
+      if (handled.pendingApproval) {
+        pendingApproval = handled.pendingApproval;
       }
       continue;
     }
@@ -701,6 +707,7 @@ async function resolveApiChatSlashCommandResult(
     ...(sessionKey ? { sessionKey } : {}),
     ...(mainSessionKey ? { mainSessionKey } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(pendingApproval ? { pendingApproval } : {}),
   };
 }
 

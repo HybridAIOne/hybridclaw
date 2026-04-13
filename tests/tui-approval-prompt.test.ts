@@ -3,7 +3,6 @@ import type readline from 'node:readline';
 import { expect, test, vi } from 'vitest';
 
 import {
-  buildTuiApprovalFollowupDraft,
   buildTuiApprovalSelectionOptions,
   promptTuiApprovalSelection,
   renderTuiApprovalPromptLines,
@@ -47,8 +46,7 @@ test('renderTuiApprovalPromptLines highlights the selected row and help text', (
   expect(lines.join('\n')).toContain('git status');
   expect(lines.join('\n')).toContain('Do you want to proceed?');
   expect(lines.join('\n')).toContain('> 2. Yes for session');
-  expect(lines.join('\n')).toContain('Tab to amend');
-  expect(lines.join('\n')).toContain('Ctrl-E to explain');
+  expect(lines.join('\n')).toContain('Esc to cancel');
 });
 
 function buildApprovalPromptHarness() {
@@ -93,25 +91,6 @@ const APPROVAL = {
   reason: 'this command may change local state',
 } as const;
 
-test('buildTuiApprovalFollowupDraft prepares amend and explain prompts', () => {
-  expect(
-    buildTuiApprovalFollowupDraft({
-      kind: 'amend',
-      approval: APPROVAL,
-    }),
-  ).toContain(
-    'Please avoid this action if possible: run shell command `git status`',
-  );
-  expect(
-    buildTuiApprovalFollowupDraft({
-      kind: 'explain',
-      approval: APPROVAL,
-    }),
-  ).toContain(
-    'Explain why this action is needed: run shell command `git status`',
-  );
-});
-
 test('promptTuiApprovalSelection moves with arrows and confirms the highlighted option', async () => {
   const harness = buildApprovalPromptHarness();
   const prompt = promptTuiApprovalSelection({
@@ -126,13 +105,27 @@ test('promptTuiApprovalSelection moves with arrows and confirms the highlighted 
   harness.rl._ttyWrite('', { name: 'down' });
   harness.rl._ttyWrite('\r', { name: 'return' });
 
-  await expect(prompt).resolves.toEqual({
-    kind: 'select',
-    option: 'agent',
-  });
+  await expect(prompt).resolves.toBe('agent');
   expect(harness.originalTtyWrite).not.toHaveBeenCalled();
   expect(harness.rl._refreshLine).toHaveBeenCalledTimes(1);
   expect(harness.writes.length).toBeGreaterThan(0);
+});
+
+test('promptTuiApprovalSelection can skip prompt redraw before an immediate replay', async () => {
+  const harness = buildApprovalPromptHarness();
+  const prompt = promptTuiApprovalSelection({
+    rl: harness.rl as unknown as readline.Interface,
+    approval: APPROVAL,
+    options: ['once', 'skip'],
+    output: harness.output,
+    palette: PALETTE,
+    restorePrompt: false,
+  });
+
+  harness.rl._ttyWrite('\r', { name: 'return' });
+
+  await expect(prompt).resolves.toBe('once');
+  expect(harness.rl._refreshLine).not.toHaveBeenCalled();
 });
 
 test('promptTuiApprovalSelection supports numeric quick select and escape deny', async () => {
@@ -146,10 +139,7 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
   });
 
   numericHarness.rl._ttyWrite('4', { name: '4', sequence: '4' });
-  await expect(numericPrompt).resolves.toEqual({
-    kind: 'select',
-    option: 'all',
-  });
+  await expect(numericPrompt).resolves.toBe('all');
 
   const denyHarness = buildApprovalPromptHarness();
   const denyPrompt = promptTuiApprovalSelection({
@@ -164,40 +154,7 @@ test('promptTuiApprovalSelection supports numeric quick select and escape deny',
   });
 
   denyHarness.rl._ttyWrite('\u001b', { name: 'escape', sequence: '\u001b' });
-  await expect(denyPrompt).resolves.toEqual({
-    kind: 'select',
-    option: 'skip',
-  });
-});
-
-test('promptTuiApprovalSelection exposes amend and explain shortcuts', async () => {
-  const amendHarness = buildApprovalPromptHarness();
-  const amendPrompt = promptTuiApprovalSelection({
-    rl: amendHarness.rl as unknown as readline.Interface,
-    approval: APPROVAL,
-    options: ['once', 'skip'],
-    output: amendHarness.output,
-    palette: PALETTE,
-  });
-
-  amendHarness.rl._ttyWrite('\t', { name: 'tab', sequence: '\t' });
-  await expect(amendPrompt).resolves.toEqual({ kind: 'amend' });
-
-  const explainHarness = buildApprovalPromptHarness();
-  const explainPrompt = promptTuiApprovalSelection({
-    rl: explainHarness.rl as unknown as readline.Interface,
-    approval: APPROVAL,
-    options: ['once', 'skip'],
-    output: explainHarness.output,
-    palette: PALETTE,
-  });
-
-  explainHarness.rl._ttyWrite('\u0005', {
-    ctrl: true,
-    name: 'e',
-    sequence: '\u0005',
-  });
-  await expect(explainPrompt).resolves.toEqual({ kind: 'explain' });
+  await expect(denyPrompt).resolves.toBe('skip');
 });
 
 test('promptTuiApprovalSelection returns undefined without a tty renderer', async () => {

@@ -6,11 +6,6 @@ import { wrapTuiBlock } from './tui-thinking.js';
 
 export type TuiApprovalSelectionOption = ApprovalScopeMode | 'skip';
 
-export type TuiApprovalPromptResult =
-  | { kind: 'select'; option: TuiApprovalSelectionOption }
-  | { kind: 'amend' }
-  | { kind: 'explain' };
-
 export interface TuiApprovalPromptPalette {
   reset: string;
   bold: string;
@@ -202,26 +197,6 @@ export function buildTuiApprovalSelectionOptions(params: {
   return options;
 }
 
-export function buildTuiApprovalFollowupDraft(params: {
-  kind: 'amend' | 'explain';
-  approval: Pick<TuiApprovalDetails, 'intent' | 'reason'>;
-}): string {
-  const intent = params.approval.intent.trim();
-  if (params.kind === 'amend') {
-    if (intent) {
-      return `Please avoid this action if possible: ${intent}. Use a safer alternative.`;
-    }
-    return 'Please avoid the approval-required action if possible and use a safer alternative.';
-  }
-  if (intent) {
-    return `Explain why this action is needed: ${intent}. What lower-risk alternatives did you consider?`;
-  }
-  if (params.approval.reason.trim()) {
-    return `Explain why this approval is needed given: ${params.approval.reason.trim()}`;
-  }
-  return 'Explain why this approval is needed and what lower-risk alternatives you considered.';
-}
-
 export function renderTuiApprovalPromptLines(params: {
   approval: Pick<TuiApprovalDetails, 'approvalId' | 'intent' | 'reason'>;
   options: TuiApprovalSelectionOption[];
@@ -293,11 +268,7 @@ export function renderTuiApprovalPromptLines(params: {
   }
 
   lines.push('');
-  for (const line of wrapPlainLines(
-    'Esc to cancel | Tab to amend | Ctrl-E to explain',
-    safeWidth,
-    '  ',
-  )) {
+  for (const line of wrapPlainLines('Esc to cancel', safeWidth, '  ')) {
     lines.push(`${palette.muted}${line}${palette.reset}`);
   }
 
@@ -311,7 +282,8 @@ export async function promptTuiApprovalSelection(params: {
   palette?: Partial<TuiApprovalPromptPalette>;
   output?: NodeJS.WriteStream;
   initialCursor?: number;
-}): Promise<TuiApprovalPromptResult | undefined> {
+  restorePrompt?: boolean;
+}): Promise<TuiApprovalSelectionOption | undefined> {
   const { rl, options } = params;
   const palette = resolveTuiApprovalPromptPalette(params.palette);
   const output = params.output || process.stdout;
@@ -330,9 +302,9 @@ export async function promptTuiApprovalSelection(params: {
     0,
     Math.min(params.initialCursor ?? 0, options.length - 1),
   );
-  let finish = (_value: TuiApprovalPromptResult) => {};
+  let finish = (_value: TuiApprovalSelectionOption) => {};
   const closeHandler = () => {
-    finish({ kind: 'select', option: 'skip' });
+    finish('skip');
   };
 
   const clear = () => {
@@ -369,39 +341,31 @@ export async function promptTuiApprovalSelection(params: {
     rl.off('close', closeHandler);
     internal.line = savedLine;
     internal.cursor = Math.min(savedCursor, savedLine.length);
-    if (internal._refreshLine) {
-      internal._refreshLine();
-    } else if (typeof rl.prompt === 'function') {
-      rl.prompt(true);
+    if (params.restorePrompt !== false) {
+      if (internal._refreshLine) {
+        internal._refreshLine();
+      } else if (typeof rl.prompt === 'function') {
+        rl.prompt(true);
+      }
     }
   };
 
   const selectIndex = (index: number) => {
     const selected = options[index];
     if (!selected) return;
-    finish({ kind: 'select', option: selected });
+    finish(selected);
   };
 
   const handleTtyWrite = (chunk: string, key: readline.Key) => {
     const raw = String(key.sequence ?? chunk ?? '').trim();
 
-    if (key.ctrl === true && key.name === 'e') {
-      finish({ kind: 'explain' });
-      return;
-    }
-
     if (key.ctrl === true && key.name === 'c') {
-      finish({ kind: 'select', option: 'skip' });
-      return;
-    }
-
-    if (key.name === 'tab') {
-      finish({ kind: 'amend' });
+      finish('skip');
       return;
     }
 
     if (key.name === 'escape' || key.name === 'q' || key.name === 'n') {
-      finish({ kind: 'select', option: 'skip' });
+      finish('skip');
       return;
     }
 
@@ -423,7 +387,7 @@ export async function promptTuiApprovalSelection(params: {
     }
 
     if (key.name === 'y') {
-      finish({ kind: 'select', option: 'once' });
+      finish('once');
       return;
     }
 
@@ -435,8 +399,8 @@ export async function promptTuiApprovalSelection(params: {
     }
   };
 
-  return new Promise<TuiApprovalPromptResult>((resolve) => {
-    finish = (value: TuiApprovalPromptResult) => {
+  return new Promise<TuiApprovalSelectionOption>((resolve) => {
+    finish = (value: TuiApprovalSelectionOption) => {
       restore();
       resolve(value);
     };

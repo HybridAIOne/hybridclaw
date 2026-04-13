@@ -2620,6 +2620,7 @@ export function getSessionToolCallBreakdown(
   sessionId: string,
   sinceTimestamp: string | null = null,
 ): Array<{ toolName: string; count: number }> {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedSince =
     typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
       ? sinceTimestamp.trim()
@@ -2635,7 +2636,7 @@ export function getSessionToolCallBreakdown(
        AND event_type = 'tool.call'
        AND (? IS NULL OR timestamp >= ?)
      ORDER BY id ASC`,
-    sessionId,
+    resolvedSessionId,
     normalizedSince,
     normalizedSince,
   );
@@ -2718,6 +2719,7 @@ export function getSessionFileChangeCounts(
   createdCount: number;
   deletedCount: number;
 } {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedSince =
     typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
       ? sinceTimestamp.trim()
@@ -2733,7 +2735,7 @@ export function getSessionFileChangeCounts(
        AND event_type IN ('tool.call', 'tool.result')
        AND (? IS NULL OR timestamp >= ?)
      ORDER BY id ASC`,
-    sessionId,
+    resolvedSessionId,
     normalizedSince,
     normalizedSince,
   );
