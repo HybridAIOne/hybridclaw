@@ -9,7 +9,6 @@ export interface TransportRetryOptions {
   extractRetryAfter?: (
     error: unknown,
     fallbackMs: number,
-    attempt: number,
   ) => number | null | undefined;
   logMessage?: string;
 }
@@ -45,11 +44,7 @@ export async function withTransportRetry<T>(
       }
 
       const fallbackMs = delayMs;
-      const extractedDelayMs = options.extractRetryAfter?.(
-        error,
-        fallbackMs,
-        attempt,
-      );
+      const extractedDelayMs = options.extractRetryAfter?.(error, fallbackMs);
       const waitMs =
         extractedDelayMs == null || !Number.isFinite(extractedDelayMs)
           ? fallbackMs
