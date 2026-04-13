@@ -59,9 +59,14 @@ import {
 } from './providers/model-names.js';
 import {
   formatTuiApprovalSummary,
+  isTuiApprovalRestatement,
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import {
+  buildTuiApprovalSelectionOptions,
+  promptTuiApprovalSelection,
+} from './tui-approval-prompt.js';
 import type { TuiStartupBannerSkillCategory } from './tui-banner.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
@@ -69,6 +74,7 @@ import {
   loadTuiClipboardUploadCandidates,
 } from './tui-clipboard.js';
 import { formatTuiExitWarning, TuiExitController } from './tui-exit.js';
+import { fetchTuiRemoteExitSummary } from './tui-exit-summary.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -85,6 +91,7 @@ import { TuiMultilineInputController } from './tui-input.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
+  buildTuiUnavailableExitSummaryLines,
   generateTuiSessionId,
   type TuiRunOptions,
 } from './tui-session.js';
@@ -333,7 +340,7 @@ let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
-let tuiPendingApproval: {
+type TuiCachedApproval = {
   requestId: string;
   summary: string;
   intent: string;
@@ -341,7 +348,9 @@ let tuiPendingApproval: {
   allowSession: boolean;
   allowAgent: boolean;
   allowAll: boolean;
-} | null = null;
+};
+
+let tuiPendingApproval: TuiCachedApproval | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
@@ -459,6 +468,7 @@ async function submitApprovalReplay(
 function resolvePendingApproval(
   result: GatewayChatResult,
   streamedApproval: GatewayChatApprovalEvent | null,
+  cachedApproval?: TuiApprovalDetails | null,
 ): TuiApprovalDetails | null {
   if (streamedApproval) {
     return {
@@ -484,24 +494,58 @@ function resolvePendingApproval(
   }
 
   const prompt = String(result.result || '').trim();
-  return prompt ? parseTuiApprovalPrompt(prompt) : null;
+  if (!prompt) return null;
+  const parsedPrompt = parseTuiApprovalPrompt(prompt);
+  if (parsedPrompt) return parsedPrompt;
+  return cachedApproval && isTuiApprovalRestatement(prompt)
+    ? cachedApproval
+    : null;
+}
+
+function resolveCachedApprovalDetails(
+  pendingApproval: TuiCachedApproval | null,
+): TuiApprovalDetails | null {
+  if (!pendingApproval) return null;
+  return {
+    approvalId: pendingApproval.requestId,
+    intent: pendingApproval.intent,
+    reason: pendingApproval.reason,
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  };
 }
 
 async function promptApprovalSelection(
   rl: readline.Interface,
-  requestId: string,
-  allowSession: boolean,
-  allowAgent: boolean,
-  allowAll: boolean,
+  pendingApproval: TuiApprovalDetails,
 ): Promise<string | null> {
-  const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
-  if (allowSession) options.push('session');
-  if (allowAgent) options.push('agent');
-  if (allowAll) options.push('all');
-  options.push('skip');
+  const options = buildTuiApprovalSelectionOptions({
+    allowSession: pendingApproval.allowSession,
+    allowAgent: pendingApproval.allowAgent,
+    allowAll: pendingApproval.allowAll,
+  });
   clearTuiSlashMenu();
+  const result = await promptTuiApprovalSelection({
+    rl,
+    approval: pendingApproval,
+    options,
+    restorePrompt: false,
+  });
+  if (result !== undefined) {
+    return mapApprovalSelectionToCommand(
+      result,
+      pendingApproval.approvalId,
+      options,
+    );
+  }
+
+  const summary = formatTuiApprovalSummary(pendingApproval);
+  if (TUI_APPROVAL_PRESENTATION.showText) {
+    printResponse(summary);
+  }
   console.log(
-    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
+    `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${pendingApproval.approvalId})${RESET}`,
   );
   options.forEach((option, index) => {
     const label =
@@ -522,7 +566,11 @@ async function promptApprovalSelection(
       resolve,
     );
   });
-  const command = mapApprovalSelectionToCommand(answer, requestId, options);
+  const command = mapApprovalSelectionToCommand(
+    answer,
+    pendingApproval.approvalId,
+    options,
+  );
   if (answer.trim() && !command) {
     printInfo(
       `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
@@ -545,16 +593,7 @@ async function handleTuiPendingApproval(
     allowAgent: pendingApproval.allowAgent,
     allowAll: pendingApproval.allowAll,
   };
-  if (TUI_APPROVAL_PRESENTATION.showText) {
-    printResponse(summary);
-  }
-  const approvalCommand = await promptApprovalSelection(
-    rl,
-    pendingApproval.approvalId,
-    pendingApproval.allowSession,
-    pendingApproval.allowAgent,
-    pendingApproval.allowAll,
-  );
+  const approvalCommand = await promptApprovalSelection(rl, pendingApproval);
   if (approvalCommand) {
     await submitApprovalReplay(approvalCommand, rl);
   }
@@ -1650,26 +1689,29 @@ async function fetchTuiInputHistory(
 }
 
 async function fetchTuiExitSummary(): Promise<{
-  inputTokenCount: number;
-  outputTokenCount: number;
-  costUsd: number;
-  toolCallCount: number;
-  toolBreakdown: Array<{ toolName: string; count: number }>;
-  fileChanges: {
-    readCount: number;
-    modifiedCount: number;
-    createdCount: number;
-    deletedCount: number;
-  };
-} | null> {
-  try {
-    const response = await gatewayHistory(tuiSessionId, 1, {
-      summarySinceMs: tuiSessionStartedAtMs,
-    });
-    return response.summary || null;
-  } catch {
-    return null;
-  }
+  summary: {
+    inputTokenCount: number;
+    outputTokenCount: number;
+    costUsd: number;
+    toolCallCount: number;
+    toolBreakdown: Array<{ toolName: string; count: number }>;
+    fileChanges: {
+      readCount: number;
+      modifiedCount: number;
+      createdCount: number;
+      deletedCount: number;
+    };
+  } | null;
+  error: string | null;
+}> {
+  return fetchTuiRemoteExitSummary({
+    loadRemote: async () => {
+      const response = await gatewayHistory(tuiSessionId, 1, {
+        summarySinceMs: tuiSessionStartedAtMs,
+      });
+      return response.summary || null;
+    },
+  });
 }
 
 async function finalizeTuiExit(): Promise<void> {
@@ -1678,24 +1720,34 @@ async function finalizeTuiExit(): Promise<void> {
   clearTuiSlashMenu();
   tuiSlashMenu = null;
 
-  const summary = await fetchTuiExitSummary();
+  const { summary, error } = await fetchTuiExitSummary();
+  const durationMs = Date.now() - tuiSessionStartedAtMs;
 
   console.log();
   console.log();
-  for (const line of buildTuiExitSummaryLines({
-    sessionId: tuiSessionId,
-    durationMs: Date.now() - tuiSessionStartedAtMs,
-    inputTokenCount: summary?.inputTokenCount ?? 0,
-    outputTokenCount: summary?.outputTokenCount ?? 0,
-    costUsd: summary?.costUsd ?? 0,
-    toolCallCount: summary?.toolCallCount ?? 0,
-    toolBreakdown: summary?.toolBreakdown ?? [],
-    readFileCount: summary?.fileChanges.readCount ?? 0,
-    modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
-    createdFileCount: summary?.fileChanges.createdCount ?? 0,
-    deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
-    resumeCommand: tuiResumeCommand,
-  })) {
+  const summaryLines =
+    summary || !error
+      ? buildTuiExitSummaryLines({
+          sessionId: tuiSessionId,
+          durationMs,
+          inputTokenCount: summary?.inputTokenCount ?? 0,
+          outputTokenCount: summary?.outputTokenCount ?? 0,
+          costUsd: summary?.costUsd ?? 0,
+          toolCallCount: summary?.toolCallCount ?? 0,
+          toolBreakdown: summary?.toolBreakdown ?? [],
+          readFileCount: summary?.fileChanges.readCount ?? 0,
+          modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
+          createdFileCount: summary?.fileChanges.createdCount ?? 0,
+          deletedFileCount: summary?.fileChanges.deletedCount ?? 0,
+          resumeCommand: tuiResumeCommand,
+        })
+      : buildTuiUnavailableExitSummaryLines({
+          sessionId: tuiSessionId,
+          durationMs,
+          error,
+          resumeCommand: tuiResumeCommand,
+        });
+  for (const line of summaryLines) {
     console.log(line);
   }
   console.log();
@@ -2183,7 +2235,11 @@ async function processMessage(
     const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
-    const pendingApproval = resolvePendingApproval(result, streamedApproval);
+    const pendingApproval = resolvePendingApproval(
+      result,
+      streamedApproval,
+      resolveCachedApprovalDetails(tuiPendingApproval),
+    );
 
     s.flushVisibleText();
     s.stop();
@@ -2295,7 +2351,11 @@ async function processFullAutoSteeringMessage(
         printError(result.error || 'Unknown error');
         return;
       }
-      const pendingApproval = resolvePendingApproval(result, null);
+      const pendingApproval = resolvePendingApproval(
+        result,
+        null,
+        resolveCachedApprovalDetails(tuiPendingApproval),
+      );
       if (pendingApproval) {
         await handleTuiPendingApproval(pendingApproval, rl);
         return;

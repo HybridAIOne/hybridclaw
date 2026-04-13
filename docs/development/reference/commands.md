@@ -323,9 +323,13 @@ the same gateway command surface used by TUI and web chat.
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,
   provider, and chatbot context before the first prompt
+- Pending approvals in the TUI open an interactive picker with `Up` / `Down`
+  navigation, `Enter` confirmation, number-key quick select, and `Esc` to
+  skip; non-interactive terminals keep the text prompt fallback
 - pressing `Up` or `Down` on an empty prompt recalls earlier prompts
 - press `Ctrl-C` or `Ctrl-D` twice within five seconds to exit the TUI
-- on exit, HybridClaw prints token/file/tool totals and a ready-to-run
+- on exit, HybridClaw prints token/file/tool totals when remote history is
+  available, otherwise an explicit unavailable summary, plus a ready-to-run
   `hybridclaw tui --resume <sessionId>` command for that session
 
 Example secret flow:

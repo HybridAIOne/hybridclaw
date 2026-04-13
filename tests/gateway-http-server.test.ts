@@ -4857,6 +4857,89 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
+  test('preserves pending approval metadata for /approve yes on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result:
+        'Approval needed for: access clawhub.ai\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['web_fetch'],
+      pendingApproval: {
+        approvalId: 'be945bbf',
+        prompt:
+          'I need your approval before I access clawhub.ai.\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+        intent: 'access clawhub.ai',
+        reason: 'this would contact a new external host',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        expiresAt: 1_710_000_000_000,
+      },
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          sessionId: 'session-web-approve',
+          pendingApproval: {
+            approvalId: 'be945bbf',
+            prompt:
+              'I need your approval before I access clawhub.ai.\nWhy: this would contact a new external host\nApproval ID: be945bbf',
+            intent: 'access clawhub.ai',
+            reason: 'this would contact a new external host',
+            allowSession: true,
+            allowAgent: true,
+            allowAll: true,
+            expiresAt: 1_710_000_000_000,
+          },
+        }),
+      },
+    ]);
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
   test('normalizes silent message-send chat responses', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementation(
