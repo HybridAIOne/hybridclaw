@@ -40,4 +40,3 @@ export function getHumanDelayMs(config?: HumanDelayConfig): number {
   const span = resolved.maxMs - resolved.minMs + 1;
   return resolved.minMs + Math.floor(Math.random() * span);
 }
-export { sleep } from '../../utils/sleep.js';

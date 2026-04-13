@@ -5,11 +5,8 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
-import {
-  getHumanDelayMs,
-  type HumanDelayConfig,
-  sleep,
-} from './human-delay.js';
+import { sleep } from '../../utils/sleep.js';
+import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { withDiscordRetry } from './retry.js';
 
 interface DiscordSendChannel {
