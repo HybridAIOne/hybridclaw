@@ -535,9 +535,8 @@ describe('ChannelsPage', () => {
     });
 
     expect(
-      (
-        await screen.findByRole('img', { name: 'WhatsApp pairing QR' })
-      ).textContent,
+      (await screen.findByRole('img', { name: 'WhatsApp pairing QR' }))
+        .textContent,
     ).toBe('▄▄\n██');
   });
 
