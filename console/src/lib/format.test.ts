@@ -15,9 +15,9 @@ describe('pluralize', () => {
     expect(pluralize(100, 'call')).toBe('100 calls');
   });
 
-  it('uses a custom plural form when provided', () => {
-    expect(pluralize(1, 'model', 'models')).toBe('1 model');
-    expect(pluralize(3, 'model', 'models')).toBe('3 models');
+  it('uses a custom plural form for irregular plurals', () => {
+    expect(pluralize(1, 'person', 'people')).toBe('1 person');
+    expect(pluralize(3, 'person', 'people')).toBe('3 people');
   });
 
   it('handles negative numbers as plural', () => {
