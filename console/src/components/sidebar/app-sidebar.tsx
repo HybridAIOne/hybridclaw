@@ -1,8 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { cx } from '../../lib/cx';
-import { HybridClaw, LogOut } from '../icons';
-import { ThemeToggle } from '../theme-toggle';
 import {
   Dialog,
   DialogClose,
@@ -12,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
+import { HybridClaw, LogOut } from '../icons';
+import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
   SidebarContent,

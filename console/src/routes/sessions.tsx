@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
-import { useToast } from '../components/toast';
 import {
   Dialog,
   DialogClose,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader, Panel } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
