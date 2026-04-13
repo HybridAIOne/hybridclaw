@@ -22,15 +22,7 @@
  */
 
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  useDialogContext,
-} from '../dialog';
+import { DialogContent, useDialogContext } from '../dialog';
 
 // ---------------------------------------------------------------------------
 // Re-exports (structural aliases — no behavioural difference)
