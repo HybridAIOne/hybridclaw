@@ -730,6 +730,14 @@ export function JobsPage() {
         </p>
       ) : null}
 
+      {allItems.length === 0 ? (
+        <div className="jobs-board-empty">
+          <p>Jobs are async tasks created by the agent or triggered manually.</p>
+          <a className="primary-button" href="/admin/scheduler">
+            New Job
+          </a>
+        </div>
+      ) : (
       <section
         className={
           selectedItem ? 'jobs-board-layout has-detail' : 'jobs-board-layout'
@@ -862,6 +870,7 @@ export function JobsPage() {
           />
         ) : null}
       </section>
+      )}
     </div>
   );
 }

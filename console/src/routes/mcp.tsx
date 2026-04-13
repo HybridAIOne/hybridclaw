@@ -101,6 +101,7 @@ export function McpPage() {
   const toast = useToast();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpDraft>(createDraft());
+  const [showEditor, setShowEditor] = useState(false);
 
   const mcpQuery = useQuery({
     queryKey: ['mcp', auth.token],
@@ -154,19 +155,41 @@ export function McpPage() {
       <PageHeader
         title="MCP"
         actions={
+          mcpQuery.data?.servers.length ? (
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setSelectedName(null);
+                setDraft(createDraft());
+                setShowEditor(true);
+              }}
+            >
+              New server
+            </button>
+          ) : null
+        }
+      />
+
+      {!mcpQuery.isLoading && !mcpQuery.data?.servers.length && !showEditor ? (
+        <div className="jobs-board-empty">
+          <p>
+            MCP servers let the agent call external tools over the Model Context
+            Protocol.
+          </p>
           <button
-            className="ghost-button"
+            className="primary-button"
             type="button"
             onClick={() => {
               setSelectedName(null);
               setDraft(createDraft());
+              setShowEditor(true);
             }}
           >
-            New server
+            Add your first server
           </button>
-        }
-      />
-
+        </div>
+      ) : (
       <div className="two-column-grid">
         <Panel
           title="Servers"
@@ -185,7 +208,10 @@ export function McpPage() {
                       : 'selectable-row'
                   }
                   type="button"
-                  onClick={() => setSelectedName(server.name)}
+                  onClick={() => {
+                    setSelectedName(server.name);
+                    setShowEditor(true);
+                  }}
                 >
                   <div>
                     <strong>{server.name}</strong>
@@ -200,12 +226,27 @@ export function McpPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              No MCP servers are configured yet.
+            <div className="empty-state-cta">
+              <p>
+                MCP servers let the agent call external tools over the Model
+                Context Protocol.
+              </p>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => {
+                  setSelectedName(null);
+                  setDraft(createDraft());
+                  setShowEditor(true);
+                }}
+              >
+                Add your first server
+              </button>
             </div>
           )}
         </Panel>
 
+        {showEditor ? (
         <Panel title="Server editor" accent="warm">
           <div className="stack-form">
             <div className="field-grid">
@@ -373,7 +414,9 @@ export function McpPage() {
             ) : null}
           </div>
         </Panel>
+        ) : null}
       </div>
+      )}
     </div>
   );
 }
