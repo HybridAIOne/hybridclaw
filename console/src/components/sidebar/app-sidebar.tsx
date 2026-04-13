@@ -1,7 +1,17 @@
 import { Link } from '@tanstack/react-router';
+import { useState } from 'react';
 import { cx } from '../../lib/cx';
 import { HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../dialog';
 import {
   Sidebar,
   SidebarContent,
@@ -59,25 +69,7 @@ export function AppSidebar(props: {
           </SidebarFooterActions>
         </div>
         {props.showLogout ? (
-          <>
-            <div className={styles.footerDivider} />
-            <SidebarFooterActions>
-              <SidebarFooterMenu>
-                <SidebarFooterAction>
-                  <button
-                    className={styles.footerButton}
-                    type="button"
-                    onClick={props.onLogout}
-                  >
-                    <span className={styles.icon} aria-hidden="true">
-                      <LogOut />
-                    </span>
-                    Forget token
-                  </button>
-                </SidebarFooterAction>
-              </SidebarFooterMenu>
-            </SidebarFooterActions>
-          </>
+          <SidebarLogoutAction onLogout={props.onLogout} />
         ) : null}
       </SidebarFooter>
     </Sidebar>
@@ -131,5 +123,48 @@ function SidebarMeta(props: { version?: string }) {
     <div className={styles.footerMeta}>
       <span className={styles.footerValue}>v{props.version}</span>
     </div>
+  );
+}
+
+function SidebarLogoutAction(props: { onLogout: () => void }) {
+  const [forgetTokenOpen, setForgetTokenOpen] = useState(false);
+
+  return (
+    <>
+      <div className={styles.footerDivider} />
+      <SidebarFooterActions>
+        <SidebarFooterMenu>
+          <SidebarFooterAction>
+            <button
+              className={styles.footerButton}
+              type="button"
+              onClick={() => setForgetTokenOpen(true)}
+            >
+              <span className={styles.icon} aria-hidden="true">
+                <LogOut />
+              </span>
+              Forget token
+            </button>
+          </SidebarFooterAction>
+        </SidebarFooterMenu>
+      </SidebarFooterActions>
+      <Dialog open={forgetTokenOpen} onOpenChange={setForgetTokenOpen}>
+        <DialogContent size="sm" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Forget token?</DialogTitle>
+            <DialogDescription>
+              You will be logged out and will need to enter your token again to
+              access the admin console.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <DialogClose className="danger-button" onClick={props.onLogout}>
+              Forget token
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
