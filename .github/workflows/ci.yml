@@ -136,6 +136,9 @@ jobs:
       - name: TypeScript lint (container)
         run: npm --prefix container run lint
 
+      - name: TypeScript lint (console)
+        run: npm --prefix console run typecheck
+
       - name: Build release artifacts
         run: npm run build
 
@@ -150,6 +153,9 @@ jobs:
 
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
+
+      - name: Frontend unit tests (console)
+        run: npm run test:console
 
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
