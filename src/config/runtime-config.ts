@@ -69,11 +69,13 @@ import {
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
   getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
+  getRuntimeConfigRevisionStateMetadata as getTrackedRuntimeConfigRevisionStateMetadata,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigObservedFile,
   type RuntimeConfigRevision,
   type RuntimeConfigRevisionState,
+  type RuntimeConfigRevisionStateMetadata,
   type RuntimeConfigRevisionSummary,
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
@@ -5050,6 +5052,7 @@ export type {
   RuntimeConfigChangeMeta,
   RuntimeConfigRevision,
   RuntimeConfigRevisionState,
+  RuntimeConfigRevisionStateMetadata,
   RuntimeConfigRevisionSummary,
 };
 
@@ -5183,6 +5186,10 @@ export function getRuntimeConfigRevision(
 
 export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState | null {
   return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
+}
+
+export function getLastKnownGoodRuntimeConfigMetadata(): RuntimeConfigRevisionStateMetadata | null {
+  return getTrackedRuntimeConfigRevisionStateMetadata(CONFIG_PATH);
 }
 
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
