@@ -7,6 +7,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
+import { sleep } from '../utils/sleep.js';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
@@ -131,10 +132,6 @@ export class CodexAuthError extends Error {
     this.retryable = options?.retryable === true;
     this.status = options?.status;
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

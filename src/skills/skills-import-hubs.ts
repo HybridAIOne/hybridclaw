@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { safeExtractZip } from '../agents/claw-security.js';
 import { logger } from '../logger.js';
+import { sleep } from '../utils/sleep.js';
 import {
   type GitHubSkillImportSource,
   normalizeImportedSkillRelativePath,
@@ -26,10 +27,6 @@ const RETRY_INITIAL_DELAY_MS = 1000;
 const RETRY_MAX_DELAY_MS = 30_000;
 const RETRY_JITTER_RATIO = 0.2;
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function parseRetryAfterMs(header: string | null): number | null {
   if (!header) return null;
