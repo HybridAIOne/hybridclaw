@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   fetchConfig,
+  fetchEmailConfig,
   saveConfig,
   setRuntimeSecret,
   validateToken,
@@ -1007,6 +1008,78 @@ function EmailChannelEditor(props: {
   token: string;
   onSecretSaved: () => void;
 }) {
+  const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
+  const toast = useToast();
+
+  async function handleFetchEmailConfig() {
+    setFetchingEmailConfig(true);
+    try {
+      const result = (await fetchEmailConfig(props.token)) as {
+        handles?: Array<{
+          handle?: string;
+          label?: string;
+          status?: string;
+          email_config?: {
+            address?: string;
+            imap_host?: string;
+            imap_port?: number;
+            imap_secure?: boolean;
+            smtp_host?: string;
+            smtp_port?: number;
+            smtp_secure?: boolean;
+            password?: string;
+          };
+        }>;
+      };
+
+      const handles = result?.handles;
+      if (!Array.isArray(handles) || handles.length === 0) {
+        toast.info('No agent handles found on HybridAI.');
+        return;
+      }
+
+      // Find first handle with email_config, or just show what we got
+      const withConfig = handles.find((h) => h.email_config);
+      if (withConfig?.email_config) {
+        const cfg = withConfig.email_config;
+        props.updateDraft((current) => ({
+          ...current,
+          email: {
+            ...current.email,
+            ...(cfg.address ? { address: cfg.address } : {}),
+            ...(cfg.imap_host ? { imapHost: cfg.imap_host } : {}),
+            ...(cfg.imap_port != null ? { imapPort: cfg.imap_port } : {}),
+            ...(cfg.imap_secure != null ? { imapSecure: cfg.imap_secure } : {}),
+            ...(cfg.smtp_host ? { smtpHost: cfg.smtp_host } : {}),
+            ...(cfg.smtp_port != null ? { smtpPort: cfg.smtp_port } : {}),
+            ...(cfg.smtp_secure != null ? { smtpSecure: cfg.smtp_secure } : {}),
+          },
+        }));
+        toast.success(
+          `Email config loaded from handle "${withConfig.handle}".`,
+        );
+        // If a password was included, save it as runtime secret
+        if (cfg.password) {
+          await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', cfg.password);
+          props.onSecretSaved();
+        }
+      } else {
+        // No email_config in handles — show available handles info
+        const summary = handles
+          .map((h) => `${h.handle} (${h.status})`)
+          .join(', ');
+        toast.info(`Handles found: ${summary}. No email config attached.`);
+      }
+    } catch (error) {
+      toast.error(
+        'Failed to fetch email config',
+        getErrorMessage(error),
+      );
+    } finally {
+      setFetchingEmailConfig(false);
+    }
+  }
+
   return (
     <>
       <BooleanField
@@ -1024,6 +1097,17 @@ function EmailChannelEditor(props: {
           }))
         }
       />
+
+      <div style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={fetchingEmailConfig}
+          onClick={handleFetchEmailConfig}
+        >
+          {fetchingEmailConfig ? 'Fetching…' : 'Fetch Email-Config'}
+        </button>
+      </div>
 
       <div className="field-grid">
         <label className="field">

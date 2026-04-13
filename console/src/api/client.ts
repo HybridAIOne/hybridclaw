@@ -397,6 +397,10 @@ export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
 }
 
+export function fetchEmailConfig(token: string): Promise<unknown> {
+  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+}
+
 export function saveConfig(
   token: string,
   config: AdminConfig,

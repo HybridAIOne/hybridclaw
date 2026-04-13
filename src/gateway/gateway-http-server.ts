@@ -31,6 +31,7 @@ import {
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
+import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import type {
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
@@ -2928,6 +2929,65 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminEmailConfigFetch(
+  res: ServerResponse,
+): Promise<void> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch {
+    sendJson(res, 400, {
+      error:
+        'HYBRIDAI_API_KEY is not configured. Run `hybridclaw auth login hybridai` first.',
+    });
+    return;
+  }
+
+  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
+    /\/+$/,
+    '',
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/agent-handles/`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Could not reach HybridAI API: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  let payload: unknown;
+  if (contentType.includes('application/json')) {
+    payload = await response.json().catch(() => null);
+  } else {
+    const text = await response.text().catch(() => '');
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
+
+  if (!response.ok) {
+    const msg =
+      (payload as Record<string, unknown>)?.message ||
+      (payload as Record<string, unknown>)?.error ||
+      `HybridAI API returned HTTP ${response.status}`;
+    sendJson(res, response.status >= 500 ? 502 : response.status, {
+      error: String(msg),
+    });
+    return;
+  }
+
+  sendJson(res, 200, payload);
+}
+
 async function handleApiAdminModels(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3838,6 +3898,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/email-config/fetch' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminEmailConfigFetch(res);
             return;
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
