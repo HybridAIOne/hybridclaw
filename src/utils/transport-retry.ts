@@ -14,7 +14,11 @@ export interface TransportRetryOptions {
 }
 
 function normalizeRetryValue(value: number, minimum: number): number {
-  if (!Number.isFinite(value)) return minimum;
+  if (!Number.isFinite(value)) {
+    throw new RangeError(
+      `Retry values must be finite numbers; received ${value}`,
+    );
+  }
   return Math.max(minimum, Math.floor(value));
 }
 
@@ -46,7 +50,7 @@ export async function withTransportRetry<T>(
       const fallbackMs = delayMs;
       const extractedDelayMs = options.extractRetryAfter?.(error, fallbackMs);
       const waitMs =
-        extractedDelayMs == null || !Number.isFinite(extractedDelayMs)
+        extractedDelayMs == null
           ? fallbackMs
           : Math.min(normalizeRetryValue(extractedDelayMs, 0), maxDelayMs);
 

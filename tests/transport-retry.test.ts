@@ -100,3 +100,33 @@ test('withTransportRetry caps exponential backoff at maxDelayMs', async () => {
     'Transport failed; retrying',
   );
 });
+
+test('withTransportRetry fails fast on non-finite numeric config', async () => {
+  const { retry } = await importFreshTransportRetry();
+
+  await expect(
+    retry.withTransportRetry('test.transport', async () => 'ok', {
+      maxAttempts: Number.NaN,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => true,
+    }),
+  ).rejects.toThrow('Retry values must be finite numbers');
+});
+
+test('withTransportRetry fails fast on non-finite extracted retry delays', async () => {
+  vi.useFakeTimers();
+
+  const { retry } = await importFreshTransportRetry();
+  const run = vi.fn().mockRejectedValueOnce(new Error('transient'));
+
+  await expect(
+    retry.withTransportRetry('test.transport', run, {
+      maxAttempts: 2,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => true,
+      extractRetryAfter: () => Number.POSITIVE_INFINITY,
+    }),
+  ).rejects.toThrow('Retry values must be finite numbers');
+});
