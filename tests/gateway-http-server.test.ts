@@ -946,6 +946,29 @@ async function importFreshHealth(options?: {
       source: 'restore' as const,
     },
   ];
+  const getTestAdminAgentMarkdownFiles = (agentId: string) =>
+    agentId === 'writer'
+      ? writerAdminAgentMarkdownFiles
+      : mainAdminAgentMarkdownFiles;
+  const getTestAdminAgentMarkdownRevisions = (agentId: string) =>
+    agentId === 'writer'
+      ? writerAdminAgentMarkdownRevisions
+      : mainAdminAgentMarkdownRevisions;
+  const getTestAdminAgentMarkdownFile = (agentId: string, fileName: string) =>
+    getTestAdminAgentMarkdownFiles(agentId).find(
+      (entry) => entry.name === fileName,
+    );
+  const makeTestAdminAgent = (agentId: string) => ({
+    id: agentId,
+    name: agentId === 'writer' ? 'Writer' : 'Main Agent',
+    model: agentId === 'writer' ? null : 'gpt-5',
+    skills: null,
+    chatbotId: null,
+    enableRag: agentId === 'writer' ? null : true,
+    workspace: null,
+    workspacePath: `/tmp/${agentId}/workspace`,
+    markdownFiles: getTestAdminAgentMarkdownFiles(agentId),
+  });
   const getGatewayAdminAgents = vi.fn(() => ({
     agents: [
       {
@@ -963,57 +986,20 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminAgentMarkdownFile = vi.fn(
     (agentId: string, fileName: string) => ({
-      agent: {
-        id: agentId,
-        name: agentId === 'writer' ? 'Writer' : 'Main Agent',
-        model: agentId === 'writer' ? null : 'gpt-5',
-        skills: null,
-        chatbotId: null,
-        enableRag: agentId === 'writer' ? null : true,
-        workspace: null,
-        workspacePath: `/tmp/${agentId}/workspace`,
-        markdownFiles:
-          agentId === 'writer'
-            ? writerAdminAgentMarkdownFiles
-            : mainAdminAgentMarkdownFiles,
-      },
+      agent: makeTestAdminAgent(agentId),
       file: {
-        ...(agentId === 'writer'
-          ? writerAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === fileName,
-            )
-          : mainAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === fileName,
-            )),
+        ...getTestAdminAgentMarkdownFile(agentId, fileName),
         content: `# ${agentId}:${fileName}\n`,
-        revisions:
-          agentId === 'writer'
-            ? writerAdminAgentMarkdownRevisions
-            : mainAdminAgentMarkdownRevisions,
+        revisions: getTestAdminAgentMarkdownRevisions(agentId),
       },
     }),
   );
   const getGatewayAdminAgentMarkdownRevision = vi.fn(
     (params: { agentId: string; fileName: string; revisionId: string }) => ({
-      agent: {
-        id: params.agentId,
-        name: params.agentId === 'writer' ? 'Writer' : 'Main Agent',
-        model: params.agentId === 'writer' ? null : 'gpt-5',
-        skills: null,
-        chatbotId: null,
-        enableRag: params.agentId === 'writer' ? null : true,
-        workspace: null,
-        workspacePath: `/tmp/${params.agentId}/workspace`,
-        markdownFiles:
-          params.agentId === 'writer'
-            ? writerAdminAgentMarkdownFiles
-            : mainAdminAgentMarkdownFiles,
-      },
+      agent: makeTestAdminAgent(params.agentId),
       fileName: params.fileName,
       revision: {
-        ...(params.agentId === 'writer'
-          ? writerAdminAgentMarkdownRevisions[0]
-          : mainAdminAgentMarkdownRevisions[0]),
+        ...getTestAdminAgentMarkdownRevisions(params.agentId)[0],
         id: params.revisionId,
         content: `# revision ${params.agentId}:${params.fileName}:${params.revisionId}\n`,
       },
@@ -1166,65 +1152,21 @@ async function importFreshHealth(options?: {
   );
   const saveGatewayAdminAgentMarkdownFile = vi.fn(
     (params: { agentId: string; fileName: string; content: string }) => ({
-      agent: {
-        id: params.agentId,
-        name: params.agentId === 'writer' ? 'Writer' : 'Main Agent',
-        model: params.agentId === 'writer' ? null : 'gpt-5',
-        skills: null,
-        chatbotId: null,
-        enableRag: params.agentId === 'writer' ? null : true,
-        workspace: null,
-        workspacePath: `/tmp/${params.agentId}/workspace`,
-        markdownFiles:
-          params.agentId === 'writer'
-            ? writerAdminAgentMarkdownFiles
-            : mainAdminAgentMarkdownFiles,
-      },
+      agent: makeTestAdminAgent(params.agentId),
       file: {
-        ...(params.agentId === 'writer'
-          ? writerAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === params.fileName,
-            )
-          : mainAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === params.fileName,
-            )),
+        ...getTestAdminAgentMarkdownFile(params.agentId, params.fileName),
         content: params.content,
-        revisions:
-          params.agentId === 'writer'
-            ? writerAdminAgentMarkdownRevisions
-            : mainAdminAgentMarkdownRevisions,
+        revisions: getTestAdminAgentMarkdownRevisions(params.agentId),
       },
     }),
   );
   const restoreGatewayAdminAgentMarkdownRevision = vi.fn(
     (params: { agentId: string; fileName: string; revisionId: string }) => ({
-      agent: {
-        id: params.agentId,
-        name: params.agentId === 'writer' ? 'Writer' : 'Main Agent',
-        model: params.agentId === 'writer' ? null : 'gpt-5',
-        skills: null,
-        chatbotId: null,
-        enableRag: params.agentId === 'writer' ? null : true,
-        workspace: null,
-        workspacePath: `/tmp/${params.agentId}/workspace`,
-        markdownFiles:
-          params.agentId === 'writer'
-            ? writerAdminAgentMarkdownFiles
-            : mainAdminAgentMarkdownFiles,
-      },
+      agent: makeTestAdminAgent(params.agentId),
       file: {
-        ...(params.agentId === 'writer'
-          ? writerAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === params.fileName,
-            )
-          : mainAdminAgentMarkdownFiles.find(
-              (entry) => entry.name === params.fileName,
-            )),
+        ...getTestAdminAgentMarkdownFile(params.agentId, params.fileName),
         content: `# restored ${params.revisionId}\n`,
-        revisions:
-          params.agentId === 'writer'
-            ? writerAdminAgentMarkdownRevisions
-            : mainAdminAgentMarkdownRevisions,
+        revisions: getTestAdminAgentMarkdownRevisions(params.agentId),
       },
     }),
   );
@@ -3858,6 +3800,20 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns 404 for admin agent routes with a blank decoded agent id segment', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agents/%20' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(state.deleteGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Not Found' });
+  });
+
   test('passes skill allowlists through admin agent creation requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -4111,6 +4067,44 @@ describe('gateway HTTP server', () => {
         source: 'save',
         content: '# revision main:AGENTS.md:main-rev-1\n',
       },
+    });
+  });
+
+  test('returns 404 for known admin agent markdown revision not-found errors', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminAgentMarkdownRevision.mockImplementationOnce(() => {
+      throw new Error('Revision "missing-rev" was not found.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md/revisions/missing-rev',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Revision "missing-rev" was not found.',
+    });
+  });
+
+  test('returns 400 for unrelated admin agent errors that contain "not found"', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminAgentMarkdownRevision.mockImplementationOnce(() => {
+      throw new Error('Validation key not found in request body.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/AGENTS.md/revisions/main-rev-1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Validation key not found in request body.',
     });
   });
 

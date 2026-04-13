@@ -252,7 +252,6 @@ export function restoreAdminAgentMarkdownRevision(
     {
       token,
       method: 'POST',
-      body: {},
     },
   );
 }

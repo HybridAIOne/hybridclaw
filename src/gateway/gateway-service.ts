@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -379,15 +379,27 @@ const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
+const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
   WORKSPACE_BOOTSTRAP_FILES,
 );
 type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
-type StoredAdminAgentMarkdownRevision = GatewayAdminAgentMarkdownRevision & {
-  fileName: AdminAgentMarkdownFileName;
+type GatewayAdminAgentMarkdownFileStats = Pick<
+  GatewayAdminAgentMarkdownFile,
+  'exists' | 'updatedAt' | 'sizeBytes'
+>;
+type GatewayAdminAgentMarkdownFileState = GatewayAdminAgentMarkdownFileStats & {
   content: string;
 };
+type StoredAdminAgentMarkdownRevisionMetadata =
+  GatewayAdminAgentMarkdownRevision & {
+    fileName: AdminAgentMarkdownFileName;
+  };
+type StoredAdminAgentMarkdownRevision =
+  StoredAdminAgentMarkdownRevisionMetadata & {
+    content: string;
+  };
 
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
@@ -829,6 +841,7 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   fileName: string;
 }): {
   agent: AgentConfig;
+  resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
   workspacePath: string;
   filePath: string;
@@ -837,28 +850,19 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
-  const filePath = path.resolve(workspacePath, fileName);
-  if (
-    filePath !== path.join(workspacePath, fileName) ||
-    path.dirname(filePath) !== workspacePath
-  ) {
-    throw new Error(
-      `Resolved path for "${fileName}" is outside the workspace.`,
-    );
-  }
+  const filePath = path.join(workspacePath, fileName);
   return {
     agent,
+    resolvedAgent,
     fileName,
     workspacePath,
     filePath,
   };
 }
 
-function getGatewayAdminAgentMarkdownFileStats(filePath: string): {
-  exists: boolean;
-  updatedAt: string | null;
-  sizeBytes: number | null;
-} {
+function getGatewayAdminAgentMarkdownFileStats(
+  filePath: string,
+): GatewayAdminAgentMarkdownFileStats {
   try {
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) {
@@ -885,9 +889,10 @@ function getGatewayAdminAgentMarkdownFileStats(filePath: string): {
 function mapGatewayAdminAgentMarkdownFile(params: {
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
+  stats?: GatewayAdminAgentMarkdownFileStats;
 }): GatewayAdminAgentMarkdownFile {
   const filePath = path.join(params.workspacePath, params.fileName);
-  const stats = getGatewayAdminAgentMarkdownFileStats(filePath);
+  const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
   return {
     name: params.fileName,
     path: filePath,
@@ -897,9 +902,56 @@ function mapGatewayAdminAgentMarkdownFile(params: {
   };
 }
 
-function mapGatewayAdminAgent(agent: AgentConfig): GatewayAdminAgent {
-  const resolved = resolveAgentConfig(agent.id);
-  const workspacePath = path.resolve(agentWorkspaceDir(resolved.id));
+function getGatewayAdminAgentMarkdownFilePresenceStats(
+  workspacePath: string,
+): Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
+  const entriesByName = new Map<string, fs.Dirent>();
+  try {
+    for (const entry of fs.readdirSync(workspacePath, {
+      withFileTypes: true,
+    })) {
+      entriesByName.set(entry.name, entry);
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+    (statsByName, fileName) => {
+      const entry = entriesByName.get(fileName);
+      statsByName[fileName] = {
+        exists: entry?.isFile() ?? false,
+        updatedAt: null,
+        sizeBytes: null,
+      };
+      return statsByName;
+    },
+    {} as Record<
+      AdminAgentMarkdownFileName,
+      GatewayAdminAgentMarkdownFileStats
+    >,
+  );
+}
+
+function mapGatewayAdminAgent(
+  agent: AgentConfig,
+  options?: {
+    resolvedAgent?: AgentConfig;
+    workspacePath?: string;
+    markdownFileStats?: Partial<
+      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats>
+    >;
+    markdownFileOverrides?: Partial<
+      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
+    >;
+  },
+): GatewayAdminAgent {
+  const resolved = options?.resolvedAgent ?? resolveAgentConfig(agent.id);
+  const workspacePath =
+    options?.workspacePath ?? path.resolve(agentWorkspaceDir(resolved.id));
   return {
     id: resolved.id,
     name: resolved.name || null,
@@ -910,15 +962,28 @@ function mapGatewayAdminAgent(agent: AgentConfig): GatewayAdminAgent {
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map((fileName) =>
-      mapGatewayAdminAgentMarkdownFile({ workspacePath, fileName }),
+    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+      (fileName) =>
+        options?.markdownFileOverrides?.[fileName] ||
+        mapGatewayAdminAgentMarkdownFile({
+          workspacePath,
+          fileName,
+          stats: options?.markdownFileStats?.[fileName],
+        }),
     ),
   };
 }
 
-function readGatewayAdminAgentMarkdownFileContent(filePath: string): string {
-  const stats = getGatewayAdminAgentMarkdownFileStats(filePath);
-  if (!stats.exists) return '';
+function readGatewayAdminAgentMarkdownFileState(
+  filePath: string,
+  stats = getGatewayAdminAgentMarkdownFileStats(filePath),
+): GatewayAdminAgentMarkdownFileState {
+  if (!stats.exists) {
+    return {
+      ...stats,
+      content: '',
+    };
+  }
   if (
     typeof stats.sizeBytes === 'number' &&
     stats.sizeBytes > ADMIN_AGENT_MARKDOWN_MAX_BYTES
@@ -927,7 +992,10 @@ function readGatewayAdminAgentMarkdownFileContent(filePath: string): string {
       `Markdown file is too large to edit in the admin console (${stats.sizeBytes} bytes, limit ${ADMIN_AGENT_MARKDOWN_MAX_BYTES}).`,
     );
   }
-  return fs.readFileSync(filePath, 'utf-8');
+  return {
+    ...stats,
+    content: fs.readFileSync(filePath, 'utf-8'),
+  };
 }
 
 function getGatewayAdminAgentMarkdownContentSize(content: string): number {
@@ -950,12 +1018,59 @@ function assertGatewayAdminAgentMarkdownContentSize(
 function writeGatewayAdminAgentMarkdownFileContent(
   filePath: string,
   content: string,
-): void {
-  assertGatewayAdminAgentMarkdownContentSize(content);
+  options?: {
+    sizeBytes?: number;
+  },
+): GatewayAdminAgentMarkdownFileStats {
+  if (typeof options?.sizeBytes !== 'number') {
+    assertGatewayAdminAgentMarkdownContentSize(content);
+  }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
   fs.writeFileSync(tempPath, content, 'utf-8');
   fs.renameSync(tempPath, filePath);
+  return getGatewayAdminAgentMarkdownFileStats(filePath);
+}
+
+function buildGatewayAdminAgentMarkdownFileResponse(params: {
+  resolved: ReturnType<typeof resolveGatewayAdminAgentMarkdownFile>;
+  fileState?: GatewayAdminAgentMarkdownFileState;
+  revisions?: GatewayAdminAgentMarkdownRevision[];
+}): GatewayAdminAgentMarkdownFileResponse {
+  const fileState =
+    params.fileState ??
+    readGatewayAdminAgentMarkdownFileState(params.resolved.filePath);
+  const mappedFile = mapGatewayAdminAgentMarkdownFile({
+    workspacePath: params.resolved.workspacePath,
+    fileName: params.resolved.fileName,
+    stats: fileState,
+  });
+  const markdownFileOverrides: Partial<
+    Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
+  > = {
+    [params.resolved.fileName]: mappedFile,
+  };
+  const markdownFileStats = getGatewayAdminAgentMarkdownFilePresenceStats(
+    params.resolved.workspacePath,
+  );
+  return {
+    agent: mapGatewayAdminAgent(params.resolved.agent, {
+      resolvedAgent: params.resolved.resolvedAgent,
+      workspacePath: params.resolved.workspacePath,
+      markdownFileStats,
+      markdownFileOverrides,
+    }),
+    file: {
+      ...mappedFile,
+      content: fileState.content,
+      revisions:
+        params.revisions ??
+        listGatewayAdminAgentMarkdownRevisions({
+          workspacePath: params.resolved.workspacePath,
+          fileName: params.resolved.fileName,
+        }),
+    },
+  };
 }
 
 function getGatewayAdminAgentMarkdownRevisionDir(params: {
@@ -969,20 +1084,18 @@ function getGatewayAdminAgentMarkdownRevisionDir(params: {
   );
 }
 
-function buildGatewayAdminAgentMarkdownRevision(
-  params: {
-    fileName: AdminAgentMarkdownFileName;
-    content: string;
-    source: GatewayAdminAgentMarkdownRevision['source'];
-  },
-  now = new Date(),
-): StoredAdminAgentMarkdownRevision {
+function buildGatewayAdminAgentMarkdownRevision(params: {
+  fileName: AdminAgentMarkdownFileName;
+  content: string;
+  source: GatewayAdminAgentMarkdownRevision['source'];
+}): StoredAdminAgentMarkdownRevision {
+  const now = new Date();
   const sizeBytes = assertGatewayAdminAgentMarkdownContentSize(
     params.content,
     'Markdown revision content',
   );
   return {
-    id: `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    id: randomUUID(),
     fileName: params.fileName,
     createdAt: now.toISOString(),
     sizeBytes,
@@ -990,6 +1103,22 @@ function buildGatewayAdminAgentMarkdownRevision(
     source: params.source,
     content: params.content,
   };
+}
+
+function buildGatewayAdminAgentMarkdownRevisionEntryName(
+  revision: Pick<StoredAdminAgentMarkdownRevision, 'createdAt' | 'id'>,
+): string {
+  const createdAtMs = Date.parse(revision.createdAt);
+  const timestampPrefix = Number.isFinite(createdAtMs)
+    ? createdAtMs.toString(36)
+    : '0';
+  return `${timestampPrefix}-${revision.id}.json`;
+}
+
+function getGatewayAdminAgentMarkdownRevisionContentPath(
+  revisionPath: string,
+): string {
+  return `${revisionPath.slice(0, -'.json'.length)}.md`;
 }
 
 function writeGatewayAdminAgentMarkdownRevision(params: {
@@ -1001,34 +1130,48 @@ function writeGatewayAdminAgentMarkdownRevision(params: {
   const revision = buildGatewayAdminAgentMarkdownRevision(params);
   const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
   fs.mkdirSync(revisionDir, { recursive: true });
-  const revisionPath = path.join(revisionDir, `${revision.id}.json`);
-  const tempPath = `${revisionPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, JSON.stringify(revision, null, 2), 'utf-8');
-  fs.renameSync(tempPath, revisionPath);
-  return {
+  const revisionPath = path.join(
+    revisionDir,
+    buildGatewayAdminAgentMarkdownRevisionEntryName(revision),
+  );
+  const contentPath =
+    getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+  const metadata: StoredAdminAgentMarkdownRevisionMetadata = {
     id: revision.id,
+    fileName: revision.fileName,
     createdAt: revision.createdAt,
     sizeBytes: revision.sizeBytes,
     sha256: revision.sha256,
     source: revision.source,
   };
+  const tempContentPath = `${contentPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(tempContentPath, revision.content, 'utf-8');
+  fs.renameSync(tempContentPath, contentPath);
+  const tempMetadataPath = `${revisionPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(
+    tempMetadataPath,
+    JSON.stringify(metadata, null, 2),
+    'utf-8',
+  );
+  fs.renameSync(tempMetadataPath, revisionPath);
+  trimGatewayAdminAgentMarkdownRevisions(params);
+  return metadata;
 }
 
-function readGatewayAdminAgentMarkdownRevisionRecord(
+function readGatewayAdminAgentMarkdownRevisionMetadataRecord(
   revisionPath: string,
-): StoredAdminAgentMarkdownRevision | null {
+): StoredAdminAgentMarkdownRevisionMetadata | null {
   try {
     const parsed = JSON.parse(
       fs.readFileSync(revisionPath, 'utf-8'),
-    ) as Partial<StoredAdminAgentMarkdownRevision>;
+    ) as Partial<StoredAdminAgentMarkdownRevisionMetadata>;
     if (
       typeof parsed.id !== 'string' ||
       typeof parsed.fileName !== 'string' ||
       typeof parsed.createdAt !== 'string' ||
       typeof parsed.sizeBytes !== 'number' ||
       typeof parsed.sha256 !== 'string' ||
-      (parsed.source !== 'save' && parsed.source !== 'restore') ||
-      typeof parsed.content !== 'string'
+      (parsed.source !== 'save' && parsed.source !== 'restore')
     ) {
       return null;
     }
@@ -1039,6 +1182,49 @@ function readGatewayAdminAgentMarkdownRevisionRecord(
       sizeBytes: parsed.sizeBytes,
       sha256: parsed.sha256,
       source: parsed.source,
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return null;
+    }
+    logger.warn({ revisionPath, error }, 'Failed to read markdown revision');
+    return null;
+  }
+}
+
+function readGatewayAdminAgentMarkdownRevisionRecord(
+  revisionPath: string,
+): StoredAdminAgentMarkdownRevision | null {
+  const metadata =
+    readGatewayAdminAgentMarkdownRevisionMetadataRecord(revisionPath);
+  if (!metadata) {
+    return null;
+  }
+  const contentPath =
+    getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+  try {
+    return {
+      ...metadata,
+      content: fs.readFileSync(contentPath, 'utf-8'),
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== 'ENOENT') {
+      logger.warn({ contentPath, error }, 'Failed to read markdown revision');
+      return null;
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(revisionPath, 'utf-8'),
+    ) as Partial<StoredAdminAgentMarkdownRevision>;
+    if (typeof parsed.content !== 'string') {
+      return null;
+    }
+    return {
+      ...metadata,
       content: parsed.content,
     };
   } catch (error) {
@@ -1051,32 +1237,108 @@ function readGatewayAdminAgentMarkdownRevisionRecord(
   }
 }
 
-function listGatewayAdminAgentMarkdownRevisions(params: {
+function getGatewayAdminAgentMarkdownRevisionEntryTimestamp(
+  entry: string,
+): number {
+  const [revisionId] = entry.split('.json', 1);
+  const [encodedTimestamp] = revisionId.split('-', 1);
+  const timestamp = Number.parseInt(encodedTimestamp, 36);
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function compareGatewayAdminAgentMarkdownRevisionEntries(
+  left: string,
+  right: string,
+): number {
+  const byTimestamp =
+    getGatewayAdminAgentMarkdownRevisionEntryTimestamp(right) -
+    getGatewayAdminAgentMarkdownRevisionEntryTimestamp(left);
+  if (Number.isFinite(byTimestamp) && byTimestamp !== 0) {
+    return byTimestamp;
+  }
+  return right.localeCompare(left);
+}
+
+function listGatewayAdminAgentMarkdownRevisionEntries(params: {
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
-}): GatewayAdminAgentMarkdownRevision[] {
+}): { revisionDir: string; entries: string[] } {
   const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
   let entries: string[];
   try {
     entries = fs.readdirSync(revisionDir);
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err?.code === 'ENOENT') return [];
+    if (err?.code === 'ENOENT') {
+      return {
+        revisionDir,
+        entries: [],
+      };
+    }
     throw error;
   }
-  return entries
-    .filter((entry) => entry.endsWith('.json'))
-    .map((entry) =>
-      readGatewayAdminAgentMarkdownRevisionRecord(
-        path.join(revisionDir, entry),
-      ),
-    )
-    .filter(
-      (entry): entry is StoredAdminAgentMarkdownRevision => entry !== null,
-    )
+  return {
+    revisionDir,
+    entries: entries
+      .filter((entry) => entry.endsWith('.json'))
+      .sort(compareGatewayAdminAgentMarkdownRevisionEntries),
+  };
+}
+
+function trimGatewayAdminAgentMarkdownRevisions(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): void {
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  for (const entry of entries.slice(ADMIN_AGENT_MARKDOWN_MAX_REVISIONS)) {
+    const revisionPath = path.join(revisionDir, entry);
+    const contentPath =
+      getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+    for (const targetPath of [revisionPath, contentPath]) {
+      try {
+        fs.unlinkSync(targetPath);
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err?.code === 'ENOENT') {
+          continue;
+        }
+        logger.warn(
+          { revisionDir, entry, targetPath, error },
+          'Failed to trim markdown revision',
+        );
+      }
+    }
+  }
+}
+
+function listGatewayAdminAgentMarkdownRevisions(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): GatewayAdminAgentMarkdownRevision[] {
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  const revisions: Array<
+    StoredAdminAgentMarkdownRevisionMetadata & { createdAtMs: number }
+  > = [];
+  for (const entry of entries) {
+    if (revisions.length >= ADMIN_AGENT_MARKDOWN_MAX_REVISIONS) {
+      break;
+    }
+    const record = readGatewayAdminAgentMarkdownRevisionMetadataRecord(
+      path.join(revisionDir, entry),
+    );
+    if (!record || record.fileName !== params.fileName) {
+      continue;
+    }
+    revisions.push({
+      ...record,
+      createdAtMs: Date.parse(record.createdAt),
+    });
+  }
+  return revisions
     .sort((left, right) => {
-      const byCreatedAt =
-        Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      const byCreatedAt = right.createdAtMs - left.createdAtMs;
       if (Number.isFinite(byCreatedAt) && byCreatedAt !== 0) {
         return byCreatedAt;
       }
@@ -1091,19 +1353,35 @@ function listGatewayAdminAgentMarkdownRevisions(params: {
     }));
 }
 
+function normalizeGatewayAdminAgentMarkdownRevisionId(value: string): string {
+  const revisionId = value.trim();
+  if (!revisionId) {
+    throw new Error('Revision id is required.');
+  }
+  if (!/^[A-Za-z0-9-]+$/.test(revisionId)) {
+    throw new Error('Revision id is invalid.');
+  }
+  return revisionId;
+}
+
 function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
   revisionId: string;
 }): StoredAdminAgentMarkdownRevision {
-  const revisionId = params.revisionId.trim();
-  if (!revisionId) {
-    throw new Error('Revision id is required.');
-  }
-  const revisionPath = path.join(
-    getGatewayAdminAgentMarkdownRevisionDir(params),
-    `${revisionId}.json`,
+  const revisionId = normalizeGatewayAdminAgentMarkdownRevisionId(
+    params.revisionId,
   );
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  const revisionEntry = entries.find(
+    (entry) =>
+      entry === `${revisionId}.json` || entry.endsWith(`-${revisionId}.json`),
+  );
+  if (!revisionEntry) {
+    throw new Error(`Revision "${revisionId}" was not found.`);
+  }
+  const revisionPath = path.join(revisionDir, revisionEntry);
   const record = readGatewayAdminAgentMarkdownRevisionRecord(revisionPath);
   if (!record || record.fileName !== params.fileName) {
     throw new Error(`Revision "${revisionId}" was not found.`);
@@ -3403,7 +3681,16 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
 
 export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   return {
-    agents: listAgents().map((agent) => mapGatewayAdminAgent(agent)),
+    agents: listAgents().map((agent) => {
+      const resolved = resolveAgentConfig(agent.id);
+      const workspacePath = path.resolve(agentWorkspaceDir(resolved.id));
+      return mapGatewayAdminAgent(agent, {
+        resolvedAgent: resolved,
+        workspacePath,
+        markdownFileStats:
+          getGatewayAdminAgentMarkdownFilePresenceStats(workspacePath),
+      });
+    }),
   };
 }
 
@@ -3412,20 +3699,7 @@ export function getGatewayAdminAgentMarkdownFile(
   fileName: string,
 ): GatewayAdminAgentMarkdownFileResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile({ agentId, fileName });
-  return {
-    agent: mapGatewayAdminAgent(resolved.agent),
-    file: {
-      ...mapGatewayAdminAgentMarkdownFile({
-        workspacePath: resolved.workspacePath,
-        fileName: resolved.fileName,
-      }),
-      content: readGatewayAdminAgentMarkdownFileContent(resolved.filePath),
-      revisions: listGatewayAdminAgentMarkdownRevisions({
-        workspacePath: resolved.workspacePath,
-        fileName: resolved.fileName,
-      }),
-    },
-  };
+  return buildGatewayAdminAgentMarkdownFileResponse({ resolved });
 }
 
 export function getGatewayAdminAgentMarkdownRevision(params: {
@@ -3440,7 +3714,13 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
     revisionId: params.revisionId,
   });
   return {
-    agent: mapGatewayAdminAgent(resolved.agent),
+    agent: mapGatewayAdminAgent(resolved.agent, {
+      resolvedAgent: resolved.resolvedAgent,
+      workspacePath: resolved.workspacePath,
+      markdownFileStats: getGatewayAdminAgentMarkdownFilePresenceStats(
+        resolved.workspacePath,
+      ),
+    }),
     fileName: resolved.fileName,
     revision: {
       id: revision.id,
@@ -3458,26 +3738,41 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
   fileName: string;
   content: string;
 }): GatewayAdminAgentMarkdownFileResponse {
-  assertGatewayAdminAgentMarkdownContentSize(params.content);
+  const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
+    params.content,
+  );
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
-  const existingContent = readGatewayAdminAgentMarkdownFileContent(
+  const currentState = readGatewayAdminAgentMarkdownFileState(
     resolved.filePath,
   );
-  const currentStats = getGatewayAdminAgentMarkdownFileStats(resolved.filePath);
-  if (currentStats.exists && existingContent === params.content) {
-    return getGatewayAdminAgentMarkdownFile(params.agentId, params.fileName);
+  if (currentState.exists && currentState.content === params.content) {
+    return buildGatewayAdminAgentMarkdownFileResponse({
+      resolved,
+      fileState: currentState,
+    });
   }
-  if (currentStats.exists) {
+  if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
       fileName: resolved.fileName,
-      content: existingContent,
+      content: currentState.content,
       source: 'save',
     });
   }
-  writeGatewayAdminAgentMarkdownFileContent(resolved.filePath, params.content);
-
-  return getGatewayAdminAgentMarkdownFile(params.agentId, params.fileName);
+  const nextStats = writeGatewayAdminAgentMarkdownFileContent(
+    resolved.filePath,
+    params.content,
+    {
+      sizeBytes: nextSizeBytes,
+    },
+  );
+  return buildGatewayAdminAgentMarkdownFileResponse({
+    resolved,
+    fileState: {
+      ...nextStats,
+      content: params.content,
+    },
+  });
 }
 
 export function restoreGatewayAdminAgentMarkdownRevision(params: {
@@ -3491,26 +3786,41 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
     fileName: resolved.fileName,
     revisionId: params.revisionId,
   });
-  const currentStats = getGatewayAdminAgentMarkdownFileStats(resolved.filePath);
-  const currentContent = currentStats.exists
-    ? readGatewayAdminAgentMarkdownFileContent(resolved.filePath)
-    : '';
-  if (currentStats.exists && currentContent === revision.content) {
-    return getGatewayAdminAgentMarkdownFile(params.agentId, params.fileName);
+  const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
+    revision.content,
+    'Markdown revision content',
+  );
+  const currentState = readGatewayAdminAgentMarkdownFileState(
+    resolved.filePath,
+  );
+  if (currentState.exists && currentState.content === revision.content) {
+    return buildGatewayAdminAgentMarkdownFileResponse({
+      resolved,
+      fileState: currentState,
+    });
   }
-  if (currentStats.exists && currentContent !== revision.content) {
+  if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
       fileName: resolved.fileName,
-      content: currentContent,
+      content: currentState.content,
       source: 'restore',
     });
   }
-  writeGatewayAdminAgentMarkdownFileContent(
+  const nextStats = writeGatewayAdminAgentMarkdownFileContent(
     resolved.filePath,
     revision.content,
+    {
+      sizeBytes: nextSizeBytes,
+    },
   );
-  return getGatewayAdminAgentMarkdownFile(params.agentId, params.fileName);
+  return buildGatewayAdminAgentMarkdownFileResponse({
+    resolved,
+    fileState: {
+      ...nextStats,
+      content: revision.content,
+    },
+  });
 }
 
 export function createGatewayAdminAgent(params: {

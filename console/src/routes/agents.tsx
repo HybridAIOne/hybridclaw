@@ -102,6 +102,10 @@ export function AgentFilesPage() {
     enabled: Boolean(selectedAgent?.id && selectedFileName),
     refetchOnWindowFocus: false,
   });
+  const selectedFileMetadata =
+    fileQuery.data?.file.name === selectedFileName
+      ? fileQuery.data.file
+      : selectedFileSummary;
 
   const revisionQuery = useQuery({
     queryKey: [
@@ -219,9 +223,9 @@ export function AgentFilesPage() {
     },
   });
 
-  const isDirty =
-    Boolean(fileQuery.data) &&
-    draftContent !== (fileQuery.data?.file.content || '');
+  const isDirty = fileQuery.data
+    ? draftContent !== fileQuery.data.file.content
+    : false;
 
   return (
     <div className="page-stack">
@@ -277,8 +281,10 @@ export function AgentFilesPage() {
             {selectedFileSummary ? (
               <div className="agent-file-meta">
                 <p className="supporting-text agent-file-meta-line">
-                  {selectedFileSummary.exists
-                    ? `Last updated ${formatRelativeTime(selectedFileSummary.updatedAt || '')} · ${formatDateTime(selectedFileSummary.updatedAt)} · ${selectedFileSummary.path}`
+                  {selectedFileMetadata?.exists
+                    ? selectedFileMetadata.updatedAt
+                      ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}`
+                      : selectedFileMetadata.path
                     : 'File not created yet'}
                 </p>
               </div>

@@ -2314,25 +2314,28 @@ type ApiAdminAgentsRouteMatch =
 
 function parseApiAdminAgentsRoute(url: URL): ApiAdminAgentsRouteMatch {
   const segments = url.pathname.split('/').filter(Boolean);
-  const agentId = segments[3] ? decodeApiPathSegment(segments[3]) : '';
-  const fileName = segments[5] ? decodeApiPathSegment(segments[5]) : '';
-  const revisionId = segments[7] ? decodeApiPathSegment(segments[7]) : '';
+  const agentId = segments[3] ? decodeApiPathSegment(segments[3]).trim() : '';
+  const fileName = segments[5] ? decodeApiPathSegment(segments[5]).trim() : '';
+  const revisionId = segments[7]
+    ? decodeApiPathSegment(segments[7]).trim()
+    : '';
   const hasFilesPrefix = segments[4] === 'files';
   const hasRevisionsPrefix = segments[6] === 'revisions';
 
   if (segments.length === 3) {
     return { kind: 'collection', isKnownPath: true };
   }
-  if (segments.length === 4) {
+  if (segments.length === 4 && agentId) {
     return { kind: 'agent', isKnownPath: true, agentId };
   }
-  if (segments.length === 6 && hasFilesPrefix && fileName) {
+  if (segments.length === 6 && hasFilesPrefix && agentId && fileName) {
     return { kind: 'file', isKnownPath: true, agentId, fileName };
   }
   if (
     segments.length === 8 &&
     hasFilesPrefix &&
     hasRevisionsPrefix &&
+    agentId &&
     fileName &&
     revisionId
   ) {
@@ -2348,6 +2351,7 @@ function parseApiAdminAgentsRoute(url: URL): ApiAdminAgentsRouteMatch {
     segments.length === 9 &&
     hasFilesPrefix &&
     hasRevisionsPrefix &&
+    agentId &&
     fileName &&
     revisionId &&
     segments[8] === 'restore'
@@ -2371,10 +2375,13 @@ function parseApiAdminAgentsRoute(url: URL): ApiAdminAgentsRouteMatch {
 
 function sendApiAdminAgentError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
+  const isKnownNotFoundMessage =
+    /^Agent ["`].+["`] was not found\.$/.test(message) ||
+    /^Revision ["`].+["`] was not found\.$/.test(message);
   const status =
     error instanceof GatewayRequestError
       ? error.statusCode
-      : /not found/i.test(message)
+      : isKnownNotFoundMessage
         ? 404
         : 400;
   sendJson(res, status, { error: message });
@@ -2386,7 +2393,7 @@ function sendMethodNotAllowed(res: ServerResponse): void {
 
 function requireAdminAgentIdPathValue(agentId: string): string {
   const normalizedAgentId = agentId.trim();
-  if (!normalizedAgentId || normalizedAgentId === 'agents') {
+  if (!normalizedAgentId) {
     throw new GatewayRequestError(400, 'Missing agent id in request path.');
   }
   return normalizedAgentId;
