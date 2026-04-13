@@ -10,7 +10,7 @@ import {
 import type { AdminAgent } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { PageHeader, Panel } from '../components/ui';
+import { Panel } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -219,101 +219,42 @@ export function AgentFilesPage() {
     },
   });
 
-  const existingFileCount =
-    selectedAgent?.markdownFiles.filter((file) => file.exists).length || 0;
-  const totalFileCount = selectedAgent?.markdownFiles.length || 0;
   const isDirty =
     Boolean(fileQuery.data) &&
     draftContent !== (fileQuery.data?.file.content || '');
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Agent Files"
-        description="Edit the allowlisted workspace markdown files for any registered agent."
-      />
-
-      <div className="two-column-grid sessions-layout">
-        <Panel
-          title="Agents"
-          subtitle={`${agentsQuery.data?.length || 0} registered agent${agentsQuery.data?.length === 1 ? '' : 's'}`}
-        >
-          {agentsQuery.isLoading ? (
-            <div className="empty-state">Loading agents...</div>
-          ) : !agentsQuery.data?.length ? (
-            <div className="empty-state">No agents are registered yet.</div>
-          ) : (
-            <div className="list-stack selectable-list">
-              {agentsQuery.data.map((agent) => {
-                const presentFiles = agent.markdownFiles.filter(
-                  (file) => file.exists,
-                ).length;
-                return (
-                  <button
-                    key={agent.id}
-                    className={
-                      agent.id === selectedAgent?.id
-                        ? 'selectable-row active'
-                        : 'selectable-row'
-                    }
-                    type="button"
-                    onClick={() => {
-                      setSelectedAgentId(agent.id);
-                      setSelectedRevisionId(null);
-                    }}
-                  >
-                    <div>
-                      <strong>{agent.name || agent.id}</strong>
-                      <small>
-                        {agent.id}
-                        {agent.model
-                          ? ` · ${agent.model}`
-                          : ' · runtime default'}
-                      </small>
-                    </div>
-                    <div className="row-status-stack">
-                      <small>
-                        {presentFiles}/{agent.markdownFiles.length} files
-                      </small>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="Markdown Editor" accent="warm">
-          {!selectedAgent ? (
-            <div className="empty-state">
-              Select an agent to edit its files.
-            </div>
-          ) : !selectedFileName ? (
-            <div className="empty-state">
-              This agent does not expose editable markdown files.
-            </div>
-          ) : (
-            <div className="detail-stack">
-              <div className="key-value-grid">
-                <div>
-                  <span>Agent</span>
-                  <strong>{selectedAgent.name || selectedAgent.id}</strong>
-                </div>
-                <div>
-                  <span>Model</span>
-                  <strong>{selectedAgent.model || 'runtime default'}</strong>
-                </div>
-                <div>
-                  <span>Workspace</span>
-                  <strong>{selectedAgent.workspacePath}</strong>
-                </div>
-                <div>
-                  <span>Markdown files</span>
-                  <strong>
-                    {existingFileCount}/{totalFileCount} present
-                  </strong>
-                </div>
-              </div>
+      <Panel accent="warm">
+        {agentsQuery.isLoading ? (
+          <div className="empty-state">Loading agents...</div>
+        ) : !agentsQuery.data?.length ? (
+          <div className="empty-state">No agents are registered yet.</div>
+        ) : !selectedAgent ? (
+          <div className="empty-state">Select an agent to edit its files.</div>
+        ) : !selectedFileName ? (
+          <div className="empty-state">
+            This agent does not expose editable markdown files.
+          </div>
+        ) : (
+          <div className="detail-stack">
+            <div className="field-grid">
+              <label className="field">
+                <span>Agent</span>
+                <select
+                  value={selectedAgent.id}
+                  onChange={(event) => {
+                    setSelectedAgentId(event.target.value);
+                    setSelectedRevisionId(null);
+                  }}
+                >
+                  {agentsQuery.data.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name || agent.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label className="field">
                 <span>Markdown file</span>
@@ -331,172 +272,173 @@ export function AgentFilesPage() {
                   ))}
                 </select>
               </label>
-
-              {selectedFileSummary ? (
-                <div className="summary-block">
-                  <span>
-                    {selectedFileSummary.exists
-                      ? `Last updated ${formatRelativeTime(selectedFileSummary.updatedAt || '')} · ${formatDateTime(selectedFileSummary.updatedAt)}`
-                      : 'File not created yet'}
-                  </span>
-                  <p>{selectedFileSummary.path}</p>
-                </div>
-              ) : null}
-
-              {fileQuery.isLoading ? (
-                <div className="empty-state">Loading markdown file...</div>
-              ) : (
-                <>
-                  <label className="field textarea-field">
-                    <span>{selectedFileName}</span>
-                    <textarea
-                      className="code-editor"
-                      rows={28}
-                      value={draftContent}
-                      onChange={(event) => setDraftContent(event.target.value)}
-                    />
-                  </label>
-
-                  <div className="button-row">
-                    <button
-                      className="primary-button"
-                      type="button"
-                      disabled={
-                        saveMutation.isPending || !fileQuery.data || !isDirty
-                      }
-                      onClick={() => saveMutation.mutate()}
-                    >
-                      {saveMutation.isPending ? 'Saving...' : 'Save Markdown'}
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      disabled={
-                        !fileQuery.data || saveMutation.isPending || !isDirty
-                      }
-                      onClick={() => {
-                        const nextContent = fileQuery.data?.file.content || '';
-                        if (selectedDocumentKey) {
-                          hydratedDocumentKeyRef.current = selectedDocumentKey;
-                        }
-                        hydratedContentRef.current = nextContent;
-                        setDraftContent(nextContent);
-                      }}
-                    >
-                      Reset to Disk
-                    </button>
-                    <p className="supporting-text">
-                      {isDirty
-                        ? 'Unsaved changes.'
-                        : selectedFileSummary?.exists
-                          ? 'Disk copy loaded.'
-                          : 'Saving will create this file in the agent workspace.'}
-                    </p>
-                  </div>
-
-                  <div className="two-column-grid">
-                    <Panel
-                      title="Versions"
-                      subtitle={`${fileQuery.data?.file.revisions.length || 0} saved revision${fileQuery.data?.file.revisions.length === 1 ? '' : 's'}`}
-                    >
-                      {!fileQuery.data?.file.revisions.length ? (
-                        <div className="empty-state">
-                          Revisions appear here after the file changes.
-                        </div>
-                      ) : (
-                        <div className="list-stack selectable-list">
-                          {fileQuery.data.file.revisions.map((revision) => (
-                            <button
-                              key={revision.id}
-                              className={
-                                revision.id === selectedRevisionId
-                                  ? 'selectable-row active'
-                                  : 'selectable-row'
-                              }
-                              type="button"
-                              onClick={() => setSelectedRevisionId(revision.id)}
-                            >
-                              <div>
-                                <strong>
-                                  {formatDateTime(revision.createdAt)}
-                                </strong>
-                                <small>
-                                  {formatRelativeTime(revision.createdAt)} ·{' '}
-                                  {revision.source} · {revision.sizeBytes} bytes
-                                </small>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </Panel>
-
-                    <Panel title="Version Preview" accent="warm">
-                      {!selectedRevisionId ? (
-                        <div className="empty-state">
-                          Select a saved version to preview or restore it.
-                        </div>
-                      ) : revisionQuery.isLoading ? (
-                        <div className="empty-state">Loading version...</div>
-                      ) : !revisionQuery.data ? (
-                        <div className="empty-state">
-                          Version details are unavailable.
-                        </div>
-                      ) : (
-                        <div className="detail-stack">
-                          <div className="summary-block">
-                            <span>
-                              {formatDateTime(
-                                revisionQuery.data.revision.createdAt,
-                              )}
-                            </span>
-                            <p>
-                              {revisionQuery.data.revision.sha256.slice(0, 16)}{' '}
-                              · {revisionQuery.data.revision.source}
-                            </p>
-                          </div>
-                          <label className="field textarea-field">
-                            <span>Saved content</span>
-                            <textarea
-                              className="code-editor"
-                              rows={14}
-                              readOnly
-                              value={revisionQuery.data.revision.content}
-                            />
-                          </label>
-                          <div className="button-row">
-                            <button
-                              className="primary-button"
-                              type="button"
-                              disabled={restoreMutation.isPending}
-                              onClick={() => restoreMutation.mutate()}
-                            >
-                              {restoreMutation.isPending
-                                ? 'Restoring...'
-                                : 'Restore Version'}
-                            </button>
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              onClick={() =>
-                                setDraftContent(
-                                  revisionQuery.data?.revision.content || '',
-                                )
-                              }
-                            >
-                              Copy to Editor
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </Panel>
-                  </div>
-                </>
-              )}
             </div>
-          )}
-        </Panel>
-      </div>
+
+            {selectedFileSummary ? (
+              <div className="agent-file-meta">
+                <p className="supporting-text agent-file-meta-line">
+                  {selectedFileSummary.exists
+                    ? `Last updated ${formatRelativeTime(selectedFileSummary.updatedAt || '')} · ${formatDateTime(selectedFileSummary.updatedAt)} · ${selectedFileSummary.path}`
+                    : 'File not created yet'}
+                </p>
+              </div>
+            ) : null}
+
+            {fileQuery.isLoading ? (
+              <div className="empty-state">Loading markdown file...</div>
+            ) : (
+              <>
+                <label className="field textarea-field">
+                  <span className="agent-file-editor-title">
+                    {selectedFileName}
+                  </span>
+                  <textarea
+                    className="code-editor"
+                    rows={28}
+                    value={draftContent}
+                    onChange={(event) => setDraftContent(event.target.value)}
+                  />
+                </label>
+
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      saveMutation.isPending || !fileQuery.data || !isDirty
+                    }
+                    onClick={() => saveMutation.mutate()}
+                  >
+                    {saveMutation.isPending ? 'Saving...' : 'Save Markdown'}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    disabled={
+                      !fileQuery.data || saveMutation.isPending || !isDirty
+                    }
+                    onClick={() => {
+                      const nextContent = fileQuery.data?.file.content || '';
+                      if (selectedDocumentKey) {
+                        hydratedDocumentKeyRef.current = selectedDocumentKey;
+                      }
+                      hydratedContentRef.current = nextContent;
+                      setDraftContent(nextContent);
+                    }}
+                  >
+                    Reset to Disk
+                  </button>
+                  <p className="supporting-text">
+                    {isDirty
+                      ? 'Unsaved changes.'
+                      : selectedFileSummary?.exists
+                        ? 'Disk copy loaded.'
+                        : 'Saving will create this file in the agent workspace.'}
+                  </p>
+                </div>
+
+                <div className="two-column-grid">
+                  <Panel
+                    title="Versions"
+                    subtitle={`${fileQuery.data?.file.revisions.length || 0} saved revision${fileQuery.data?.file.revisions.length === 1 ? '' : 's'}`}
+                  >
+                    {!fileQuery.data?.file.revisions.length ? (
+                      <div className="empty-state">
+                        Revisions appear here after the file changes.
+                      </div>
+                    ) : (
+                      <div className="list-stack selectable-list">
+                        {fileQuery.data.file.revisions.map((revision) => (
+                          <button
+                            key={revision.id}
+                            className={
+                              revision.id === selectedRevisionId
+                                ? 'selectable-row active'
+                                : 'selectable-row'
+                            }
+                            type="button"
+                            onClick={() => setSelectedRevisionId(revision.id)}
+                          >
+                            <div>
+                              <strong>
+                                {formatDateTime(revision.createdAt)}
+                              </strong>
+                              <small>
+                                {formatRelativeTime(revision.createdAt)} ·{' '}
+                                {revision.source} · {revision.sizeBytes} bytes
+                              </small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Panel>
+
+                  <Panel title="Version Preview" accent="warm">
+                    {!selectedRevisionId ? (
+                      <div className="empty-state">
+                        Select a saved version to preview or restore it.
+                      </div>
+                    ) : revisionQuery.isLoading ? (
+                      <div className="empty-state">Loading version...</div>
+                    ) : !revisionQuery.data ? (
+                      <div className="empty-state">
+                        Version details are unavailable.
+                      </div>
+                    ) : (
+                      <div className="detail-stack">
+                        <div className="summary-block">
+                          <span>
+                            {formatDateTime(
+                              revisionQuery.data.revision.createdAt,
+                            )}
+                          </span>
+                          <p>
+                            {revisionQuery.data.revision.sha256.slice(0, 16)} ·{' '}
+                            {revisionQuery.data.revision.source}
+                          </p>
+                        </div>
+                        <label className="field textarea-field">
+                          <span>Saved content</span>
+                          <textarea
+                            className="code-editor"
+                            rows={14}
+                            readOnly
+                            value={revisionQuery.data.revision.content}
+                          />
+                        </label>
+                        <div className="button-row">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={restoreMutation.isPending}
+                            onClick={() => restoreMutation.mutate()}
+                          >
+                            {restoreMutation.isPending
+                              ? 'Restoring...'
+                              : 'Restore Version'}
+                          </button>
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() =>
+                              setDraftContent(
+                                revisionQuery.data?.revision.content || '',
+                              )
+                            }
+                          >
+                            Copy to Editor
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </Panel>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

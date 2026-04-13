@@ -179,7 +179,9 @@ describe('AgentFilesPage', () => {
     renderPage();
 
     expect(await screen.findByDisplayValue('# Main Rules')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /writer/i }));
+    fireEvent.change(screen.getByLabelText('Agent'), {
+      target: { value: 'writer' },
+    });
 
     expect(await screen.findByDisplayValue('# Writer Rules')).not.toBeNull();
     expect(fetchAdminAgentMarkdownFileMock).toHaveBeenCalledWith('test-token', {
