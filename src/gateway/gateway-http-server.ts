@@ -2975,9 +2975,15 @@ async function handleApiAdminEmailConfigFetch(
   }
 
   if (!response.ok) {
+    const record = payload as Record<string, unknown> | null;
+    const nested = record?.error;
     const msg =
-      (payload as Record<string, unknown>)?.message ||
-      (payload as Record<string, unknown>)?.error ||
+      (typeof record?.message === 'string' && record.message) ||
+      (typeof nested === 'string' && nested) ||
+      (nested &&
+        typeof nested === 'object' &&
+        typeof (nested as Record<string, unknown>).message === 'string' &&
+        (nested as Record<string, unknown>).message) ||
       `HybridAI API returned HTTP ${response.status}`;
     // Map all upstream errors to 502 so that 401/403 from HybridAI doesn't
     // get mistaken for a gateway auth failure (which would clear WEB_API_TOKEN).
@@ -2987,6 +2993,7 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
+  res.setHeader('Cache-Control', 'no-store');
   sendJson(res, 200, payload);
 }
 
