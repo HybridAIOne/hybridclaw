@@ -886,40 +886,40 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.12.4</div>
+    <div class="section-label">Latest release: v0.12.5</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.4 adds first-class Slack transport, immediate <code>one_shot</code> scheduler jobs, per-agent skill scoping, accessible console dialogs and toast notifications, and cleaner approval presentation across chat channels and admin surfaces.</p>
+    <p class="section-desc">HybridClaw v0.12.5 adds versioned admin agent-file editing, a keyboard-driven TUI approval flow, safer config recovery, and channel reliability fixes for email, WhatsApp, and retry-aware transports.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Slack transport</h3>
-      <p>HybridClaw now ships a built-in Slack Socket Mode channel with <code>auth login slack</code>, DM and channel policy controls, thread-aware session routing, uploads, approval buttons, and dedicated setup documentation.</p>
+      <div class="feature-icon">&#x1f4dd;</div>
+      <h3>Versioned agent files</h3>
+      <p><code>/admin/agents</code> now edits allowlisted bootstrap markdown files such as <code>AGENTS.md</code>, keeps saved revisions, and restores earlier versions without leaving the browser.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x23f1;</div>
-      <h3>Immediate one-shot jobs</h3>
-      <p><code>scheduler.jobs[]</code> now supports immediate <code>one_shot</code> jobs that run once, retry up to <code>maxRetries</code>, preserve review state, and surface richer delivery output in the gateway and admin scheduler UI.</p>
+      <div class="feature-icon">&#x2328;</div>
+      <h3>TUI approval picker</h3>
+      <p>Pending approvals in <code>hybridclaw tui</code> now open a keyboard-driven picker with arrow-key navigation, quick-select numbers, and a resumable exit summary.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9e9;</div>
-      <h3>Per-agent skill scopes</h3>
-      <p>Agent manifests can now narrow the globally enabled skill set with a local <code>skills</code> allowlist, while agents that omit the field keep the existing global skill scope for compatibility.</p>
+      <div class="feature-icon">&#x1f6df;</div>
+      <h3>Config recovery</h3>
+      <p>If <code>config.json</code> becomes invalid, interactive onboarding can restore the last known-good saved snapshot or roll back to a tracked revision before setup continues.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f514;</div>
-      <h3>Accessible console feedback</h3>
-      <p>The embedded admin console replaces inline banners with accessible dialog and toast primitives, tightening scheduler feedback, reducing visual noise, and improving keyboard interaction across layered overlays.</p>
+      <div class="feature-icon">&#x1f4e7;</div>
+      <h3>Email first-sync safety</h3>
+      <p>The built-in email transport now seeds a missing mailbox cursor from the current head so old inbox mail is not replayed as new traffic on first startup.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x2705;</div>
-      <h3>Approval presentation polish</h3>
-      <p>Approval prompts now keep stable ids, use clearer presentation copy, and align the operator flow more closely across Discord, Slack, and gateway-managed approval surfaces.</p>
+      <div class="feature-icon">&#x1f4f2;</div>
+      <h3>WhatsApp startup hardening</h3>
+      <p>HybridClaw disables Baileys init queries that can trigger intermittent <code>400</code>/<code>bad-request</code> failures during WhatsApp startup and pairing.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4f1;</div>
-      <h3>Responsive operator UX</h3>
-      <p>Scheduler and jobs views surface one-shot execution state more clearly, and the mobile admin shell keeps the sidebar trigger in a more reachable right-side topbar position.</p>
+      <div class="feature-icon">&#x23f3;</div>
+      <h3>Retry-aware transports</h3>
+      <p>Retry-capable channel transports now honor server-provided <code>Retry-After</code> delays and reject invalid retry values early instead of silently retrying with bad timing.</p>
     </div>
   </div>
 </section>
@@ -1648,7 +1648,7 @@
       </div>
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">4. Connect interface</h3>
-        <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner that summarizes the active model, sandbox, gateway, and chatbot context. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
+        <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner, an interactive approval picker, and an exit summary with a ready-to-run resume command. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
       </div>
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>

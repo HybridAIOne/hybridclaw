@@ -57,6 +57,17 @@ describe('gateway docs HTTP integration', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
     const html = await res.text();
     expect(html).toContain('Getting Started');
+    expect(html).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
+    expect(html).not.toContain('id="title-hybridclaw-docs');
+  });
+
+  it('GET /docs/developer-guide renders the section index without frontmatter leakage', async () => {
+    const res = await fetch(`${baseUrl}/docs/developer-guide`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('<h1 id="developer-guide">Developer Guide');
+    expect(html).not.toContain('id="title-developer-guide');
   });
 
   it('GET /docs/getting-started renders section page with authentication link', async () => {
@@ -86,13 +97,24 @@ describe('gateway docs HTTP integration', () => {
     expect(html.toLowerCase()).toContain('install');
   });
 
-  it('GET /development/getting-started returns 308 redirect to /docs/getting-started', async () => {
+  it('GET /development/getting-started returns a marked legacy redirect to /docs/getting-started', async () => {
     const res = await fetch(`${baseUrl}/development/getting-started`, {
       redirect: 'manual',
     });
     expect(res.status).toBe(308);
     const location = res.headers.get('location') || '';
     expect(location).toBe('/docs/getting-started');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
+  });
+
+  it('GET /docs/getting-started/channels returns a marked legacy redirect to /docs/channels/overview', async () => {
+    const res = await fetch(`${baseUrl}/docs/getting-started/channels`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    const location = res.headers.get('location') || '';
+    expect(location).toBe('/docs/channels/overview');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
   it('docs with missing file returns 404 (not a crash)', async () => {
@@ -106,8 +128,8 @@ describe('gateway docs HTTP integration', () => {
 
   // --- All markdown files render ---
 
-  it('every markdown file in docs/development/ renders as 200 HTML', async () => {
-    const docsDir = resolveInstallPath('docs', 'development');
+  it('every markdown file in docs/content/ renders as 200 HTML', async () => {
+    const docsDir = resolveInstallPath('docs', 'content');
 
     function collectMarkdownFiles(dir: string): string[] {
       const results: string[] = [];
@@ -135,7 +157,10 @@ describe('gateway docs HTTP integration', () => {
           `Expected 200 for ${urlPath} but got ${res.status}`,
         ).toBe(200);
         const html = await res.text();
-        expect(html.length, `Expected non-empty HTML for ${urlPath}`).toBeGreaterThan(0);
+        expect(
+          html.length,
+          `Expected non-empty HTML for ${urlPath}`,
+        ).toBeGreaterThan(0);
       }),
     );
   });
@@ -149,16 +174,16 @@ describe('gateway docs HTTP integration', () => {
 
     const expectedSections = [
       'getting-started',
+      'channels',
       'guides',
       'reference',
       'extensibility',
-      'internals',
+      'developer-guide',
     ];
     for (const section of expectedSections) {
-      expect(
-        html,
-        `Sidebar should contain a link for "${section}"`,
-      ).toContain(`/docs/${section}`);
+      expect(html, `Sidebar should contain a link for "${section}"`).toContain(
+        `/docs/${section}`,
+      );
     }
   });
 
@@ -178,7 +203,10 @@ describe('gateway docs HTTP integration', () => {
       linkMatch = linkRegex.exec(html);
     }
 
-    expect(links.size, 'Expected at least one internal /docs/ link').toBeGreaterThan(0);
+    expect(
+      links.size,
+      'Expected at least one internal /docs/ link',
+    ).toBeGreaterThan(0);
 
     await Promise.all(
       [...links].map(async (link) => {

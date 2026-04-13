@@ -50,6 +50,10 @@ In a second terminal:
 hybridclaw tui
 ```
 
+The local TUI shows a startup banner before the first prompt, opens an
+interactive approval picker for pending approvals, and prints a resumable
+session summary on exit.
+
 ## Open The Built-In Web Surfaces
 
 With the gateway running locally:

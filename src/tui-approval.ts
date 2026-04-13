@@ -61,3 +61,22 @@ export function parseTuiApprovalPrompt(
     ),
   };
 }
+
+export function isTuiApprovalRestatement(prompt: string): boolean {
+  const normalized = String(prompt || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  if (
+    normalized.includes('reply with one of:') &&
+    normalized.includes('yes for session') &&
+    normalized.includes('yes for agent') &&
+    normalized.includes('yes for all')
+  ) {
+    return true;
+  }
+  return (
+    normalized.includes('need your explicit approval first') ||
+    normalized.includes('need your approval first')
+  );
+}
