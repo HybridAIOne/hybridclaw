@@ -148,6 +148,32 @@ test('withTransportRetry fails fast on non-finite numeric config', async () => {
   ).rejects.toThrow('Retry values must be finite numbers');
 });
 
+test('withTransportRetry fails fast on non-integer numeric config', async () => {
+  const { retry } = await importFreshTransportRetry();
+
+  await expect(
+    retry.withTransportRetry('test.transport', async () => 'ok', {
+      maxAttempts: 2.5,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => true,
+    }),
+  ).rejects.toThrow('Retry values must be integers');
+});
+
+test('withTransportRetry fails fast on values below the required minimum', async () => {
+  const { retry } = await importFreshTransportRetry();
+
+  await expect(
+    retry.withTransportRetry('test.transport', async () => 'ok', {
+      maxAttempts: 0,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => true,
+    }),
+  ).rejects.toThrow('Retry values must be at least 1');
+});
+
 test('withTransportRetry fails fast on non-finite extracted retry delays', async () => {
   vi.useFakeTimers();
 
@@ -163,6 +189,23 @@ test('withTransportRetry fails fast on non-finite extracted retry delays', async
       extractRetryAfter: () => Number.POSITIVE_INFINITY,
     }),
   ).rejects.toThrow('Retry values must be finite numbers');
+});
+
+test('withTransportRetry fails fast on non-integer extracted retry delays', async () => {
+  vi.useFakeTimers();
+
+  const { retry } = await importFreshTransportRetry();
+  const run = vi.fn().mockRejectedValueOnce(new Error('transient'));
+
+  await expect(
+    retry.withTransportRetry('test.transport', run, {
+      maxAttempts: 2,
+      baseDelayMs: 100,
+      maxDelayMs: 1_000,
+      isRetryable: () => true,
+      extractRetryAfter: () => 12.5,
+    }),
+  ).rejects.toThrow('Retry values must be integers');
 });
 
 test('withTransportRetry does not retry non-retryable errors', async () => {

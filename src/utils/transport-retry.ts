@@ -19,7 +19,15 @@ function normalizeRetryValue(value: number, minimum: number): number {
       `Retry values must be finite numbers; received ${value}`,
     );
   }
-  return Math.max(minimum, Math.floor(value));
+  if (!Number.isInteger(value)) {
+    throw new RangeError(`Retry values must be integers; received ${value}`);
+  }
+  if (value < minimum) {
+    throw new RangeError(
+      `Retry values must be at least ${minimum}; received ${value}`,
+    );
+  }
+  return value;
 }
 
 export async function withTransportRetry<T>(
