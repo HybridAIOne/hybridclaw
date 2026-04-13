@@ -111,7 +111,7 @@ function resetMockState(): void {
   };
 }
 
-vi.mock('browser-use-sdk/v3', () => {
+function createMockBrowserUseModule() {
   class BrowserUse {
     browsers = {
       create: vi.fn(async (body: Record<string, unknown> = {}) => {
@@ -241,10 +241,11 @@ vi.mock('browser-use-sdk/v3', () => {
   return {
     BrowserUse,
   };
-});
+}
 
 async function importFreshProvider() {
   vi.resetModules();
+  vi.doMock('browser-use-sdk/v3', () => createMockBrowserUseModule());
   return await import('../container/src/browser-use-provider.js');
 }
 
@@ -252,6 +253,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.resetModules();
+  vi.doUnmock('browser-use-sdk/v3');
   resetMockState();
   if (tempRoot) {
     fs.rmSync(tempRoot, { recursive: true, force: true });

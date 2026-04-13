@@ -17,9 +17,11 @@ test('buildToolsSummary groups the full tool catalog', () => {
   expect(summary).toContain(
     '**Files**: `read`, `write`, `edit`, `delete`, `glob`, `grep`',
   );
-  expect(summary).toContain(
-    '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
-  );
+  expect(summary).toContain('**Browser**:');
+  expect(summary).toContain('`browser_navigate`');
+  expect(summary).toContain('`browser_agent_task`');
+  expect(summary).toContain('`browser_snapshot`');
+  expect(summary).toContain('`browser_click`');
   expect(summary).toContain(
     '**Web**: `web_search`, `web_fetch`, `web_extract`, `http_request`',
   );
