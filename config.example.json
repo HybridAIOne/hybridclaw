@@ -14,6 +14,7 @@
       "msteams": [],
       "slack": [],
       "telegram": [],
+      "voice": [],
       "whatsapp": [],
       "email": []
     }
@@ -156,6 +157,25 @@
     "sendReadReceipts": true,
     "ackReaction": "👀",
     "mediaMaxMb": 20
+  },
+  "voice": {
+    "enabled": false,
+    "provider": "twilio",
+    "twilio": {
+      "accountSid": "",
+      "authToken": "",
+      "fromNumber": ""
+    },
+    "relay": {
+      "ttsProvider": "default",
+      "voice": "",
+      "transcriptionProvider": "default",
+      "language": "en-US",
+      "interruptible": true,
+      "welcomeGreeting": "Hello! How can I help you today?"
+    },
+    "webhookPath": "/voice",
+    "maxConcurrentCalls": 8
   },
   "imessage": {
     "enabled": false,

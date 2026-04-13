@@ -223,6 +223,9 @@ test('resolveSessionResetChannelKind infers real channel kinds from channel ids'
   expect(resolveSessionResetChannelKind('imessage:peer@example.com')).toBe(
     'imessage',
   );
+  expect(resolveSessionResetChannelKind('voice:CA1234567890abcdef')).toBe(
+    'voice',
+  );
   expect(resolveSessionResetChannelKind('tui')).toBe('tui');
   expect(resolveSessionResetChannelKind('web')).toBe('web');
   expect(resolveSessionResetChannelKind('cli')).toBe('cli');

@@ -406,6 +406,15 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  voice?: {
+    enabled: boolean;
+    accountSidConfigured: boolean;
+    fromNumberConfigured: boolean;
+    authTokenConfigured: boolean;
+    authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    webhookPath: string;
+    maxConcurrentCalls: number;
+  };
   whatsapp?: {
     linked: boolean;
     jid: string | null;

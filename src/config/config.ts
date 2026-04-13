@@ -144,6 +144,11 @@ function syncRuntimeSecretExports(): void {
     'IMESSAGE_PASSWORD',
     storedSecrets,
   );
+  TWILIO_AUTH_TOKEN = readRuntimeSecretValue(
+    ['TWILIO_AUTH_TOKEN'],
+    'TWILIO_AUTH_TOKEN',
+    storedSecrets,
+  );
   MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
     ['MSTEAMS_APP_PASSWORD'],
     'MSTEAMS_APP_PASSWORD',
@@ -186,6 +191,7 @@ export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
 export let IMESSAGE_PASSWORD = '';
+export let TWILIO_AUTH_TOKEN = '';
 export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
@@ -300,6 +306,20 @@ export let WHATSAPP_DEBOUNCE_MS = 2_500;
 export let WHATSAPP_SEND_READ_RECEIPTS = true;
 export let WHATSAPP_ACK_REACTION = '';
 export let WHATSAPP_MEDIA_MAX_MB = 20;
+export let VOICE_ENABLED = false;
+export let VOICE_PROVIDER: RuntimeConfig['voice']['provider'] = 'twilio';
+export let VOICE_TWILIO_ACCOUNT_SID = '';
+export let VOICE_TWILIO_FROM_NUMBER = '';
+export let VOICE_RELAY_TTS_PROVIDER: RuntimeConfig['voice']['relay']['ttsProvider'] =
+  'default';
+export let VOICE_RELAY_VOICE = '';
+export let VOICE_RELAY_TRANSCRIPTION_PROVIDER: RuntimeConfig['voice']['relay']['transcriptionProvider'] =
+  'default';
+export let VOICE_RELAY_LANGUAGE = 'en-US';
+export let VOICE_RELAY_INTERRUPTIBLE = true;
+export let VOICE_RELAY_WELCOME_GREETING = 'Hello! How can I help you today?';
+export let VOICE_WEBHOOK_PATH = '/voice';
+export let VOICE_MAX_CONCURRENT_CALLS = 8;
 export let IMESSAGE_ENABLED = false;
 export let IMESSAGE_BACKEND: RuntimeConfig['imessage']['backend'] = 'local';
 export let IMESSAGE_CLI_PATH = 'imsg';
@@ -624,6 +644,24 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
   WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
   WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
+  VOICE_ENABLED = config.voice.enabled;
+  VOICE_PROVIDER = config.voice.provider;
+  VOICE_TWILIO_ACCOUNT_SID = config.voice.twilio.accountSid;
+  VOICE_TWILIO_FROM_NUMBER = config.voice.twilio.fromNumber;
+  TWILIO_AUTH_TOKEN =
+    readRuntimeSecretValue(
+      ['TWILIO_AUTH_TOKEN'],
+      'TWILIO_AUTH_TOKEN',
+      storedSecrets,
+    ) || config.voice.twilio.authToken;
+  VOICE_RELAY_TTS_PROVIDER = config.voice.relay.ttsProvider;
+  VOICE_RELAY_VOICE = config.voice.relay.voice;
+  VOICE_RELAY_TRANSCRIPTION_PROVIDER = config.voice.relay.transcriptionProvider;
+  VOICE_RELAY_LANGUAGE = config.voice.relay.language;
+  VOICE_RELAY_INTERRUPTIBLE = config.voice.relay.interruptible;
+  VOICE_RELAY_WELCOME_GREETING = config.voice.relay.welcomeGreeting;
+  VOICE_WEBHOOK_PATH = config.voice.webhookPath;
+  VOICE_MAX_CONCURRENT_CALLS = Math.max(1, config.voice.maxConcurrentCalls);
   IMESSAGE_ENABLED = config.imessage.enabled;
   IMESSAGE_BACKEND = config.imessage.backend;
   IMESSAGE_CLI_PATH = config.imessage.cliPath;

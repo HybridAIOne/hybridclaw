@@ -369,7 +369,7 @@ test('model list codex uses the current Codex models payload shape', async () =>
     config.local.backends.vllm.enabled = false;
   });
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&
@@ -647,6 +647,49 @@ test('getGatewayStatus includes Discord token status from runtime secrets', asyn
   expect(status.discord).toEqual({
     tokenConfigured: true,
     tokenSource: 'runtime-secrets',
+  });
+});
+
+test('getGatewayStatus includes voice Twilio credential status', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.TWILIO_AUTH_TOKEN;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  saveRuntimeSecrets({
+    TWILIO_AUTH_TOKEN: 'voice-auth-token',
+  });
+  updateRuntimeConfig((draft) => {
+    draft.voice.enabled = true;
+    draft.voice.twilio.accountSid = 'AC123';
+    draft.voice.twilio.fromNumber = '+14155550123';
+    draft.voice.twilio.authToken = '';
+    draft.voice.webhookPath = '/voice';
+    draft.voice.maxConcurrentCalls = 8;
+  });
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.voice).toEqual({
+    enabled: true,
+    accountSidConfigured: true,
+    fromNumberConfigured: true,
+    authTokenConfigured: true,
+    authTokenSource: 'runtime-secrets',
+    webhookPath: '/voice',
+    maxConcurrentCalls: 8,
   });
 });
 

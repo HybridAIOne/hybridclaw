@@ -681,7 +681,8 @@ export function resolveChannelType(
     source === 'imessage' ||
     source === 'whatsapp' ||
     source === 'email' ||
-    source === 'msteams'
+    source === 'msteams' ||
+    source === 'voice'
   ) {
     return source;
   }
@@ -690,7 +691,8 @@ export function resolveChannelType(
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
     inferredChannelType === 'whatsapp' ||
-    inferredChannelType === 'email'
+    inferredChannelType === 'email' ||
+    inferredChannelType === 'voice'
   ) {
     return inferredChannelType;
   }
@@ -2057,6 +2059,33 @@ function resolveGatewayPasswordStatus(params: {
   };
 }
 
+function resolveGatewayVoiceAuthStatus(params: {
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): Pick<
+  NonNullable<GatewayStatus['voice']>,
+  'authTokenConfigured' | 'authTokenSource'
+> {
+  const credential = resolveRuntimeCredentialStatus(
+    'TWILIO_AUTH_TOKEN',
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      authTokenConfigured: Boolean(credential.value),
+      authTokenSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    authTokenConfigured: Boolean(configValue),
+    authTokenSource: configValue ? 'config' : null,
+  };
+}
+
 function resolveGatewayTokenStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
@@ -3036,6 +3065,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     configValue: runtimeConfig.imessage.password,
     storedValue: storedSecrets.IMESSAGE_PASSWORD,
   });
+  const voiceAuth = resolveGatewayVoiceAuthStatus({
+    envValues: [process.env.TWILIO_AUTH_TOKEN],
+    configValue: runtimeConfig.voice.twilio.authToken,
+    storedValue: storedSecrets.TWILIO_AUTH_TOKEN,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -3069,6 +3103,19 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     telegram,
     email,
     imessage,
+    voice: {
+      enabled: runtimeConfig.voice.enabled,
+      accountSidConfigured: Boolean(
+        runtimeConfig.voice.twilio.accountSid.trim(),
+      ),
+      fromNumberConfigured: Boolean(
+        runtimeConfig.voice.twilio.fromNumber.trim(),
+      ),
+      authTokenConfigured: voiceAuth.authTokenConfigured,
+      authTokenSource: voiceAuth.authTokenSource,
+      webhookPath: runtimeConfig.voice.webhookPath,
+      maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
+    },
     whatsapp: {
       ...whatsappAuth,
       pairingQrText: whatsappPairing.pairingQrText,
