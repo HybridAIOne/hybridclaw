@@ -26,6 +26,10 @@ If you plan to run only on Ollama, LM Studio, llama.cpp, or vLLM, onboarding
 can skip the remote-provider steps and you can configure the backend later with
 `hybridclaw auth login local <backend> [model-id] ...`.
 
+If onboarding finds invalid JSON in `~/.hybridclaw/config.json`, it can offer
+to restore the last known-good saved config snapshot or roll back to a tracked
+revision before continuing.
+
 ## Start The Gateway
 
 ```bash
@@ -52,7 +56,7 @@ hybridclaw tui
 
 The local TUI shows a startup banner before the first prompt, opens an
 interactive approval picker for pending approvals, and prints a resumable
-session summary on exit.
+session summary with `hybridclaw tui --resume <sessionId>` on exit.
 
 ## Open The Built-In Web Surfaces
 
@@ -69,8 +73,8 @@ For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
 
 Use `/admin/channels` for transport setup and `/admin/agents` when you need to
-edit an agent's allowlisted workspace markdown files or restore a saved
-revision.
+edit an agent's allowlisted workspace markdown files, inspect saved revisions,
+or restore an earlier version.
 
 ## Ground A Prompt With Files Or Repo Context
 

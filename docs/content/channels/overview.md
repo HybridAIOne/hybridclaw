@@ -49,3 +49,13 @@ inbound attachments under one shared runtime directory:
 HybridClaw keeps the stored media filenames normalized, reuses the same
 runtime-safe path mapping across channels, and prunes expired cached files
 automatically.
+
+## Delivery And Startup Behavior
+
+- Email seeds a missing mailbox cursor from the current folder head, so the
+  first successful startup does not replay older inbox history as new inbound
+  traffic.
+- Retry-aware transports honor service-provided `Retry-After` delays during
+  transient delivery failures.
+- WhatsApp startup disables Baileys init queries that can trigger intermittent
+  `400`/`bad-request` responses during connect.

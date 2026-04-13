@@ -62,6 +62,21 @@ through the CLI, gateway commands, or background reload paths.
 Tracked routes are sanitized before storage so host-specific home paths do not
 leak into the saved revision metadata.
 
+## Recovery From Invalid Config Files
+
+If `~/.hybridclaw/config.json` becomes invalid JSON, HybridClaw records the
+load error and falls back to in-memory defaults until the file is repaired.
+
+Interactive `hybridclaw onboarding` and related local setup flows can then:
+
+- restore the last known-good saved config snapshot when one exists
+- otherwise roll back to the newest saved config revision from
+  `~/.hybridclaw/data/config-revisions.db`
+- otherwise tell you to repair `config.json` manually before rerunning setup
+
+Use `hybridclaw config revisions` any time you want to inspect or restore the
+saved revision history directly.
+
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,

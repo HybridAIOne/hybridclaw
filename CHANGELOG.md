@@ -10,10 +10,13 @@
 
 ### Changed
 
-- **Interactive TUI approval picker**: Local TUI approval requests open a
+- **Local TUI approval workflow**: Pending approvals in `hybridclaw tui` open a
   keyboard-driven picker with `Up`/`Down` navigation, `Enter` confirmation,
   number-key quick select, `Esc` to skip, and a text fallback for
   non-interactive terminals.
+- **Admin destructive-action confirmations**: Browser-based operator flows now
+  use explicit confirmation dialogs for destructive actions so restarts,
+  deletes, and similar changes require a deliberate confirm step.
 
 ### Fixed
 
@@ -25,6 +28,20 @@
   totals for the session or an explicit unavailable summary, and gateway
   history breakdowns resolve canonical TUI session ids consistently for
   tool/file counts.
+- **Invalid runtime-config recovery**: Interactive onboarding can restore the
+  last known-good saved config snapshot, or roll back to the newest saved
+  revision, when `config.json` becomes invalid JSON instead of leaving setup
+  stuck on in-memory defaults.
+- **Transport retry backoff**: Retry-aware channel transports honor
+  service-provided `Retry-After` delays and reject invalid retry values early
+  instead of silently retrying with bad timing.
+- **Email first-sync cursor handling**: The built-in email transport seeds a
+  missing mailbox cursor from the current mailbox head so old inbox mail is not
+  replayed as new traffic on first startup, while later restarts still deliver
+  mail that arrived while the gateway was offline.
+- **WhatsApp startup reliability**: The built-in WhatsApp transport disables
+  Baileys init queries that can trigger intermittent `400`/`bad-request`
+  failures during startup and pairing.
 
 ## [0.12.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.4)
 

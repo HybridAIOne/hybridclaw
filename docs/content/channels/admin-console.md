@@ -28,6 +28,8 @@ agent prompt-file editor lives at `/admin/agents`.
   runtime workspace
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
+- destructive admin actions use explicit browser confirmation dialogs before
+  HybridClaw applies the requested change
 
 Channel edits in `/admin/channels` write the same runtime config that
 `hybridclaw channels ... setup`, `hybridclaw auth login ...`, `/config set`,
@@ -45,6 +47,7 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to verify saved settings without editing `config.json` directly
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file
+- you want explicit browser confirmation before destructive operator actions
 - you want to restart a running gateway from `/admin/gateway` without
   switching back to the CLI
 

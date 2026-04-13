@@ -77,7 +77,7 @@ hybridclaw tui
 Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin` for channels, agent files,
+- Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, and config
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
@@ -93,10 +93,25 @@ operator and maintainer manual lives at
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
-- Admin Console: `http://127.0.0.1:9090/admin` for channels, agent files,
+- Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, and config
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+
+## Operator workflows
+
+- `/admin/agents` edits allowlisted bootstrap markdown files such as
+  `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
+  browser.
+- `hybridclaw tui` includes a keyboard-driven approval picker and prints a
+  ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
+- `hybridclaw onboarding` and related local setup flows can restore the last
+  known-good saved config snapshot or roll back to a tracked revision when
+  `config.json` becomes invalid.
+- Channel delivery stays predictable: email seeds its first mailbox cursor from
+  the current head instead of replaying old inbox mail, retry-aware transports
+  honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
+  init-query bad-request failures.
 
 ## How HybridClaw compares
 
@@ -132,7 +147,7 @@ Once the gateway is running, open HybridClaw locally:
 ## Built for real workflows
 
 - channels
-- versioned agent workspace prompt files
+- versioned agent workspace prompt files with saved revisions and restore
 - browser sessions
 - office docs
 - skills / plugins / MCP

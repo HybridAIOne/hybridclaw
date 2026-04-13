@@ -51,6 +51,9 @@ What this does:
 - switches to allowlisted DMs when one or more `--allow-from` values are
   provided
 - opens a temporary QR pairing session and prints the QR code in the terminal
+- disables Baileys init queries that can trigger intermittent
+  `400`/`bad-request` responses during startup while keeping normal message
+  delivery and pairing intact
 
 Local TUI or web chat can update the policy after pairing, but not perform the
 pairing itself:

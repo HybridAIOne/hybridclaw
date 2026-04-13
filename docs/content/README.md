@@ -26,21 +26,18 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- The admin console's Channels page centralizes transport status and
-  browser-based setup across Discord, Telegram, WhatsApp, email, Microsoft
-  Teams, and iMessage, including managed secrets and live WhatsApp pairing QR
-  display.
-- The gateway exposes a loopback OpenAI-compatible API at `/v1/models` and
-  `/v1/chat/completions` for local eval harnesses and OpenAI-compatible tools.
-- Built-in email delivery and the repo-shipped `brevo-email` plugin can
-  continue existing mail threads by forwarding explicit `inReplyTo` and
-  `references` Message-ID headers on outbound replies.
-- Provider and channel setup flows keep secrets hidden during interactive
-  prompts, and local `auth status` commands report sensitive credentials as
-  `configured` instead of echoing partial values.
-- `hybridclaw tui` follows the active sandbox mode from a reachable gateway
-  during preflight, which keeps host-mode MCP and containerized deployments
-  aligned.
+- `/admin/agents` lets operators edit allowlisted bootstrap markdown files for
+  each registered agent, inspect saved revisions, and restore an earlier
+  version from the browser.
+- `hybridclaw tui` combines the startup banner, keyboard-driven approval
+  picker, and resumable exit summary into one local operator workflow.
+- If `~/.hybridclaw/config.json` becomes invalid JSON, interactive onboarding
+  can restore the last known-good saved snapshot or roll back to a tracked
+  config revision before setup continues.
+- Built-in transport behavior is more predictable: email seeds its first
+  mailbox cursor from the current head instead of replaying old inbox mail,
+  retry-aware transports honor `Retry-After`, and WhatsApp startup avoids
+  intermittent init-query bad-request failures.
 
 ## Browse By Section
 
