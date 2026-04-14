@@ -5450,7 +5450,7 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
-  test('handles /approve always from the web chat path', async () => {
+  test('rejects /approve always from the web chat path', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(
       '../src/gateway/pending-approvals.js'
@@ -5486,15 +5486,10 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.handleGatewayCommand).not.toHaveBeenCalled();
-    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'session-web-approve',
-        content: 'yes approve-123 for session',
-      }),
-    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      result: 'Approved.',
+      result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
 

@@ -404,33 +404,14 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.decision).toBe('approved_session');
   });
 
-  test('"/approve always" preserves the legacy session-scoped trust behavior', () => {
+  test('"/approve always" is no longer treated as an approval alias', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    const originalPrompt = 'Write the report to a host file';
-    const argsJson = JSON.stringify({
-      command: 'touch /Users/example/report.txt',
-    });
-
-    const first = runtime.evaluateToolCall({
-      toolName: 'bash',
-      argsJson,
-      latestUserPrompt: originalPrompt,
-    });
-    expect(first.decision).toBe('required');
-
     const prelude = runtime.handleApprovalResponse([
       userMessage('/approve always'),
     ]);
-    expect(prelude?.approvalMode).toBe('session');
-
-    const second = runtime.evaluateToolCall({
-      toolName: 'bash',
-      argsJson,
-      latestUserPrompt: originalPrompt,
-    });
-    expect(second.decision).toBe('approved_session');
+    expect(prelude).toBeNull();
   });
 
   test('unlisted network access is implicit yellow by default', () => {

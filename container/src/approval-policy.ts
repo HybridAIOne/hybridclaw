@@ -199,7 +199,7 @@ const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const HOST_RE =
   /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
 const APPROVE_RE =
-  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+all|all|for\s+agent|agent))?$/i;
+  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 
 function isVoiceChannelId(value: string | undefined): boolean {
@@ -1163,7 +1163,6 @@ function parseModeFromApproveMatch(
   match: RegExpMatchArray | null,
 ): ApprovalMode {
   const scope = String(match?.[2] || '').toLowerCase();
-  if (scope.includes('always')) return 'session';
   if (scope.includes('all')) return 'all';
   if (scope.includes('agent')) return 'agent';
   if (scope.includes('session')) return 'session';

@@ -107,7 +107,6 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
 const APPROVAL_ACTION_CHOICES = [
   { name: 'view', value: 'view' },
   { name: 'yes', value: 'yes' },
-  { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
   { name: 'all', value: 'all' },
@@ -669,13 +668,6 @@ function buildSlashCommandCatalogDefinitions(
           label: '/approve yes [approval_id]',
           insertText: '/approve yes',
           description: 'Approve the pending request once',
-        },
-        {
-          id: 'approve.always',
-          label: '/approve always [approval_id]',
-          insertText: '/approve always',
-          description:
-            'Approve the pending request for the rest of the conversation',
         },
         {
           id: 'approve.session',

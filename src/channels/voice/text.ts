@@ -6,7 +6,7 @@ function normalizeVoiceApprovalCandidate(text: string): string {
     .trim()
     .toLowerCase()
     .replace(/[.,!?;:]+/g, ' ')
-    .replace(/\bfor\s+(?:a|an|the)\s+(session|agent|all|always)\b/g, 'for $1')
+    .replace(/\bfor\s+(?:a|an|the)\s+(session|agent|all)\b/g, 'for $1')
     .replace(/\bplease\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -23,12 +23,7 @@ export function normalizeVoiceUserTextForGateway(text: string): string {
   if (normalized === 'yes' || normalized === 'approve') {
     return 'yes';
   }
-  if (
-    normalized === 'yes for session' ||
-    normalized === 'yes for always' ||
-    normalized === 'for session' ||
-    normalized === 'for always'
-  ) {
+  if (normalized === 'yes for session' || normalized === 'for session') {
     return 'yes for session';
   }
   if (normalized === 'yes for agent' || normalized === 'for agent') {
