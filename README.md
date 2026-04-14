@@ -84,6 +84,18 @@ Open locally:
 
 Requirement: Node.js 22 (Docker recommended for sandbox)
 
+Desktop wrapper from source:
+
+```bash
+npm install
+npm run desktop
+```
+
+The Electron workspace opens the existing `/chat` surface in a native macOS
+window, exposes `/admin` from the app menu, reuses a running local gateway when
+available, and starts the bundled gateway automatically when it is not already
+listening on `http://127.0.0.1:9090`.
+
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives at
 [hybridclaw.io/docs](https://www.hybridclaw.io/docs/).

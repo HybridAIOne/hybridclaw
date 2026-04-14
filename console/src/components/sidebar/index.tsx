@@ -174,6 +174,7 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
   return (
     <aside
       className={styles.root}
+      data-hc-sidebar-root=""
       data-side={side}
       data-state={context.open ? 'expanded' : 'collapsed'}
     >
@@ -183,7 +184,11 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
 }
 
 export function SidebarHeader(props: { children: ReactNode }) {
-  return <div className={styles.header}>{props.children}</div>;
+  return (
+    <div className={styles.header} data-hc-sidebar-header="">
+      {props.children}
+    </div>
+  );
 }
 
 export function SidebarContent(props: { children: ReactNode }) {
@@ -199,7 +204,11 @@ export function SidebarInset(
 ) {
   const { className, children, ...rest } = props;
   return (
-    <main {...rest} className={cx(styles.inset, className)}>
+    <main
+      {...rest}
+      className={cx(styles.inset, className)}
+      data-hc-main-panel=""
+    >
       {children}
     </main>
   );
