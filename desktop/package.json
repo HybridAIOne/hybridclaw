@@ -21,9 +21,11 @@
     "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
   },
   "devDependencies": {
-    "appdmg": "0.6.6",
     "electron": "37.10.3",
     "electron-builder": "26.8.1"
+  },
+  "optionalDependencies": {
+    "appdmg": "0.6.6"
   },
   "build": {
     "appId": "com.hybridaione.hybridclaw.desktop",
