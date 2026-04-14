@@ -9,9 +9,9 @@ import type {
   NetworkRule,
 } from '../shared/network-policy.js';
 import {
+  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
-  asRecord,
   doesNetworkHostPatternExpandToSubdomains,
   normalizeNetworkAgent,
   normalizeNetworkHostScope,
@@ -269,9 +269,7 @@ function normalizeIntegerValue(raw: unknown, fallback: number): number {
 
 function normalizeStringList(raw: unknown): string[] {
   if (Array.isArray(raw)) {
-    return raw
-      .map((entry) => String(entry || '').trim())
-      .filter(Boolean);
+    return raw.map((entry) => String(entry || '').trim()).filter(Boolean);
   }
   if (typeof raw === 'string') {
     return raw

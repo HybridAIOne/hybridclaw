@@ -6,8 +6,10 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import { runPolicyCommand } from '../src/commands/policy-command.js';
 import { handlePolicyCommand } from '../src/policy/policy-cli.js';
-import { loadPolicyPreset } from '../src/policy/policy-presets.js';
-import { listPolicyPresetSummaries } from '../src/policy/policy-presets.js';
+import {
+  listPolicyPresetSummaries,
+  loadPolicyPreset,
+} from '../src/policy/policy-presets.js';
 import {
   readPolicyState,
   resolveWorkspacePolicyPath,
@@ -169,8 +171,12 @@ test('policy preset commands support list, dry-run, apply, and remove', () => {
 
 test('github preset allows common GitHub write methods', () => {
   const preset = loadPolicyPreset('github');
-  const githubApiRule = preset.rules.find((rule) => rule.host === 'api.github.com');
-  const githubSiteRule = preset.rules.find((rule) => rule.host === 'github.com');
+  const githubApiRule = preset.rules.find(
+    (rule) => rule.host === 'api.github.com',
+  );
+  const githubSiteRule = preset.rules.find(
+    (rule) => rule.host === 'github.com',
+  );
 
   expect(githubApiRule?.methods).toEqual([
     'GET',
@@ -274,9 +280,7 @@ test('policy preset add rejects path traversal names', () => {
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('Policy Command Failed');
-  expect(result.text).toBe(
-    'Invalid preset name: "../../../etc/passwd"',
-  );
+  expect(result.text).toBe('Invalid preset name: "../../../etc/passwd"');
 });
 
 test('policy presets load .yml files when no .yaml file exists', () => {
