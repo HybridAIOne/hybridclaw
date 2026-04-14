@@ -4,6 +4,10 @@ import path from 'node:path';
 import type { Readable } from 'node:stream';
 
 import * as yauzl from 'yauzl';
+import {
+  SkillImportNotFoundError as NotFoundError,
+  SkillImportError,
+} from './skill-errors.js';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const GITHUB_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
@@ -54,10 +58,6 @@ export interface GitHubSkillPathResolution {
   ref: string;
   requestedPath: string;
 }
-
-class SkillImportError extends Error {}
-
-class NotFoundError extends SkillImportError {}
 
 export function normalizeImportedSkillRelativePath(
   relativePath: string,
