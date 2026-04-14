@@ -19,9 +19,9 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email, or the web. Run it
-locally, deploy it for business workflows, and keep your agents, secrets, and
-data under your control.
+Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email,
+Twilio voice, or the web. Run it locally, deploy it for business workflows,
+and keep your agents, secrets, and data under your control.
 
 [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
 [Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
@@ -78,7 +78,7 @@ Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
 - Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, and config
+  scheduler, audit, config, and channel-specific instructions
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
@@ -94,7 +94,7 @@ Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, and config
+  scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
@@ -103,6 +103,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
+- `/admin/channels` edits transport config, encrypted channel credentials,
+  Twilio voice settings, and per-channel instructions that are injected into
+  prompts at runtime.
 - `hybridclaw tui` includes a keyboard-driven approval picker and prints a
   ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
 - `hybridclaw onboarding` and related local setup flows can restore the last
@@ -161,7 +164,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, an interactive approval picker for
@@ -191,6 +194,7 @@ Browse the full manual at
 - Channels:
   [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
   [Overview](https://www.hybridclaw.io/docs/channels/overview),
+  [Twilio Voice](https://www.hybridclaw.io/docs/guides/twilio-voice),
   [Discord](https://www.hybridclaw.io/docs/channels/discord),
   [Slack](https://www.hybridclaw.io/docs/channels/slack),
   [Telegram](https://www.hybridclaw.io/docs/channels/telegram),

@@ -22,12 +22,15 @@ If you are still in first-run onboarding mode, start with
 | Telegram | Fast private DM rollout with BotFather | `hybridclaw channels telegram setup ...` | [Telegram](./telegram.md) |
 | Email | Mailbox-driven workflows and threaded replies | `hybridclaw channels email setup ...` | [Email](./email.md) |
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
+| Twilio Voice | Phone calls when you already have a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
 | Microsoft Teams | Entra/Azure bot registration and HTTPS webhook delivery | `hybridclaw auth login msteams ...` | [Microsoft Teams](./msteams.md) |
 
 Slack and Microsoft Teams use `auth login` because they depend on app
-credentials. The other transports use `channels ... setup` because they save
+credentials. Most other transports use `channels ... setup` because they save
 channel-specific runtime config, pairing state, or a transport token directly.
+Twilio voice is currently configured from `/admin/channels` or direct config
+edits because it also depends on public webhook and relay URL settings.
 
 ## Shared Setup Surfaces
 

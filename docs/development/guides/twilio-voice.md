@@ -56,6 +56,9 @@ Minimal config:
 
 ```json
 {
+  "channelInstructions": {
+    "voice": "This is a live phone call. Produce plain spoken text only."
+  },
   "ops": {
     "gatewayBaseUrl": "https://voice.example.com"
   },
@@ -83,6 +86,9 @@ Minimal config:
 
 Notes:
 
+- `channelInstructions.voice` lets you tune voice-specific prompt guidance
+  without editing agent bootstrap files. Keep it short and spoken-language
+  focused.
 - `ops.gatewayBaseUrl` must be the public URL Twilio sees, not a local one.
 - `voice.webhookPath` controls the base path for:
   - `<webhookPath>/webhook`
@@ -96,16 +102,25 @@ Notes:
 
 HybridClaw expects the Twilio auth token in the encrypted runtime secret store.
 
-CLI:
-
-```bash
-hybridclaw gateway secret set TWILIO_AUTH_TOKEN your-real-token
-```
-
-TUI:
+Local TUI or local web chat:
 
 ```text
 /secret set TWILIO_AUTH_TOKEN your-real-token
+```
+
+Config file:
+
+```json
+{
+  "voice": {
+    "twilio": {
+      "authToken": {
+        "source": "store",
+        "id": "TWILIO_AUTH_TOKEN"
+      }
+    }
+  }
+}
 ```
 
 Admin console:
@@ -113,11 +128,15 @@ Admin console:
 1. open `/admin/channels`
 2. select `Voice`
 3. set `Twilio auth token`
-4. save
+4. optionally update `Channel instructions` for spoken-style rules such as
+   "keep replies short" or "do not read markdown aloud"
+5. save
 
 Important:
 
 - setting the secret updates the stored credential immediately
+- there is no top-level `hybridclaw secret ...` CLI yet; use `/secret set ...`,
+  `/admin/channels`, or a SecretRef-backed `voice.twilio.authToken` value
 - the voice runtime itself is safest after a gateway restart
 - if voice was previously disabled because the token was missing, do not assume
   it became active until the gateway has restarted and logged successful voice
