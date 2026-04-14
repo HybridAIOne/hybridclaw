@@ -68,16 +68,53 @@ export const MAC_WINDOW_CHROME_CSS = `
     padding-top: 44px !important;
   }
 
-  .workspace,
-  [data-hc-main-panel] {
+  :root[data-hc-desktop-route='agents'] .workspace,
+  :root[data-hc-desktop-route='agents'] [data-hc-main-panel],
+  :root[data-hc-desktop-route='admin'] [data-hc-main-panel] {
     position: relative;
-    padding-top: 56px !important;
     background: var(--page-bg, #ffffff) !important;
+  }
+
+  :root[data-hc-desktop-route='agents'] .workspace,
+  :root[data-hc-desktop-route='agents'] [data-hc-main-panel] {
+    padding-top: 24px !important;
+  }
+
+  :root[data-hc-desktop-route='admin'] [data-hc-main-panel] {
+    padding-top: 20px !important;
+  }
+
+  :root[data-hc-desktop-route='admin'] [data-hc-sidebar-root] {
+    box-sizing: border-box;
+    padding-top: 38px !important;
+  }
+
+  :root[data-hc-desktop-route='admin'] [data-hc-sidebar-header] {
+    padding-top: 4px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .hc-electron-drag-strip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1;
     -webkit-app-region: drag;
   }
 
-  .workspace *,
-  [data-hc-main-panel] * {
-    -webkit-app-region: no-drag;
+  :root[data-hc-desktop-route='agents'] .hc-electron-drag-strip {
+    height: 24px;
+  }
+
+  :root[data-hc-desktop-route='admin'] .hc-electron-drag-strip {
+    height: 20px;
+  }
+
+  :root[data-hc-desktop-route='agents'] .workspace > :not(.hc-electron-drag-strip),
+  :root[data-hc-desktop-route='agents'] [data-hc-main-panel] > :not(.hc-electron-drag-strip),
+  :root[data-hc-desktop-route='admin'] [data-hc-main-panel] > :not(.hc-electron-drag-strip) {
+    position: relative;
+    z-index: 2;
   }
 `;

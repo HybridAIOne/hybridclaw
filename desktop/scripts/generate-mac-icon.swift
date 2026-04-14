@@ -251,7 +251,7 @@ func makeDmgBackground(size: CGSize, markImage: NSImage) -> NSImage? {
     )
     let subtitlePoint = CGPoint(
       x: leftMargin,
-      y: size.height - (86 * scale)
+      y: size.height - (124 * scale)
     )
     let arrowText = "\u{2192}"
     let arrowFont = NSFont.systemFont(ofSize: 92 * scale, weight: .bold)
@@ -261,7 +261,7 @@ func makeDmgBackground(size: CGSize, markImage: NSImage) -> NSImage? {
     ]
     let arrowSize = arrowText.size(withAttributes: arrowAttributes)
     let arrowPoint = CGPoint(
-      x: ((size.width - arrowSize.width) / 2).rounded(),
+      x: (((size.width - arrowSize.width) / 2) - (86 * scale)).rounded(),
       y: (142 * scale).rounded()
     )
 

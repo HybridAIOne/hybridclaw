@@ -22,6 +22,10 @@ describe('MAC_WINDOW_CHROME_CSS', () => {
   it('adds a dedicated drag strip for agents and admin content panes', () => {
     expect(MAC_WINDOW_CHROME_CSS).toContain('.workspace');
     expect(MAC_WINDOW_CHROME_CSS).toContain('[data-hc-main-panel]');
-    expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 56px');
+    expect(MAC_WINDOW_CHROME_CSS).toContain('.hc-electron-drag-strip');
+    expect(MAC_WINDOW_CHROME_CSS).toContain("data-hc-desktop-route='agents'");
+    expect(MAC_WINDOW_CHROME_CSS).toContain("data-hc-desktop-route='admin'");
+    expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 24px');
+    expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 20px');
   });
 });

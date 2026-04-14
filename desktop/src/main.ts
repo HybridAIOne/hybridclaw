@@ -97,6 +97,38 @@ function syncWindowRouteFromUrl(window: BrowserWindow, targetUrl: string): void 
   setWindowRoute(window, route);
 }
 
+async function syncWindowChrome(
+  window: BrowserWindow,
+  targetUrl: string,
+): Promise<void> {
+  const route = routeForUrl(targetUrl, gateway.baseUrl) ?? windowRoutes.get(window);
+  if (!route || window.isDestroyed()) return;
+
+  try {
+    await window.webContents.executeJavaScript(
+      `(() => {
+        const route = ${JSON.stringify(route)};
+        document.documentElement.dataset.hcDesktopRoute = route;
+
+        for (const existing of document.querySelectorAll('.hc-electron-drag-strip')) {
+          existing.remove();
+        }
+
+        for (const panel of document.querySelectorAll('[data-hc-main-panel], .workspace')) {
+          if (!(panel instanceof HTMLElement)) continue;
+          const strip = document.createElement('div');
+          strip.className = 'hc-electron-drag-strip';
+          strip.setAttribute('aria-hidden', 'true');
+          panel.prepend(strip);
+        }
+      })();`,
+      true,
+    );
+  } catch {
+    // Ignore transient navigation races while the page is reloading.
+  }
+}
+
 function readRuntimeVersion(root: string): string {
   const packageJsonPath = path.join(root, 'package.json');
   try {
@@ -390,13 +422,20 @@ function createWindow(
   window.webContents.on('did-finish-load', () => {
     if (process.platform === 'darwin') {
       void window.webContents.insertCSS(MAC_WINDOW_CHROME_CSS);
+      void syncWindowChrome(window, window.webContents.getURL());
     }
   });
   window.webContents.on('did-navigate', (_event, url) => {
     syncWindowRouteFromUrl(window, url);
+    if (process.platform === 'darwin') {
+      void syncWindowChrome(window, url);
+    }
   });
   window.webContents.on('did-navigate-in-page', (_event, url) => {
     syncWindowRouteFromUrl(window, url);
+    if (process.platform === 'darwin') {
+      void syncWindowChrome(window, url);
+    }
   });
 
   const handleWindowOpen = (target: string): boolean => {
@@ -551,9 +590,7 @@ app.on('before-quit', () => {
   gateway.requestStop();
 });
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 process.on('exit', () => {
