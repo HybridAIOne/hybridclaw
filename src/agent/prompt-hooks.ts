@@ -1,5 +1,9 @@
 import os from 'node:os';
-import type { ChannelInfo } from '../channels/channel.js';
+import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
+import {
+  getChannelByContextId,
+  normalizeChannelKind,
+} from '../channels/channel-registry.js';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
   APP_VERSION,
@@ -9,6 +13,7 @@ import {
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
+  type RuntimeChannelInstructionsConfig,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -545,6 +550,7 @@ function buildProactivityHook(context: PromptHookContext): string {
 
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
+  const runtimeConfig = getRuntimeConfig();
   const model = sanitizePromptInlineValue(runtimeInfo.model) || HYBRIDAI_MODEL;
   const provider = sanitizePromptInlineValue(resolveModelProvider(model));
   if (!provider) {
@@ -560,6 +566,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
     formatRuntimeModelForPrompt(model, provider),
   );
   const modelSentence = `Model: ${formattedModel} served through ${provider}`;
+  const channelInstructions = buildChannelInstructions(
+    runtimeInfo,
+    runtimeConfig.channelInstructions,
+  );
 
   const lines = [
     '## Runtime Metadata',
@@ -583,9 +593,51 @@ function buildRuntimeHook(context: PromptHookContext): string {
     'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
+    ...(channelInstructions
+      ? ['', '## Channel Instructions', channelInstructions]
+      : []),
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function resolvePromptChannelKind(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+): ChannelKind | undefined {
+  if (runtimeInfo?.channel?.kind) {
+    return runtimeInfo.channel.kind;
+  }
+  const explicitKind = normalizeChannelKind(runtimeInfo?.channelType);
+  if (explicitKind) {
+    return explicitKind;
+  }
+  return getChannelByContextId(runtimeInfo?.channelId)?.kind;
+}
+
+function isChannelInstructionKind(
+  kind: ChannelKind | undefined,
+): kind is keyof RuntimeChannelInstructionsConfig {
+  return (
+    kind === 'discord' ||
+    kind === 'msteams' ||
+    kind === 'slack' ||
+    kind === 'telegram' ||
+    kind === 'voice' ||
+    kind === 'whatsapp' ||
+    kind === 'email' ||
+    kind === 'imessage'
+  );
+}
+
+function buildChannelInstructions(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+  config: RuntimeChannelInstructionsConfig,
+): string {
+  const kind = resolvePromptChannelKind(runtimeInfo);
+  if (!isChannelInstructionKind(kind)) {
+    return '';
+  }
+  return String(config[kind] || '').trim();
 }
 
 function formatRuntimeModelForPrompt(model: string, provider: string): string {

@@ -49,7 +49,7 @@ export function parseTuiApprovalPrompt(
     intent,
     reason,
     allowSession: lines.some((line) =>
-      /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
+      /^Reply `yes for session` to trust this action for this session\.$/.test(
         line,
       ),
     ),

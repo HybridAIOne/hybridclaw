@@ -95,9 +95,6 @@ export function mapTuiApproveSlashToMessage(
   if (!approvalId) return { kind: 'missing-approval' };
   if (action === 'yes')
     return { kind: 'message', message: `yes ${approvalId}` };
-  if (action === 'always') {
-    return { kind: 'message', message: `yes ${approvalId} for session` };
-  }
   if (isApprovalScopeMode(action) && action !== 'once') {
     return { kind: 'message', message: `yes ${approvalId} for ${action}` };
   }

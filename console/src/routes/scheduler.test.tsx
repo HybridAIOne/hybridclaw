@@ -120,6 +120,17 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enableRag: true,
       models: ['gpt-5'],
     },
+    channelInstructions: {
+      discord: '',
+      msteams: '',
+      slack: '',
+      telegram: '',
+      voice:
+        'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
+      whatsapp: '',
+      email: '',
+      imessage: '',
+    },
     discord: {
       commandsOnly: false,
       groupPolicy: 'open',
@@ -147,6 +158,25 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    voice: {
+      enabled: false,
+      provider: 'twilio',
+      twilio: {
+        accountSid: '',
+        authToken: '',
+        fromNumber: '',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
     },
     whatsapp: {
       dmPolicy: 'disabled',

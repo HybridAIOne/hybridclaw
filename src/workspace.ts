@@ -36,11 +36,20 @@ const DEFAULT_POLICY_TEMPLATE = `approval:
     - pattern: "rm -rf /"
     - paths: ["~/.ssh/**", "/etc/**", ".env*"]
     - tools: ["force_push"]
-  trusted_network_hosts: ["hybridclaw.io"]
-
   workspace_fence: true
   max_pending_approvals: 3
   approval_timeout_secs: 120
+
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "hybridclaw.io"
+      port: 443
+      methods: ["*"]
+      paths: ["/**"]
+      agent: "*"
+  presets: []
 
 audit:
   log_all_red: true

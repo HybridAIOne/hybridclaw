@@ -389,9 +389,7 @@ function mapApprovalSelectionToCommand(
   if (
     options.includes('session') &&
     (normalized === 'session' ||
-      normalized === 'always' ||
       normalized === 'yes for session' ||
-      normalized === 'yes for always' ||
       normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
@@ -421,10 +419,8 @@ function mapApprovalSelectionToCommand(
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
   return (
-    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
-      normalized,
-    ) ||
-    /^\/approve\s+(yes|once|always|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
+    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|agent))?$/.test(normalized) ||
+    /^\/approve\s+(yes|once|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
       normalized,
     )
   );
@@ -435,12 +431,13 @@ function normalizeApprovalReplayForGateway(content: string): string {
   if (normalized.startsWith('/approve')) {
     return normalized;
   }
-  const allowMatch =
-    /^yes\s+(\S+)(?:\s+for\s+(session|always|agent|all))?$/iu.exec(normalized);
+  const allowMatch = /^yes\s+(\S+)(?:\s+for\s+(session|agent|all))?$/iu.exec(
+    normalized,
+  );
   if (allowMatch) {
     const approvalId = allowMatch[1];
     const mode = (allowMatch[2] || '').toLowerCase();
-    if (mode === 'session' || mode === 'always') {
+    if (mode === 'session') {
       return `/approve session ${approvalId}`;
     }
     if (mode === 'agent') {

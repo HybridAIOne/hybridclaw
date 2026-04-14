@@ -1,22 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
+const makeTempDir = useTempDir();
 
 describe('native media injection', () => {
   test('injects native audio parts for vllm when no transcript is present', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
-    tempDirs.push(tempDir);
+    const tempDir = makeTempDir('hybridclaw-wa-');
     const audioPath = path.join(tempDir, 'voice-note.ogg');
     fs.writeFileSync(audioPath, 'voice-bytes', 'utf-8');
 
@@ -69,8 +61,7 @@ describe('native media injection', () => {
   });
 
   test('skips native audio injection when a transcript was already prepended', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
-    tempDirs.push(tempDir);
+    const tempDir = makeTempDir('hybridclaw-wa-');
     const audioPath = path.join(tempDir, 'voice-note.ogg');
     fs.writeFileSync(audioPath, 'voice-bytes', 'utf-8');
 

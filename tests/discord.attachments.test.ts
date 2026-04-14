@@ -1,32 +1,20 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
+const makeTempDataDir = useTempDir('hybridclaw-discord-attachments-');
 
-function makeTempDataDir(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-discord-attachments-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/channels/discord/discord-cdn-fetch.js');
-  vi.doUnmock('../src/config/config.ts');
-  vi.doUnmock('../src/logger.js');
-  vi.resetModules();
-
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unstubAllGlobals: true,
+  unmock: [
+    '../src/channels/discord/discord-cdn-fetch.js',
+    '../src/config/config.ts',
+    '../src/logger.js',
+  ],
 });
 
 describe('buildAttachmentContext', () => {
