@@ -1,4 +1,4 @@
-import { type SidebarNavItem, SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
+import { SIDEBAR_NAV_GROUPS, type SidebarNavItem } from './sidebar/navigation';
 
 type AdminNavItemSummary = Pick<SidebarNavItem, 'to' | 'label'>;
 

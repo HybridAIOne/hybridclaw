@@ -18,6 +18,7 @@ import {
   SidebarTrigger,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
+
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 type AppShellConfigContextValue = {
