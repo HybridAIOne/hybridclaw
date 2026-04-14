@@ -17,6 +17,7 @@ export { LogOut } from './LogOut';
 export { Menu } from './Menu';
 export { Models } from './Models';
 export { Plugins } from './Plugins';
+export { Policy } from './Policy';
 export { Scheduler } from './Scheduler';
 export { Sessions } from './Sessions';
 export { Skills } from './Skills';

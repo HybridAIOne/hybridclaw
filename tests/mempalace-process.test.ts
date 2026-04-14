@@ -1,22 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
+const makeTempDir = useTempDir();
 
 test('runMempalace reports when stderr output was truncated on non-zero exit', async () => {
   const cwd = makeTempDir('hybridclaw-mempalace-process-');

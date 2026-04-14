@@ -1,21 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
-
+import { expect, test } from 'vitest';
 import {
   resolveAllowedHostMediaPath,
   type ValidatedMountAlias,
 } from '../src/security/media-paths.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function writeFile(root: string, relativePath: string): string {
   const filePath = path.join(root, relativePath);
@@ -27,13 +20,6 @@ function writeFile(root: string, relativePath: string): string {
 function canonicalPath(filePath: string): string {
   return fs.realpathSync(filePath);
 }
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 function buildParams(
   overrides: Partial<{

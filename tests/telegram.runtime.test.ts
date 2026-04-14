@@ -1,15 +1,7 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 async function importFreshTelegramRuntime() {
   vi.resetModules();
@@ -127,22 +119,18 @@ async function importFreshTelegramRuntime() {
   };
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('../src/config/config.js');
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/channels/channel-registry.js');
-  vi.doUnmock('../src/channels/telegram/api.js');
-  vi.doUnmock('../src/channels/telegram/delivery.js');
-  vi.doUnmock('../src/channels/telegram/inbound.js');
-  vi.doUnmock('../src/channels/telegram/typing.js');
-  vi.resetModules();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unmock: [
+    '../src/config/config.js',
+    '../src/logger.js',
+    '../src/channels/channel-registry.js',
+    '../src/channels/telegram/api.js',
+    '../src/channels/telegram/delivery.js',
+    '../src/channels/telegram/inbound.js',
+    '../src/channels/telegram/typing.js',
+  ],
 });
 
 test('aborts in-flight Telegram handlers during shutdown', async () => {

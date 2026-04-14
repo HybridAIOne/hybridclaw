@@ -1,25 +1,19 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const originalCwd = process.cwd();
-const tempDirs: string[] = [];
 
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
-afterEach(() => {
-  process.chdir(originalCwd);
-  vi.resetModules();
-  vi.unstubAllEnvs();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    process.chdir(originalCwd);
+  },
+  restoreAllMocks: false,
+  resetModules: true,
+  unstubAllEnvs: true,
 });
 
 describe('instruction integrity', () => {

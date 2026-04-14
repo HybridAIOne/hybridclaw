@@ -1,29 +1,15 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
+const makeTempRoot = useTempDir('hybridclaw-managed-temp-');
 
-function makeTempRoot(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-managed-temp-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('../src/logger.js');
-  vi.resetModules();
-
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { force: true, recursive: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unmock: ['../src/logger.js'],
 });
 
 describe('managed temp media helpers', () => {

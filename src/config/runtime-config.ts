@@ -87,6 +87,23 @@ export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
+const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
+  'This is a live phone call. Produce plain spoken text only.',
+  'Keep each reply short and conversational, usually one or two short sentences.',
+  'Absolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.',
+  'Do not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.',
+  'Do not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.',
+].join('\n');
+const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
+  discord: '',
+  msteams: '',
+  slack: '',
+  telegram: '',
+  voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
+  whatsapp: '',
+  email: '',
+  imessage: '',
+};
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -353,6 +370,37 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export type RuntimeVoiceProvider = 'twilio';
+export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
+export type RuntimeVoiceRelayTranscriptionProvider =
+  | 'deepgram'
+  | 'default'
+  | 'google';
+
+export interface RuntimeVoiceTwilioConfig {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+}
+
+export interface RuntimeVoiceRelayConfig {
+  ttsProvider: RuntimeVoiceRelayTtsProvider;
+  voice: string;
+  transcriptionProvider: RuntimeVoiceRelayTranscriptionProvider;
+  language: string;
+  interruptible: boolean;
+  welcomeGreeting: string;
+}
+
+export interface RuntimeVoiceConfig {
+  enabled: boolean;
+  provider: RuntimeVoiceProvider;
+  twilio: RuntimeVoiceTwilioConfig;
+  relay: RuntimeVoiceRelayConfig;
+  webhookPath: string;
+  maxConcurrentCalls: number;
+}
+
 export interface RuntimeSlackConfig {
   enabled: boolean;
   groupPolicy: SlackGroupPolicy;
@@ -412,6 +460,17 @@ export interface RuntimeEmailConfig {
   allowFrom: string[];
   textChunkLimit: number;
   mediaMaxMb: number;
+}
+
+export interface RuntimeChannelInstructionsConfig {
+  discord: string;
+  msteams: string;
+  slack: string;
+  telegram: string;
+  voice: string;
+  whatsapp: string;
+  email: string;
+  imessage: string;
 }
 
 export interface RuntimeSchedulerJob {
@@ -476,6 +535,7 @@ export interface RuntimeConfig {
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
+  channelInstructions: RuntimeChannelInstructionsConfig;
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -510,6 +570,7 @@ export interface RuntimeConfig {
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
+  voice: RuntimeVoiceConfig;
   imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
   hybridai: {
@@ -765,6 +826,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       authRules: [],
     },
   },
+  channelInstructions: {
+    ...DEFAULT_CHANNEL_INSTRUCTIONS,
+  },
   plugins: {
     list: [],
   },
@@ -909,6 +973,25 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     sendReadReceipts: true,
     ackReaction: '👀',
     mediaMaxMb: 20,
+  },
+  voice: {
+    enabled: false,
+    provider: 'twilio',
+    twilio: {
+      accountSid: '',
+      authToken: '',
+      fromNumber: '',
+    },
+    relay: {
+      ttsProvider: 'default',
+      voice: '',
+      transcriptionProvider: 'default',
+      language: 'en-US',
+      interruptible: true,
+      welcomeGreeting: 'Hello! How can I help you today?',
+    },
+    webhookPath: '/voice',
+    maxConcurrentCalls: 8,
   },
   imessage: {
     enabled: false,
@@ -1198,6 +1281,7 @@ const SECRET_INPUT_PATHS = [
   'email.password',
   'imessage.password',
   'telegram.botToken',
+  'voice.twilio.authToken',
   'local.backends.vllm.apiKey',
 ] as const;
 type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
@@ -1949,6 +2033,50 @@ function normalizeIMessageBackend(
   return fallback;
 }
 
+function normalizeVoiceProvider(
+  value: unknown,
+  fallback: RuntimeVoiceProvider,
+): RuntimeVoiceProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'twilio') {
+    return 'twilio';
+  }
+  return fallback;
+}
+
+function normalizeVoiceRelayTtsProvider(
+  value: unknown,
+  fallback: RuntimeVoiceRelayTtsProvider,
+): RuntimeVoiceRelayTtsProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'default' ||
+    normalized === 'google' ||
+    normalized === 'amazon'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeVoiceRelayTranscriptionProvider(
+  value: unknown,
+  fallback: RuntimeVoiceRelayTranscriptionProvider,
+): RuntimeVoiceRelayTranscriptionProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'default' ||
+    normalized === 'google' ||
+    normalized === 'deepgram'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeIMessageDmPolicy(
   value: unknown,
   fallback: IMessageDmPolicy,
@@ -2107,6 +2235,100 @@ function normalizeSlackConfig(
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,
+    }),
+  };
+}
+
+function normalizeVoiceConfig(
+  value: unknown,
+  fallback: RuntimeVoiceConfig,
+  opts?: {
+    authToken?: unknown;
+  },
+): RuntimeVoiceConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
+  const rawRelay = isRecord(raw.relay) ? raw.relay : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    provider: normalizeVoiceProvider(raw.provider, fallback.provider),
+    twilio: {
+      accountSid: normalizeString(
+        rawTwilio.accountSid,
+        fallback.twilio.accountSid,
+        { allowEmpty: true },
+      ),
+      authToken: normalizeString(
+        opts?.authToken ?? rawTwilio.authToken,
+        fallback.twilio.authToken,
+        { allowEmpty: true },
+      ),
+      fromNumber: normalizeString(
+        rawTwilio.fromNumber,
+        fallback.twilio.fromNumber,
+        { allowEmpty: true },
+      ),
+    },
+    relay: {
+      ttsProvider: normalizeVoiceRelayTtsProvider(
+        rawRelay.ttsProvider,
+        fallback.relay.ttsProvider,
+      ),
+      voice: normalizeString(rawRelay.voice, fallback.relay.voice, {
+        allowEmpty: true,
+      }),
+      transcriptionProvider: normalizeVoiceRelayTranscriptionProvider(
+        rawRelay.transcriptionProvider,
+        fallback.relay.transcriptionProvider,
+      ),
+      language: normalizeString(rawRelay.language, fallback.relay.language, {
+        allowEmpty: false,
+      }),
+      interruptible: normalizeBoolean(
+        rawRelay.interruptible,
+        fallback.relay.interruptible,
+      ),
+      welcomeGreeting: normalizeString(
+        rawRelay.welcomeGreeting,
+        fallback.relay.welcomeGreeting,
+        { allowEmpty: false },
+      ),
+    },
+    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
+    maxConcurrentCalls: normalizeInteger(
+      raw.maxConcurrentCalls,
+      fallback.maxConcurrentCalls,
+      {
+        min: 1,
+        max: 128,
+      },
+    ),
+  };
+}
+
+function normalizeChannelInstructionsConfig(
+  value: unknown,
+  fallback: RuntimeChannelInstructionsConfig,
+): RuntimeChannelInstructionsConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    discord: normalizeString(raw.discord, fallback.discord, {
+      allowEmpty: true,
+    }),
+    msteams: normalizeString(raw.msteams, fallback.msteams, {
+      allowEmpty: true,
+    }),
+    slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
+    telegram: normalizeString(raw.telegram, fallback.telegram, {
+      allowEmpty: true,
+    }),
+    voice: normalizeString(raw.voice, fallback.voice, { allowEmpty: true }),
+    whatsapp: normalizeString(raw.whatsapp, fallback.whatsapp, {
+      allowEmpty: true,
+    }),
+    email: normalizeString(raw.email, fallback.email, { allowEmpty: true }),
+    imessage: normalizeString(raw.imessage, fallback.imessage, {
+      allowEmpty: true,
     }),
   };
 }
@@ -3027,6 +3249,11 @@ function getSecretInputFromSource(
       ? telegram.botToken
       : undefined;
   }
+  if (secretPath === 'voice.twilio.authToken') {
+    const voice = isRecord(source.voice) ? source.voice : null;
+    const twilio = voice && isRecord(voice.twilio) ? voice.twilio : null;
+    return twilio && hasOwn(twilio, 'authToken') ? twilio.authToken : undefined;
+  }
 
   const local = isRecord(source.local) ? source.local : null;
   const backends = local && isRecord(local.backends) ? local.backends : null;
@@ -3065,6 +3292,14 @@ function setSecretInputOnSource(
     const telegram = isRecord(source.telegram) ? source.telegram : {};
     source.telegram = telegram;
     telegram.botToken = value;
+    return;
+  }
+  if (secretPath === 'voice.twilio.authToken') {
+    const voice = isRecord(source.voice) ? source.voice : {};
+    source.voice = voice;
+    const twilio = isRecord(voice.twilio) ? voice.twilio : {};
+    voice.twilio = twilio;
+    twilio.authToken = value;
     return;
   }
 
@@ -3467,11 +3702,15 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawChannelInstructions = isRecord(raw.channelInstructions)
+    ? raw.channelInstructions
+    : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawVoice = isRecord(raw.voice) ? raw.voice : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
@@ -3575,6 +3814,10 @@ function normalizeRuntimeConfig(
     rawEmail.enabled,
     DEFAULT_RUNTIME_CONFIG.email.enabled,
   );
+  const voiceEnabled = normalizeBoolean(
+    rawVoice.enabled,
+    DEFAULT_RUNTIME_CONFIG.voice.enabled,
+  );
   const imessageEnabled = normalizeBoolean(
     rawIMessage.enabled,
     DEFAULT_RUNTIME_CONFIG.imessage.enabled,
@@ -3613,6 +3856,14 @@ function normalizeRuntimeConfig(
     {
       path: 'email.password',
       required: isSecretRefInput(rawEmail.password) && emailEnabled,
+    },
+  );
+  const rawVoiceTwilio = isRecord(rawVoice.twilio) ? rawVoice.twilio : {};
+  const resolvedVoiceAuthToken = resolveConfiguredSecretInput(
+    rawVoiceTwilio.authToken,
+    {
+      path: 'voice.twilio.authToken',
+      required: isSecretRefInput(rawVoiceTwilio.authToken) && voiceEnabled,
     },
   );
   const resolvedVllmApiKey = resolveConfiguredSecretInput(
@@ -3755,6 +4006,10 @@ function normalizeRuntimeConfig(
         ),
       },
     },
+    channelInstructions: normalizeChannelInstructionsConfig(
+      rawChannelInstructions,
+      DEFAULT_RUNTIME_CONFIG.channelInstructions,
+    ),
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
       DEFAULT_RUNTIME_CONFIG.plugins,
@@ -3930,6 +4185,9 @@ function normalizeRuntimeConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
     ),
+    voice: normalizeVoiceConfig(rawVoice, DEFAULT_RUNTIME_CONFIG.voice, {
+      authToken: resolvedVoiceAuthToken,
+    }),
     imessage: normalizeIMessageConfig(
       rawIMessage,
       DEFAULT_RUNTIME_CONFIG.imessage,

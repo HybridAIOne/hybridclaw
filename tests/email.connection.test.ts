@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const BASE_EMAIL_CONFIG = {
   enabled: true,
@@ -19,26 +19,17 @@ const BASE_EMAIL_CONFIG = {
   mediaMaxMb: 20,
 };
 
-const tempDirs: string[] = [];
+const makeTempDir = useTempDir();
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.doUnmock('imapflow');
-  vi.doUnmock('../src/config/config.js');
-  while (tempDirs.length > 0) {
-    const tempDir = tempDirs.pop();
-    if (!tempDir) continue;
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unmock: ['imapflow', '../src/config/config.js'],
 });
 
 describe('email connection manager', () => {
   test('seeds a missing cursor from the current mailbox head and only processes later UIDs', async () => {
-    const dataDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-email-connection-'),
-    );
-    tempDirs.push(dataDir);
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
 
     let mailboxUids = [1, 2];
     let uidNext = 3;
@@ -125,10 +116,7 @@ describe('email connection manager', () => {
   });
 
   test('resumes from a saved cursor and processes messages that arrived while offline', async () => {
-    const dataDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-email-connection-'),
-    );
-    tempDirs.push(dataDir);
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
 
     const cursorStatePath = path.join(
       dataDir,

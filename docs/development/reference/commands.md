@@ -14,6 +14,8 @@ hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=co
 hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway memory inspect [sessionId]
@@ -52,6 +54,9 @@ recent raw history, compacted `session_summary`, recent semantic-memory rows,
 and canonical cross-session recall state.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
+`gateway voice info` reports the current local Twilio voice setup, and
+`gateway voice call <number>` places an outbound call through the configured
+Twilio account.
 
 ## Local Eval Workflows
 
@@ -164,6 +169,8 @@ hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@use
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
@@ -172,6 +179,9 @@ Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
 because they need app credentials rather than a local pairing flow. For the
 step-by-step setup guide, see
 [Getting Started: Channel Setup](../getting-started/channels.md).
+Twilio voice is configured through `/admin/channels` or direct `voice.*`
+config keys, then inspected or used for outbound dialing with
+`hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see the same guide for channel-specific
 examples and current CLI-only limitations such as WhatsApp pairing.
@@ -292,6 +302,8 @@ the same gateway command surface used by TUI and web chat.
   the built-in memory layers for the current or an explicit session id
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
+  for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`

@@ -38,7 +38,15 @@ function resolveRuntimeChannel(
   }
   const channelType = normalizeChannelValue(runtimeInfo?.channelType);
   if (channelType) {
-    return getChannel(channelType);
+    const registeredChannel = getChannel(channelType);
+    if (registeredChannel) {
+      return registeredChannel;
+    }
+    const inferredChannel = getChannelByContextId(runtimeInfo?.channelId);
+    if (inferredChannel?.kind === channelType) {
+      return inferredChannel;
+    }
+    return undefined;
   }
   const channelId = normalizeValue(runtimeInfo?.channelId);
   if (!channelId) return undefined;
