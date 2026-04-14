@@ -1,9 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-} from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -16,12 +11,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from './index';
-
-// jsdom does not implement the Web Animations API.
-// Polyfill getAnimations so the hook in useAnimationsFinished works.
-if (!HTMLElement.prototype.getAnimations) {
-  HTMLElement.prototype.getAnimations = () => [];
-}
 
 function TestDialog(props: { onConfirm?: () => void }) {
   const [open, setOpen] = useState(false);

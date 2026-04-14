@@ -8,12 +8,6 @@ import {
   within,
 } from '@testing-library/react';
 
-// jsdom does not implement the Web Animations API.
-// Polyfill getAnimations so DialogContent's useAnimationsFinished hook works
-// when a modal dialog (e.g. the logout confirmation) closes in tests.
-if (!HTMLElement.prototype.getAnimations) {
-  HTMLElement.prototype.getAnimations = () => [];
-}
 import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';

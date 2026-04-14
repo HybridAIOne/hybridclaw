@@ -51,7 +51,11 @@ import {
 import { createPortal } from 'react-dom';
 import { useAnimationsFinished } from '../../hooks/useAnimationsFinished';
 import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
-import { FocusGuard, useFocusTrap } from '../../hooks/useFocusTrap';
+import {
+  FOCUSABLE_SELECTORS,
+  FocusGuard,
+  useFocusTrap,
+} from '../../hooks/useFocusTrap';
 import { useHideOthers } from '../../hooks/useHideOthers';
 import { useScrollLock } from '../../hooks/useScrollLock';
 import { cx } from '../../lib/cx';
@@ -149,11 +153,6 @@ type DialogContentProps = HTMLAttributes<HTMLElement> & {
   side?: 'left' | 'right' | 'top' | 'bottom';
 };
 
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), input:not([disabled]), ' +
-  'select:not([disabled]), textarea:not([disabled]), ' +
-  '[tabindex]:not([tabindex="-1"])';
-
 export function DialogContent({
   children,
   className,
@@ -175,24 +174,18 @@ export function DialogContent({
   // Track open->closed transitions to keep the panel mounted during the CSS
   // exit animation. Once the animation completes, useAnimationsFinished calls
   // clearExiting and the portal unmounts.
+  // Drawers use CSS class toggling for open/close, not JS unmounting — skip.
   useEffect(() => {
-    if (prevOpenRef.current && !open) {
+    if (!isDrawer && prevOpenRef.current && !open) {
       setExiting(true);
     }
     prevOpenRef.current = open;
-  }, [open]);
+  }, [open, isDrawer]);
 
   const clearExiting = useCallback(() => setExiting(false), []);
 
   // Only use exit animation for modal dialogs — drawer uses CSS class toggle.
   useAnimationsFinished(panelRef, !isDrawer && exiting, clearExiting);
-
-  // For drawer: reset exiting immediately since there's no exit animation to wait on.
-  useEffect(() => {
-    if (isDrawer && exiting) {
-      setExiting(false);
-    }
-  }, [isDrawer, exiting]);
 
   const activePanelRef = (
     isDrawer ? drawerPanelRef : panelRef
@@ -202,6 +195,22 @@ export function DialogContent({
   useFocusTrap(activePanelRef, open, initialFocus);
   useEscapeKeydown(() => onOpenChange(false), open);
   useHideOthers(portalRef, open);
+
+  const focusFirst = useCallback(() => {
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ??
+        [],
+    );
+    items[0]?.focus({ preventScroll: true });
+  }, []);
+
+  const focusLast = useCallback(() => {
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ??
+        [],
+    );
+    items[items.length - 1]?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' && open) {
@@ -255,21 +264,6 @@ export function DialogContent({
 
   const sizeClass =
     size === 'sm' ? styles.sm : size === 'lg' ? styles.lg : undefined;
-
-  const getFocusableItems = () =>
-    Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ??
-        [],
-    );
-
-  const focusFirst = () => {
-    getFocusableItems()[0]?.focus({ preventScroll: true });
-  };
-
-  const focusLast = () => {
-    const items = getFocusableItems();
-    items[items.length - 1]?.focus({ preventScroll: true });
-  };
 
   return createPortal(
     <div ref={portalRef}>

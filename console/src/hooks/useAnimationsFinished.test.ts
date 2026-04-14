@@ -1,13 +1,7 @@
-import { type RefObject, useCallback, useRef, useState } from 'react';
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { type RefObject, useCallback, useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAnimationsFinished } from './useAnimationsFinished';
-
-// jsdom doesn't implement getAnimations — polyfill it on HTMLElement prototype
-// before any tests run so the hook can safely call el.getAnimations().
-if (!HTMLElement.prototype.getAnimations) {
-  HTMLElement.prototype.getAnimations = () => [];
-}
 
 afterEach(cleanup);
 
@@ -31,7 +25,11 @@ function useHarness(
 
   const [exiting, setExiting] = useState(initialExiting);
   const stableOnComplete = useCallback(onComplete, [onComplete]);
-  useAnimationsFinished(ref as RefObject<HTMLElement>, exiting, stableOnComplete);
+  useAnimationsFinished(
+    ref as RefObject<HTMLElement>,
+    exiting,
+    stableOnComplete,
+  );
   return { ref, setExiting };
 }
 
@@ -110,9 +108,7 @@ describe('useAnimationsFinished', () => {
       rejectA = () => rej(new Error('cancelled'));
     });
 
-    const fakeAnimations = [
-      { finished: finishedA } as unknown as Animation,
-    ];
+    const fakeAnimations = [{ finished: finishedA } as unknown as Animation];
 
     renderHook(() => useHarness(true, onComplete, () => fakeAnimations));
 
