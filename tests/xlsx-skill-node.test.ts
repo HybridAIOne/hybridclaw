@@ -1,19 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 import XlsxPopulate from 'xlsx-populate';
+import { useTempDir } from './test-utils.ts';
 
 const repoRoot = process.cwd();
-const tempDirs: string[] = [];
 
-function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-xlsx-test-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir('hybridclaw-xlsx-test-');
 
 function runNodeScript(args: string[]) {
   const result = spawnSync(process.execPath, args, {
@@ -29,12 +24,6 @@ function runNodeScript(args: string[]) {
 
   return result;
 }
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    fs.rmSync(tempDirs.pop() as string, { recursive: true, force: true });
-  }
-});
 
 test('xlsx import script converts delimited input into a formatted workbook', async () => {
   const dir = makeTempDir();

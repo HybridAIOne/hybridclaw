@@ -1,18 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function createTempDir(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-host-runtime-setup-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir('hybridclaw-host-runtime-setup-');
 
 function writeContainerPackage(
   installRoot: string,
@@ -28,14 +20,6 @@ function writeContainerPackage(
     }),
   );
 }
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 describe('ensureHostRuntimeReady', () => {
   test('throws a reinstall error when packaged runtime dependencies are missing', async () => {

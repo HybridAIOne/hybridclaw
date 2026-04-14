@@ -1,19 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
-const tempDirs: string[] = [];
 
-function createTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir();
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -23,24 +18,21 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.doUnmock('node:child_process');
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  Object.defineProperty(process.stdin, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDIN_IS_TTY,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDOUT_IS_TTY,
-  });
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDIN_IS_TTY,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDOUT_IS_TTY,
+    });
+  },
+  resetModules: true,
+  unmock: ['node:child_process'],
 });
 
 test('runDoctor fixes insecure credentials permissions and reruns the check', async () => {
