@@ -16,11 +16,13 @@ agent prompt-file editor lives at `/admin/agents`.
 - `/admin/channels` shows each transport as `active`, `configured`, or
   `available`
 - `/admin/channels` edits Discord, Slack, Telegram, WhatsApp, email, Microsoft
-  Teams, and iMessage settings from one place
+  Teams, iMessage, and Twilio voice settings from one place
 - `/admin/channels` saves `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`,
   `SLACK_APP_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and
   `IMESSAGE_PASSWORD` through the same encrypted runtime secret store used by
-  the CLI
+  the CLI, plus `TWILIO_AUTH_TOKEN` for the voice channel
+- `/admin/channels` lets operators edit channel-specific instruction text that
+  is injected into the runtime prompt as transport guidance
 - `/admin/channels` shows the live WhatsApp pairing QR when the transport is
   enabled but not linked yet
 - `/admin/agents` lets operators pick any registered agent and edit the
@@ -44,6 +46,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to compare transport status before editing anything
 - you prefer browser forms to long CLI flag lists
 - you need the WhatsApp pairing QR in a browser instead of a terminal
+- you want to tune per-channel instructions such as spoken-style guidance for
+  voice without editing prompt files
 - you want to verify saved settings without editing `config.json` directly
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file

@@ -177,6 +177,13 @@ const APPROVE_RE =
   /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 
+function isVoiceChannelId(value: string | undefined): boolean {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .startsWith('voice:');
+}
+
 function normalizeText(value: unknown): string {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -1191,6 +1198,7 @@ export class TrustedCoworkerApprovalRuntime {
     toolName: string;
     argsJson: string;
     latestUserPrompt: string;
+    channelId?: string;
   }): ToolApprovalEvaluation {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
@@ -1343,7 +1351,7 @@ export class TrustedCoworkerApprovalRuntime {
       implicitDelayMs:
         tier === 'yellow' &&
         decision === 'implicit' &&
-        this.shouldApplyImplicitDelay(params.toolName)
+        this.shouldApplyImplicitDelay(params.toolName, params.channelId)
           ? YELLOW_IMPLICIT_DELAY_MS
           : undefined,
       hostHints: classified.hostHints,
@@ -1370,7 +1378,11 @@ export class TrustedCoworkerApprovalRuntime {
     return `${evaluation.intent}. Waiting ${YELLOW_IMPLICIT_DELAY_SECS}s for interruption before running.`;
   }
 
-  private shouldApplyImplicitDelay(toolName: string): boolean {
+  private shouldApplyImplicitDelay(
+    toolName: string,
+    channelId: string | undefined,
+  ): boolean {
+    if (isVoiceChannelId(channelId)) return false;
     const lowerTool = toolName.trim().toLowerCase();
     if (!lowerTool.startsWith('browser_')) return true;
     return IMPLICIT_DELAY_BROWSER_INPUT_TOOLS.has(lowerTool);

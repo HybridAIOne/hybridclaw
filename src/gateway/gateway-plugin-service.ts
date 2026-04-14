@@ -53,7 +53,10 @@ function infoCommand(title: string, text: string): GatewayCommandResult {
 
 function isLocalSession(req: GatewayCommandRequest): boolean {
   return (
-    req.guildId === null && (req.channelId === 'web' || req.channelId === 'tui')
+    req.guildId === null &&
+    (req.channelId === 'web' ||
+      req.channelId === 'tui' ||
+      req.channelId === 'cli')
   );
 }
 

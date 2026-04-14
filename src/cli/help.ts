@@ -40,6 +40,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]
   hybridclaw gateway bot info
+  hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
@@ -153,7 +154,8 @@ Interactive slash commands inside TUI:
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /voice [info|call <e164-number>]`);
 }
 
 export function printOnboardingUsage(): void {

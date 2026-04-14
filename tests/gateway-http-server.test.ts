@@ -1244,6 +1244,8 @@ async function importFreshHealth(options?: {
   );
   const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
+  const handleVoiceWebhook = vi.fn(async () => false);
+  const handleVoiceUpgrade = vi.fn(() => false);
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
@@ -1302,6 +1304,10 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/channels/imessage/runtime.js', () => ({
     handleIMessageWebhook,
+  }));
+  vi.doMock('../src/channels/voice/runtime.js', () => ({
+    handleVoiceUpgrade,
+    handleVoiceWebhook,
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
@@ -1503,6 +1509,8 @@ async function importFreshHealth(options?: {
     resolveGatewayChatbotId,
     resolveModelRuntimeCredentials,
     handleIMessageWebhook,
+    handleVoiceUpgrade,
+    handleVoiceWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -1527,6 +1535,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/factory.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
+  vi.doUnmock('../src/channels/voice/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.doUnmock('../src/gateway/media-upload-quota.ts');
@@ -1561,6 +1570,39 @@ describe('gateway HTTP server', () => {
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
+  });
+
+  test('routes voice webhooks using the configured webhookPath', async () => {
+    const homeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-voice-http-'),
+    );
+    tempDirs.push(homeDir);
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const voice = config.voice as Record<string, unknown>;
+      voice.webhookPath = '/telephony';
+    });
+
+    const state = await importFreshHealth();
+    state.handleVoiceWebhook.mockImplementationOnce(async (_req, res) => {
+      res.statusCode = 202;
+      res.end('voice-webhook');
+      return true;
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/telephony/webhook',
+      headers: { host: 'voice.example.com' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await vi.waitFor(() =>
+      expect(state.handleVoiceWebhook).toHaveBeenCalledTimes(1),
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('voice-webhook');
   });
 
   test('rejects unauthorized API requests from non-loopback addresses', async () => {

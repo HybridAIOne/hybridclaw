@@ -33,6 +33,10 @@ function createGatewayMainTestState(options?: {
   slackEnabled?: boolean;
   slackInitError?: Error;
   hasSlackCredentials?: boolean;
+  twilioAuthToken?: string;
+  voiceEnabled?: boolean;
+  voiceConfigAuthToken?: string;
+  voiceInitError?: Error;
   whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -51,6 +55,7 @@ function createGatewayMainTestState(options?: {
     imessageMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
+    voiceMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     whatsappMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -94,6 +99,27 @@ function createGatewayMainTestState(options?: {
         pollIntervalMs: 1_500,
         textChunkLimit: 4_000,
         mediaMaxMb: 20,
+      },
+      voice: {
+        enabled: options?.voiceEnabled ?? false,
+        provider: 'twilio',
+        twilio: {
+          accountSid: options?.voiceEnabled ? 'AC123' : '',
+          authToken:
+            options?.voiceConfigAuthToken ??
+            (options?.voiceEnabled ? 'twilio-auth-token' : ''),
+          fromNumber: options?.voiceEnabled ? '+14155550123' : '',
+        },
+        relay: {
+          ttsProvider: 'default',
+          voice: '',
+          transcriptionProvider: 'default',
+          language: 'en-US',
+          interruptible: true,
+          welcomeGreeting: 'Hello! How can I help you today?',
+        },
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
       },
       msteams: {
         enabled: options?.msteamsEnabled ?? true,
@@ -165,6 +191,7 @@ function createGatewayMainTestState(options?: {
     initMSTeams: vi.fn(),
     initSlack: vi.fn(),
     initTelegram: vi.fn(),
+    initVoice: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(
@@ -239,6 +266,8 @@ async function importFreshGatewayMain(options?: {
   slackEnabled?: boolean;
   hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
+  voiceEnabled?: boolean;
+  voiceInitError?: Error;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -297,6 +326,12 @@ async function importFreshGatewayMain(options?: {
       throw options.imessageInitError;
     }
     state.imessageMessageHandler = messageHandler;
+  });
+  state.initVoice.mockImplementation((messageHandler) => {
+    if (options?.voiceInitError) {
+      throw options.voiceInitError;
+    }
+    state.voiceMessageHandler = messageHandler;
   });
   class MockWhatsAppAuthLockError extends Error {
     readonly lockPath: string;
@@ -392,6 +427,10 @@ async function importFreshGatewayMain(options?: {
     sendToTelegramChat: vi.fn(async () => {}),
     shutdownTelegram: state.shutdownTelegram,
   }));
+  vi.doMock('../src/channels/voice/runtime.js', () => ({
+    initVoice: state.initVoice,
+    shutdownVoice: vi.fn(async () => {}),
+  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
@@ -433,6 +472,8 @@ async function importFreshGatewayMain(options?: {
     SLACK_BOT_TOKEN:
       options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
+    TWILIO_AUTH_TOKEN:
+      options?.twilioAuthToken ?? state.currentConfig.voice.twilio.authToken,
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -570,6 +611,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/runtime.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/telegram/runtime.js');
+  vi.doUnmock('../src/channels/voice/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/slack/runtime.js');
@@ -708,6 +750,118 @@ describe('gateway bootstrap', () => {
         imessage: true,
       }),
     );
+  });
+
+  test('starts voice integration automatically when enabled in config', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+
+    expect(state.initVoice).toHaveBeenCalledTimes(1);
+    expect(state.voiceMessageHandler).not.toBeNull();
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        voice: true,
+      }),
+    );
+  });
+
+  test('starts voice integration when the Twilio auth token comes from shared secret resolution', async () => {
+    const state = await importFreshGatewayMain({
+      voiceEnabled: true,
+      voiceConfigAuthToken: '',
+      twilioAuthToken: 'twilio-auth-token',
+    });
+
+    expect(state.initVoice).toHaveBeenCalledTimes(1);
+    expect(state.voiceMessageHandler).not.toBeNull();
+  });
+
+  test('voice integration batches streamed text and strips markdown before speaking', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockImplementation(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('**Yes');
+        onTextDelta?.('** that works.');
+        return {
+          status: 'success' as const,
+          result: '**Yes** that works.',
+          toolsUsed: [],
+          artifacts: [],
+        };
+      },
+    );
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'hello',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(responseStream.push).toHaveBeenCalledTimes(1);
+    expect(responseStream.push).toHaveBeenCalledWith('Yes that works.');
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  test('voice integration normalizes approval phrases from speech transcripts', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'Yes for a session.',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'yes for session',
+        channelId: 'voice:CA123',
+        source: 'voice',
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith('Approved.');
   });
 
   test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
@@ -2200,6 +2354,54 @@ describe('gateway bootstrap', () => {
         requireMention: true,
         replyStyle: 'top-level',
       }),
+    );
+  });
+
+  test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {
+    const state = await importFreshGatewayMain({
+      voiceEnabled: false,
+      twilioAuthToken: '',
+      voiceConfigAuthToken: '',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      voice: {
+        enabled: true,
+        provider: 'twilio',
+        twilio: {
+          accountSid: 'AC123',
+          authToken: 'config-token',
+          fromNumber: '+14155550123',
+        },
+        relay: {
+          ...state.currentConfig.voice.relay,
+        },
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
+      },
+    };
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountSidConfigured: true,
+        authTokenConfigured: false,
+        configAuthTokenConfigured: true,
+        fromNumberConfigured: true,
+        sharedAuthTokenConfigured: false,
+      }),
+      'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Voice integration disabled: Twilio credentials are incomplete',
     );
   });
 });

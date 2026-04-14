@@ -16,6 +16,11 @@ import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
+  handleVoiceUpgrade,
+  handleVoiceWebhook,
+} from '../channels/voice/runtime.js';
+import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
+import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
   getSandboxAutoDetectionState,
@@ -3430,6 +3435,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    const voicePaths = resolveVoiceWebhookPaths(
+      getRuntimeConfig().voice.webhookPath,
+    );
+    if (
+      method === 'POST' &&
+      (pathname === voicePaths.webhookPath ||
+        pathname === voicePaths.actionPath)
+    ) {
+      dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
+      return;
+    }
+
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
         dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
@@ -3750,6 +3767,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   server.on('upgrade', (req, socket, head) => {
     const host = String(req.headers.host || 'localhost');
     const url = new URL(req.url || '/', `http://${host}`);
+
+    if (handleVoiceUpgrade(req, socket, head, url)) {
+      return;
+    }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
       writeUpgradeError(socket, 404, 'Not Found');

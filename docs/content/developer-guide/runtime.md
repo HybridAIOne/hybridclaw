@@ -113,7 +113,8 @@ Core details:
 Common advanced areas:
 
 - Discord behavior and policy controls: `discord.*` and `discord.guilds.*`
-- Approval policy controls (workspace-local): `./.hybridclaw/policy.yaml`
+- Approval system, trust scopes, and workspace-local policy:
+  [Approvals](./approvals.md)
 - Scheduler jobs: `scheduler.jobs[]` with cron, every, at, or `one_shot`
   delivery targets (`one_shot` jobs run immediately, retry up to
   `maxRetries`, and land in review on success or terminal failure)
