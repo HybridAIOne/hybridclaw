@@ -17,12 +17,12 @@ import {
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
-import { resolveModelProvider } from '../providers/factory.js';
 import {
   ANTHROPIC_DEFAULT_MODEL,
   normalizeAnthropicBaseUrl,
   normalizeAnthropicModelName,
 } from '../providers/anthropic-utils.js';
+import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { getProviderAliasesFor } from '../providers/provider-aliases.js';

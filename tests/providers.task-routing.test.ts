@@ -513,6 +513,8 @@ test('returns a deferred policy error when fallback credential resolution fails'
     config.openrouter.enabled = false;
     config.hybridai.defaultModel = 'gpt-5-nano';
     config.hybridai.models = ['gpt-5-nano'];
+    config.anthropic.enabled = true;
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -535,16 +537,16 @@ test('returns a deferred policy error when fallback credential resolution fails'
   });
 
   expect(policy).toMatchObject({
-    provider: 'openai-codex',
-    model: 'openai-codex/gpt-5.1-codex-max',
+    provider: 'anthropic',
+    model: 'anthropic/claude-sonnet-4-6',
     error: expect.stringContaining(
-      'fallback model "openai-codex/gpt-5.1-codex-max" could not be resolved',
+      'fallback model "anthropic/claude-sonnet-4-6" could not be resolved',
     ),
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      visionFallback: 'openai-codex/gpt-5.1-codex-max',
+      visionFallback: 'anthropic/claude-sonnet-4-6',
       err: expect.any(Error),
     }),
     'Failed to resolve vision fallback model credentials',

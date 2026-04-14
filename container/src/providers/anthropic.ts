@@ -9,10 +9,10 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
-  HybridAIRequestError,
   isRecord,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
 
 interface ServerSentEvent {
@@ -656,7 +656,7 @@ export async function callAnthropicProvider(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(
+    throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
     );
@@ -692,7 +692,7 @@ export async function callAnthropicProviderStream(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(
+    throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
     );
