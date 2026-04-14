@@ -2,6 +2,12 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ToastProvider, useToast } from './index';
 
+// jsdom does not implement the Web Animations API.
+// Polyfill getAnimations so useAnimationsFinished works in the Toast component.
+if (!HTMLElement.prototype.getAnimations) {
+  HTMLElement.prototype.getAnimations = () => [];
+}
+
 function ToastTriggers() {
   const toast = useToast();
   return (

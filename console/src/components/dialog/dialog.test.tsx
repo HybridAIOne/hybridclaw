@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   Dialog,
   DialogClose,
@@ -11,6 +11,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from './index';
+
+// jsdom does not implement the Web Animations API.
+// Polyfill getAnimations so the hook in useAnimationsFinished works.
+if (!HTMLElement.prototype.getAnimations) {
+  HTMLElement.prototype.getAnimations = () => [];
+}
 
 function TestDialog(props: { onConfirm?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -34,6 +40,32 @@ function TestDialog(props: { onConfirm?: () => void }) {
             Yes
           </button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+afterEach(cleanup);
+
+// ---------------------------------------------------------------------------
+// Drawer harness
+// ---------------------------------------------------------------------------
+
+function TestDrawer(props: {
+  initialOpen?: boolean;
+  side?: 'left' | 'right' | 'top' | 'bottom';
+}) {
+  const [open, setOpen] = useState(props.initialOpen ?? false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen} isDrawer>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open drawer
+      </button>
+      <DialogContent side={props.side ?? 'right'}>
+        <DialogHeader>
+          <DialogTitle>Drawer title</DialogTitle>
+        </DialogHeader>
+        <p>Drawer body</p>
       </DialogContent>
     </Dialog>
   );
@@ -97,5 +129,107 @@ describe('Dialog', () => {
       fireEvent.keyDown(document, { key: 'Escape' });
     });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drawer mode
+// ---------------------------------------------------------------------------
+
+describe('Dialog — drawer mode', () => {
+  it('DialogContent renders a <section> with role="dialog" when isDrawer is true', () => {
+    render(<TestDrawer initialOpen={true} />);
+    // The panel is a <section> in drawer mode (in document.body portal).
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section).not.toBeNull();
+  });
+
+  it('section has data-state="open" when open', () => {
+    render(<TestDrawer initialOpen={true} />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section?.getAttribute('data-state')).toBe('open');
+  });
+
+  it('section has data-state="closed" when not open', () => {
+    render(<TestDrawer initialOpen={false} />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section?.getAttribute('data-state')).toBe('closed');
+  });
+
+  it('side prop sets data-side="left" on the section', () => {
+    render(<TestDrawer initialOpen={true} side="left" />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section?.getAttribute('data-side')).toBe('left');
+  });
+
+  it('side prop sets data-side="right" on the section', () => {
+    render(<TestDrawer initialOpen={true} side="right" />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section?.getAttribute('data-side')).toBe('right');
+  });
+
+  it('Escape closes the drawer', () => {
+    render(<TestDrawer initialOpen={true} />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    expect(section?.getAttribute('data-state')).toBe('open');
+
+    act(() => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+
+    expect(
+      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+    ).toBe('closed');
+  });
+
+  it('clicking the overlay closes the drawer', () => {
+    render(<TestDrawer initialOpen={true} />);
+    expect(
+      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+    ).toBe('open');
+
+    const overlay = document.body.querySelector('[data-sheet="overlay"]') as HTMLElement;
+    expect(overlay).not.toBeNull();
+    act(() => {
+      fireEvent.click(overlay);
+    });
+
+    expect(
+      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+    ).toBe('closed');
+  });
+
+  it('aria-labelledby links to DialogTitle content', () => {
+    render(<TestDrawer initialOpen={true} />);
+    const section = document.body.querySelector('section[role="dialog"]');
+    const labelledById = section?.getAttribute('aria-labelledby') ?? '';
+    expect(labelledById).not.toBe('');
+    const titleEl = document.getElementById(labelledById);
+    expect(titleEl?.textContent).toBe('Drawer title');
+  });
+
+  it('drawer stays mounted (never unmounts) after close — no JS unmount-on-animation-end', () => {
+    // For a modal dialog, the panel is removed from the DOM after the exit
+    // animation completes.  For a drawer, the panel is always mounted and
+    // open/close is handled entirely by CSS — there is no transient exiting
+    // state that would unmount and re-mount the panel.
+    render(<TestDrawer initialOpen={true} />);
+
+    const sectionOnOpen = document.body.querySelector('section[role="dialog"]');
+    expect(sectionOnOpen).not.toBeNull();
+    expect(sectionOnOpen?.getAttribute('data-state')).toBe('open');
+
+    // Close via Escape — the quickest way to trigger onOpenChange(false).
+    act(() => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+
+    // The section must still be in the DOM (drawer is never unmounted).
+    const sectionAfterClose = document.body.querySelector('section[role="dialog"]');
+    expect(sectionAfterClose).not.toBeNull();
+    expect(sectionAfterClose?.getAttribute('data-state')).toBe('closed');
+
+    // Element identity is unchanged — it was never unmounted and remounted.
+    expect(sectionAfterClose).toBe(sectionOnOpen);
   });
 });

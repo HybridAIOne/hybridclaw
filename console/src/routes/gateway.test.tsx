@@ -3,6 +3,12 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../components/toast';
 
+// jsdom does not implement the Web Animations API.
+// Polyfill getAnimations so useAnimationsFinished works when dialogs/toasts close.
+if (!HTMLElement.prototype.getAnimations) {
+  HTMLElement.prototype.getAnimations = () => [];
+}
+
 import { GatewayPage } from './gateway';
 
 const restartGatewayMock = vi.fn();
