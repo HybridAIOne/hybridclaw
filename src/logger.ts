@@ -171,8 +171,7 @@ if (
   !process
     .listeners('uncaughtException')
     .some(
-      (l) =>
-        (l as unknown as Record<string, boolean>)[UNCAUGHT_EXCEPTION_TAG],
+      (l) => (l as unknown as Record<string, boolean>)[UNCAUGHT_EXCEPTION_TAG],
     )
 ) {
   process.on('uncaughtException', uncaughtExceptionHandler);
@@ -182,8 +181,7 @@ if (
   !process
     .listeners('unhandledRejection')
     .some(
-      (l) =>
-        (l as unknown as Record<string, boolean>)[UNHANDLED_REJECTION_TAG],
+      (l) => (l as unknown as Record<string, boolean>)[UNHANDLED_REJECTION_TAG],
     )
 ) {
   process.on('unhandledRejection', unhandledRejectionHandler);
