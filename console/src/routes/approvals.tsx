@@ -125,9 +125,8 @@ export function ApprovalsPage() {
   const [selectedPresetName, setSelectedPresetName] = useState('');
   const [editorMode, setEditorMode] = useState<'create' | 'edit' | null>(null);
   const [editingRuleIndex, setEditingRuleIndex] = useState<number | null>(null);
-  const [deleteRuleTarget, setDeleteRuleTarget] = useState<AdminPolicyRule | null>(
-    null,
-  );
+  const [deleteRuleTarget, setDeleteRuleTarget] =
+    useState<AdminPolicyRule | null>(null);
   const [draft, setDraft] = useState<PolicyRuleDraft>(() =>
     createEmptyPolicyRuleDraft('main'),
   );
