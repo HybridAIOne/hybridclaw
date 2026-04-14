@@ -69,7 +69,9 @@ test('voice runtime module does not require config snapshot during import', asyn
     },
   }));
 
-  await expect(import('../src/channels/voice/runtime.js')).resolves.toBeTruthy();
+  await expect(
+    import('../src/channels/voice/runtime.js'),
+  ).resolves.toBeTruthy();
 });
 
 test('handleVoiceWebhook returns relay TwiML when voice runtime is available', async () => {
