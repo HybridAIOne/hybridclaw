@@ -185,7 +185,6 @@
 }
 
 .brandLogo,
-.brandWordmark,
 .menuIcon,
 .icon {
   display: inline-flex;
@@ -193,7 +192,6 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  flex: 0 0 auto;
   flex: 0 0 auto;
 }
 
@@ -212,6 +210,8 @@
 }
 
 .brandWordmark {
+  display: inline-flex;
+  align-items: center;
   font-size: 1rem;
   font-weight: 700;
   color: var(--text);

@@ -20,6 +20,7 @@ const version =
   typeof packageJson.version === 'string' && packageJson.version.trim()
     ? packageJson.version.trim()
     : '0.0.0';
+const volumeTitle = `${productName} ${version}`;
 
 const releaseEntries = await fs.readdir(releaseDir, { withFileTypes: true });
 const macBuildDirs = releaseEntries
@@ -45,7 +46,7 @@ for (const buildDirName of macBuildDirs) {
     basepath: desktopDir,
     target: targetPath,
     specification: {
-      title: productName,
+      title: volumeTitle,
       icon: 'build/icon.icns',
       background: 'build/background.png',
       'icon-size': 116,
