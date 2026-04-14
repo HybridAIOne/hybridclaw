@@ -76,19 +76,30 @@ function isRetryableRemoveError(
   );
 }
 
+function removeDirOrIgnoreMissing(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+}
+
 export function cleanupTrackedTempDirs(tempDirs: string[]): void {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
     moveCwdOutOfDir(dir);
     try {
-      fs.rmSync(dir, { force: true, recursive: true });
+      removeDirOrIgnoreMissing(dir);
     } catch (error) {
       if (!isRetryableRemoveError(error)) {
         throw error;
       }
       moveCwdOutOfDir(dir);
-      fs.rmSync(dir, { force: true, recursive: true });
+      removeDirOrIgnoreMissing(dir);
     }
   }
 }
@@ -96,6 +107,9 @@ export function cleanupTrackedTempDirs(tempDirs: string[]): void {
 export function useTempDir(defaultPrefix = 'hybridclaw-test-'): TempDirFactory {
   const tempDirs: string[] = [];
 
+  // If a test chdirs into a temp dir, call useTempDir() before useCleanMocks().
+  // Vitest runs afterEach hooks in LIFO order, so useCleanMocks can restore cwd
+  // before this temp-dir cleanup runs.
   afterEach(() => {
     cleanupTrackedTempDirs(tempDirs);
   });
@@ -126,11 +140,11 @@ export function useCleanMocks(options: CleanMocksOptions = {}): void {
 
   afterEach(async () => {
     try {
-      await cleanup?.();
-    } finally {
       if (restoreAllMocks) {
         vi.restoreAllMocks();
       }
+      await cleanup?.();
+    } finally {
       if (unstubAllGlobals) {
         vi.unstubAllGlobals();
       }

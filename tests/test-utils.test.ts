@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cleanupTrackedTempDirs } from './test-utils.js';
+import { cleanupTrackedTempDirs, useCleanMocks } from './test-utils.js';
 
 describe('cleanupTrackedTempDirs', () => {
   const originalCwd = process.cwd();
@@ -36,5 +36,53 @@ describe('cleanupTrackedTempDirs', () => {
 
     expect(fs.existsSync(tempDir)).toBe(false);
     expect(process.cwd()).toBe(originalCwd);
+  });
+
+  it('ignores missing directories but still surfaces other remove failures', () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-test-utils-'),
+    );
+
+    expect(() => cleanupTrackedTempDirs([tempDir, tempDir])).not.toThrow();
+
+    const rmSyncSpy = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
+      const error = new Error('permission denied') as NodeJS.ErrnoException;
+      error.code = 'EACCES';
+      throw error;
+    });
+
+    try {
+      expect(() =>
+        cleanupTrackedTempDirs(['/tmp/hybridclaw-test-utils-fail']),
+      ).toThrow('permission denied');
+    } finally {
+      rmSyncSpy.mockRestore();
+    }
+  });
+});
+
+describe('useCleanMocks', () => {
+  const subject = {
+    call: () => 'real',
+  };
+
+  let cleanupObservation: string | undefined;
+
+  useCleanMocks({
+    cleanup: () => {
+      cleanupObservation = subject.call();
+    },
+    restoreAllMocks: true,
+  });
+
+  it('restores spies before running custom cleanup', () => {
+    cleanupObservation = undefined;
+    vi.spyOn(subject, 'call').mockReturnValue('mock');
+
+    expect(subject.call()).toBe('mock');
+  });
+
+  it('runs the previous cleanup against the restored implementation', () => {
+    expect(cleanupObservation).toBe('real');
   });
 });
