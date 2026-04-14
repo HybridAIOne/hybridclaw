@@ -1,6 +1,53 @@
 const SOFT_STREAM_CHUNK_CHARS = 48;
 const HARD_STREAM_CHUNK_CHARS = 120;
 
+function normalizeVoiceApprovalCandidate(text: string): string {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!?;:]+/g, ' ')
+    .replace(/\bfor\s+(?:a|an|the)\s+(session|agent|all|always)\b/g, 'for $1')
+    .replace(/\bplease\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeVoiceUserTextForGateway(text: string): string {
+  const normalized = normalizeVoiceApprovalCandidate(text);
+  if (!normalized) {
+    return text;
+  }
+
+  if (normalized === 'yes' || normalized === 'approve') {
+    return 'yes';
+  }
+  if (
+    normalized === 'yes for session' ||
+    normalized === 'yes for always' ||
+    normalized === 'for session' ||
+    normalized === 'for always'
+  ) {
+    return 'yes for session';
+  }
+  if (normalized === 'yes for agent' || normalized === 'for agent') {
+    return 'yes for agent';
+  }
+  if (normalized === 'yes for all' || normalized === 'for all') {
+    return 'yes for all';
+  }
+  if (
+    normalized === 'no' ||
+    normalized === 'skip' ||
+    normalized === 'deny' ||
+    normalized === 'reject' ||
+    normalized === 'skip it'
+  ) {
+    return 'no';
+  }
+
+  return text;
+}
+
 function stripMarkdownDelimiters(text: string): string {
   let result = text;
 
@@ -8,6 +55,7 @@ function stripMarkdownDelimiters(text: string): string {
   result = result.replace(/`([^`\n]+)`/g, '$1');
   result = result.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
   result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  result = stripLeadingOrphanMarkerRuns(result);
   result = result.replace(/^\s{0,3}#{1,6}\s+/gm, '');
   result = result.replace(/^\s{0,3}>\s?/gm, '');
   result = result.replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, '');
@@ -22,12 +70,40 @@ function stripMarkdownDelimiters(text: string): string {
     /(^|[^\w_])_(\S(?:[^_\n]*?\S)?)_(?=($|[^\w_]))/g,
     '$1$2',
   );
-  result = result.replace(/(^|[\s([{])(?:\*{1,3}|_{1,3}|~{1,2}|`{1,3})/g, '$1');
-  result = result.replace(
-    /(?:\*{1,3}|_{1,3}|~{1,2}|`{1,3})(?=($|[\s)\]},.!?;:]))/g,
-    '',
-  );
   return result;
+}
+
+function isStandaloneMarkerToken(token: string): boolean {
+  return token.length === 1 && '*_~`'.includes(token);
+}
+
+function stripLeadingOrphanMarkerRuns(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const leadingWhitespace = line.match(/^\s*/)?.[0] || '';
+      const trimmed = line.slice(leadingWhitespace.length);
+      if (!trimmed) return line;
+
+      const tokens = trimmed.split(/\s+/);
+      let markerCount = 0;
+      while (
+        markerCount < tokens.length &&
+        isStandaloneMarkerToken(tokens[markerCount] || '')
+      ) {
+        markerCount += 1;
+      }
+      if (markerCount < 3) {
+        return line;
+      }
+      const remainder = tokens.slice(markerCount).join(' ').trimStart();
+      const normalizedRemainder = remainder.replace(/^(?:[*_~`]{1,3})+/, '');
+      if (!/^[A-Za-z]/.test(normalizedRemainder)) {
+        return line;
+      }
+      return `${leadingWhitespace}${remainder}`;
+    })
+    .join('\n');
 }
 
 export function formatTextForVoice(text: string): string {

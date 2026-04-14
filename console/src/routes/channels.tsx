@@ -22,6 +22,7 @@ import {
 
 type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
+type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
@@ -77,6 +78,32 @@ function ListField(props: {
           props.onChange(parseStringList(event.target.value))
         }
         placeholder={props.placeholder}
+      />
+    </label>
+  );
+}
+
+function ChannelInstructionsField(props: {
+  kind: ChannelInstructionKind;
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+}) {
+  return (
+    <label className="field textarea-field">
+      <span>Channel instructions</span>
+      <textarea
+        rows={4}
+        value={props.draft.channelInstructions[props.kind]}
+        onChange={(event) =>
+          props.updateDraft((current) => ({
+            ...current,
+            channelInstructions: {
+              ...current.channelInstructions,
+              [props.kind]: event.target.value,
+            },
+          }))
+        }
+        placeholder="Optional extra instructions for this channel only."
       />
     </label>
   );
@@ -541,6 +568,11 @@ function DiscordChannelEditor(props: {
           }))
         }
       />
+      <ChannelInstructionsField
+        kind="discord"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
       <p className="muted-copy">
         Discord guild defaults and explicit per-channel overrides stay intact.
         This page edits the transport defaults that apply across the space.
@@ -758,6 +790,11 @@ function WhatsAppChannelEditor(props: {
           }))
         }
       />
+      <ChannelInstructionsField
+        kind="whatsapp"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -953,6 +990,11 @@ function TelegramChannelEditor(props: {
           remain the only transports with per-channel override bindings.
         </p>
       ) : null}
+      <ChannelInstructionsField
+        kind="telegram"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1196,6 +1238,11 @@ function EmailChannelEditor(props: {
           }
         />
       </label>
+      <ChannelInstructionsField
+        kind="email"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1441,6 +1488,11 @@ function VoiceChannelEditor(props: {
           }
         />
       </label>
+      <ChannelInstructionsField
+        kind="voice"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
 
       <p className="muted-copy">
         Voice uses Twilio ConversationRelay. Expose the configured webhook path
@@ -1692,6 +1744,11 @@ function TeamsChannelEditor(props: {
           />
         </label>
       </div>
+      <ChannelInstructionsField
+        kind="msteams"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1895,6 +1952,11 @@ function SlackChannelEditor(props: {
         Slack runs through Socket Mode. HybridClaw needs both a bot token and an
         app token before the gateway can connect.
       </p>
+      <ChannelInstructionsField
+        kind="slack"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -2190,6 +2252,11 @@ function IMessageChannelEditor(props: {
           />
         </label>
       </div>
+      <ChannelInstructionsField
+        kind="imessage"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }

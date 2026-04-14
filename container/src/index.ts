@@ -857,6 +857,7 @@ async function processRequest(
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
+  channelId: string,
   skipContainerSystemPrompt = false,
   streamTextDeltas = false,
   maxTokens?: number,
@@ -1239,6 +1240,7 @@ async function processRequest(
             toolName: candidate.function.name,
             argsJson: candidate.function.arguments,
             latestUserPrompt: effectiveUserPrompt,
+            channelId,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1326,6 +1328,7 @@ async function processRequest(
           toolName,
           argsJson: call.function.arguments,
           latestUserPrompt: effectiveUserPrompt,
+          channelId,
         });
       logToolCallStart(toolName, call.function.arguments, approval);
 
@@ -1608,6 +1611,7 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
+      firstInput.channelId,
       firstInput.skipContainerSystemPrompt === true,
       firstInput.streamTextDeltas === true,
       firstInput.maxTokens,
@@ -1642,6 +1646,7 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
+        firstInput.channelId,
         firstInput.skipContainerSystemPrompt === true,
         firstInput.streamTextDeltas === true,
         firstInput.maxTokens,
@@ -1758,6 +1763,7 @@ async function main(): Promise<void> {
       resolveTools(input),
       taskModels,
       input.contextGuard,
+      input.channelId,
       input.skipContainerSystemPrompt === true,
       input.streamTextDeltas === true,
       input.maxTokens,
@@ -1791,6 +1797,7 @@ async function main(): Promise<void> {
         resolveTools(input),
         taskModels,
         input.contextGuard,
+        input.channelId,
         input.skipContainerSystemPrompt === true,
         input.streamTextDeltas === true,
         input.maxTokens,

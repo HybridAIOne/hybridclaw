@@ -120,6 +120,17 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enableRag: true,
       models: ['gpt-5'],
     },
+    channelInstructions: {
+      discord: '',
+      msteams: '',
+      slack: '',
+      telegram: '',
+      voice:
+        'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
+      whatsapp: '',
+      email: '',
+      imessage: '',
+    },
     discord: {
       commandsOnly: false,
       groupPolicy: 'open',

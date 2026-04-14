@@ -821,6 +821,49 @@ describe('gateway bootstrap', () => {
     expect(reply).not.toHaveBeenCalled();
   });
 
+  test('voice integration normalizes approval phrases from speech transcripts', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'Yes for a session.',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'yes for session',
+        channelId: 'voice:CA123',
+        source: 'voice',
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith('Approved.');
+  });
+
   test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
     const state = await importFreshGatewayMain({
       imessageEnabled: true,

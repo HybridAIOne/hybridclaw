@@ -104,6 +104,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Developer Guide', path: 'developer-guide/README.md' },
       { title: 'Architecture', path: 'developer-guide/architecture.md' },
       { title: 'Runtime', path: 'developer-guide/runtime.md' },
+      { title: 'Approvals', path: 'developer-guide/approvals.md' },
       { title: 'Memory', path: 'developer-guide/memory.md' },
       {
         title: 'Session Routing',

@@ -151,6 +151,24 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     );
   });
 
+  test('voice channel skips the implicit interruption delay for yellow actions', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_type',
+      argsJson: JSON.stringify({ ref: '@e9', text: 'search term' }),
+      latestUserPrompt: 'Type into the search box',
+      channelId: 'voice:CA1234567890',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+    expect(runtime.formatYellowNarration(evaluation)).toBe('run browser_type');
+  });
+
   test('read-like MCP tools are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

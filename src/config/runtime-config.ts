@@ -87,6 +87,23 @@ export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
+const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
+  'This is a live phone call. Produce plain spoken text only.',
+  'Keep each reply short and conversational, usually one or two short sentences.',
+  'Absolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.',
+  'Do not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.',
+  'Do not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.',
+].join('\n');
+const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
+  discord: '',
+  msteams: '',
+  slack: '',
+  telegram: '',
+  voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
+  whatsapp: '',
+  email: '',
+  imessage: '',
+};
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -445,6 +462,17 @@ export interface RuntimeEmailConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeChannelInstructionsConfig {
+  discord: string;
+  msteams: string;
+  slack: string;
+  telegram: string;
+  voice: string;
+  whatsapp: string;
+  email: string;
+  imessage: string;
+}
+
 export interface RuntimeSchedulerJob {
   id: string;
   name?: string;
@@ -507,6 +535,7 @@ export interface RuntimeConfig {
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
+  channelInstructions: RuntimeChannelInstructionsConfig;
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -796,6 +825,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     httpRequest: {
       authRules: [],
     },
+  },
+  channelInstructions: {
+    ...DEFAULT_CHANNEL_INSTRUCTIONS,
   },
   plugins: {
     list: [],
@@ -2274,6 +2306,33 @@ function normalizeVoiceConfig(
   };
 }
 
+function normalizeChannelInstructionsConfig(
+  value: unknown,
+  fallback: RuntimeChannelInstructionsConfig,
+): RuntimeChannelInstructionsConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    discord: normalizeString(raw.discord, fallback.discord, {
+      allowEmpty: true,
+    }),
+    msteams: normalizeString(raw.msteams, fallback.msteams, {
+      allowEmpty: true,
+    }),
+    slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
+    telegram: normalizeString(raw.telegram, fallback.telegram, {
+      allowEmpty: true,
+    }),
+    voice: normalizeString(raw.voice, fallback.voice, { allowEmpty: true }),
+    whatsapp: normalizeString(raw.whatsapp, fallback.whatsapp, {
+      allowEmpty: true,
+    }),
+    email: normalizeString(raw.email, fallback.email, { allowEmpty: true }),
+    imessage: normalizeString(raw.imessage, fallback.imessage, {
+      allowEmpty: true,
+    }),
+  };
+}
+
 function normalizeIMessageConfig(
   value: unknown,
   fallback: RuntimeIMessageConfig,
@@ -3643,6 +3702,9 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawChannelInstructions = isRecord(raw.channelInstructions)
+    ? raw.channelInstructions
+    : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
@@ -3944,6 +4006,10 @@ function normalizeRuntimeConfig(
         ),
       },
     },
+    channelInstructions: normalizeChannelInstructionsConfig(
+      rawChannelInstructions,
+      DEFAULT_RUNTIME_CONFIG.channelInstructions,
+    ),
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
       DEFAULT_RUNTIME_CONFIG.plugins,

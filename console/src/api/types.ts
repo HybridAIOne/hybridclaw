@@ -342,6 +342,16 @@ export interface AdminConfig {
     enableRag: boolean;
     models: string[];
   };
+  channelInstructions: {
+    discord: string;
+    msteams: string;
+    slack: string;
+    telegram: string;
+    voice: string;
+    whatsapp: string;
+    email: string;
+    imessage: string;
+  };
   discord: {
     prefix: string;
     guildMembersIntent: boolean;

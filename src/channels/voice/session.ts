@@ -24,7 +24,7 @@ const ALLOWED_TRANSITIONS: Record<VoiceCallState, VoiceCallState[]> = {
   'twiml-issued': ['relay-connecting', 'failed'],
   'relay-connecting': ['setup-received', 'failed', 'reconnecting'],
   'setup-received': ['listening', 'failed'],
-  listening: ['thinking', 'ending', 'failed', 'reconnecting'],
+  listening: ['thinking', 'interrupted', 'ending', 'failed', 'reconnecting'],
   thinking: ['speaking', 'interrupted', 'ending', 'failed', 'reconnecting'],
   speaking: ['listening', 'interrupted', 'ending', 'failed', 'reconnecting'],
   interrupted: ['listening', 'thinking', 'ending', 'failed', 'reconnecting'],

@@ -93,6 +93,10 @@ const WebSocketServerCtor = (
 ).WebSocketServer;
 let websocketServer = new WebSocketServerCtor({ noServer: true });
 
+function isVoiceRuntimeAvailable(): boolean {
+  return runtimeInitialized && !draining && voiceMessageHandler !== null;
+}
+
 function sendXml(res: ServerResponse, statusCode: number, body: string): void {
   if (res.headersSent) {
     if (!res.writableEnded) {
@@ -229,6 +233,16 @@ async function sendBusyTwiml(res: ServerResponse): Promise<void> {
     200,
     buildHangupTwiml(
       'HybridClaw voice is at capacity right now. Please try again shortly.',
+    ),
+  );
+}
+
+async function sendUnavailableTwiml(res: ServerResponse): Promise<void> {
+  sendXml(
+    res,
+    200,
+    buildHangupTwiml(
+      'HybridClaw voice is unavailable right now. Please try again shortly.',
     ),
   );
 }
@@ -572,8 +586,18 @@ export async function handleVoiceWebhook(
       return true;
     }
     observeReplay(req);
-    if (draining) {
-      await sendBusyTwiml(res);
+    if (!isVoiceRuntimeAvailable()) {
+      logger.warn(
+        {
+          remoteIp: resolveRemoteIp(req),
+          path: url.pathname,
+          runtimeInitialized,
+          draining,
+          hasMessageHandler: voiceMessageHandler !== null,
+        },
+        'Voice webhook rejected: runtime unavailable',
+      );
+      await sendUnavailableTwiml(res);
       return true;
     }
 
@@ -684,9 +708,15 @@ export function handleVoiceUpgrade(
   if (url.pathname !== paths.relayPath) {
     return false;
   }
-  if (draining || !runtimeInitialized) {
+  if (!isVoiceRuntimeAvailable()) {
     logger.warn(
-      { remoteIp: resolveRemoteIp(req), path: url.pathname },
+      {
+        remoteIp: resolveRemoteIp(req),
+        path: url.pathname,
+        runtimeInitialized,
+        draining,
+        hasMessageHandler: voiceMessageHandler !== null,
+      },
       'Voice relay rejected: runtime unavailable',
     );
     writeUpgradeError(socket, 503, 'Voice channel unavailable');

@@ -63,7 +63,10 @@ import {
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
-import { createVoiceTextStreamFormatter } from '../channels/voice/text.js';
+import {
+  createVoiceTextStreamFormatter,
+  normalizeVoiceUserTextForGateway,
+} from '../channels/voice/text.js';
 import {
   getWhatsAppAuthStatus,
   WhatsAppAuthLockError,
@@ -597,13 +600,17 @@ async function executeTextChannelGatewayTurn(params: {
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
   resultTransform?: (result: GatewayChatResult) => GatewayChatResult;
 }): Promise<GatewayChatResult | null> {
+  const normalizedContent =
+    params.source === 'voice'
+      ? normalizeVoiceUserTextForGateway(params.content)
+      : params.content;
   const handledSlashCommands = await runTextChannelSlashCommands({
     sessionId: params.sessionId,
     guildId: params.guildId,
     channelId: params.channelId,
     userId: params.userId,
     username: params.username,
-    content: params.content,
+    content: normalizedContent,
     reply: params.reply,
   });
   if (handledSlashCommands) {
@@ -617,7 +624,7 @@ async function executeTextChannelGatewayTurn(params: {
       channelId: params.channelId,
       userId: params.userId,
       username: params.username,
-      content: params.content,
+      content: normalizedContent,
       media: params.media,
       abortSignal: params.abortSignal,
       onTextDelta: params.onTextDelta,
