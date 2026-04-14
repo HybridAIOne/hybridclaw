@@ -4,12 +4,12 @@ rules:
   - action: allow
     host: github.com
     port: 443
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
     paths: ["/**"]
   - action: allow
     host: api.github.com
     port: 443
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
     paths: ["/**"]
   - action: allow
     host: raw.githubusercontent.com

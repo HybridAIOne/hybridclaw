@@ -11,7 +11,18 @@ export const DEFAULT_NETWORK_RULES = [
   },
 ];
 
-function asRecord(value) {
+const IPV4_HOST_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const COMMON_SECOND_LEVEL_TLDS = new Set([
+  'ac',
+  'co',
+  'com',
+  'edu',
+  'gov',
+  'net',
+  'org',
+]);
+
+export function asRecord(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
   }
@@ -77,8 +88,44 @@ export function normalizeNetworkPort(raw) {
   if (normalized === '*') return '*';
   const parsed =
     typeof raw === 'number' ? raw : Number.parseInt(normalized, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65_535) return 443;
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65_535) return null;
   return Math.trunc(parsed);
+}
+
+export function normalizeNetworkHostScope(host) {
+  const normalized = String(host || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!normalized) return 'unknown-host';
+  if (IPV4_HOST_RE.test(normalized)) return normalized;
+  if (normalized.includes(':')) return normalized;
+
+  const labels = normalized.split('.').filter(Boolean);
+  if (labels.length <= 2) return normalized;
+
+  const secondLevel = labels[labels.length - 2];
+  const topLevel = labels[labels.length - 1];
+  if (
+    topLevel.length === 2 &&
+    COMMON_SECOND_LEVEL_TLDS.has(secondLevel) &&
+    labels.length >= 3
+  ) {
+    return labels.slice(-3).join('.');
+  }
+  return labels.slice(-2).join('.');
+}
+
+export function doesNetworkHostPatternExpandToSubdomains(host) {
+  const normalized = String(host || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!normalized || normalized.includes('*')) return false;
+  if (IPV4_HOST_RE.test(normalized) || normalized.includes(':')) return false;
+  const labels = normalized.split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  return normalized === normalizeNetworkHostScope(normalized);
 }
 
 export function normalizeNetworkRule(raw) {
@@ -87,11 +134,13 @@ export function normalizeNetworkRule(raw) {
     .toLowerCase()
     .replace(/\.$/, '');
   if (!host) return null;
+  const port = normalizeNetworkPort(raw?.port);
+  if (port == null) return null;
   const comment = String(raw?.comment || '').trim();
   return {
     action: normalizeNetworkAction(raw?.action),
     host,
-    port: normalizeNetworkPort(raw?.port),
+    port,
     methods: normalizeNetworkMethods(raw?.methods),
     paths: normalizeNetworkPaths(raw?.paths),
     agent: normalizeNetworkAgent(raw?.agent),
@@ -99,7 +148,7 @@ export function normalizeNetworkRule(raw) {
   };
 }
 
-function normalizePresetNames(presets) {
+export function normalizePresetNames(presets) {
   if (!Array.isArray(presets)) return [];
   return [
     ...new Set(

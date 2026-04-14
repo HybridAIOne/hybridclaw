@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
+import YAML from 'yaml';
 import type {
   NetworkPolicyAction,
   NetworkRule,
@@ -10,7 +11,10 @@ import type {
 import {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
+  asRecord,
+  doesNetworkHostPatternExpandToSubdomains,
   normalizeNetworkAgent,
+  normalizeNetworkHostScope,
   normalizeNetworkPathPattern,
   normalizeNetworkPort,
   readNetworkPolicyState,
@@ -245,29 +249,52 @@ function parseJsonObject(raw: string): Record<string, unknown> {
   return {};
 }
 
-function parseInlineList(raw: string): string[] {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return [];
-  const inner = trimmed.slice(1, -1).trim();
-  if (!inner) return [];
-  return inner
-    .split(',')
-    .map((item) => item.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(Boolean);
-}
-
-function parseBool(raw: string | undefined, fallback: boolean): boolean {
-  if (!raw) return fallback;
+function normalizeBooleanValue(raw: unknown, fallback: boolean): boolean {
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw !== 'string') return fallback;
   const normalized = raw.trim().toLowerCase();
   if (normalized === 'true') return true;
   if (normalized === 'false') return false;
   return fallback;
 }
 
-function parseIntStrict(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
+function normalizeIntegerValue(raw: unknown, fallback: number): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.trunc(raw);
+  }
+  if (typeof raw !== 'string') return fallback;
   const parsed = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeStringList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
+  const rule = asRecord(raw);
+  const pattern = String(rule.pattern || '').trim();
+  const tools = normalizeStringList(rule.tools);
+  const paths = normalizeStringList(rule.paths);
+  if (!pattern && tools.length === 0 && paths.length === 0) {
+    return null;
+  }
+  return {
+    ...(pattern ? { pattern } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(paths.length > 0 ? { paths } : {}),
+  };
 }
 
 function globPatternToRegExp(pattern: string): RegExp {
@@ -310,373 +337,54 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
 }
 
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
-  const policy: Partial<ApprovalPolicyConfig> = {};
-  const lines = raw.split(/\r?\n/);
+  const document = asRecord(YAML.parse(raw) as unknown);
+  const approval = asRecord(document.approval);
+  const audit = asRecord(document.audit);
+  const pinnedRed = Array.isArray(approval.pinned_red)
+    ? approval.pinned_red
+        .map((rule) => normalizeApprovalRule(rule))
+        .filter((rule): rule is ApprovalPolicyRule => Boolean(rule))
+    : [];
+  const networkState = readNetworkPolicyState(document);
 
-  let section: 'approval' | 'audit' | 'network' | '' = '';
-  let inPinnedRed = false;
-  let pinnedRuleIndent = -1;
-  let currentRule: ApprovalPolicyRule | null = null;
-  let currentListKey: 'tools' | 'paths' | null = null;
-  const pinnedRules: ApprovalPolicyRule[] = [];
-  let inNetworkRules = false;
-  let networkRulesDeclared = false;
-  let networkRuleIndent = -1;
-  let networkSectionSeen = false;
-  let currentNetworkRule: Record<string, unknown> | null = null;
-  let currentNetworkListKey: 'methods' | 'paths' | null = null;
-  const rawNetworkRules: Record<string, unknown>[] = [];
-  let inNetworkPresets = false;
-  let networkPresetsIndent = -1;
-  let networkDefaultRaw: string | undefined;
-  const networkPresets: string[] = [];
-  let legacyTrustedHosts: string[] = [];
-
-  const flushRule = (): void => {
-    if (!currentRule) return;
-    const hasContent = Boolean(
-      currentRule.pattern?.trim() ||
-        (Array.isArray(currentRule.paths) && currentRule.paths.length > 0) ||
-        (Array.isArray(currentRule.tools) && currentRule.tools.length > 0),
-    );
-    if (hasContent) pinnedRules.push(currentRule);
-    currentRule = null;
-    currentListKey = null;
-  };
-
-  const flushNetworkRule = (): void => {
-    if (!currentNetworkRule) return;
-    if (String(currentNetworkRule.host || '').trim()) {
-      rawNetworkRules.push({ ...currentNetworkRule });
-    }
-    currentNetworkRule = null;
-    currentNetworkListKey = null;
-  };
-
-  const applyRuleField = (
-    rule: ApprovalPolicyRule,
-    key: string,
-    rawValue: string,
-  ): void => {
-    const value = rawValue.trim();
-    if (key === 'pattern') {
-      rule.pattern = value.replace(/^['"]|['"]$/g, '');
-      return;
-    }
-    if (key === 'tools' || key === 'paths') {
-      const parsed = parseInlineList(value);
-      if (parsed.length > 0) {
-        if (key === 'tools') rule.tools = parsed;
-        if (key === 'paths') rule.paths = parsed;
-        currentListKey = null;
-      } else {
-        if (key === 'tools') rule.tools = [];
-        if (key === 'paths') rule.paths = [];
-        currentListKey = key;
-      }
-    }
-  };
-
-  const applyNetworkRuleField = (
-    rule: Record<string, unknown>,
-    key: string,
-    rawValue: string,
-  ): void => {
-    const value = rawValue.trim();
-    if (key === 'action') {
-      rule.action = value.replace(/^['"]|['"]$/g, '');
-      return;
-    }
-    if (key === 'host') {
-      rule.host = value.replace(/^['"]|['"]$/g, '');
-      return;
-    }
-    if (key === 'port') {
-      const unquoted = value.replace(/^['"]|['"]$/g, '');
-      rule.port = /^\d+$/.test(unquoted)
-        ? Number.parseInt(unquoted, 10)
-        : unquoted;
-      return;
-    }
-    if (key === 'agent') {
-      rule.agent = value.replace(/^['"]|['"]$/g, '');
-      return;
-    }
-    if (key === 'comment') {
-      rule.comment = value.replace(/^['"]|['"]$/g, '');
-      return;
-    }
-    if (key === 'methods' || key === 'paths') {
-      const parsed = parseInlineList(value);
-      if (parsed.length > 0) {
-        if (key === 'methods') rule.methods = parsed;
-        if (key === 'paths') rule.paths = parsed;
-        currentNetworkListKey = null;
-        return;
-      }
-      const scalarList = value
-        ? value
-            .split(',')
-            .map((item) => item.trim().replace(/^['"]|['"]$/g, ''))
-            .filter(Boolean)
-        : [];
-      if (scalarList.length > 0) {
-        if (key === 'methods') rule.methods = scalarList;
-        if (key === 'paths') rule.paths = scalarList;
-        currentNetworkListKey = null;
-        return;
-      }
-      if (key === 'methods') rule.methods = [];
-      if (key === 'paths') rule.paths = [];
-      currentNetworkListKey = key;
-    }
-  };
-
-  for (const rawLine of lines) {
-    const noComment = rawLine.replace(/\s+#.*$/, '');
-    if (!noComment.trim()) continue;
-    const indent = noComment.match(/^ */)?.[0].length || 0;
-    const line = noComment.trim();
-
-    if (line === 'approval:') {
-      flushRule();
-      flushNetworkRule();
-      section = 'approval';
-      inPinnedRed = false;
-      inNetworkRules = false;
-      inNetworkPresets = false;
-      continue;
-    }
-    if (line === 'network:') {
-      flushRule();
-      flushNetworkRule();
-      section = 'network';
-      networkSectionSeen = true;
-      inPinnedRed = false;
-      inNetworkRules = false;
-      inNetworkPresets = false;
-      continue;
-    }
-    if (line === 'audit:') {
-      flushRule();
-      flushNetworkRule();
-      section = 'audit';
-      inPinnedRed = false;
-      inNetworkRules = false;
-      inNetworkPresets = false;
-      continue;
-    }
-    if (section === '' && line.endsWith(':')) continue;
-
-    if (section === 'approval') {
-      if (line === 'pinned_red:') {
-        flushRule();
-        inPinnedRed = true;
-        pinnedRuleIndent = -1;
-        continue;
-      }
-      if (inPinnedRed && line.startsWith('-')) {
-        if (pinnedRuleIndent < 0) pinnedRuleIndent = indent;
-        if (indent <= pinnedRuleIndent) {
-          flushRule();
-          currentRule = {};
-          const rest = line.slice(1).trim();
-          if (!rest) continue;
-          const kv = rest.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-          if (!kv) continue;
-          applyRuleField(currentRule, kv[1], kv[2]);
-          continue;
-        }
-      }
-      if (inPinnedRed && currentRule) {
-        if (line.startsWith('-') && currentListKey) {
-          const item = line
-            .slice(1)
-            .trim()
-            .replace(/^['"]|['"]$/g, '');
-          if (item) {
-            if (currentListKey === 'tools') {
-              currentRule.tools = [...(currentRule.tools || []), item];
-            } else {
-              currentRule.paths = [...(currentRule.paths || []), item];
-            }
-          }
-          continue;
-        }
-        const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-        if (kv) {
-          applyRuleField(currentRule, kv[1], kv[2]);
-          continue;
-        }
-      }
-      if (inPinnedRed && indent <= pinnedRuleIndent && !line.startsWith('-')) {
-        flushRule();
-        inPinnedRed = false;
-      }
-      const simpleKv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-      if (!simpleKv) continue;
-      const [, key, rawValue] = simpleKv;
-      if (key === 'workspace_fence') {
-        policy.workspaceFence = parseBool(
-          rawValue,
-          DEFAULT_POLICY.workspaceFence,
-        );
-      } else if (key === 'trusted_network_hosts') {
-        legacyTrustedHosts =
-          parseInlineList(rawValue).length > 0 ? parseInlineList(rawValue) : [];
-      } else if (key === 'max_pending_approvals') {
-        policy.maxPendingApprovals = Math.max(
-          1,
-          parseIntStrict(rawValue, DEFAULT_POLICY.maxPendingApprovals),
-        );
-      } else if (key === 'approval_timeout_secs') {
-        policy.approvalTimeoutSecs = Math.max(
-          5,
-          parseIntStrict(rawValue, DEFAULT_POLICY.approvalTimeoutSecs),
-        );
-      }
-      continue;
-    }
-
-    if (section === 'network') {
-      if (line === 'rules:') {
-        flushNetworkRule();
-        inNetworkRules = true;
-        inNetworkPresets = false;
-        networkRulesDeclared = true;
-        networkRuleIndent = -1;
-        continue;
-      }
-      if (line === 'presets:') {
-        flushNetworkRule();
-        inNetworkRules = false;
-        inNetworkPresets = true;
-        networkPresetsIndent = indent;
-        continue;
-      }
-      if (inNetworkRules && line.startsWith('-')) {
-        if (networkRuleIndent < 0) networkRuleIndent = indent;
-        if (indent <= networkRuleIndent) {
-          flushNetworkRule();
-          currentNetworkRule = {};
-          const rest = line.slice(1).trim();
-          if (!rest) continue;
-          const kv = rest.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-          if (!kv) continue;
-          applyNetworkRuleField(currentNetworkRule, kv[1], kv[2]);
-          continue;
-        }
-      }
-      if (inNetworkRules && currentNetworkRule) {
-        if (line.startsWith('-') && currentNetworkListKey) {
-          const item = line
-            .slice(1)
-            .trim()
-            .replace(/^['"]|['"]$/g, '');
-          if (item) {
-            if (currentNetworkListKey === 'methods') {
-              const existingMethods = Array.isArray(currentNetworkRule.methods)
-                ? currentNetworkRule.methods
-                : [];
-              currentNetworkRule.methods = [...existingMethods, item];
-            } else {
-              const existingPaths = Array.isArray(currentNetworkRule.paths)
-                ? currentNetworkRule.paths
-                : [];
-              currentNetworkRule.paths = [...existingPaths, item];
-            }
-          }
-          continue;
-        }
-        const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-        if (kv) {
-          applyNetworkRuleField(currentNetworkRule, kv[1], kv[2]);
-          continue;
-        }
-      }
-      if (
-        inNetworkRules &&
-        networkRuleIndent >= 0 &&
-        indent <= networkRuleIndent &&
-        !line.startsWith('-')
-      ) {
-        flushNetworkRule();
-        inNetworkRules = false;
-      }
-      if (inNetworkPresets) {
-        if (line.startsWith('-')) {
-          const preset = line
-            .slice(1)
-            .trim()
-            .replace(/^['"]|['"]$/g, '');
-          if (preset) networkPresets.push(preset);
-          continue;
-        }
-        if (indent <= networkPresetsIndent) {
-          inNetworkPresets = false;
-        }
-      }
-      const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-      if (!kv) continue;
-      const [, key, rawValue] = kv;
-      if (key === 'default') {
-        networkDefaultRaw = rawValue.replace(/^['"]|['"]$/g, '');
-      }
-      continue;
-    }
-
-    if (section === 'audit') {
-      const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-      if (!kv) continue;
-      const [, key, rawValue] = kv;
-      const audit = policy.audit || {
-        logAllRed: DEFAULT_POLICY.audit.logAllRed,
-        logDenials: DEFAULT_POLICY.audit.logDenials,
-      };
-      if (key === 'log_all_red') {
-        audit.logAllRed = parseBool(rawValue, DEFAULT_POLICY.audit.logAllRed);
-      } else if (key === 'log_denials') {
-        audit.logDenials = parseBool(rawValue, DEFAULT_POLICY.audit.logDenials);
-      }
-      policy.audit = audit;
-    }
-  }
-
-  flushRule();
-  flushNetworkRule();
-  if (pinnedRules.length > 0) policy.pinnedRed = pinnedRules;
-  if (networkSectionSeen || legacyTrustedHosts.length > 0) {
-    const document: Record<string, unknown> = {};
-    const networkDocument: Record<string, unknown> = {};
-    if (networkDefaultRaw !== undefined) {
-      networkDocument.default = networkDefaultRaw;
-    }
-    if (networkRulesDeclared) {
-      networkDocument.rules = rawNetworkRules;
-    }
-    if (networkPresets.length > 0) {
-      networkDocument.presets = networkPresets;
-    }
-    if (legacyTrustedHosts.length > 0) {
-      document.approval = {
-        trusted_network_hosts: legacyTrustedHosts,
-      };
-    }
-    if (networkSectionSeen) {
-      document.network = networkDocument;
-    }
-    const networkState = readNetworkPolicyState(document);
-    policy.networkDefault = networkState.defaultAction;
-    policy.networkRules = networkState.rules.map((rule) => ({
+  return {
+    ...(pinnedRed.length > 0 ? { pinnedRed } : {}),
+    networkDefault: networkState.defaultAction,
+    networkRules: networkState.rules.map((rule) => ({
       ...rule,
       methods: [...rule.methods],
       paths: [...rule.paths],
-    }));
-    if (networkState.presets.length > 0) {
-      policy.networkPresets = [...networkState.presets];
-    }
-  }
-  return policy;
+    })),
+    networkPresets: [...networkState.presets],
+    workspaceFence: normalizeBooleanValue(
+      approval.workspace_fence,
+      DEFAULT_POLICY.workspaceFence,
+    ),
+    maxPendingApprovals: Math.max(
+      1,
+      normalizeIntegerValue(
+        approval.max_pending_approvals,
+        DEFAULT_POLICY.maxPendingApprovals,
+      ),
+    ),
+    approvalTimeoutSecs: Math.max(
+      5,
+      normalizeIntegerValue(
+        approval.approval_timeout_secs,
+        DEFAULT_POLICY.approvalTimeoutSecs,
+      ),
+    ),
+    audit: {
+      logAllRed: normalizeBooleanValue(
+        audit.log_all_red,
+        DEFAULT_POLICY.audit.logAllRed,
+      ),
+      logDenials: normalizeBooleanValue(
+        audit.log_denials,
+        DEFAULT_POLICY.audit.logDenials,
+      ),
+    },
+  };
 }
 
 export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
@@ -686,7 +394,11 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       const raw = fs.readFileSync(policyPath, 'utf-8');
       filePolicy = parsePolicyYaml(raw);
     }
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[approval-policy] failed to load policy from ${policyPath}: ${message}`,
+    );
     filePolicy = {};
   }
 
@@ -782,33 +494,7 @@ function extractHostsFromUrlLikeText(input: string): string[] {
 }
 
 export function normalizeHostScope(host: string): string {
-  const normalized = host.trim().toLowerCase().replace(/\.$/, '');
-  if (!normalized) return 'unknown-host';
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return normalized;
-  if (normalized.includes(':')) return normalized; // IPv6/host:port fragments
-
-  const labels = normalized.split('.').filter(Boolean);
-  if (labels.length <= 2) return normalized;
-
-  const secondLevel = labels[labels.length - 2];
-  const topLevel = labels[labels.length - 1];
-  const commonSecondLevelTlds = new Set([
-    'ac',
-    'co',
-    'com',
-    'edu',
-    'gov',
-    'net',
-    'org',
-  ]);
-  if (
-    topLevel.length === 2 &&
-    commonSecondLevelTlds.has(secondLevel) &&
-    labels.length >= 3
-  ) {
-    return labels.slice(-3).join('.');
-  }
-  return labels.slice(-2).join('.');
+  return normalizeNetworkHostScope(host);
 }
 
 function defaultPortForProtocol(protocol: string): number {
@@ -842,7 +528,7 @@ function matchesHostPattern(pattern: string, candidateHost: string): boolean {
   ) {
     return false;
   }
-  if (normalizedPattern === normalizeHostScope(normalizedPattern)) {
+  if (doesNetworkHostPatternExpandToSubdomains(normalizedPattern)) {
     return normalizeHostScope(normalizedCandidate) === normalizedPattern;
   }
   return false;

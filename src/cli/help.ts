@@ -523,6 +523,7 @@ Commands:
 Notes:
   - Rules are evaluated in order; first match wins.
   - Rule fields default to \`port=*\`, \`methods=*\`, \`paths=/**\`, and \`agent=*\`.
+  - Bare site-scope hosts like \`github.com\` also match subdomains like \`api.github.com\`.
   - \`list --agent <id>\` shows both global (\`*\`) rules and rules scoped to that agent.
   - \`preset add --dry-run\` previews bundled endpoints without modifying policy.yaml.`);
 }

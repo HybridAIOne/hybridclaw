@@ -3,11 +3,13 @@ import path from 'node:path';
 
 import YAML from 'yaml';
 import {
+  asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   type NetworkPolicyAction,
   type NetworkRule,
   normalizeNetworkRule,
+  normalizePresetNames,
   readNetworkPolicyState,
 } from './network-policy.js';
 
@@ -30,18 +32,40 @@ export interface PolicyNetworkState {
   rules: IndexedNetworkRule[];
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
 function normalizeManagedByPreset(value: unknown): string | undefined {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return normalized || undefined;
+}
+
+function validateWritableRule(rule: NetworkRule): ManagedNetworkRule {
+  const normalized = normalizeNetworkRule(rule);
+  if (normalized) return normalized;
+  const host = String(rule.host || '').trim();
+  if (!host) {
+    throw new Error('Policy rule is missing a host.');
+  }
+  throw new Error('Policy rule has an invalid port.');
+}
+
+function normalizeManagedRuleOrThrow(
+  rule: ManagedNetworkRule,
+  index: number,
+): ManagedNetworkRule {
+  const normalized = normalizeNetworkRule(rule);
+  if (!normalized) {
+    const host = String(rule.host || '').trim();
+    if (!host) {
+      throw new Error(`Policy rule #${index} is missing a host.`);
+    }
+    throw new Error(`Policy rule #${index} has an invalid port.`);
+  }
+  const managedByPreset = normalizeManagedByPreset(rule.managedByPreset);
+  return {
+    ...normalized,
+    ...(managedByPreset ? { managedByPreset } : {}),
+  };
 }
 
 function toYamlNetworkRule(rule: ManagedNetworkRule): Record<string, unknown> {
@@ -104,16 +128,11 @@ function buildWritablePolicyObject(params: {
   return ordered;
 }
 
-function normalizePresetNames(presets: string[]): string[] {
-  return [
-    ...new Set(
-      presets.map((preset) => preset.trim().toLowerCase()).filter(Boolean),
-    ),
-  ];
-}
-
-function toPolicyState(policyPath: string): PolicyNetworkState {
-  const document = readRawPolicyObject(policyPath);
+function toPolicyState(
+  policyPath: string,
+  document: Record<string, unknown> = readRawPolicyObject(policyPath),
+  exists: boolean = fs.existsSync(policyPath),
+): PolicyNetworkState {
   const config = readNetworkPolicyState(document);
   const rawNetwork = asRecord(document.network);
   const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : null;
@@ -123,23 +142,20 @@ function toPolicyState(policyPath: string): PolicyNetworkState {
           .map((entry) => {
             const rawRule = asRecord(entry);
             const normalized = normalizeNetworkRule(rawRule);
+            const managedByPreset = normalizeManagedByPreset(
+              rawRule[MANAGED_BY_PRESET_FIELD],
+            );
             if (!normalized) return null;
             return {
               ...normalized,
-              ...(normalizeManagedByPreset(rawRule[MANAGED_BY_PRESET_FIELD])
-                ? {
-                    managedByPreset: normalizeManagedByPreset(
-                      rawRule[MANAGED_BY_PRESET_FIELD],
-                    ),
-                  }
-                : {}),
+              ...(managedByPreset ? { managedByPreset } : {}),
             } satisfies ManagedNetworkRule;
           })
           .filter((rule): rule is ManagedNetworkRule => Boolean(rule))
       : config.rules.map((rule) => ({ ...rule }));
   const workspacePath = path.dirname(path.dirname(policyPath));
   return {
-    exists: fs.existsSync(policyPath),
+    exists,
     policyPath,
     workspacePath,
     defaultAction: config.defaultAction,
@@ -151,7 +167,23 @@ function toPolicyState(policyPath: string): PolicyNetworkState {
   };
 }
 
-function stripRuleIndex(rule: IndexedNetworkRule): ManagedNetworkRule {
+function assertWritablePolicyRules(
+  document: Record<string, unknown>,
+  policyPath: string,
+): void {
+  const rawNetwork = asRecord(document.network);
+  const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : null;
+  if (rawRules === null) return;
+  const invalidIndex = rawRules.findIndex(
+    (entry) => !normalizeNetworkRule(asRecord(entry)),
+  );
+  if (invalidIndex === -1) return;
+  throw new Error(
+    `Policy file contains an invalid network rule at index ${invalidIndex + 1}. Fix ${policyPath} before editing it.`,
+  );
+}
+
+export function stripRuleIndex(rule: IndexedNetworkRule): ManagedNetworkRule {
   return {
     action: rule.action,
     host: rule.host,
@@ -190,26 +222,19 @@ function updatePolicyState(
   }) => void,
 ): PolicyNetworkState {
   const policyPath = resolveWorkspacePolicyPath(workspacePath);
+  const exists = fs.existsSync(policyPath);
   const base = readRawPolicyObject(policyPath);
-  const current = toPolicyState(policyPath);
+  assertWritablePolicyRules(base, policyPath);
+  const current = toPolicyState(policyPath, base, exists);
   const draft = {
     defaultAction: current.defaultAction,
     rules: current.rules.map((rule) => stripRuleIndex(rule)),
     presets: [...current.presets],
   };
   update(draft);
-  const normalizedRules = draft.rules
-    .map((rule) => {
-      const normalized = normalizeNetworkRule(rule);
-      if (!normalized) return null;
-      return {
-        ...normalized,
-        ...(rule.managedByPreset
-          ? { managedByPreset: normalizeManagedByPreset(rule.managedByPreset) }
-          : {}),
-      } satisfies ManagedNetworkRule;
-    })
-    .filter((rule): rule is ManagedNetworkRule => Boolean(rule));
+  const normalizedRules = draft.rules.map((rule, index) =>
+    normalizeManagedRuleOrThrow(rule, index + 1),
+  );
   writePolicyState({
     policyPath,
     base,
@@ -241,10 +266,7 @@ export function addPolicyRule(
   workspacePath: string,
   rule: NetworkRule,
 ): PolicyNetworkState {
-  const normalized = normalizeNetworkRule(rule);
-  if (!normalized) {
-    throw new Error('Policy rule is missing a host.');
-  }
+  const normalized = validateWritableRule(rule);
   return updatePolicyState(workspacePath, (draft) => {
     draft.rules.push(normalized);
   });
@@ -258,10 +280,7 @@ export function updatePolicyRule(
   if (!Number.isInteger(index) || index <= 0) {
     throw new Error('Rule index must be a positive integer.');
   }
-  const normalized = normalizeNetworkRule(rule);
-  if (!normalized) {
-    throw new Error('Policy rule is missing a host.');
-  }
+  const normalized = validateWritableRule(rule);
   const current = readPolicyState(workspacePath);
   if (!current.rules.some((entry) => entry.index === index)) {
     throw new Error(`No policy rule matched "${index}".`);

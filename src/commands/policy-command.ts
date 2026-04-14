@@ -1,4 +1,5 @@
 import {
+  doesNetworkHostPatternExpandToSubdomains,
   type NetworkPolicyAction,
   type NetworkRule,
   normalizeNetworkRule,
@@ -85,6 +86,20 @@ function formatRuleLine(rule: NetworkRule, index?: number): string {
   const prefix = typeof index === 'number' ? `[${index}] ` : '';
   const commentSuffix = rule.comment ? ` # ${rule.comment}` : '';
   return `${prefix}${formatRuleAction(rule.action)} ${rule.host}:${rule.port} ${rule.methods.join(',')} ${rule.paths.join(',')} (agent: ${rule.agent})${commentSuffix}`;
+}
+
+function collectHostScopeExpansionNotes(rules: NetworkRule[]): string[] {
+  const expandingHosts = [
+    ...new Set(
+      rules
+        .map((rule) => rule.host)
+        .filter((host) => doesNetworkHostPatternExpandToSubdomains(host)),
+    ),
+  ];
+  return expandingHosts.map(
+    (host) =>
+      `Note: ${host} also matches subdomains like *.${host} under current host-scope rules.`,
+  );
 }
 
 function formatRuleTable(
@@ -193,9 +208,16 @@ function parseRuleCommand(
         index = portFlag.nextIndex;
         continue;
       }
+      if (!/^[0-9]+$/u.test(portFlag.value)) {
+        throw new Error(
+          '`--port` must be `*` or a base-10 integer in the range 1-65535.',
+        );
+      }
       const parsed = Number.parseInt(portFlag.value, 10);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error('`--port` must be a positive integer or `*`.');
+      if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65_535) {
+        throw new Error(
+          '`--port` must be `*` or a base-10 integer in the range 1-65535.',
+        );
       }
       port = parsed;
       index = portFlag.nextIndex;
@@ -244,6 +266,9 @@ function buildListJson(
           paths: rule.paths,
           agent: rule.agent,
           ...(rule.comment ? { comment: rule.comment } : {}),
+          ...(rule.managedByPreset
+            ? { managedByPreset: rule.managedByPreset }
+            : {}),
         })),
     },
     null,
@@ -315,9 +340,13 @@ export function runPolicyCommand(
       const rule = parseRuleCommand(subcommand, args.slice(1));
       const state = addPolicyRule(workspacePath, rule);
       const added = state.rules[state.rules.length - 1];
+      const notes = collectHostScopeExpansionNotes([added]);
       return {
         kind: 'plain',
-        text: `Rule added: ${formatRuleLine(added, added.index)}`,
+        text: [
+          `Rule added: ${formatRuleLine(added, added.index)}`,
+          ...notes,
+        ].join('\n'),
       };
     }
 
@@ -399,6 +428,7 @@ export function runPolicyCommand(
         }
         const preview = previewPolicyPreset(workspacePath, presetName);
         if (dryRun) {
+          const notes = collectHostScopeExpansionNotes(preview.addedRules);
           return {
             kind: 'info',
             title: 'Policy Preset Dry Run',
@@ -407,13 +437,18 @@ export function runPolicyCommand(
               ...(preview.addedRules.length > 0
                 ? preview.addedRules.map((rule) => `  ${formatRuleLine(rule)}`)
                 : ['  (no new rules)']),
+              ...notes,
             ].join('\n'),
           };
         }
         const applied = applyPolicyPreset(workspacePath, preview.preset.name);
+        const notes = collectHostScopeExpansionNotes(applied.addedRules);
         return {
           kind: 'plain',
-          text: `Applied preset '${applied.preset.name}' (${applied.addedRules.length} rules added)`,
+          text: [
+            `Applied preset '${applied.preset.name}' (${applied.addedRules.length} rules added, ${applied.state.rules.length} total rules)`,
+            ...notes,
+          ].join('\n'),
         };
       }
 

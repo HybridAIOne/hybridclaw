@@ -6,6 +6,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import { runPolicyCommand } from '../src/commands/policy-command.js';
 import { handlePolicyCommand } from '../src/policy/policy-cli.js';
+import { loadPolicyPreset } from '../src/policy/policy-presets.js';
+import { listPolicyPresetSummaries } from '../src/policy/policy-presets.js';
 import {
   readPolicyState,
   resolveWorkspacePolicyPath,
@@ -75,6 +77,40 @@ test('policy command supports status, allow, list, default, and delete flows', (
   expect(deleted.text).toContain('Deleted rule #2: api.github.com');
 });
 
+test('policy allow warns when a host rule also matches subdomains', () => {
+  const workspacePath = makeWorkspace();
+
+  const allow = runPolicyCommand(['allow', 'github.com'], { workspacePath });
+
+  expect(allow.kind).toBe('plain');
+  expect(allow.text).toContain('Rule added: [2] ALLOW github.com:*');
+  expect(allow.text).toContain(
+    'Note: github.com also matches subdomains like *.github.com under current host-scope rules.',
+  );
+});
+
+test('policy allow rejects malformed or out-of-range port values', () => {
+  const workspacePath = makeWorkspace();
+
+  const malformed = runPolicyCommand(
+    ['allow', 'example.com', '--port', '443abc'],
+    { workspacePath },
+  );
+  expect(malformed.kind).toBe('error');
+  expect(malformed.text).toBe(
+    '`--port` must be `*` or a base-10 integer in the range 1-65535.',
+  );
+
+  const outOfRange = runPolicyCommand(
+    ['allow', 'example.com', '--port', '99999'],
+    { workspacePath },
+  );
+  expect(outOfRange.kind).toBe('error');
+  expect(outOfRange.text).toBe(
+    '`--port` must be `*` or a base-10 integer in the range 1-65535.',
+  );
+});
+
 test('policy preset commands support list, dry-run, apply, and remove', () => {
   const workspacePath = makeWorkspace();
 
@@ -95,11 +131,28 @@ test('policy preset commands support list, dry-run, apply, and remove', () => {
     workspacePath,
   });
   expect(applied.kind).toBe('plain');
-  expect(applied.text).toContain("Applied preset 'github'");
+  expect(applied.text).toContain(
+    "Applied preset 'github' (3 rules added, 4 total rules)",
+  );
 
   let state = readPolicyState(workspacePath);
   expect(state.presets).toEqual(['github']);
   expect(state.rules.some((rule) => rule.host === 'api.github.com')).toBe(true);
+  const listJson = runPolicyCommand(['list', '--json'], { workspacePath });
+  expect(listJson.kind).toBe('info');
+  expect(JSON.parse(listJson.text)).toMatchObject({
+    presets: ['github'],
+    rules: expect.arrayContaining([
+      expect.objectContaining({
+        host: 'github.com',
+        managedByPreset: 'github',
+      }),
+      expect.objectContaining({
+        host: 'api.github.com',
+        managedByPreset: 'github',
+      }),
+    ]),
+  });
 
   const removed = runPolicyCommand(['preset', 'remove', 'github'], {
     workspacePath,
@@ -112,6 +165,54 @@ test('policy preset commands support list, dry-run, apply, and remove', () => {
   expect(state.rules).toEqual([
     expect.objectContaining({ host: 'hybridclaw.io' }),
   ]);
+});
+
+test('github preset allows common GitHub write methods', () => {
+  const preset = loadPolicyPreset('github');
+  const githubApiRule = preset.rules.find((rule) => rule.host === 'api.github.com');
+  const githubSiteRule = preset.rules.find((rule) => rule.host === 'github.com');
+
+  expect(githubApiRule?.methods).toEqual([
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+  ]);
+  expect(githubSiteRule?.methods).toEqual([
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+  ]);
+});
+
+test('policy preset list only parses preset summaries', () => {
+  const originalReadFileSync = fs.readFileSync.bind(fs);
+  vi.spyOn(fs, 'readFileSync').mockImplementation((filePath, options) => {
+    if (
+      typeof filePath === 'string' &&
+      /presets[/\\]github\.yaml$/u.test(filePath)
+    ) {
+      return `name: github
+description: GitHub API, repo pages, and raw content
+rules:
+  - action: allow
+    host: [broken
+`;
+    }
+    return originalReadFileSync(filePath, options);
+  });
+
+  expect(listPolicyPresetSummaries()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'github',
+        description: 'GitHub API, repo pages, and raw content',
+      }),
+    ]),
+  );
 });
 
 test('removing a preset preserves identical manual rules', () => {
@@ -162,6 +263,65 @@ test('removing a preset preserves identical manual rules', () => {
   expect(
     state.rules.some((rule) => rule.host === 'raw.githubusercontent.com'),
   ).toBe(false);
+});
+
+test('policy preset add rejects path traversal names', () => {
+  const workspacePath = makeWorkspace();
+
+  const result = runPolicyCommand(['preset', 'add', '../../../etc/passwd'], {
+    workspacePath,
+  });
+
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('Policy Command Failed');
+  expect(result.text).toBe(
+    'Invalid preset name: "../../../etc/passwd"',
+  );
+});
+
+test('policy presets load .yml files when no .yaml file exists', () => {
+  const originalExistsSync = fs.existsSync.bind(fs);
+  const originalReadFileSync = fs.readFileSync.bind(fs);
+
+  vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+    if (
+      typeof filePath === 'string' &&
+      /presets[/\\]alt-github\.yaml$/u.test(filePath)
+    ) {
+      return false;
+    }
+    if (
+      typeof filePath === 'string' &&
+      /presets[/\\]alt-github\.yml$/u.test(filePath)
+    ) {
+      return true;
+    }
+    return originalExistsSync(filePath);
+  });
+
+  vi.spyOn(fs, 'readFileSync').mockImplementation((filePath, options) => {
+    if (
+      typeof filePath === 'string' &&
+      /presets[/\\]alt-github\.yml$/u.test(filePath)
+    ) {
+      return `name: alt-github
+description: Alternate GitHub preset
+rules:
+  - action: allow
+    host: api.github.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]
+`;
+    }
+    return originalReadFileSync(filePath, options);
+  });
+
+  expect(loadPolicyPreset('alt-github')).toMatchObject({
+    name: 'alt-github',
+    description: 'Alternate GitHub preset',
+    rules: [expect.objectContaining({ host: 'api.github.com' })],
+  });
 });
 
 test('policy CLI handler writes to the workspace under the current working directory', async () => {

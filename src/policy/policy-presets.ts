@@ -3,7 +3,11 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
-import { type NetworkRule, normalizeNetworkRule } from './network-policy.js';
+import {
+  asRecord,
+  type NetworkRule,
+  normalizeNetworkRule,
+} from './network-policy.js';
 import {
   type IndexedNetworkRule,
   type ManagedNetworkRule,
@@ -25,20 +29,23 @@ export interface PolicyPresetSummary {
 
 const PRESETS_DIR = resolveInstallPath('presets');
 
-function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
 function readPresetFile(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (!normalized) {
     throw new Error('Preset name is required.');
   }
-  const filePath = path.join(PRESETS_DIR, `${normalized}.yaml`);
-  if (!fs.existsSync(filePath)) {
+  if (
+    normalized.includes('/') ||
+    normalized.includes('\\') ||
+    normalized.includes('..')
+  ) {
+    throw new Error(`Invalid preset name: "${name}"`);
+  }
+  const filePath = [
+    path.join(PRESETS_DIR, `${normalized}.yaml`),
+    path.join(PRESETS_DIR, `${normalized}.yml`),
+  ].find((candidate) => fs.existsSync(candidate));
+  if (!filePath) {
     throw new Error(`Unknown policy preset: ${name}`);
   }
   return filePath;
@@ -69,16 +76,29 @@ function parsePresetFile(filePath: string): PolicyPreset {
   };
 }
 
+function parsePresetSummaryFile(filePath: string): PolicyPresetSummary {
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const headerLines: string[] = [];
+  for (const line of raw.split(/\r?\n/u)) {
+    if (/^rules\s*:/u.test(line)) break;
+    headerLines.push(line);
+  }
+  const parsed = asRecord(parseYaml(headerLines.join('\n')));
+  return {
+    name:
+      String(parsed.name || path.basename(filePath, path.extname(filePath)))
+        .trim()
+        .toLowerCase() || path.basename(filePath, path.extname(filePath)),
+    description: String(parsed.description || '').trim(),
+  };
+}
+
 export function listPolicyPresetSummaries(): PolicyPresetSummary[] {
   if (!fs.existsSync(PRESETS_DIR)) return [];
   return fs
     .readdirSync(PRESETS_DIR)
     .filter((entry) => entry.endsWith('.yaml') || entry.endsWith('.yml'))
-    .map((entry) => parsePresetFile(path.join(PRESETS_DIR, entry)))
-    .map((preset) => ({
-      name: preset.name,
-      description: preset.description,
-    }))
+    .map((entry) => parsePresetSummaryFile(path.join(PRESETS_DIR, entry)))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -87,14 +107,14 @@ export function loadPolicyPreset(name: string): PolicyPreset {
 }
 
 function networkRuleKey(rule: NetworkRule): string {
-  return JSON.stringify({
-    action: rule.action,
-    host: rule.host,
-    port: rule.port,
-    methods: [...rule.methods],
-    paths: [...rule.paths],
-    agent: rule.agent,
-  });
+  return [
+    rule.action,
+    rule.host,
+    String(rule.port),
+    rule.methods.join(','),
+    rule.paths.join(','),
+    rule.agent,
+  ].join('|');
 }
 
 function stripRuleIndex(rule: IndexedNetworkRule): NetworkRule {

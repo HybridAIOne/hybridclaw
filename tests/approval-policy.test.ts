@@ -3,7 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { TrustedCoworkerApprovalRuntime } from '../container/src/approval-policy.js';
+import {
+  loadPolicyFromDisk,
+  parsePolicyYaml,
+  TrustedCoworkerApprovalRuntime,
+} from '../container/src/approval-policy.js';
 import type { ChatMessage } from '../container/src/types.js';
 
 function userMessage(text: string): ChatMessage {
@@ -27,6 +31,47 @@ afterEach(() => {
 });
 
 describe('TrustedCoworkerApprovalRuntime', () => {
+  test('loadPolicyFromDisk logs malformed policy files before falling back to defaults', () => {
+    const policyPath = writeTempPolicy(`
+network:
+  default: [broken
+`);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const loaded = loadPolicyFromDisk(policyPath);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `[approval-policy] failed to load policy from ${policyPath}:`,
+      ),
+    );
+    expect(loaded.networkDefault).toBe('deny');
+    expect(loaded.networkRules).toEqual([
+      expect.objectContaining({
+        host: 'hybridclaw.io',
+        action: 'allow',
+      }),
+    ]);
+  });
+
+  test('parsePolicyYaml preserves quoted hash characters inside YAML strings', () => {
+    const parsed = parsePolicyYaml(`
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "api.github.com"
+      comment: "GitHub # API"
+`);
+
+    expect(parsed.networkRules).toEqual([
+      expect.objectContaining({
+        host: 'api.github.com',
+        comment: 'GitHub # API',
+      }),
+    ]);
+  });
+
   test('yellow actions promote to green after successful repeat', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -999,6 +1044,32 @@ network:
     expect(wrongMethod.decision).toBe('implicit');
     expect(wrongAgent.tier).toBe('yellow');
     expect(wrongAgent.decision).toBe('implicit');
+  });
+
+  test('site-scope host rules also match subdomains', () => {
+    const policyPath = writeTempPolicy(`
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "github.com"
+`);
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.reason).toBe(
+      'this host is allowlisted in approval policy',
+    );
   });
 
   test('legacy trusted_network_hosts entries migrate to allow rules on load', () => {

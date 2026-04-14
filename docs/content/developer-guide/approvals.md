@@ -143,6 +143,9 @@ Key behaviors:
 
 - Rules are evaluated in order. The first matching rule wins.
 - Rule matching can scope by `host`, `port`, `methods`, `paths`, and `agent`.
+- Bare site-scope hosts like `github.com` also match subdomains like
+  `api.github.com` under the current host-scope rules. There is currently no
+  exact-root-only host syntax in `policy.yaml`.
 - Omitting `port` means any port. Use `port: 443` only when you want an exact
   port match.
 - `network.default` applies only to HTTP/network actions. It does not
