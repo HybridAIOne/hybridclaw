@@ -2,7 +2,6 @@ import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import appdmg from 'appdmg';
 
 const currentFile = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(currentFile);
@@ -21,6 +20,12 @@ const version =
     ? packageJson.version.trim()
     : '0.0.0';
 const volumeTitle = `${productName} ${version}`;
+
+if (process.platform !== 'darwin') {
+  throw new Error('DMG packaging requires macOS.');
+}
+
+const { default: appdmg } = await import('appdmg');
 
 const releaseEntries = await fs.readdir(releaseDir, { withFileTypes: true });
 const macBuildDirs = releaseEntries
