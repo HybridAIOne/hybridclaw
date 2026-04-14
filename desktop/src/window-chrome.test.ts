@@ -27,5 +27,7 @@ describe('MAC_WINDOW_CHROME_CSS', () => {
     expect(MAC_WINDOW_CHROME_CSS).toContain("data-hc-desktop-route='admin'");
     expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 24px');
     expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 20px');
+    expect(MAC_WINDOW_CHROME_CSS).toContain(".topbar-title h2");
+    expect(MAC_WINDOW_CHROME_CSS).toContain('.view-switch-link');
   });
 });

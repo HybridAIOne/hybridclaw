@@ -21,6 +21,8 @@ let iconComposerMarkURL = iconComposerAssetsDir.appendingPathComponent("hybridcl
 let canvasSize = CGSize(width: 1024, height: 1024)
 let dmgBackgroundSize = CGSize(width: 760, height: 480)
 let dmgBackground2xSize = CGSize(width: 1520, height: 960)
+let dmgAppIconCenter = CGPoint(x: 194, y: 312)
+let dmgApplicationsIconCenter = CGPoint(x: 566, y: 312)
 let markInset: CGFloat = 140
 let fallbackBackgroundColor = NSColor(
   calibratedRed: 0.963,
@@ -251,7 +253,7 @@ func makeDmgBackground(size: CGSize, markImage: NSImage) -> NSImage? {
     )
     let subtitlePoint = CGPoint(
       x: leftMargin,
-      y: size.height - (124 * scale)
+      y: size.height - (110 * scale)
     )
     let arrowText = "\u{2192}"
     let arrowFont = NSFont.systemFont(ofSize: 92 * scale, weight: .bold)
@@ -260,9 +262,13 @@ func makeDmgBackground(size: CGSize, markImage: NSImage) -> NSImage? {
       .foregroundColor: installerAccentColor,
     ]
     let arrowSize = arrowText.size(withAttributes: arrowAttributes)
+    let arrowCenter = CGPoint(
+      x: ((dmgAppIconCenter.x + dmgApplicationsIconCenter.x) * 0.5 * scale).rounded(),
+      y: (size.height - (dmgAppIconCenter.y * scale)).rounded()
+    )
     let arrowPoint = CGPoint(
-      x: (((size.width - arrowSize.width) / 2) - (86 * scale)).rounded(),
-      y: (142 * scale).rounded()
+      x: (arrowCenter.x - (arrowSize.width * 0.5)).rounded(),
+      y: (arrowCenter.y - (arrowSize.height * 0.5)).rounded()
     )
 
     installerBackgroundColor.setFill()

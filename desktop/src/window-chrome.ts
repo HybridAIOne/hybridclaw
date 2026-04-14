@@ -84,6 +84,23 @@ export const MAC_WINDOW_CHROME_CSS = `
     padding-top: 20px !important;
   }
 
+  :root[data-hc-desktop-route='admin'] .topbar {
+    -webkit-app-region: no-drag;
+  }
+
+  :root[data-hc-desktop-route='admin'] .topbar-title,
+  :root[data-hc-desktop-route='admin'] .topbar-heading,
+  :root[data-hc-desktop-route='admin'] .topbar-title h2 {
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  :root[data-hc-desktop-route='admin'] .view-switch,
+  :root[data-hc-desktop-route='admin'] .view-switch *,
+  :root[data-hc-desktop-route='admin'] .view-switch-link {
+    -webkit-app-region: no-drag;
+  }
+
   :root[data-hc-desktop-route='admin'] [data-hc-sidebar-root] {
     box-sizing: border-box;
     padding-top: 38px !important;
