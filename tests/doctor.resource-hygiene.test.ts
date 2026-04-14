@@ -133,7 +133,7 @@ test('stale workspace check separates safe orphaned workspaces from git-backed o
   expect(fs.existsSync(riskyWorkspaceRoot)).toBe(true);
 });
 
-test('session compaction backlog fix compacts oversized idle sessions', async () => {
+test('session compaction backlog fix compacts oversized idle sessions and reports the oldest idle activity', async () => {
   const maybeCompactSessionMock = vi.fn(async () => {});
   vi.doMock('../src/session/session-maintenance.js', () => ({
     maybeCompactSession: maybeCompactSessionMock,
@@ -147,11 +147,25 @@ test('session compaction backlog fix compacts oversized idle sessions', async ()
   const { DB_PATH } = await import('../src/config/config.ts');
 
   initDatabase({ quiet: true });
-  const session = getOrCreateSession('session-backlog', null, 'web', 'main');
+  const newerLargerSession = getOrCreateSession(
+    'session-backlog-newer',
+    null,
+    'web',
+    'main',
+  );
+  const olderSmallerSession = getOrCreateSession(
+    'session-backlog-older',
+    null,
+    'web',
+    'main',
+  );
   const db = new Database(DB_PATH);
   db.prepare(
     'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
-  ).run(250, '2026-04-01T00:00:00.000Z', session.id);
+  ).run(250, '2026-04-10T00:00:00.000Z', newerLargerSession.id);
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(220, '2026-04-01T00:00:00.000Z', olderSmallerSession.id);
   db.close();
 
   const { checkSessionCompactionBacklog } = await import(
@@ -164,12 +178,20 @@ test('session compaction backlog fix compacts oversized idle sessions', async ()
     label: 'Session compaction backlog',
     severity: 'warn',
   });
+  expect(result.message).toContain('largest 250 messages');
+  expect(result.message).toContain('oldest activity 2026-04-01T00:00:00.000Z');
 
   await result.fix?.apply();
 
   expect(maybeCompactSessionMock).toHaveBeenCalledWith(
     expect.objectContaining({
-      sessionId: session.id,
+      sessionId: newerLargerSession.id,
+      channelId: 'web',
+    }),
+  );
+  expect(maybeCompactSessionMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: olderSmallerSession.id,
       channelId: 'web',
     }),
   );

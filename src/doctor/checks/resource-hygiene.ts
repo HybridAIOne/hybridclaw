@@ -615,6 +615,21 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
     ];
   }
 
+  const oldestBacklogSession = backlog.reduce<SessionSnapshot | null>(
+    (oldest, session) => {
+      if (session.lastActiveMs == null) return oldest;
+      if (
+        oldest == null ||
+        oldest.lastActiveMs == null ||
+        session.lastActiveMs < oldest.lastActiveMs
+      ) {
+        return session;
+      }
+      return oldest;
+    },
+    null,
+  );
+
   const { freeBytes, critical } = readCriticalDiskState();
   return [
     makeResult(
@@ -624,8 +639,8 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
       [
         `${backlog.length} idle session${backlog.length === 1 ? '' : 's'} exceed the ${threshold}-message threshold`,
         `largest ${backlog[0]?.messageCount ?? threshold} messages`,
-        backlog[0]?.lastActive
-          ? `oldest activity ${backlog[0].lastActive}`
+        oldestBacklogSession?.lastActive
+          ? `oldest activity ${oldestBacklogSession.lastActive}`
           : null,
         freeBytes != null ? `${formatBytes(freeBytes)} free` : null,
       ]
@@ -717,7 +732,7 @@ export async function checkOrphanedExportsAndPromptDumps(): Promise<
             'disk',
             'Orphaned exports',
             'ok',
-            'No orphaned session exports older than 7d',
+            `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
           ),
         );
       }
@@ -728,7 +743,7 @@ export async function checkOrphanedExportsAndPromptDumps(): Promise<
         'disk',
         'Orphaned exports',
         'ok',
-        'No orphaned session exports older than 7d',
+        `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
       ),
     );
   }
