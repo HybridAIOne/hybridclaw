@@ -1034,6 +1034,129 @@ async function importFreshHealth(options?: {
     limit: 60,
     entries: [],
   }));
+  const getGatewayAdminApprovals = vi.fn(() => ({
+    selectedAgentId: 'main',
+    agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        workspacePath: '/tmp/main/workspace',
+      },
+    ],
+    pending: [
+      {
+        sessionId: DEFAULT_WEB_SESSION_ID,
+        agentId: 'main',
+        approvalId: 'approve-1',
+        userId: 'user-a',
+        prompt: 'Approval required for https://example.com',
+        createdAt: '2026-03-11T10:00:00.000Z',
+        expiresAt: '2026-03-11T10:02:00.000Z',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        actionKey: 'network:example.com',
+      },
+    ],
+    policy: {
+      exists: true,
+      policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
+      workspacePath: '/tmp/main/workspace',
+      defaultAction: 'deny',
+      presets: ['github'],
+      rules: [
+        {
+          index: 1,
+          action: 'allow',
+          host: 'example.com',
+          port: '*',
+          methods: ['*'],
+          paths: ['/**'],
+          agent: 'main',
+          comment: 'manual allow',
+        },
+      ],
+    },
+    availablePresets: [
+      {
+        name: 'github',
+        description: 'GitHub API and raw content',
+      },
+      {
+        name: 'npm',
+        description: 'npm registry and tarballs',
+      },
+    ],
+  }));
+  const saveGatewayAdminPolicyRule = vi.fn(
+    (params: {
+      agentId?: string;
+      index?: number | null;
+      rule: {
+        action: 'allow' | 'deny';
+        host: string;
+        port: number | '*';
+        methods: string[];
+        paths: string[];
+        agent: string;
+        comment?: string;
+      };
+    }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [],
+      rules: [
+        {
+          index: params.index || 1,
+          ...params.rule,
+        },
+      ],
+    }),
+  );
+  const saveGatewayAdminPolicyDefault = vi.fn(
+    (params: { agentId?: string; defaultAction: 'allow' | 'deny' }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: params.defaultAction,
+      presets: [],
+      rules: [],
+    }),
+  );
+  const applyGatewayAdminPolicyPreset = vi.fn(
+    (params: { agentId?: string; presetName: string }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [params.presetName],
+      rules: [
+        {
+          index: 1,
+          action: 'allow',
+          host: 'registry.npmjs.org',
+          port: '*',
+          methods: ['*'],
+          paths: ['/**'],
+          agent: '*',
+          managedByPreset: params.presetName,
+        },
+      ],
+    }),
+  );
+  const deleteGatewayAdminPolicyRule = vi.fn(
+    (params: { agentId?: string; index: number }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [],
+      rules: [],
+      deletedIndex: params.index,
+    }),
+  );
   const getGatewayAdminTools = vi.fn(() => ({
     totals: {
       totalTools: 2,
@@ -1335,9 +1458,12 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminApprovals,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    applyGatewayAdminPolicyPreset,
+    deleteGatewayAdminPolicyRule,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -1364,6 +1490,8 @@ async function importFreshHealth(options?: {
     restoreGatewayAdminAgentMarkdownRevision,
     saveGatewayAdminConfig,
     saveGatewayAdminAgentMarkdownFile,
+    saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
@@ -1458,6 +1586,11 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminApprovals,
+    saveGatewayAdminPolicyDefault,
+    applyGatewayAdminPolicyPreset,
+    saveGatewayAdminPolicyRule,
+    deleteGatewayAdminPolicyRule,
     runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
@@ -4657,6 +4790,166 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('returns pending approvals and policy state for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/approvals?agentId=writer' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminApprovals).toHaveBeenCalledWith({
+      agentId: 'writer',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      selectedAgentId: 'main',
+      pending: [
+        {
+          approvalId: 'approve-1',
+          actionKey: 'network:example.com',
+        },
+      ],
+      policy: {
+        defaultAction: 'deny',
+        rules: [
+          {
+            host: 'example.com',
+            port: '*',
+          },
+        ],
+      },
+    });
+  });
+
+  test('saves admin policy rules for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        rule: {
+          action: 'deny',
+          host: 'bad.example',
+          port: '*',
+          methods: ['GET', 'POST'],
+          paths: ['/admin/**'],
+          agent: 'writer',
+          comment: 'Blocked',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyRule).toHaveBeenCalledWith({
+      agentId: 'writer',
+      rule: {
+        action: 'deny',
+        host: 'bad.example',
+        port: '*',
+        methods: ['GET', 'POST'],
+        paths: ['/admin/**'],
+        agent: 'writer',
+        comment: 'Blocked',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      rules: [
+        {
+          action: 'deny',
+          host: 'bad.example',
+          port: '*',
+        },
+      ],
+    });
+  });
+
+  test('saves the admin policy default for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        defaultAction: 'allow',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyDefault).toHaveBeenCalledWith({
+      agentId: 'writer',
+      defaultAction: 'allow',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      defaultAction: 'allow',
+    });
+  });
+
+  test('applies admin policy templates for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        presetName: 'npm',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.applyGatewayAdminPolicyPreset).toHaveBeenCalledWith({
+      agentId: 'writer',
+      presetName: 'npm',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      presets: ['npm'],
+      rules: [
+        {
+          host: 'registry.npmjs.org',
+          managedByPreset: 'npm',
+        },
+      ],
+    });
+  });
+
+  test('deletes admin policy rules by index for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/policy?agentId=writer&index=2',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.deleteGatewayAdminPolicyRule).toHaveBeenCalledWith({
+      agentId: 'writer',
+      index: 2,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      rules: [],
+    });
+  });
+
   test('returns admin tools for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/tools' });
@@ -5441,7 +5734,7 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
-  test('handles /approve always from the web chat path', async () => {
+  test('rejects /approve always from the web chat path', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(
       '../src/gateway/pending-approvals.js'
@@ -5477,15 +5770,10 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.handleGatewayCommand).not.toHaveBeenCalled();
-    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'session-web-approve',
-        content: 'yes approve-123 for session',
-      }),
-    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      result: 'Approved.',
+      result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
 

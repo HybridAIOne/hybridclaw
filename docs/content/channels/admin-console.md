@@ -9,7 +9,9 @@ sidebar_position: 10
 If the gateway is already running, open
 `http://127.0.0.1:9090/admin` when you want browser-based operator workflows
 instead of the CLI. The channel setup page lives at `/admin/channels`, and the
-agent prompt-file editor lives at `/admin/agents`.
+agent prompt-file editor lives at `/admin/agents`. The approvals page at
+`/admin/approvals` shows live pending approvals and lets operators add, edit,
+and delete the current workspace network policy rules for a selected agent.
 
 ## What The Admin Console Can Do
 
@@ -30,6 +32,14 @@ agent prompt-file editor lives at `/admin/agents`.
   runtime workspace
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
+- `/admin/approvals` shows unresolved approval prompts across sessions and the
+  selected agent workspace's current `policy.yaml` network rules in one place
+- `/admin/approvals` can add, edit, and delete network rules without switching
+  to the CLI or editing `policy.yaml` by hand
+- `/admin/approvals` can also change the workspace network default between
+  `deny` and `allow`
+- `/admin/approvals` can apply bundled network policy templates from the
+  browser
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
@@ -51,6 +61,9 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to verify saved settings without editing `config.json` directly
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file
+- you want to inspect pending approvals and compare them with the declarative
+  network policy without switching to `/chat` or opening the workspace files
+- you want to add, edit, or remove network policy rules from the browser
 - you want explicit browser confirmation before destructive operator actions
 - you want to restart a running gateway from `/admin/gateway` without
   switching back to the CLI

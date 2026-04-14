@@ -7,6 +7,7 @@ import {
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
 import { AgentFilesPage } from './routes/agents';
+import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
@@ -51,6 +52,12 @@ const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
+});
+
+const approvalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/approvals',
+  component: ApprovalsPage,
 });
 
 const agentFilesRoute = createRoute({
@@ -145,6 +152,7 @@ const toolsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  approvalsRoute,
   agentFilesRoute,
   terminalRoute,
   gatewayRoute,

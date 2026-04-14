@@ -1,0 +1,13 @@
+name: brave
+description: Brave Search API and web search pages
+rules:
+  - action: allow
+    host: api.search.brave.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]
+  - action: allow
+    host: search.brave.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

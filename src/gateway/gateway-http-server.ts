@@ -109,16 +109,19 @@ import {
   upsertGatewayAdminSchedulerJob,
 } from './gateway-scheduled-task-service.js';
 import {
+  applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
+  deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   GatewayRequestError,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgents,
+  getGatewayAdminApprovals,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
@@ -146,6 +149,8 @@ import {
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
+  saveGatewayAdminPolicyDefault,
+  saveGatewayAdminPolicyRule,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -232,6 +237,13 @@ type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiAdminTerminalRequestBody = {
   cols?: number;
   rows?: number;
+};
+type ApiAdminPolicyRequestBody = {
+  agentId?: unknown;
+  index?: unknown;
+  defaultAction?: unknown;
+  presetName?: unknown;
+  rule?: unknown;
 };
 
 // Keep this local instead of importing the container helper. The gateway and
@@ -343,6 +355,136 @@ function parsePositiveInteger(value: unknown): number | null {
   if (!/^\d+$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseApiAdminPolicyIndex(value: unknown): number {
+  const parsed = parsePositiveInteger(value);
+  if (parsed == null) {
+    throw new GatewayRequestError(400, 'Expected positive integer `index`.');
+  }
+  return parsed;
+}
+
+function parseApiAdminPolicyStringList(
+  value: unknown,
+  label: 'methods' | 'paths',
+): string[] | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const normalized = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      `Expected \`${label}\` to be a string or array of strings.`,
+    );
+  }
+  const normalized = value
+    .map((entry) => {
+      if (typeof entry !== 'string') {
+        throw new GatewayRequestError(
+          400,
+          `Expected \`${label}\` to be a string or array of strings.`,
+        );
+      }
+      return entry.trim();
+    })
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function parseApiAdminPolicyPort(value: unknown): number | '*' {
+  if (value == null) return '*';
+  if (value === '*') return '*';
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0 && value <= 65_535) {
+      return value;
+    }
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized === '*') return '*';
+  if (!/^\d+$/.test(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 65_535) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  return parsed;
+}
+
+function parseApiAdminPolicyRuleInput(value: unknown): {
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected object `rule` in request body.',
+    );
+  }
+  const raw = value as Record<string, unknown>;
+  const rawAction = String(raw.action || '')
+    .trim()
+    .toLowerCase();
+  if (rawAction !== 'allow' && rawAction !== 'deny') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.action` to be `allow` or `deny`.',
+    );
+  }
+  const host = normalizeOptionalString(raw.host);
+  if (!host) {
+    throw new GatewayRequestError(400, 'Expected non-empty `rule.host`.');
+  }
+  if (raw.agent != null && typeof raw.agent !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.agent` to be a string when provided.',
+    );
+  }
+  if (raw.comment != null && typeof raw.comment !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.comment` to be a string when provided.',
+    );
+  }
+  const agent = normalizeOptionalString(raw.agent) || '*';
+  const comment = normalizeOptionalString(raw.comment);
+  return {
+    action: rawAction,
+    host,
+    port: parseApiAdminPolicyPort(raw.port),
+    methods: parseApiAdminPolicyStringList(raw.methods, 'methods') || ['*'],
+    paths: parseApiAdminPolicyStringList(raw.paths, 'paths') || ['/**'],
+    agent,
+    ...(comment ? { comment } : {}),
+  };
 }
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
@@ -2926,6 +3068,107 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   );
 }
 
+function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getGatewayAdminApprovals({
+      agentId: url.searchParams.get('agentId') || '',
+    }),
+  );
+}
+
+function sendApiAdminPolicyError(res: ServerResponse, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
+    error: message,
+  });
+}
+
+async function handleApiAdminPolicy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'PUT') {
+    try {
+      const body = (await readJsonBody(req)) as ApiAdminPolicyRequestBody;
+      if (body.presetName !== undefined) {
+        const presetName = normalizeOptionalString(body.presetName);
+        if (!presetName) {
+          throw new GatewayRequestError(
+            400,
+            'Expected non-empty `presetName`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          applyGatewayAdminPolicyPreset({
+            agentId: normalizeOptionalString(body.agentId),
+            presetName,
+          }),
+        );
+        return;
+      }
+      if (body.defaultAction !== undefined) {
+        const rawDefaultAction = String(body.defaultAction || '')
+          .trim()
+          .toLowerCase();
+        if (rawDefaultAction !== 'allow' && rawDefaultAction !== 'deny') {
+          throw new GatewayRequestError(
+            400,
+            'Expected `defaultAction` to be `allow` or `deny`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminPolicyDefault({
+            agentId: normalizeOptionalString(body.agentId),
+            defaultAction: rawDefaultAction,
+          }),
+        );
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        saveGatewayAdminPolicyRule({
+          agentId: normalizeOptionalString(body.agentId),
+          ...(body.index === undefined
+            ? {}
+            : { index: parseApiAdminPolicyIndex(body.index) }),
+          rule: parseApiAdminPolicyRuleInput(body.rule),
+        }),
+      );
+    } catch (error) {
+      sendApiAdminPolicyError(res, error);
+    }
+    return;
+  }
+
+  if (method === 'DELETE') {
+    try {
+      sendJson(
+        res,
+        200,
+        deleteGatewayAdminPolicyRule({
+          agentId: url.searchParams.get('agentId') || '',
+          index: parseApiAdminPolicyIndex(url.searchParams.get('index')),
+        }),
+      );
+    } catch (error) {
+      sendApiAdminPolicyError(res, error);
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
 async function handleApiAdminTools(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminTools());
 }
@@ -3597,6 +3840,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
             handleApiAdminAudit(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/approvals' && method === 'GET') {
+            handleApiAdminApprovals(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/policy' &&
+            (method === 'PUT' || method === 'DELETE')
+          ) {
+            await handleApiAdminPolicy(req, res, url);
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
