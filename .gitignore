@@ -5,6 +5,9 @@ container/node_modules/
 
 # Build output
 dist/
+desktop/dist/
+desktop/.electron-dev/
+desktop/release/
 container/dist/
 coverage/
 

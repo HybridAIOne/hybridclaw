@@ -12,6 +12,7 @@
     "url": "https://github.com/HybridAIOne/hybridclaw/issues"
   },
   "workspaces": [
+    "desktop",
     "console",
     "container"
   ],
@@ -53,19 +54,22 @@
     "config.example.json"
   ],
   "scripts": {
-    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('console/dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});\"",
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('console/dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});fs.rmSync('desktop/dist',{recursive:true,force:true});fs.rmSync('desktop/release',{recursive:true,force:true});\"",
     "build:console": "npm --workspace console run build",
+    "build:desktop": "npm run build && npm --workspace desktop run build",
     "build": "npm --prefix container run build && tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
-    "typecheck": "tsc --noEmit && npm --workspace console run typecheck",
-    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters && npm --workspace console run typecheck",
+    "typecheck": "tsc --noEmit && npm --workspace console run typecheck && npm --workspace desktop run typecheck",
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters && npm --workspace console run typecheck && npm --workspace desktop run typecheck",
     "check": "biome check src",
     "format": "biome check --write src",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts && npm --workspace console run test",
+    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts && npm --workspace console run test && npm --workspace desktop run test",
     "test:watch": "vitest --configLoader runner --config vitest.unit.config.ts",
     "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
     "test:console": "npm --workspace console run test",
+    "desktop": "npm run build:desktop && npm --workspace desktop run start",
+    "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
