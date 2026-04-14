@@ -272,6 +272,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /info                      │',
     '│ /mcp                       │',
     '│ /model                     │',
+    '│ /policy                    │',
     '│ /rag                       │',
     '│ /ralph                     │',
     '│ /reset                     │',

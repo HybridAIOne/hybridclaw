@@ -1,8 +1,5 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock, callAuxiliaryModelMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -18,15 +15,8 @@ vi.mock('../src/providers/auxiliary.js', () => ({
 }));
 
 const ORIGINAL_HOME = process.env.HOME;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-concierge-home-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-concierge-home-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -73,16 +63,14 @@ async function createFixture() {
   };
 }
 
-afterEach(() => {
-  runAgentMock.mockReset();
-  callAuxiliaryModelMock.mockReset();
-  vi.restoreAllMocks();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    runAgentMock.mockReset();
+    callAuxiliaryModelMock.mockReset();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+  },
+  resetModules: true,
 });
 
 test('asks the urgency question before a long-running request', async () => {

@@ -1,0 +1,13 @@
+name: discord
+description: Discord API and CDN endpoints
+rules:
+  - action: allow
+    host: discord.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: cdn.discordapp.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

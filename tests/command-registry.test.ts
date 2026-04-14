@@ -410,6 +410,60 @@ test('registers secret as a local slash/text command', async () => {
   ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
 });
 
+test('registers voice as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('voice')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'voice',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'voice',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'info',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'call',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'voice',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['voice', 'info']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'voice',
+      getString: (name) => (name === 'number' ? '+14155551212' : null),
+      getSubcommand: () => 'call',
+    }),
+  ).toEqual(['voice', 'call', '+14155551212']);
+  expect(mapCanonicalCommandToGatewayArgs(['voice'])).toEqual([
+    'voice',
+    'info',
+  ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['voice', 'call', '+14155551212']),
+  ).toEqual(['voice', 'call', '+14155551212']);
+});
+
 test('parses /concierge profile into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();
@@ -699,4 +753,77 @@ test('builds local session help entries from the registry with surface filtering
   expect(webHelp.map((entry) => entry.command)).toEqual(
     [...webHelp.map((entry) => entry.command)].sort(compareCommands),
   );
+});
+
+test('registers policy as a local-only slash command and parses slash args', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    buildLocalSessionSlashHelpEntries,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('policy')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'policy',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'policy',
+        options: expect.arrayContaining([
+          expect.objectContaining({ kind: 'subcommand', name: 'status' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'list' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'allow' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'preset' }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    buildLocalSessionSlashHelpEntries('web').some(
+      (entry) =>
+        entry.command ===
+        '/policy [status|list|allow|deny|delete|preset|default|reset]',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'policy',
+      getString: (name) =>
+        name === 'host'
+          ? 'api.github.com'
+          : name === 'agent'
+            ? 'research'
+            : name === 'methods'
+              ? 'GET,POST'
+              : name === 'paths'
+                ? '/repos/**'
+                : name === 'comment'
+                  ? 'GitHub API'
+                  : null,
+      getSubcommand: () => 'allow',
+    }),
+  ).toEqual([
+    'policy',
+    'allow',
+    'api.github.com',
+    '--agent',
+    'research',
+    '--methods',
+    'GET,POST',
+    '--paths',
+    '/repos/**',
+    '--comment',
+    'GitHub API',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['policy'])).toEqual(['policy']);
+  expect(mapCanonicalCommandToGatewayArgs(['policy', 'list'])).toEqual([
+    'policy',
+    'list',
+  ]);
 });

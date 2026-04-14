@@ -24,7 +24,8 @@
     "linkedom": "0.18.12",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.5.207",
-    "playwright": "1.58.2"
+    "playwright": "1.58.2",
+    "yaml": "^2.8.3"
   },
   "optionalDependencies": {
     "@napi-rs/canvas": "0.1.96"

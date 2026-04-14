@@ -1,0 +1,189 @@
+import { expect, test } from 'vitest';
+import {
+  ConversationRelayResponseStream,
+  mergePromptFragment,
+  parseConversationRelayMessage,
+} from '../src/channels/voice/conversation-relay.js';
+
+test('parseConversationRelayMessage decodes setup and prompt payloads', () => {
+  const setup = parseConversationRelayMessage(
+    JSON.stringify({
+      type: 'setup',
+      sessionId: 'VX123',
+      accountSid: 'AC123',
+      callSid: 'CA123',
+      from: '+14155550123',
+      to: '+14155550124',
+      customParameters: {
+        callReference: 'CA123',
+      },
+    }),
+  );
+  const prompt = parseConversationRelayMessage(
+    JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Hello from caller',
+      lang: 'en-US',
+      last: true,
+    }),
+  );
+
+  expect(setup.type).toBe('setup');
+  expect(setup.callSid).toBe('CA123');
+  expect(setup.customParameters).toEqual({ callReference: 'CA123' });
+  expect(prompt).toEqual({
+    type: 'prompt',
+    voicePrompt: 'Hello from caller',
+    lang: 'en-US',
+    last: true,
+  });
+});
+
+test('mergePromptFragment handles incremental and cumulative prompt fragments', () => {
+  expect(mergePromptFragment('', 'Hello')).toBe('Hello');
+  expect(mergePromptFragment('Hello', ' world')).toBe('Hello world');
+  expect(mergePromptFragment('Hello', 'Hello world')).toBe('Hello world');
+});
+
+test('ConversationRelayResponseStream buffers the final token until finish', async () => {
+  const payloads: Array<Record<string, unknown>> = [];
+  const stream = new ConversationRelayResponseStream(
+    async (payload) => {
+      payloads.push(payload);
+    },
+    {
+      interruptible: true,
+      language: 'en-US',
+    },
+  );
+
+  await stream.push('Hello');
+  await stream.push(' world');
+  await stream.finish();
+
+  expect(payloads).toEqual([
+    {
+      type: 'text',
+      token: 'Hello',
+      last: false,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+    {
+      type: 'text',
+      token: ' world',
+      last: true,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+  ]);
+});
+
+test('ConversationRelayResponseStream can send a single reply and end the session', async () => {
+  const payloads: Array<Record<string, unknown>> = [];
+  const stream = new ConversationRelayResponseStream(
+    async (payload) => {
+      payloads.push(payload);
+    },
+    {
+      interruptible: false,
+      language: 'en-US',
+    },
+  );
+
+  await stream.reply('Goodbye');
+  expect(payloads[0]).toMatchObject({
+    type: 'text',
+    token: 'Goodbye',
+    last: true,
+    interruptible: false,
+  });
+
+  const endStream = new ConversationRelayResponseStream(
+    async (payload) => {
+      payloads.push(payload);
+    },
+    {
+      interruptible: false,
+      language: 'en-US',
+    },
+  );
+  await endStream.endSession('{"reason":"handoff"}');
+
+  expect(payloads.at(-1)).toEqual({
+    type: 'end',
+    handoffData: '{"reason":"handoff"}',
+  });
+});
+
+test('ConversationRelayResponseStream only marks first token after a successful send', async () => {
+  let firstTokenCount = 0;
+  const stream = new ConversationRelayResponseStream(
+    async () => {
+      throw new Error('Voice websocket is not connected.');
+    },
+    {
+      interruptible: true,
+      language: 'en-US',
+      onFirstToken: () => {
+        firstTokenCount += 1;
+      },
+    },
+  );
+
+  await expect(stream.reply('Hello')).rejects.toThrow(
+    'Voice websocket is not connected.',
+  );
+  expect(firstTokenCount).toBe(0);
+});
+
+test('ConversationRelayResponseStream serializes concurrent writes', async () => {
+  const payloads: Array<Record<string, unknown>> = [];
+  let releaseFirst: (() => void) | null = null;
+  const stream = new ConversationRelayResponseStream(
+    async (payload) => {
+      payloads.push(payload);
+      if (payload.token === 'Hello' && payload.last === false) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+    },
+    {
+      interruptible: true,
+      language: 'en-US',
+    },
+  );
+
+  const first = stream.push('Hello');
+  const second = stream.push(' there');
+  const finish = stream.finish();
+
+  for (let attempt = 0; attempt < 5 && releaseFirst === null; attempt += 1) {
+    await Promise.resolve();
+  }
+  expect(releaseFirst).not.toBeNull();
+  releaseFirst?.();
+  await Promise.all([first, second, finish]);
+
+  expect(payloads).toEqual([
+    {
+      type: 'text',
+      token: 'Hello',
+      last: false,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+    {
+      type: 'text',
+      token: ' there',
+      last: true,
+      lang: 'en-US',
+      interruptible: true,
+      preemptible: false,
+    },
+  ]);
+});

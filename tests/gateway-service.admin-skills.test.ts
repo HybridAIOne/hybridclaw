@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import * as yazl from 'yazl';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+import { useTempDir } from './test-utils.ts';
 
 const ORIGINAL_CWD = process.cwd();
 
@@ -15,7 +16,7 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-const tempDirs: string[] = [];
+const makeTempDir = useTempDir();
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-admin-skills-',
@@ -23,17 +24,12 @@ const { setupHome } = setupGatewayTest({
     runAgentMock.mockReset();
     vi.doUnmock('../src/skills/skills-guard.js');
     process.chdir(ORIGINAL_CWD);
-    while (tempDirs.length > 0) {
-      const dir = tempDirs.pop();
-      if (!dir) continue;
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   },
 });
 
 function setupProjectCwd(): string {
   const homeDir = setupHome();
-  tempDirs.push(homeDir);
+  makeTempDir.track(homeDir);
   const projectDir = path.join(homeDir, 'project');
   fs.mkdirSync(projectDir, { recursive: true });
   process.chdir(projectDir);

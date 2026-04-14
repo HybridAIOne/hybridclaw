@@ -1,18 +1,13 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
 const originalPath = process.env.PATH;
 const originalPathExt = process.env.PATHEXT;
 
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function writeExecutable(dir: string, relativePath: string): string {
   const absolutePath = path.join(dir, relativePath);
@@ -22,24 +17,22 @@ function writeExecutable(dir: string, relativePath: string): string {
   return absolutePath;
 }
 
-afterEach(() => {
-  vi.resetModules();
-  vi.unstubAllEnvs();
-  if (originalPath === undefined) {
-    delete process.env.PATH;
-  } else {
-    process.env.PATH = originalPath;
-  }
-  if (originalPathExt === undefined) {
-    delete process.env.PATHEXT;
-  } else {
-    process.env.PATHEXT = originalPathExt;
-  }
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalPathExt === undefined) {
+      delete process.env.PATHEXT;
+    } else {
+      process.env.PATHEXT = originalPathExt;
+    }
+  },
+  restoreAllMocks: false,
+  resetModules: true,
+  unstubAllEnvs: true,
 });
 
 test('finds bare executables on PATH when they appear later under the same PATH', async () => {

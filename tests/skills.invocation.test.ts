@@ -1,21 +1,19 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
-
+import { expect, test } from 'vitest';
 import {
   expandSkillInvocation,
   resolveObservedSkillName,
   resolveSkillInvocationForTurn,
   type Skill,
 } from '../src/skills/skills.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
+const makeTempDir = useTempDir();
 
 function makeTempSkill(skillName: string): Skill {
-  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
-  tempDirs.push(baseDir);
+  const baseDir = makeTempDir('hybridclaw-skill-');
   const filePath = path.join(baseDir, 'SKILL.md');
   fs.writeFileSync(
     filePath,
@@ -53,13 +51,6 @@ function makeTempSkill(skillName: string): Skill {
     location: `skills/${skillName}/SKILL.md`,
   };
 }
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('does not expand plain-text requests that mention a skill name', () => {
   const appleMusic = makeTempSkill('apple-music');

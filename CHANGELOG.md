@@ -2,6 +2,27 @@
 
 ## [Coming up]
 
+### Added
+
+- **Twilio voice channel**: Added a built-in Twilio ConversationRelay phone
+  channel with inbound webhook handling, outbound `hybridclaw gateway voice
+  call <number>` support, admin-console setup, and a dedicated setup and
+  troubleshooting guide.
+
+### Changed
+
+- **Per-channel instructions in `/admin/channels`**: The admin console now
+  lets operators edit transport-specific prompt guidance, and runtime config
+  exposes the same values under `channelInstructions.*` so channels such as
+  voice can enforce spoken-output rules without editing prompt files directly.
+
+### Fixed
+
+- **Voice approval and relay handling**: Spoken approval replies normalize more
+  reliably, voice turns skip the usual yellow implicit wait, and the Twilio
+  relay path handles disconnect, interrupt, and runtime-unavailable cases more
+  cleanly instead of dropping into noisier failure states.
+
 ## [0.12.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.5)
 
 ### Added

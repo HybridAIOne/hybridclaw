@@ -1,0 +1,13 @@
+name: outlook
+description: Outlook and Microsoft Graph mail APIs
+rules:
+  - action: allow
+    host: outlook.office.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: graph.microsoft.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]

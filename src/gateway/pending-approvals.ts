@@ -51,6 +51,32 @@ export function getPendingApproval(
   return pendingApprovalBySession.get(sessionId) || null;
 }
 
+export function listPendingApprovals(): Array<{
+  sessionId: string;
+  entry: PendingApprovalPrompt;
+}> {
+  const now = Date.now();
+  const entries: Array<{
+    sessionId: string;
+    entry: PendingApprovalPrompt;
+  }> = [];
+
+  for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
+    if (entry.expiresAt <= now) {
+      pendingApprovalBySession.delete(sessionId);
+      void disposePendingApprovalEntry(entry, { disableButtons: true });
+      continue;
+    }
+    if (entry.resolvedAt) {
+      continue;
+    }
+    entries.push({ sessionId, entry });
+  }
+
+  entries.sort((left, right) => right.entry.createdAt - left.entry.createdAt);
+  return entries;
+}
+
 export async function setPendingApproval(
   sessionId: string,
   entry: PendingApprovalPrompt,

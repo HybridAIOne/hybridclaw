@@ -71,6 +71,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Remote Access', path: 'guides/remote-access.md' },
       { title: 'Office Dependencies', path: 'guides/office-dependencies.md' },
       { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
+      { title: 'Twilio Voice', path: 'guides/twilio-voice.md' },
       { title: 'Voice TTS', path: 'guides/voice-tts.md' },
     ],
   },
@@ -103,6 +104,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Developer Guide', path: 'developer-guide/README.md' },
       { title: 'Architecture', path: 'developer-guide/architecture.md' },
       { title: 'Runtime', path: 'developer-guide/runtime.md' },
+      { title: 'Approvals', path: 'developer-guide/approvals.md' },
       { title: 'Memory', path: 'developer-guide/memory.md' },
       {
         title: 'Session Routing',
