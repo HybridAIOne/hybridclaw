@@ -174,32 +174,18 @@
 
 .brand {
   display: grid;
-  padding: 2px 6px;
+  padding: 4px 6px 12px;
 }
 
 .brandTitle {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  min-height: 34px;
+  min-height: auto;
 }
 
-.brandText {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  padding-top: 1px;
-}
-
-.brandTitle h1 {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-
-.brandMark,
+.brandLogo,
+.brandWordmark,
 .menuIcon,
 .icon {
   display: inline-flex;
@@ -208,13 +194,7 @@
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-}
-
-.brandMark {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  color: var(--accent-foreground);
+  flex: 0 0 auto;
 }
 
 .menuIcon {
@@ -225,9 +205,18 @@
   color: var(--accent-foreground);
 }
 
-.brandMark svg {
-  width: 32px;
-  height: 32px;
+.brandLogo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.brandWordmark {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
 .menuIcon svg,
