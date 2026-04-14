@@ -12,13 +12,12 @@ import {
 import { cx } from '../../lib/cx';
 import { Menu } from '../icons';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  type SheetSide,
-  SheetTitle,
-} from '../sheet';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../dialog';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -35,7 +34,7 @@ type SidebarContextValue = {
 
 type SidebarProps = {
   children: ReactNode;
-  side?: Extract<SheetSide, 'left' | 'right'>;
+  side?: 'left' | 'right';
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -147,12 +146,16 @@ export function useSidebar(): SidebarContextSnapshot {
 export function Sidebar({ side = 'left', children }: SidebarProps) {
   const context = useSidebarContext();
 
-  // Mobile: delegate entirely to Sheet which owns portalling, focus trap,
-  // Escape, aria-hidden, and scroll lock.
+  // Mobile: delegate entirely to Dialog (as drawer) which owns portalling,
+  // focus trap, Escape, aria-hidden, and scroll lock.
   if (context.isMobile) {
     return (
-      <Sheet open={context.openMobile} onOpenChange={context.setOpenMobile}>
-        <SheetContent
+      <Dialog
+        open={context.openMobile}
+        onOpenChange={context.setOpenMobile}
+        isDrawer
+      >
+        <DialogContent
           side={side}
           data-sidebar="sidebar"
           data-mobile="true"
@@ -160,13 +163,13 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
             { '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties
           }
         >
-          <SheetHeader>
-            <SheetTitle>Navigation</SheetTitle>
-            <SheetDescription>Sidebar navigation panel.</SheetDescription>
-          </SheetHeader>
+          <DialogHeader>
+            <DialogTitle>Navigation</DialogTitle>
+            <DialogDescription>Sidebar navigation panel.</DialogDescription>
+          </DialogHeader>
           {children}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     );
   }
 

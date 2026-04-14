@@ -23,11 +23,22 @@
  *     <DialogTrigger className="primary-button">Open</DialogTrigger>
  *     <DialogContent>…</DialogContent>
  *   </Dialog>
+ *
+ * For a slide-in drawer, use isDrawer on Dialog and side on DialogContent:
+ *   <Dialog open={open} onOpenChange={setOpen} isDrawer>
+ *     <DialogContent side="left">…</DialogContent>
+ *   </Dialog>
+ *
+ * Or use the Drawer convenience alias:
+ *   <Drawer open={open} onOpenChange={setOpen}>
+ *     <DrawerContent side="left">…</DrawerContent>
+ *   </Drawer>
  */
 
 import {
   type ButtonHTMLAttributes,
   createContext,
+  type HTMLAttributes,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -38,9 +49,9 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useAnimationsFinished } from '../../hooks/useAnimationsFinished';
 import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
-import { useExitAnimation } from '../../hooks/useExitAnimation';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { FocusGuard, useFocusTrap } from '../../hooks/useFocusTrap';
 import { useHideOthers } from '../../hooks/useHideOthers';
 import { useScrollLock } from '../../hooks/useScrollLock';
 import { cx } from '../../lib/cx';
@@ -55,6 +66,7 @@ type DialogContextValue = {
   onOpenChange: (open: boolean) => void;
   titleId: string;
   descriptionId: string;
+  isDrawer: boolean;
 };
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -73,6 +85,8 @@ export function Dialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
+  /** When true, DialogContent renders as a side-sliding drawer instead of a centered modal. */
+  isDrawer?: boolean;
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -84,6 +98,7 @@ export function Dialog(props: {
         onOpenChange: props.onOpenChange,
         titleId,
         descriptionId,
+        isDrawer: props.isDrawer ?? false,
       }}
     >
       {props.children}
@@ -120,10 +135,9 @@ export function DialogTrigger(
 // DialogContent
 // ---------------------------------------------------------------------------
 
-export function DialogContent(props: {
+type DialogContentProps = HTMLAttributes<HTMLElement> & {
   children: ReactNode;
-  className?: string;
-  /** Width variant: "sm" (~360px), "default" (~440px), "lg" (~560px). */
+  /** Width variant: "sm" (~360px), "default" (~440px), "lg" (~560px). Only used when not a drawer. */
   size?: 'sm' | 'default' | 'lg';
   /** Element to focus on open. Defaults to first focusable element. */
   initialFocus?: RefObject<HTMLElement | null>;
@@ -131,16 +145,35 @@ export function DialogContent(props: {
   preventCloseOnOutsideClick?: boolean;
   /** ARIA role. Use "alertdialog" for confirmation prompts. Defaults to "dialog". */
   role?: 'dialog' | 'alertdialog';
-}) {
+  /** Which edge the drawer slides in from. Only meaningful when isDrawer is true. Defaults to "right". */
+  side?: 'left' | 'right' | 'top' | 'bottom';
+};
+
+const FOCUSABLE_SELECTORS =
+  'a[href], button:not([disabled]), input:not([disabled]), ' +
+  'select:not([disabled]), textarea:not([disabled]), ' +
+  '[tabindex]:not([tabindex="-1"])';
+
+export function DialogContent({
+  children,
+  className,
+  size,
+  initialFocus,
+  preventCloseOnOutsideClick,
+  role,
+  side = 'right',
+  ...rest
+}: DialogContentProps) {
   const ctx = useDialogContext();
   const portalRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { open, onOpenChange, titleId, descriptionId } = ctx;
+  const drawerPanelRef = useRef<HTMLElement>(null);
+  const { open, onOpenChange, titleId, descriptionId, isDrawer } = ctx;
   const [exiting, setExiting] = useState(false);
   const prevOpenRef = useRef(open);
 
   // Track open->closed transitions to keep the panel mounted during the CSS
-  // exit animation. Once the animation completes, useExitAnimation calls
+  // exit animation. Once the animation completes, useAnimationsFinished calls
   // clearExiting and the portal unmounts.
   useEffect(() => {
     if (prevOpenRef.current && !open) {
@@ -150,10 +183,21 @@ export function DialogContent(props: {
   }, [open]);
 
   const clearExiting = useCallback(() => setExiting(false), []);
-  useExitAnimation(panelRef, exiting, clearExiting);
+
+  // Only use exit animation for modal dialogs — drawer uses CSS class toggle.
+  useAnimationsFinished(panelRef, !isDrawer && exiting, clearExiting);
+
+  // For drawer: reset exiting immediately since there's no exit animation to wait on.
+  useEffect(() => {
+    if (isDrawer && exiting) {
+      setExiting(false);
+    }
+  }, [isDrawer, exiting]);
+
+  const activePanelRef = (isDrawer ? drawerPanelRef : panelRef) as RefObject<HTMLElement | null>;
 
   useScrollLock(open);
-  useFocusTrap(panelRef, open, props.initialFocus);
+  useFocusTrap(activePanelRef, open, initialFocus);
   useEscapeKeydown(() => onOpenChange(false), open);
   useHideOthers(portalRef, open);
 
@@ -167,14 +211,66 @@ export function DialogContent(props: {
     }
   }, [open, titleId]);
 
-  if (typeof document === 'undefined' || (!open && !exiting)) return null;
+  if (typeof document === 'undefined') return null;
+
+  if (isDrawer) {
+    // Drawer: always mounted in the portal, open/closed controlled by CSS class.
+    return createPortal(
+      <div ref={portalRef}>
+        <div
+          data-sheet="overlay"
+          className={cx(styles.overlay, open && styles.overlayVisible)}
+          aria-hidden="true"
+          onClick={() => !preventCloseOnOutsideClick && onOpenChange(false)}
+        />
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is always dialog or alertdialog, both support aria-modal */}
+        <section
+          {...rest}
+          ref={drawerPanelRef}
+          role={role ?? 'dialog'}
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          data-sheet="content"
+          data-side={side}
+          data-state={open ? 'open' : 'closed'}
+          className={cx(
+            styles.drawer,
+            styles[side as keyof typeof styles],
+            open && styles.drawerOpen,
+            className,
+          )}
+        >
+          {children}
+        </section>
+      </div>,
+      document.body,
+    );
+  }
+
+  // Modal dialog (original behaviour).
+  if (!open && !exiting) return null;
 
   const sizeClass =
-    props.size === 'sm'
+    size === 'sm'
       ? styles.sm
-      : props.size === 'lg'
+      : size === 'lg'
         ? styles.lg
         : undefined;
+
+  const getFocusableItems = () =>
+    Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ?? [],
+    );
+
+  const focusFirst = () => {
+    getFocusableItems()[0]?.focus({ preventScroll: true });
+  };
+
+  const focusLast = () => {
+    const items = getFocusableItems();
+    items[items.length - 1]?.focus({ preventScroll: true });
+  };
 
   return createPortal(
     <div ref={portalRef}>
@@ -182,14 +278,15 @@ export function DialogContent(props: {
         className={cx(styles.backdrop, exiting && styles.exiting)}
         aria-hidden="true"
         onClick={() =>
-          !exiting && !props.preventCloseOnOutsideClick && onOpenChange(false)
+          !exiting && !preventCloseOnOutsideClick && onOpenChange(false)
         }
       />
       <div className={styles.viewport}>
+        <FocusGuard onFocus={focusLast} />
         {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is always dialog or alertdialog, both support aria-modal */}
         <div
           ref={panelRef}
-          role={props.role ?? 'dialog'}
+          role={role ?? 'dialog'}
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={descriptionId}
@@ -198,11 +295,12 @@ export function DialogContent(props: {
             styles.content,
             sizeClass,
             exiting && styles.exiting,
-            props.className,
+            className,
           )}
         >
-          {props.children}
+          {children}
         </div>
+        <FocusGuard onFocus={focusFirst} />
       </div>
     </div>,
     document.body,
@@ -283,3 +381,17 @@ export function DialogClose(
     </button>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Drawer — Dialog with isDrawer=true, same API, different presentation.
+// ---------------------------------------------------------------------------
+
+export const Drawer = (
+  props: Omit<Parameters<typeof Dialog>[0], 'isDrawer'> & { children: ReactNode },
+) => <Dialog {...props} isDrawer />;
+
+export { DialogContent as DrawerContent };
+export { DialogHeader as DrawerHeader };
+export { DialogTitle as DrawerTitle };
+export { DialogDescription as DrawerDescription };
+export { DialogClose as DrawerClose };

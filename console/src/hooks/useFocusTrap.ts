@@ -17,8 +17,9 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
  * On activation: moves focus to the first focusable element inside the
  * container (deferred one frame so CSS enter-transitions don't interfere).
  *
- * While active: Tab / Shift+Tab cycle within the container; focus that
- * escapes via any other means (pointer, programmatic) is pulled back.
+ * While active: Tab / Shift+Tab cycle within the container. Pair with
+ * `FocusGuard` sentinels rendered before and after the content to catch
+ * focus that reaches the boundary via keyboard navigation.
  *
  * On deactivation: restores focus to whichever element was focused when the
  * trap was activated.
@@ -66,28 +67,15 @@ export function useFocusTrap(
       }
     }
 
-    // If focus escapes the container via a pointer click or programmatic
-    // call, pull it back on the next frame.
-    function onFocusOut() {
-      requestAnimationFrame(() => {
-        // Container may have been removed from DOM between focusout and rAF callback
-        if (
-          container?.isConnected &&
-          !container.contains(document.activeElement)
-        ) {
-          getFocusable(container)[0]?.focus({ preventScroll: true });
-        }
-      });
-    }
-
     document.addEventListener('keydown', onKeyDown);
-    container.addEventListener('focusout', onFocusOut);
 
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener('keydown', onKeyDown);
-      container.removeEventListener('focusout', onFocusOut);
       previouslyFocused?.focus({ preventScroll: true });
     };
   }, [active, containerRef, initialFocusRef]);
 }
+
+// FocusGuard sentinel component lives in FocusGuard.tsx (needs JSX).
+export { FocusGuard } from './FocusGuard';
