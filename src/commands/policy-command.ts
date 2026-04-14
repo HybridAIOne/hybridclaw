@@ -100,12 +100,12 @@ function stripRuleIndex(rule: IndexedNetworkRule): NetworkRule {
   };
 }
 
-function stripRuleIndexWithMetadata(rule: IndexedNetworkRule): ManagedNetworkRule {
+function stripRuleIndexWithMetadata(
+  rule: IndexedNetworkRule,
+): ManagedNetworkRule {
   return {
     ...stripRuleIndex(rule),
-    ...(rule.managedByPreset
-      ? { managedByPreset: rule.managedByPreset }
-      : {}),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
   };
 }
 

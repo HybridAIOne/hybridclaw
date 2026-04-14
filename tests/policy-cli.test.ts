@@ -136,9 +136,9 @@ test('removing a preset preserves identical manual rules', () => {
   expect(applied.kind).toBe('plain');
 
   let state = readPolicyState(workspacePath);
-  expect(state.rules.filter((rule) => rule.host === 'api.github.com')).toHaveLength(
-    2,
-  );
+  expect(
+    state.rules.filter((rule) => rule.host === 'api.github.com'),
+  ).toHaveLength(2);
 
   const removed = runPolicyCommand(['preset', 'remove', 'github'], {
     workspacePath,
@@ -155,9 +155,9 @@ test('removing a preset preserves identical manual rules', () => {
       }),
     ]),
   );
-  expect(state.rules.filter((rule) => rule.host === 'api.github.com')).toHaveLength(
-    1,
-  );
+  expect(
+    state.rules.filter((rule) => rule.host === 'api.github.com'),
+  ).toHaveLength(1);
   expect(state.rules.some((rule) => rule.host === 'github.com')).toBe(false);
   expect(
     state.rules.some((rule) => rule.host === 'raw.githubusercontent.com'),

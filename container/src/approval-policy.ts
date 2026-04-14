@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-
+import type {
+  NetworkPolicyAction,
+  NetworkRule,
+} from '../shared/network-policy.js';
 import {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
@@ -15,17 +18,16 @@ import {
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import type { ChatMessage } from './types.js';
-import type {
+
+export type {
   NetworkPolicyAction,
   NetworkRule,
 } from '../shared/network-policy.js';
-
 export {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
-export type { NetworkPolicyAction, NetworkRule } from '../shared/network-policy.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
 
@@ -576,18 +578,12 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
               const existingMethods = Array.isArray(currentNetworkRule.methods)
                 ? currentNetworkRule.methods
                 : [];
-              currentNetworkRule.methods = [
-                ...existingMethods,
-                item,
-              ];
+              currentNetworkRule.methods = [...existingMethods, item];
             } else {
               const existingPaths = Array.isArray(currentNetworkRule.paths)
                 ? currentNetworkRule.paths
                 : [];
-              currentNetworkRule.paths = [
-                ...existingPaths,
-                item,
-              ];
+              currentNetworkRule.paths = [...existingPaths, item];
             }
           }
           continue;

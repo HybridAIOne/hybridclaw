@@ -160,9 +160,7 @@ function stripRuleIndex(rule: IndexedNetworkRule): ManagedNetworkRule {
     paths: [...rule.paths],
     agent: rule.agent,
     ...(rule.comment ? { comment: rule.comment } : {}),
-    ...(rule.managedByPreset
-      ? { managedByPreset: rule.managedByPreset }
-      : {}),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
   };
 }
 
