@@ -1,17 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
@@ -63,13 +57,10 @@ function writeDemoPlugin(pluginDir: string): void {
   );
 }
 
-afterEach(() => {
-  vi.doUnmock('../src/config/runtime-config.js');
-  vi.resetModules();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: false,
+  resetModules: true,
+  unmock: ['../src/config/runtime-config.js'],
 });
 
 test('ensurePluginManagerInitialized replaces a failed singleton so later calls can recover', async () => {

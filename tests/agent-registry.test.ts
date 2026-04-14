@@ -1,18 +1,13 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-agents-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-agents-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -22,19 +17,17 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(async () => {
-  vi.restoreAllMocks();
-  const { resetAgentRegistryForTesting } = await import(
-    '../src/agents/agent-registry.ts'
-  );
-  resetAgentRegistryForTesting();
-  vi.doUnmock('../src/logger.js');
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: async () => {
+    const { resetAgentRegistryForTesting } = await import(
+      '../src/agents/agent-registry.ts'
+    );
+    resetAgentRegistryForTesting();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+  },
+  resetModules: true,
+  unmock: ['../src/logger.js'],
 });
 
 test('resolveAgentForRequest prefers request, then session, then configured default agent', async () => {

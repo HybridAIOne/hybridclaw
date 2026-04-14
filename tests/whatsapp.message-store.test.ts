@@ -1,24 +1,8 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 import { createWhatsAppMessageStore } from '../src/channels/whatsapp/message-store.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    tempDirs
-      .splice(0)
-      .map((dir) => fs.rm(dir, { recursive: true, force: true })),
-  );
-});
-
-async function createTempAuthDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-wa-store-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempAuthDir = useTempDir('hybridclaw-wa-store-');
 
 test('replays an exact stored WhatsApp message after reload', async () => {
   const authDir = await createTempAuthDir();
