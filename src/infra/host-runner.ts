@@ -473,6 +473,7 @@ function getOrSpawnHostProcess(
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',

@@ -1,0 +1,13 @@
+name: jira
+description: Jira Cloud and Atlassian API access
+rules:
+  - action: allow
+    host: atlassian.net
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: api.atlassian.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]

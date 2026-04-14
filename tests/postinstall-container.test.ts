@@ -1,34 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
-
+import { expect, test } from 'vitest';
 import {
   buildBootstrapEnv,
   inspectContainerBootstrap,
   resolveNpmCommand,
 } from '../scripts/postinstall-container.mjs';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-postinstall-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir('hybridclaw-postinstall-');
 
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
 }
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('skips packaged container bootstrap in a source checkout', () => {
   const packageRoot = makeTempDir();

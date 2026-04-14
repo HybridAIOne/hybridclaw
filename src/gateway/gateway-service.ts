@@ -55,9 +55,15 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
+import {
+  createTwilioOutboundCall,
+  normalizeTwilioPhoneNumber,
+  resolveVoiceWebhookPaths,
+} from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import { runPolicyCommand } from '../commands/policy-command.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -78,6 +84,7 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
+  TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -146,6 +153,18 @@ import {
   ensurePluginManagerInitialized,
   listLoadedPluginCommands,
 } from '../plugins/plugin-manager.js';
+import {
+  applyPolicyPreset,
+  listPolicyPresetSummaries,
+  type PolicyPresetSummary,
+} from '../policy/policy-presets.js';
+import {
+  addPolicyRule,
+  deletePolicyRule,
+  readPolicyState,
+  setPolicyDefault,
+  updatePolicyRule,
+} from '../policy/policy-store.js';
 import {
   discoverCodexModels,
   getDiscoveredCodexModelContextWindow,
@@ -323,6 +342,8 @@ import {
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
   type GatewayAdminAgentsResponse,
+  type GatewayAdminApprovalAgent,
+  type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
@@ -337,6 +358,10 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
+  type GatewayAdminPendingApproval,
+  type GatewayAdminPolicyPresetSummary,
+  type GatewayAdminPolicyRule,
+  type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
   type GatewayAdminToolCatalogEntry,
@@ -361,6 +386,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { runMemoryConsolidation } from './memory-consolidation-runner.js';
+import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -712,7 +738,8 @@ export function resolveChannelType(
     source === 'imessage' ||
     source === 'whatsapp' ||
     source === 'email' ||
-    source === 'msteams'
+    source === 'msteams' ||
+    source === 'voice'
   ) {
     return source;
   }
@@ -721,7 +748,8 @@ export function resolveChannelType(
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
     inferredChannelType === 'whatsapp' ||
-    inferredChannelType === 'email'
+    inferredChannelType === 'email' ||
+    inferredChannelType === 'voice'
   ) {
     return inferredChannelType;
   }
@@ -2642,6 +2670,33 @@ function resolveGatewayPasswordStatus(params: {
   };
 }
 
+function resolveGatewayVoiceAuthStatus(params: {
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): Pick<
+  NonNullable<GatewayStatus['voice']>,
+  'authTokenConfigured' | 'authTokenSource'
+> {
+  const credential = resolveRuntimeCredentialStatus(
+    'TWILIO_AUTH_TOKEN',
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      authTokenConfigured: Boolean(credential.value),
+      authTokenSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    authTokenConfigured: Boolean(configValue),
+    authTokenSource: configValue ? 'config' : null,
+  };
+}
+
 function resolveGatewayTokenStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
@@ -3306,6 +3361,59 @@ function normalizeSecretRoutePrefix(raw: string | undefined): string {
   return normalized;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = String(hostname || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
+  url?: string;
+  error?: string;
+} {
+  const baseUrl = String(GATEWAY_BASE_URL || '').trim();
+  if (!baseUrl) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return {
+      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
+    };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
+    };
+  }
+
+  if (isLoopbackHostname(parsed.hostname)) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
+    };
+  }
+
+  const paths = resolveVoiceWebhookPaths(webhookBasePath);
+  const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
+  return {
+    url: `${normalizedBaseUrl}${paths.webhookPath}`,
+  };
+}
+
 function formatHttpRequestAuthRule(
   rule: RuntimeHttpRequestAuthRule,
   index: number,
@@ -3621,6 +3729,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     configValue: runtimeConfig.imessage.password,
     storedValue: storedSecrets.IMESSAGE_PASSWORD,
   });
+  const voiceAuth = resolveGatewayVoiceAuthStatus({
+    envValues: [process.env.TWILIO_AUTH_TOKEN],
+    configValue: runtimeConfig.voice.twilio.authToken,
+    storedValue: storedSecrets.TWILIO_AUTH_TOKEN,
+  });
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
@@ -3654,6 +3767,19 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     telegram,
     email,
     imessage,
+    voice: {
+      enabled: runtimeConfig.voice.enabled,
+      accountSidConfigured: Boolean(
+        runtimeConfig.voice.twilio.accountSid.trim(),
+      ),
+      fromNumberConfigured: Boolean(
+        runtimeConfig.voice.twilio.fromNumber.trim(),
+      ),
+      authTokenConfigured: voiceAuth.authTokenConfigured,
+      authTokenSource: voiceAuth.authTokenSource,
+      webhookPath: runtimeConfig.voice.webhookPath,
+      maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
+    },
     whatsapp: {
       ...whatsappAuth,
       pairingQrText: whatsappPairing.pairingQrText,
@@ -4734,6 +4860,188 @@ export function getGatewayAdminAudit(params?: {
       limit,
     }).map(mapAdminAuditEntry),
   };
+}
+
+function listGatewayAdminApprovalAgents(
+  selectedAgentId: string,
+): GatewayAdminApprovalAgent[] {
+  const agents = new Map<string, GatewayAdminApprovalAgent>();
+
+  for (const agentId of [
+    selectedAgentId,
+    ...listAgents().map((agent) => agent.id),
+  ]) {
+    const resolved = resolveAgentConfig(agentId);
+    agents.set(resolved.id, {
+      id: resolved.id,
+      name: resolved.name || null,
+      workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+    });
+  }
+
+  return [...agents.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+}
+
+function mapGatewayAdminPolicyRule(
+  rule: ReturnType<typeof readPolicyState>['rules'][number],
+): GatewayAdminPolicyRule {
+  return {
+    index: rule.index,
+    action: rule.action,
+    host: rule.host,
+    port: rule.port,
+    methods: [...rule.methods],
+    paths: [...rule.paths],
+    agent: rule.agent,
+    ...(rule.comment ? { comment: rule.comment } : {}),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
+  };
+}
+
+function mapGatewayAdminPolicyStateValue(
+  state: ReturnType<typeof readPolicyState>,
+): GatewayAdminPolicyState {
+  return {
+    exists: state.exists,
+    policyPath: state.policyPath,
+    workspacePath: state.workspacePath,
+    defaultAction: state.defaultAction,
+    presets: [...state.presets],
+    rules: state.rules.map(mapGatewayAdminPolicyRule),
+  };
+}
+
+function mapGatewayAdminPolicyState(agentId: string): GatewayAdminPolicyState {
+  return mapGatewayAdminPolicyStateValue(
+    readPolicyState(path.resolve(agentWorkspaceDir(agentId))),
+  );
+}
+
+function mapGatewayAdminPolicyPresetSummary(
+  preset: PolicyPresetSummary,
+): GatewayAdminPolicyPresetSummary {
+  return {
+    name: preset.name,
+    description: preset.description,
+  };
+}
+
+function resolveGatewayAdminPolicyWorkspace(agentId?: string): string {
+  const resolved = resolveAgentConfig(agentId);
+  return path.resolve(agentWorkspaceDir(resolved.id));
+}
+
+function mapGatewayAdminPendingApproval(
+  pending: ReturnType<typeof listPendingApprovals>[number],
+  sessionAgentIds: Map<string, string>,
+): GatewayAdminPendingApproval {
+  return {
+    sessionId: pending.sessionId,
+    agentId: sessionAgentIds.get(pending.sessionId) || null,
+    approvalId: pending.entry.approvalId,
+    userId: pending.entry.userId,
+    prompt: pending.entry.prompt,
+    createdAt: new Date(pending.entry.createdAt).toISOString(),
+    expiresAt: new Date(pending.entry.expiresAt).toISOString(),
+    allowSession: pending.entry.commandAction?.allowSession === true,
+    allowAgent: pending.entry.commandAction?.allowAgent === true,
+    allowAll: pending.entry.commandAction?.allowAll === true,
+    actionKey: pending.entry.commandAction?.actionKey?.trim() || null,
+  };
+}
+
+export function getGatewayAdminApprovals(params?: {
+  agentId?: string;
+}): GatewayAdminApprovalsResponse {
+  const selectedAgentId = resolveAgentConfig(params?.agentId).id;
+  const sessionAgentIds = new Map(
+    getAllSessions().map((session) => [
+      session.id,
+      resolveAgentForRequest({ session }).agentId,
+    ]),
+  );
+
+  return {
+    selectedAgentId,
+    agents: listGatewayAdminApprovalAgents(selectedAgentId),
+    pending: listPendingApprovals().map((pending) =>
+      mapGatewayAdminPendingApproval(pending, sessionAgentIds),
+    ),
+    policy: mapGatewayAdminPolicyState(selectedAgentId),
+    availablePresets: listPolicyPresetSummaries().map(
+      mapGatewayAdminPolicyPresetSummary,
+    ),
+  };
+}
+
+export function saveGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index?: number | null;
+  rule: Parameters<typeof addPolicyRule>[1];
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state =
+      input.index != null
+        ? updatePolicyRule(workspacePath, input.index, input.rule)
+        : addPolicyRule(workspacePath, input.rule);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function deleteGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index: number;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyDefault(input: {
+  agentId?: string;
+  defaultAction: 'allow' | 'deny';
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setPolicyDefault(workspacePath, input.defaultAction);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function applyGatewayAdminPolicyPreset(input: {
+  agentId?: string;
+  presetName: string;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
@@ -6396,7 +6704,9 @@ export async function handleGatewayCommand(
   function isLocalSession(req: GatewayCommandRequest): boolean {
     return (
       req.guildId === null &&
-      (req.channelId === 'web' || req.channelId === 'tui')
+      (req.channelId === 'web' ||
+        req.channelId === 'tui' ||
+        req.channelId === 'cli')
     );
   }
 
@@ -7669,6 +7979,113 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'voice': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Voice Command Restricted',
+            '`voice` can place outbound calls and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const voiceConfig = getRuntimeConfig().voice;
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const publicWebhook = resolveVoiceCommandWebhookUrl(
+          voiceConfig.webhookPath,
+        );
+
+        if (!sub || sub === 'info' || sub === 'status') {
+          return infoCommand(
+            'Voice',
+            [
+              `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
+              `Provider: ${voiceConfig.provider}`,
+              `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
+              `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
+              `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
+              publicWebhook.url
+                ? `Webhook: ${publicWebhook.url}`
+                : `Webhook: unavailable (${publicWebhook.error})`,
+              'Usage: `voice call <e164-number>`',
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'call') {
+          if (!voiceConfig.enabled) {
+            return badCommand(
+              'Voice Disabled',
+              'Enable `voice.enabled` before using `voice call`.',
+            );
+          }
+
+          if (voiceConfig.provider !== 'twilio') {
+            return badCommand(
+              'Voice Provider Unsupported',
+              `\`voice call\` currently supports only the Twilio provider, but configured provider is \`${voiceConfig.provider}\`.`,
+            );
+          }
+
+          const to = normalizeTwilioPhoneNumber(req.args.slice(2).join(' '));
+          if (!to) {
+            return badCommand('Usage', 'Usage: `voice call <e164-number>`');
+          }
+
+          const accountSid = voiceConfig.twilio.accountSid.trim();
+          if (!accountSid) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.accountSid` before using `voice call`.',
+            );
+          }
+
+          const from = normalizeTwilioPhoneNumber(
+            voiceConfig.twilio.fromNumber,
+          );
+          if (!from) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.fromNumber` to an E.164 number like `+14155550123` before using `voice call`.',
+            );
+          }
+
+          const authToken = String(TWILIO_AUTH_TOKEN || '').trim();
+          if (!authToken) {
+            return badCommand(
+              'Voice Not Configured',
+              'Store `TWILIO_AUTH_TOKEN` in the encrypted secret store before using `voice call`.',
+            );
+          }
+
+          if (!publicWebhook.url) {
+            return badCommand(
+              'Voice Webhook Not Public',
+              publicWebhook.error ||
+                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+            );
+          }
+
+          try {
+            const call = await createTwilioOutboundCall({
+              accountSid,
+              authToken,
+              from,
+              to,
+              url: publicWebhook.url,
+            });
+            return plainCommand(
+              `Calling ${call.to} from ${call.from} via Twilio (Call SID: ${call.sid}, status: ${call.status}).`,
+            );
+          } catch (error) {
+            return badCommand(
+              'Voice Call Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
+      }
+
       case 'config': {
         if (!isLocalSession(req)) {
           return badCommand(
@@ -7777,6 +8194,29 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
         );
+      }
+
+      case 'policy': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Policy Restricted',
+            '`policy` manages local workspace network rules and is only available from local TUI/web sessions.',
+          );
+        }
+        const runtime = resolveSessionRuntimeTarget(session);
+        const result = runPolicyCommand(req.args.slice(1), {
+          workspacePath: runtime.workspacePath,
+        });
+        if (result.kind === 'error') {
+          return badCommand(
+            result.title || 'Policy Command Failed',
+            result.text,
+          );
+        }
+        if (result.kind === 'info') {
+          return infoCommand(result.title || 'Policy', result.text);
+        }
+        return plainCommand(result.text);
       }
 
       case 'stop':

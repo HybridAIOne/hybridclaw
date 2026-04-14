@@ -36,6 +36,7 @@ Main docs landing pages:
 - [Remote Access](./guides/remote-access.md)
 - [Office Dependencies](./guides/office-dependencies.md)
 - [TUI MCP](./guides/tui-mcp.md)
+- [Twilio Voice](./guides/twilio-voice.md)
 - [Voice / TTS](./guides/voice-tts.md)
 
 ## Extensibility

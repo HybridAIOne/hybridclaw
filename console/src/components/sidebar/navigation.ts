@@ -11,6 +11,7 @@ import {
   Jobs,
   Models,
   Plugins,
+  Policy,
   Scheduler,
   Sessions,
   Skills,
@@ -35,6 +36,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Overview',
     items: [
       { to: '/', label: 'Dashboard', icon: Dashboard },
+      { to: '/approvals', label: 'Approvals', icon: Policy },
       { to: '/audit', label: 'Audit', icon: Audit },
       { to: '/jobs', label: 'Jobs', icon: Jobs },
     ],

@@ -531,6 +531,8 @@ function getOrSpawnContainer(
     '-e',
     `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
     '-e',
+    `HYBRIDCLAW_AGENT_ID=${agentId}`,
+    '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,

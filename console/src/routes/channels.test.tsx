@@ -39,6 +39,17 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enableRag: true,
       models: ['gpt-5'],
     },
+    channelInstructions: {
+      discord: '',
+      msteams: '',
+      slack: '',
+      telegram: '',
+      voice:
+        'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
+      whatsapp: '',
+      email: '',
+      imessage: '',
+    },
     discord: {
       prefix: '!claw',
       guildMembersIntent: false,
@@ -131,6 +142,25 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    voice: {
+      enabled: false,
+      provider: 'twilio',
+      twilio: {
+        accountSid: '',
+        authToken: '',
+        fromNumber: '',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
     },
     whatsapp: {
       dmPolicy: 'pairing',
@@ -241,6 +271,15 @@ describe('ChannelsPage', () => {
       telegram: {
         tokenConfigured: false,
         tokenSource: null,
+      },
+      voice: {
+        enabled: false,
+        accountSidConfigured: false,
+        fromNumberConfigured: false,
+        authTokenConfigured: false,
+        authTokenSource: null,
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
       },
       email: {
         passwordConfigured: false,
@@ -486,6 +525,80 @@ describe('ChannelsPage', () => {
     });
     expect(telegramButton.textContent || '').toContain('configured');
     expect(telegramButton.textContent || '').not.toContain('active');
+  });
+
+  it('shows Voice in the catalog and opens the Twilio voice editor', async () => {
+    const baseConfig = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        voice: {
+          ...baseConfig.voice,
+          enabled: true,
+          twilio: {
+            ...baseConfig.voice.twilio,
+            accountSid: 'AC123',
+            fromNumber: '+14155550123',
+          },
+        },
+      }),
+    });
+
+    renderChannelsPage();
+
+    const voiceButton = await screen.findByRole('button', { name: /Voice/i });
+    expect(voiceButton.textContent || '').toContain('configured');
+
+    fireEvent.click(voiceButton);
+    expect(
+      screen.getByRole('heading', { name: 'Voice settings' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Twilio auth token')).toBeTruthy();
+    expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
+    expect(screen.getByLabelText('Webhook path')).toBeTruthy();
+    expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
+  });
+
+  it('saves channel-specific instructions through the config endpoint', async () => {
+    const config = makeConfig();
+
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: {
+        ...config,
+        channelInstructions: {
+          ...config.channelInstructions,
+          voice: 'Answer in one short sentence. No formatting.',
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Voice/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Voice/i }));
+    fireEvent.change(screen.getByLabelText('Channel instructions'), {
+      target: { value: 'Answer in one short sentence. No formatting.' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel settings' }),
+    );
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          channelInstructions: expect.objectContaining({
+            voice: 'Answer in one short sentence. No formatting.',
+          }),
+        }),
+      );
+    });
   });
 
   it('renders the live WhatsApp pairing QR on the channel page', async () => {
