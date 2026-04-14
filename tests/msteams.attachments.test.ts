@@ -1,13 +1,11 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir();
-const dataDirs: string[] = [];
 
 function trackTempDirFromMediaPath(filePath: string | null | undefined): void {
   if (!filePath) return;
@@ -18,10 +16,7 @@ async function importAttachmentsModule(
   configOverrides: Record<string, unknown> = {},
 ) {
   vi.resetModules();
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-msteams-cache-'),
-  );
-  dataDirs.push(dataDir);
+  const dataDir = makeTempDir('hybridclaw-msteams-cache-');
   const baseConfig = {
     CONTAINER_SANDBOX_MODE: 'host',
     DATA_DIR: dataDir,
@@ -48,13 +43,6 @@ async function importAttachmentsModule(
 }
 
 useCleanMocks({
-  cleanup: () => {
-    while (dataDirs.length > 0) {
-      const dir = dataDirs.pop();
-      if (!dir) continue;
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  },
   resetModules: true,
   unstubAllGlobals: true,
 });
