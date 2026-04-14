@@ -41,6 +41,7 @@ import {
   parseSchedulerBoardStatus,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -117,7 +118,6 @@ import {
   deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
-  GatewayRequestError,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgents,
@@ -560,7 +560,7 @@ async function readHttpResponseBuffer(
     if (typeof response.arrayBuffer === 'function') {
       const buffered = Buffer.from(await response.arrayBuffer());
       if (buffered.length > maxResponseBytes) {
-        throw new HttpRequestError(
+        throw new GatewayRequestError(
           413,
           `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
         );
@@ -581,7 +581,7 @@ async function readHttpResponseBuffer(
       totalBytes += value.byteLength;
       if (totalBytes > maxResponseBytes) {
         await reader.cancel();
-        throw new HttpRequestError(
+        throw new GatewayRequestError(
           413,
           `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
         );
@@ -598,25 +598,25 @@ async function readHttpResponseBuffer(
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
-    throw new HttpRequestError(400, 'Missing `url` in request body.');
+    throw new GatewayRequestError(400, 'Missing `url` in request body.');
   }
 
   let parsed: URL;
   try {
     parsed = new URL(input);
   } catch {
-    throw new HttpRequestError(400, `Invalid URL: ${input}`);
+    throw new GatewayRequestError(400, `Invalid URL: ${input}`);
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       `Unsupported URL protocol: ${parsed.protocol}`,
     );
   }
 
   if (await isPrivateHost(parsed.hostname)) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
     );
@@ -631,7 +631,7 @@ function normalizeHttpRequestMethod(value: unknown): string {
     .toUpperCase();
   if (!normalized) return 'GET';
   if (!/^[A-Z]+$/.test(normalized)) {
-    throw new HttpRequestError(400, `Invalid HTTP method: ${normalized}`);
+    throw new GatewayRequestError(400, `Invalid HTTP method: ${normalized}`);
   }
   return normalized;
 }
@@ -639,7 +639,10 @@ function normalizeHttpRequestMethod(value: unknown): string {
 function normalizeHeaderNameOrThrow(value: string): string {
   const normalized = value.trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(normalized)) {
-    throw new HttpRequestError(400, `Invalid HTTP header name: ${normalized}`);
+    throw new GatewayRequestError(
+      400,
+      `Invalid HTTP header name: ${normalized}`,
+    );
   }
   return normalized;
 }
@@ -703,11 +706,14 @@ function withAuthPrefix(secret: string, prefix: string): string {
 
 function resolveStoredSecretOrThrow(secretName: string): string {
   if (!isRuntimeSecretName(secretName)) {
-    throw new HttpRequestError(400, `Invalid secret name: ${secretName}`);
+    throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
   }
   const value = readStoredRuntimeSecret(secretName);
   if (!value) {
-    throw new HttpRequestError(400, `Stored secret ${secretName} is not set.`);
+    throw new GatewayRequestError(
+      400,
+      `Stored secret ${secretName} is not set.`,
+    );
   }
   return value;
 }
@@ -867,15 +873,6 @@ function isMalformedCanonicalSessionId(value: string | undefined): boolean {
     classifySessionKeyShape(String(value || '').trim()) ===
     'canonical_malformed'
   );
-}
-
-class HttpRequestError extends Error {
-  statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
-  }
 }
 
 function isRuntimeDiscordChannelConfig(
@@ -1144,7 +1141,7 @@ function resolveArtifactRequestPath(rawPath: string): string | null {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
     if (!uploadedMediaCacheDir) {
-      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+      throw new GatewayRequestError(503, 'Uploaded media cache unavailable.');
     }
     return resolveDisplayPathAlias(
       trimmed,
@@ -1177,7 +1174,7 @@ function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
     if (!uploadedMediaCacheDir) {
-      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+      throw new GatewayRequestError(503, 'Uploaded media cache unavailable.');
     }
     const resolved = resolveDisplayPathAlias(
       trimmed,
@@ -1218,14 +1215,14 @@ function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
 function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
-    throw new HttpRequestError(400, 'Invalid `media` in request body.');
+    throw new GatewayRequestError(400, 'Invalid `media` in request body.');
   }
   if (raw.length === 0) return [];
 
   const normalized: MediaContextItem[] = [];
   for (const [index, item] of raw.entries()) {
     if (!item || typeof item !== 'object') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}]\` item.`);
+      throw new GatewayRequestError(400, `Invalid \`media[${index}]\` item.`);
     }
     const mediaItem = item as Record<string, unknown>;
 
@@ -1234,24 +1231,27 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
     const originalUrl = normalizeOptionalString(mediaItem.originalUrl);
     const filename = normalizeOptionalString(mediaItem.filename);
     if (!pathValue) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].path\`.`);
+      throw new GatewayRequestError(400, `Missing \`media[${index}].path\`.`);
     }
     if (!url) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].url\`.`);
+      throw new GatewayRequestError(400, `Missing \`media[${index}].url\`.`);
     }
     if (!originalUrl) {
-      throw new HttpRequestError(
+      throw new GatewayRequestError(
         400,
         `Missing \`media[${index}].originalUrl\`.`,
       );
     }
     if (!filename) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].filename\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Missing \`media[${index}].filename\`.`,
+      );
     }
 
     const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
     if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
-      throw new HttpRequestError(
+      throw new GatewayRequestError(
         400,
         `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
       );
@@ -1259,15 +1259,24 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
 
     const rawSizeBytes = mediaItem.sizeBytes;
     if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
     }
     if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
     }
 
     const rawMimeType = mediaItem.mimeType;
     if (rawMimeType != null && typeof rawMimeType !== 'string') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].mimeType\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].mimeType\`.`,
+      );
     }
 
     normalized.push({
@@ -1430,7 +1439,7 @@ async function readRequestBody(
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
     if (total > maxBytes) {
-      throw new HttpRequestError(413, 'Request body too large.');
+      throw new GatewayRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
@@ -1445,7 +1454,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(raw) as unknown;
   } catch {
-    throw new HttpRequestError(400, 'Invalid JSON body');
+    throw new GatewayRequestError(400, 'Invalid JSON body');
   }
 }
 
@@ -2004,7 +2013,7 @@ async function handleApiPluginTool(
     });
     sendJson(res, 200, { ok: true, result });
   } catch (error) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       500,
       error instanceof Error ? error.message : String(error),
     );
@@ -2081,7 +2090,7 @@ async function handleApiHttpRequest(
       ? replaceSecretPlaceholdersInString(body.body)
       : body.body;
   } else if (body.body !== undefined) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
     );
@@ -2100,7 +2109,10 @@ async function handleApiHttpRequest(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new HttpRequestError(502, `Outbound HTTP request failed: ${message}`);
+    throw new GatewayRequestError(
+      502,
+      `Outbound HTTP request failed: ${message}`,
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -2109,7 +2121,7 @@ async function handleApiHttpRequest(
     response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
     response.status <= REDIRECT_RESPONSE_STATUS_MAX
   ) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       'Outbound HTTP redirects are blocked by the SSRF guard.',
     );
@@ -2120,7 +2132,7 @@ async function handleApiHttpRequest(
     10,
   );
   if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       413,
       `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
     );
@@ -3327,12 +3339,6 @@ async function handleApiAdminSkillUpload(
     sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
   } catch (error) {
     if (error instanceof GatewayRequestError) {
-      sendJson(res, error.statusCode, {
-        error: error.message,
-      });
-      return;
-    }
-    if (error instanceof HttpRequestError) {
       const message =
         error.statusCode === 413
           ? `Skill zip upload exceeds the maximum size of ${MAX_SKILL_ZIP_UPLOAD_BYTES} bytes.`
@@ -3711,7 +3717,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
             err instanceof GatewayRequestError ||
             err instanceof AdminTerminalCapacityError
               ? err.statusCode
@@ -3726,10 +3731,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
-            err instanceof GatewayRequestError
-              ? err.statusCode
-              : 500;
+            err instanceof GatewayRequestError ? err.statusCode : 500;
           sendJson(res, statusCode, { error: errorText });
         }
         return;
@@ -3944,10 +3946,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
-            err instanceof GatewayRequestError
-              ? err.statusCode
-              : 500;
+            err instanceof GatewayRequestError ? err.statusCode : 500;
           sendJson(res, statusCode, { error: errorText });
         }
       })();
