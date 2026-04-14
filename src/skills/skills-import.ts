@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { SkillImportError } from './skill-errors.js';
 import type { SkillGuardDecision, SkillGuardVerdict } from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
 import {
@@ -55,8 +56,6 @@ export interface ImportSkillOptions {
   replaceExisting?: boolean;
   skipGuard?: boolean;
 }
-
-class SkillImportError extends Error {}
 
 function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,

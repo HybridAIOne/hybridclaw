@@ -104,6 +104,7 @@ import {
 } from '../config/runtime-config-edit.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -606,15 +607,6 @@ export function maybeRecordGatewayRequestLog(params: {
       },
       'Failed to persist request_log row',
     );
-  }
-}
-
-export class GatewayRequestError extends Error {
-  statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
   }
 }
 

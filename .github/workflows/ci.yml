@@ -6,8 +6,12 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Build Docker images (no push) to catch Dockerfile regressions before merge.
@@ -78,6 +82,8 @@ jobs:
         run: npx vitest run --config vitest.e2e.config.ts tests/agent-container.e2e.test.ts
 
   unit-tests:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
