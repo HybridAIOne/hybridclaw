@@ -891,11 +891,13 @@ function parseUrlNetworkTarget(rawUrl: string): {
     const host = parsed.hostname.trim().toLowerCase();
     if (!host) return null;
     const pathValue = parsed.pathname || '/';
+    const explicitPort = parsed.port ? normalizeNetworkPort(parsed.port) : null;
     return {
       host,
-      port: parsed.port
-        ? normalizeNetworkPort(parsed.port)
-        : defaultPortForProtocol(parsed.protocol),
+      port:
+        explicitPort && explicitPort !== '*'
+          ? explicitPort
+          : defaultPortForProtocol(parsed.protocol),
       path: pathValue || '/',
     };
   } catch {
@@ -1390,7 +1392,7 @@ export class TrustedCoworkerApprovalRuntime {
 
     for (const rule of this.loadedPolicy.networkRules) {
       if (!matchesHostPattern(rule.host, normalizedHost)) continue;
-      if (rule.port !== params.port) continue;
+      if (rule.port !== '*' && rule.port !== params.port) continue;
       if (!matchesMethodPattern(rule.methods, normalizedMethod)) continue;
       if (!matchesNetworkPathPattern(rule.paths, normalizedPath)) continue;
       if (!matchesAgentPattern(rule.agent, normalizedAgent)) continue;

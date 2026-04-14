@@ -3,7 +3,7 @@ export type NetworkPolicyAction = 'allow' | 'deny';
 export interface NetworkRule {
   action: NetworkPolicyAction;
   host: string;
-  port: number;
+  port: number | '*';
   methods: string[];
   paths: string[];
   agent: string;
@@ -31,7 +31,7 @@ export const DEFAULT_NETWORK_RULES: NetworkRule[];
 
 export function normalizeNetworkPathPattern(rawPath: unknown): string;
 export function normalizeNetworkAgent(raw: unknown): string;
-export function normalizeNetworkPort(raw: unknown): number;
+export function normalizeNetworkPort(raw: unknown): number | '*';
 export function normalizeNetworkRule(raw: NetworkRuleInput): NetworkRule | null;
 export function readNetworkPolicyState(
   document: Record<string, unknown>,

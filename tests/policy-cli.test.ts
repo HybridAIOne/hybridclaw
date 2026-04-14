@@ -44,7 +44,7 @@ test('policy command supports status, allow, list, default, and delete flows', (
     { workspacePath },
   );
   expect(allow.kind).toBe('plain');
-  expect(allow.text).toContain('Rule added: [2] ALLOW api.github.com:443');
+  expect(allow.text).toContain('Rule added: [2] ALLOW api.github.com:*');
 
   const list = runPolicyCommand(['list'], { workspacePath });
   expect(list.kind).toBe('info');
@@ -172,7 +172,7 @@ test('policy CLI handler writes to the workspace under the current working direc
   await handlePolicyCommand(['allow', 'example.com']);
 
   expect(logSpy).toHaveBeenCalledWith(
-    expect.stringContaining('Rule added: [2] ALLOW example.com:443'),
+    expect.stringContaining('Rule added: [2] ALLOW example.com:*'),
   );
   expect(fs.existsSync(resolveWorkspacePolicyPath(workspacePath))).toBe(true);
 });

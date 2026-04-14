@@ -70,6 +70,7 @@ approval:
     'docs.python.org',
   ]);
   expect(initial.rules.every((rule) => rule.action === 'allow')).toBe(true);
+  expect(initial.rules.every((rule) => rule.port === '*')).toBe(true);
 
   addPolicyRule(workspacePath, {
     action: 'deny',
@@ -149,6 +150,32 @@ test('network writes stay confined to the network section', () => {
   expect(document.network).toMatchObject({
     default: 'deny',
     presets: [],
+  });
+});
+
+test('wildcard-port rules omit the port field when written to YAML', () => {
+  const workspacePath = makeWorkspace();
+
+  addPolicyRule(workspacePath, {
+    action: 'allow',
+    host: 'example.com',
+    port: '*',
+    methods: ['*'],
+    paths: ['/**'],
+    agent: '*',
+  });
+
+  const network = readPolicyDocument(workspacePath).network as {
+    rules?: Array<Record<string, unknown>>;
+  };
+  expect(network.rules?.[1]).toMatchObject({
+    action: 'allow',
+    host: 'example.com',
+  });
+  expect(network.rules?.[1]).not.toHaveProperty('port');
+  expect(readPolicyState(workspacePath).rules[1]).toMatchObject({
+    host: 'example.com',
+    port: '*',
   });
 });
 

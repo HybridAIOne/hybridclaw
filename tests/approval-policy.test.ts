@@ -1023,6 +1023,39 @@ approval:
     );
   });
 
+  test('network rules without an explicit port match both https and http', () => {
+    const policyPath = writeTempPolicy(`
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "api.github.com"
+`);
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const httpsEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata over https',
+    });
+    const httpEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'http://api.github.com/repos/openai/openai',
+        method: 'GET',
+      }),
+      latestUserPrompt: 'Fetch the repo metadata over http',
+    });
+
+    expect(httpsEvaluation.tier).toBe('green');
+    expect(httpsEvaluation.decision).toBe('auto');
+    expect(httpEvaluation.tier).toBe('green');
+    expect(httpEvaluation.decision).toBe('auto');
+  });
+
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

@@ -39,7 +39,7 @@ test('policy command runs from local TUI sessions', async () => {
     args: ['policy', 'allow', 'api.github.com', '--agent', 'research'],
   });
   expect(allow.kind).toBe('plain');
-  expect(allow.text).toContain('Rule added: [2] ALLOW api.github.com:443');
+  expect(allow.text).toContain('Rule added: [2] ALLOW api.github.com:*');
 
   const list = await handleGatewayCommand({
     sessionId: 'session-policy-local',

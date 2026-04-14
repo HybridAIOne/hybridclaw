@@ -143,6 +143,8 @@ Key behaviors:
 
 - Rules are evaluated in order. The first matching rule wins.
 - Rule matching can scope by `host`, `port`, `methods`, `paths`, and `agent`.
+- Omitting `port` means any port. Use `port: 443` only when you want an exact
+  port match.
 - `network.default` applies only to HTTP/network actions. It does not
   auto-approve general `bash`, file writes, deletion, or other non-network
   tools.

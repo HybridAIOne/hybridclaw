@@ -72,8 +72,10 @@ export function normalizeNetworkAgent(raw) {
 }
 
 export function normalizeNetworkPort(raw) {
-  const parsed =
-    typeof raw === 'number' ? raw : Number.parseInt(String(raw || ''), 10)
+  const normalized = String(raw ?? '').trim()
+  if (!normalized) return '*'
+  if (normalized === '*') return '*'
+  const parsed = typeof raw === 'number' ? raw : Number.parseInt(normalized, 10)
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65_535) return 443
   return Math.trunc(parsed)
 }

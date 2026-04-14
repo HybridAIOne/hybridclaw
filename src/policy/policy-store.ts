@@ -48,7 +48,7 @@ function toYamlNetworkRule(rule: ManagedNetworkRule): Record<string, unknown> {
   return {
     action: rule.action,
     host: rule.host,
-    port: rule.port,
+    ...(rule.port === '*' ? {} : { port: rule.port }),
     methods: [...rule.methods],
     paths: [...rule.paths],
     agent: rule.agent,

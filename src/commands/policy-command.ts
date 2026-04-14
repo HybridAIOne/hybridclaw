@@ -190,13 +190,13 @@ function parseRuleCommand(
   const host = stripWrappedQuotes(String(args[0] || ''));
   if (!host) {
     throw new Error(
-      `Usage: \`policy ${action} <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number>] [--comment <text>]\``,
+      `Usage: \`policy ${action} <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]\``,
     );
   }
   let agent = '*';
   let methods: string[] = ['*'];
   let paths: string[] = ['/**'];
-  let port = 443;
+  let port: number | '*' = '*';
   let comment = '';
 
   for (let index = 1; index < args.length; index += 1) {
@@ -220,9 +220,14 @@ function parseRuleCommand(
     }
     const portFlag = parseFlagValue(args, index, '--port');
     if (portFlag) {
+      if (portFlag.value === '*') {
+        port = '*';
+        index = portFlag.nextIndex;
+        continue;
+      }
       const parsed = Number.parseInt(portFlag.value, 10);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error('`--port` must be a positive integer.');
+        throw new Error('`--port` must be a positive integer or `*`.');
       }
       port = parsed;
       index = portFlag.nextIndex;

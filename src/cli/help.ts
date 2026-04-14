@@ -511,8 +511,8 @@ export function printPolicyUsage(): void {
 Commands:
   hybridclaw policy status
   hybridclaw policy list [--agent <id>] [--json]
-  hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number>] [--comment <text>]
-  hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number>] [--comment <text>]
+  hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+  hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
   hybridclaw policy delete <number|host>
   hybridclaw policy reset
   hybridclaw policy preset list
@@ -522,7 +522,7 @@ Commands:
 
 Notes:
   - Rules are evaluated in order; first match wins.
-  - Rule fields default to \`port=443\`, \`methods=*\`, \`paths=/**\`, and \`agent=*\`.
+  - Rule fields default to \`port=*\`, \`methods=*\`, \`paths=/**\`, and \`agent=*\`.
   - \`list --agent <id>\` shows both global (\`*\`) rules and rules scoped to that agent.
   - \`preset add --dry-run\` previews bundled endpoints without modifying policy.yaml.`);
 }
