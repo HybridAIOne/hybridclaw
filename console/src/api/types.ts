@@ -21,6 +21,10 @@ export interface GatewayStatus {
     expiresAt: number | null;
     reloginRequired: boolean;
   };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
+  };
   sandbox?: {
     mode: 'container' | 'host';
     activeSessions: number;
@@ -96,6 +100,7 @@ export interface GatewayStatus {
       error?: string;
       modelCount?: number;
       detail?: string;
+      loginRequired?: boolean;
     }
   >;
   localBackends?: Record<

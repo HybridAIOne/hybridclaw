@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { restartGateway, validateToken } from '../api/client';
 import { useAuth } from '../auth';
@@ -11,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { ProviderHealthPanel } from '../components/provider-health';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
@@ -78,6 +80,8 @@ export function GatewayPage() {
       }
     };
   }, [auth.token, isRestarting]);
+
+  const navigate = useNavigate();
 
   if (!status) {
     return <div className="empty-state">Gateway status is unavailable.</div>;
@@ -220,37 +224,11 @@ export function GatewayPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Provider health">
-          {providerEntries.length === 0 ? (
-            <div className="empty-state">
-              No provider health data is available.
-            </div>
-          ) : (
-            <div className="list-stack">
-              {providerEntries.map(([name, provider]) => (
-                <div className="list-row" key={name}>
-                  <div>
-                    <strong>{name}</strong>
-                    <small>
-                      {provider.detail ||
-                        (provider.reachable
-                          ? `${provider.latencyMs ?? 0}ms`
-                          : provider.error || 'unreachable')}
-                    </small>
-                  </div>
-                  <div className="row-status-stack">
-                    <BooleanPill
-                      value={provider.reachable}
-                      trueLabel="healthy"
-                      falseLabel="down"
-                    />
-                    <small>{provider.modelCount ?? 0} models</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+        <ProviderHealthPanel
+          title="Provider health"
+          entries={providerEntries}
+          onLogin={() => void navigate({ to: '/config' })}
+        />
 
         <Panel title="Scheduler snapshot" accent="warm">
           {schedulerJobs.length === 0 ? (
