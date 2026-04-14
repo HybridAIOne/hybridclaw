@@ -6,6 +6,7 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 const makeTempDir = useTempDir();
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
 });

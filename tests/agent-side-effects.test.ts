@@ -14,6 +14,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     restoreEnvVar('HOME', ORIGINAL_HOME);
   },

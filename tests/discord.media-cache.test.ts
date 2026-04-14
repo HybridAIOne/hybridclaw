@@ -7,6 +7,7 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 const makeTempDataDir = useTempDir('hybridclaw-discord-cache-');
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unmock: ['../src/config/config.ts', '../src/logger.js'],
 });

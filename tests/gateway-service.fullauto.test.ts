@@ -117,6 +117,7 @@ function buildLearningState(params: {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     runAgentMock.mockReset();
     stopSessionExecutionMock.mockReset();

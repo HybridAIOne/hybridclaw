@@ -90,6 +90,7 @@ async function initSessionTestContext() {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     runPreCompactionMemoryFlushMock.mockReset();
     restoreEnvVar('HOME', ORIGINAL_HOME);

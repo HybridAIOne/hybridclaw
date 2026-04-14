@@ -33,6 +33,7 @@ function updateLastActive(
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     restoreEnvVar('HOME', ORIGINAL_HOME);
   },

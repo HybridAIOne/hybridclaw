@@ -593,6 +593,7 @@ async function importFreshGatewayMain(options?: {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
   unmock: [

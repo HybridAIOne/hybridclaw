@@ -6,6 +6,7 @@ const ORIGINAL_HOME = process.env.HOME;
 const makeTempHome = useTempDir('hybridclaw-gateway-history-');
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     if (ORIGINAL_HOME === undefined) {
       delete process.env.HOME;

@@ -1352,6 +1352,7 @@ async function importFreshCli(options?: {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
       delete process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;

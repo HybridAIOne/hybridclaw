@@ -64,6 +64,7 @@ async function createFixture() {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     runAgentMock.mockReset();
     callAuxiliaryModelMock.mockReset();

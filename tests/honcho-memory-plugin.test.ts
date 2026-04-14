@@ -729,6 +729,7 @@ function createHonchoStubServer() {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     if (originalRuntimeHome === undefined) {
       delete process.env.HYBRIDCLAW_DATA_DIR;

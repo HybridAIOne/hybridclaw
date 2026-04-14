@@ -1515,6 +1515,7 @@ async function importFreshHealth(options?: {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
       delete process.env.HYBRIDCLAW_AUTH_SECRET;

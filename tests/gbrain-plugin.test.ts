@@ -216,6 +216,7 @@ function writeGbrainStub(
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
 });

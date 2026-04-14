@@ -22,6 +22,7 @@ const BASE_EMAIL_CONFIG = {
 const makeTempDir = useTempDir();
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unmock: ['imapflow', '../src/config/config.js'],
 });

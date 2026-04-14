@@ -25,6 +25,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: () => {
     runAgentMock.mockReset();
     restoreEnvVar('HOME', ORIGINAL_HOME);

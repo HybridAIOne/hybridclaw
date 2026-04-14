@@ -31,6 +31,7 @@ useCleanMocks({
     process.env.GOOGLE_API_KEY = ORIGINAL_GOOGLE_API_KEY;
   },
   restoreAllMocks: false,
+  resetModules: true,
   unstubAllGlobals: true,
 });
 

@@ -43,6 +43,7 @@ async function importAttachmentsModule(
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
 });

@@ -135,6 +135,7 @@ function readMempalaceCommandLog(rootDir: string): Array<{
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
 });

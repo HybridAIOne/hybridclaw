@@ -120,6 +120,7 @@ async function importFreshTelegramRuntime() {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unmock: [
     '../src/config/config.js',

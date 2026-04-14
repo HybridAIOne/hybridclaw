@@ -7,6 +7,7 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 const makeTempRoot = useTempDir('hybridclaw-managed-temp-');
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unmock: ['../src/logger.js'],
 });

@@ -50,6 +50,7 @@ function writeSchedulerState(homeDir: string, state: unknown): void {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: async () => {
     vi.useRealTimers();
     restoreEnvVar('HOME', ORIGINAL_HOME);

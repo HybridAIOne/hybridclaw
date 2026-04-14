@@ -18,6 +18,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 useCleanMocks({
+  restoreAllMocks: true,
   cleanup: async () => {
     const { resetAgentRegistryForTesting } = await import(
       '../src/agents/agent-registry.ts'

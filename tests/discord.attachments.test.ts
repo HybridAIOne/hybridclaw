@@ -7,6 +7,7 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 const makeTempDataDir = useTempDir('hybridclaw-discord-attachments-');
 
 useCleanMocks({
+  restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
   unmock: [

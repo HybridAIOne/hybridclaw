@@ -13,6 +13,10 @@ export interface CleanMocksOptions {
   unstubAllGlobals?: boolean;
 }
 
+/**
+ * Kept callable so migrated tests can stay terse with `makeTempDir()`, while
+ * still exposing `makeTempDir.track(dir)` for temp dirs created elsewhere.
+ */
 type TempDirFactory = ((prefix?: string) => string) & {
   track: (dir: string | null | undefined) => void;
 };
@@ -111,23 +115,32 @@ export function useTempDir(defaultPrefix = 'hybridclaw-test-'): TempDirFactory {
 }
 
 export function useCleanMocks(options: CleanMocksOptions = {}): void {
+  const {
+    cleanup,
+    restoreAllMocks = false,
+    resetModules = false,
+    unmock = [],
+    unstubAllEnvs = false,
+    unstubAllGlobals = false,
+  } = options;
+
   afterEach(async () => {
     try {
-      await options.cleanup?.();
+      await cleanup?.();
     } finally {
-      if (options.restoreAllMocks ?? true) {
+      if (restoreAllMocks) {
         vi.restoreAllMocks();
       }
-      if (options.unstubAllGlobals) {
+      if (unstubAllGlobals) {
         vi.unstubAllGlobals();
       }
-      if (options.unstubAllEnvs) {
+      if (unstubAllEnvs) {
         vi.unstubAllEnvs();
       }
-      for (const moduleId of options.unmock ?? []) {
+      for (const moduleId of unmock) {
         vi.doUnmock(moduleId);
       }
-      if (options.resetModules ?? true) {
+      if (resetModules) {
         vi.resetModules();
       }
     }
