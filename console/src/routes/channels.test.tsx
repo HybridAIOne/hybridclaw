@@ -12,6 +12,7 @@ import { ToastProvider } from '../components/toast';
 import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
+const fetchEmailConfigMock = vi.fn();
 const saveConfigMock = vi.fn();
 const setRuntimeSecretMock = vi.fn();
 const validateTokenMock = vi.fn();
@@ -19,6 +20,7 @@ const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
+  fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   setRuntimeSecret: (...args: unknown[]) => setRuntimeSecretMock(...args),
   validateToken: (...args: unknown[]) => validateTokenMock(...args),
@@ -253,11 +255,16 @@ function renderChannelsPage(): void {
 describe('ChannelsPage', () => {
   beforeEach(() => {
     fetchConfigMock.mockReset();
+    fetchEmailConfigMock.mockReset();
     saveConfigMock.mockReset();
     setRuntimeSecretMock.mockReset();
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     const gatewayStatus = {
+      hybridai: {
+        apiKeyConfigured: false,
+        apiKeySource: null,
+      },
       discord: {
         tokenConfigured: false,
         tokenSource: null,
@@ -1147,10 +1154,101 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Email/i });
-    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
     screen.getByRole('button', { name: 'Change password' });
     expect(screen.queryByRole('button', { name: 'Set password' })).toBeNull();
+  });
+
+  it('hides fetch email config when no HybridAI API key is configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
+
+    expect(
+      screen.queryByRole('button', { name: 'Fetch HybridAI Agent Email' }),
+    ).toBeNull();
+  });
+
+  it('shows fetch email config when a HybridAI API key is configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      hybridai: {
+        apiKeyConfigured: true,
+        apiKeySource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        hybridai: {
+          apiKeyConfigured: true,
+          apiKeySource: 'runtime-secrets',
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
+
+    expect(
+      screen.getByRole('button', { name: 'Fetch HybridAI Agent Email' }),
+    ).toBeTruthy();
   });
 
   it('updates Telegram bot tokens through encrypted runtime secrets', async () => {
