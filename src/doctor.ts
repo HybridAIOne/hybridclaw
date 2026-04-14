@@ -96,9 +96,12 @@ async function confirmFix(
   rl: readline.Interface,
   result: DiagResult,
 ): Promise<boolean> {
+  const requiresApprovalSuffix = result.fix?.requiresApproval
+    ? ' (approval required)'
+    : '';
   const prompt = result.fix?.summary
-    ? `Apply fix for ${result.label}? ${result.fix.summary} [y/N] `
-    : `Apply fix for ${result.label}? [y/N] `;
+    ? `Apply fix for ${result.label}${requiresApprovalSuffix}? ${result.fix.summary} [y/N] `
+    : `Apply fix for ${result.label}${requiresApprovalSuffix}? [y/N] `;
   const answer = (await rl.question(prompt)).trim().toLowerCase();
   return answer === 'y' || answer === 'yes';
 }
@@ -126,6 +129,16 @@ async function applyFixes(
     for (let index = 0; index < results.length; index += 1) {
       const result = results[index];
       if (!result.fix || result.severity === 'ok') continue;
+
+      if (!rl && result.fix.requiresApproval) {
+        outcomes.push({
+          category: result.category,
+          label: result.label,
+          status: 'skipped',
+          message: 'Skipped because interactive approval is required',
+        });
+        continue;
+      }
 
       if (rl && !(await confirmFix(rl, result))) {
         outcomes.push({

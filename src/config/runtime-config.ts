@@ -43,6 +43,7 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import {
   isSecretRefInput,
   parseSecretInput,
@@ -80,7 +81,6 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
 } from './runtime-config-revisions.js';
-
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
@@ -1270,7 +1270,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   scheduler: {
-    jobs: [],
+    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
   },
 };
 
