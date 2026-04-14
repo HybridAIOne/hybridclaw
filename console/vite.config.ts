@@ -11,13 +11,11 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Keep React and its ecosystem in one chunk so the browser can
-          // cache it independently of application code.
-          vendor: ['react', 'react-dom'],
-          router: ['@tanstack/react-router'],
-          query: ['@tanstack/react-query'],
-          terminal: ['xterm', '@xterm/addon-fit'],
+        manualChunks(id) {
+          if (id.includes('react-dom') || id.includes('/react/')) return 'vendor';
+          if (id.includes('@tanstack/react-router')) return 'router';
+          if (id.includes('@tanstack/react-query')) return 'query';
+          if (id.includes('xterm') || id.includes('@xterm/')) return 'terminal';
         },
       },
     },
