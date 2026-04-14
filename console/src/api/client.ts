@@ -43,7 +43,7 @@ import type {
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
 export const AUTH_REQUIRED_EVENT = 'hybridclaw:auth-required';
 
-function requestHeaders(token: string, body?: unknown): HeadersInit {
+export function requestHeaders(token: string, body?: unknown): HeadersInit {
   const trimmed = token.trim();
   return {
     ...(trimmed ? { Authorization: `Bearer ${trimmed}` } : {}),
@@ -55,7 +55,7 @@ function requestHeaders(token: string, body?: unknown): HeadersInit {
   };
 }
 
-function dispatchAuthRequired(message: string): void {
+export function dispatchAuthRequired(message: string): void {
   clearStoredToken();
   window.dispatchEvent(
     new CustomEvent(AUTH_REQUIRED_EVENT, {
@@ -64,19 +64,27 @@ function dispatchAuthRequired(message: string): void {
   );
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   pathname: string,
   options: {
     token: string;
     method?: 'GET' | 'PUT' | 'DELETE' | 'POST';
     body?: unknown;
+    rawBody?: BodyInit;
+    extraHeaders?: HeadersInit;
     onAuthError?: 'dispatch' | 'ignore';
   },
 ): Promise<T> {
   const response = await fetch(pathname, {
     method: options.method || 'GET',
-    headers: requestHeaders(options.token, options.body),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    headers: {
+      ...requestHeaders(options.token, options.body),
+      ...options.extraHeaders,
+    },
+    body:
+      options.body !== undefined
+        ? JSON.stringify(options.body)
+        : (options.rawBody ?? undefined),
   });
 
   const payload = (await response.json().catch(() => ({}))) as {
