@@ -10,7 +10,6 @@ import {
   useState,
 } from 'react';
 import { cx } from '../../lib/cx';
-import { Menu } from '../icons';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
+import { Menu } from '../icons';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';

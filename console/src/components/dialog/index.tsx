@@ -194,7 +194,9 @@ export function DialogContent({
     }
   }, [isDrawer, exiting]);
 
-  const activePanelRef = (isDrawer ? drawerPanelRef : panelRef) as RefObject<HTMLElement | null>;
+  const activePanelRef = (
+    isDrawer ? drawerPanelRef : panelRef
+  ) as RefObject<HTMLElement | null>;
 
   useScrollLock(open);
   useFocusTrap(activePanelRef, open, initialFocus);
@@ -252,15 +254,12 @@ export function DialogContent({
   if (!open && !exiting) return null;
 
   const sizeClass =
-    size === 'sm'
-      ? styles.sm
-      : size === 'lg'
-        ? styles.lg
-        : undefined;
+    size === 'sm' ? styles.sm : size === 'lg' ? styles.lg : undefined;
 
   const getFocusableItems = () =>
     Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ?? [],
+      panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS) ??
+        [],
     );
 
   const focusFirst = () => {
@@ -387,11 +386,15 @@ export function DialogClose(
 // ---------------------------------------------------------------------------
 
 export const Drawer = (
-  props: Omit<Parameters<typeof Dialog>[0], 'isDrawer'> & { children: ReactNode },
+  props: Omit<Parameters<typeof Dialog>[0], 'isDrawer'> & {
+    children: ReactNode;
+  },
 ) => <Dialog {...props} isDrawer />;
 
-export { DialogContent as DrawerContent };
-export { DialogHeader as DrawerHeader };
-export { DialogTitle as DrawerTitle };
-export { DialogDescription as DrawerDescription };
-export { DialogClose as DrawerClose };
+export {
+  DialogClose as DrawerClose,
+  DialogContent as DrawerContent,
+  DialogDescription as DrawerDescription,
+  DialogHeader as DrawerHeader,
+  DialogTitle as DrawerTitle,
+};
