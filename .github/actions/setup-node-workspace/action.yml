@@ -17,7 +17,7 @@ runs:
 
     - name: Install root dependencies
       shell: bash
-      run: npm install
+      run: npm ci
 
     - name: Install container dependencies
       shell: bash
