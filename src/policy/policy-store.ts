@@ -250,6 +250,29 @@ export function addPolicyRule(
   });
 }
 
+export function updatePolicyRule(
+  workspacePath: string,
+  index: number,
+  rule: NetworkRule,
+): PolicyNetworkState {
+  if (!Number.isInteger(index) || index <= 0) {
+    throw new Error('Rule index must be a positive integer.');
+  }
+  const normalized = normalizeNetworkRule(rule);
+  if (!normalized) {
+    throw new Error('Policy rule is missing a host.');
+  }
+  const current = readPolicyState(workspacePath);
+  if (!current.rules.some((entry) => entry.index === index)) {
+    throw new Error(`No policy rule matched "${index}".`);
+  }
+  return updatePolicyState(workspacePath, (draft) => {
+    draft.rules = current.rules.map((entry) =>
+      entry.index === index ? normalized : stripRuleIndex(entry),
+    );
+  });
+}
+
 export function deletePolicyRule(
   workspacePath: string,
   target: string,

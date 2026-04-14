@@ -878,6 +878,60 @@ export interface GatewayAdminAuditResponse {
   entries: GatewayAdminAuditEntry[];
 }
 
+export interface GatewayAdminApprovalAgent {
+  id: string;
+  name: string | null;
+  workspacePath: string;
+}
+
+export interface GatewayAdminPendingApproval {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  createdAt: string;
+  expiresAt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+  actionKey: string | null;
+}
+
+export interface GatewayAdminPolicyRule {
+  index: number;
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+  managedByPreset?: string;
+}
+
+export interface GatewayAdminPolicyState {
+  exists: boolean;
+  policyPath: string;
+  workspacePath: string;
+  defaultAction: 'allow' | 'deny';
+  presets: string[];
+  rules: GatewayAdminPolicyRule[];
+}
+
+export interface GatewayAdminPolicyPresetSummary {
+  name: string;
+  description: string;
+}
+
+export interface GatewayAdminApprovalsResponse {
+  selectedAgentId: string;
+  agents: GatewayAdminApprovalAgent[];
+  pending: GatewayAdminPendingApproval[];
+  policy: GatewayAdminPolicyState;
+  availablePresets: GatewayAdminPolicyPresetSummary[];
+}
+
 export interface GatewayAdminSkill {
   name: string;
   description: string;

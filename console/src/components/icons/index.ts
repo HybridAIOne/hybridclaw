@@ -16,6 +16,7 @@ export { Jobs } from './Jobs';
 export { LogOut } from './LogOut';
 export { Menu } from './Menu';
 export { Models } from './Models';
+export { Policy } from './Policy';
 export { Plugins } from './Plugins';
 export { Scheduler } from './Scheduler';
 export { Sessions } from './Sessions';

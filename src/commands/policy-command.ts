@@ -4,19 +4,19 @@ import {
   normalizeNetworkRule,
 } from '../policy/network-policy.js';
 import {
+  applyPolicyPreset,
   listPolicyPresetSummaries,
-  loadPolicyPreset,
+  previewPolicyPreset,
+  removePolicyPreset,
 } from '../policy/policy-presets.js';
 import {
   addPolicyRule,
   deletePolicyRule,
   type IndexedNetworkRule,
-  type ManagedNetworkRule,
   type PolicyNetworkState,
   readPolicyState,
   resetPolicyNetwork,
   setPolicyDefault,
-  setPolicyPresets,
 } from '../policy/policy-store.js';
 
 export interface PolicyCommandOutput {
@@ -75,38 +75,6 @@ function matchesAgentFilter(
   const normalized = agentFilter.trim().toLowerCase();
   if (!normalized) return true;
   return rule.agent === '*' || rule.agent === normalized;
-}
-
-function networkRuleKey(rule: NetworkRule): string {
-  return JSON.stringify({
-    action: rule.action,
-    host: rule.host,
-    port: rule.port,
-    methods: [...rule.methods],
-    paths: [...rule.paths],
-    agent: rule.agent,
-  });
-}
-
-function stripRuleIndex(rule: IndexedNetworkRule): NetworkRule {
-  return {
-    action: rule.action,
-    host: rule.host,
-    port: rule.port,
-    methods: [...rule.methods],
-    paths: [...rule.paths],
-    agent: rule.agent,
-    ...(rule.comment ? { comment: rule.comment } : {}),
-  };
-}
-
-function stripRuleIndexWithMetadata(
-  rule: IndexedNetworkRule,
-): ManagedNetworkRule {
-  return {
-    ...stripRuleIndex(rule),
-    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
-  };
 }
 
 function formatRuleAction(action: NetworkPolicyAction): string {
@@ -429,44 +397,23 @@ export function runPolicyCommand(
           }
           throw new Error(`Unknown flag: ${arg}`);
         }
-        const preset = loadPolicyPreset(presetName);
-        const state = readPolicyState(workspacePath);
-        const currentPresetKeys = new Set(
-          state.rules
-            .filter((rule) => rule.managedByPreset === preset.name)
-            .map((rule) => networkRuleKey(stripRuleIndex(rule))),
-        );
-        const addedRules = preset.rules
-          .filter((rule) => !currentPresetKeys.has(networkRuleKey(rule)))
-          .map(
-            (rule) =>
-              ({
-                ...rule,
-                managedByPreset: preset.name,
-              }) satisfies ManagedNetworkRule,
-          );
+        const preview = previewPolicyPreset(workspacePath, presetName);
         if (dryRun) {
           return {
             kind: 'info',
             title: 'Policy Preset Dry Run',
             text: [
-              `Preset '${preset.name}' would add:`,
-              ...(addedRules.length > 0
-                ? addedRules.map((rule) => `  ${formatRuleLine(rule)}`)
+              `Preset '${preview.preset.name}' would add:`,
+              ...(preview.addedRules.length > 0
+                ? preview.addedRules.map((rule) => `  ${formatRuleLine(rule)}`)
                 : ['  (no new rules)']),
             ].join('\n'),
           };
         }
-        setPolicyPresets(workspacePath, {
-          presets: [...new Set([...state.presets, preset.name])],
-          rules: [
-            ...state.rules.map((rule) => stripRuleIndexWithMetadata(rule)),
-            ...addedRules,
-          ],
-        });
+        const applied = applyPolicyPreset(workspacePath, preview.preset.name);
         return {
           kind: 'plain',
-          text: `Applied preset '${preset.name}' (${addedRules.length} rules added)`,
+          text: `Applied preset '${applied.preset.name}' (${applied.addedRules.length} rules added)`,
         };
       }
 
@@ -475,21 +422,10 @@ export function runPolicyCommand(
         if (!presetName) {
           throw new Error('Usage: `policy preset remove <name>`');
         }
-        const preset = loadPolicyPreset(presetName);
-        const state = readPolicyState(workspacePath);
-        const keptRules = state.rules
-          .filter((rule) => rule.managedByPreset !== preset.name)
-          .map((rule) => stripRuleIndexWithMetadata(rule));
-        const removedCount = state.rules.filter(
-          (rule) => rule.managedByPreset === preset.name,
-        ).length;
-        setPolicyPresets(workspacePath, {
-          presets: state.presets.filter((name) => name !== preset.name),
-          rules: keptRules,
-        });
+        const removed = removePolicyPreset(workspacePath, presetName);
         return {
           kind: 'plain',
-          text: `Removed preset '${preset.name}' (${removedCount} rules removed)`,
+          text: `Removed preset '${removed.preset.name}' (${removed.removedCount} rules removed)`,
         };
       }
 

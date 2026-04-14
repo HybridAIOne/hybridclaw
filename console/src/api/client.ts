@@ -5,6 +5,7 @@ import type {
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
   AdminAgentsResponse,
+  AdminApprovalsResponse,
   AdminAuditResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
@@ -23,6 +24,8 @@ import type {
   AdminModelsResponse,
   AdminOverview,
   AdminPluginsResponse,
+  AdminPolicyRuleInput,
+  AdminPolicyState,
   AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
@@ -561,6 +564,86 @@ export function fetchAudit(
   return requestJson<AdminAuditResponse>(
     suffix ? `/api/admin/audit?${suffix}` : '/api/admin/audit',
     { token },
+  );
+}
+
+export function fetchAdminApprovals(
+  token: string,
+  params?: {
+    agentId?: string;
+  },
+): Promise<AdminApprovalsResponse> {
+  const queryParams = new URLSearchParams();
+  if (params?.agentId) {
+    queryParams.set('agentId', params.agentId);
+  }
+  const suffix = queryParams.toString();
+  return requestJson<AdminApprovalsResponse>(
+    suffix ? `/api/admin/approvals?${suffix}` : '/api/admin/approvals',
+    { token },
+  );
+}
+
+export function saveAdminPolicyRule(
+  token: string,
+  params: {
+    agentId: string;
+    index?: number;
+    rule: AdminPolicyRuleInput;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function saveAdminPolicyDefault(
+  token: string,
+  params: {
+    agentId: string;
+    defaultAction: 'allow' | 'deny';
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function saveAdminPolicyPreset(
+  token: string,
+  params: {
+    agentId: string;
+    presetName: string;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function deleteAdminPolicyRule(
+  token: string,
+  params: {
+    agentId: string;
+    index: number;
+  },
+): Promise<AdminPolicyState> {
+  const query = new URLSearchParams({
+    agentId: params.agentId,
+    index: String(params.index),
+  });
+  return requestJson<AdminPolicyState>(
+    `/api/admin/policy?${query.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
   );
 }
 

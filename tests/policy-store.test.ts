@@ -13,6 +13,7 @@ import {
   resolveWorkspacePolicyPath,
   setPolicyDefault,
   setPolicyPresets,
+  updatePolicyRule,
 } from '../src/policy/policy-store.js';
 
 function makeWorkspace(): string {
@@ -221,4 +222,51 @@ test('stores normalized preset bookkeeping alongside explicit rules', () => {
       managedByPreset: 'github',
     }),
   ]);
+});
+
+test('updates an existing rule by index and clears preset provenance', () => {
+  const workspacePath = makeWorkspace();
+  setPolicyPresets(workspacePath, {
+    presets: ['github'],
+    rules: [
+      {
+        action: 'allow',
+        host: 'api.github.com',
+        port: 443,
+        methods: ['GET'],
+        paths: ['/repos/**'],
+        agent: '*',
+        managedByPreset: 'github',
+      },
+    ],
+  });
+
+  const state = updatePolicyRule(workspacePath, 1, {
+    action: 'deny',
+    host: 'api.github.com',
+    port: '*',
+    methods: ['POST'],
+    paths: ['/repos/private/**'],
+    agent: 'main',
+    comment: 'Manual override',
+  });
+
+  expect(state.rules).toEqual([
+    expect.objectContaining({
+      index: 1,
+      action: 'deny',
+      host: 'api.github.com',
+      port: '*',
+      methods: ['POST'],
+      paths: ['/repos/private/**'],
+      agent: 'main',
+      comment: 'Manual override',
+    }),
+  ]);
+  expect(state.rules[0]?.managedByPreset).toBeUndefined();
+
+  const network = readPolicyDocument(workspacePath).network as {
+    rules?: Array<Record<string, unknown>>;
+  };
+  expect(network.rules?.[0]).not.toHaveProperty('managed_by_preset');
 });

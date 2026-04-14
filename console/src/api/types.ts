@@ -833,6 +833,70 @@ export interface AdminAuditResponse {
   entries: AdminAuditEntry[];
 }
 
+export interface AdminApprovalAgent {
+  id: string;
+  name: string | null;
+  workspacePath: string;
+}
+
+export interface AdminPendingApproval {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  createdAt: string;
+  expiresAt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+  actionKey: string | null;
+}
+
+export interface AdminPolicyRule {
+  index: number;
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+  managedByPreset?: string;
+}
+
+export interface AdminPolicyRuleInput {
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+}
+
+export interface AdminPolicyState {
+  exists: boolean;
+  policyPath: string;
+  workspacePath: string;
+  defaultAction: 'allow' | 'deny';
+  presets: string[];
+  rules: AdminPolicyRule[];
+}
+
+export interface AdminPolicyPresetSummary {
+  name: string;
+  description: string;
+}
+
+export interface AdminApprovalsResponse {
+  selectedAgentId: string;
+  agents: AdminApprovalAgent[];
+  pending: AdminPendingApproval[];
+  policy: AdminPolicyState;
+  availablePresets: AdminPolicyPresetSummary[];
+}
+
 export interface AdminSkill {
   name: string;
   description: string;

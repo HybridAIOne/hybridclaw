@@ -154,6 +154,18 @@ import {
   listLoadedPluginCommands,
 } from '../plugins/plugin-manager.js';
 import {
+  applyPolicyPreset,
+  listPolicyPresetSummaries,
+  type PolicyPresetSummary,
+} from '../policy/policy-presets.js';
+import {
+  addPolicyRule,
+  deletePolicyRule,
+  readPolicyState,
+  setPolicyDefault,
+  updatePolicyRule,
+} from '../policy/policy-store.js';
+import {
   discoverCodexModels,
   getDiscoveredCodexModelContextWindow,
   getDiscoveredCodexModelMaxTokens,
@@ -330,6 +342,8 @@ import {
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
   type GatewayAdminAgentsResponse,
+  type GatewayAdminApprovalAgent,
+  type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
@@ -344,6 +358,10 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
+  type GatewayAdminPendingApproval,
+  type GatewayAdminPolicyPresetSummary,
+  type GatewayAdminPolicyRule,
+  type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
   type GatewayAdminToolCatalogEntry,
@@ -368,6 +386,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { runMemoryConsolidation } from './memory-consolidation-runner.js';
+import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -4840,6 +4859,188 @@ export function getGatewayAdminAudit(params?: {
       limit,
     }).map(mapAdminAuditEntry),
   };
+}
+
+function listGatewayAdminApprovalAgents(
+  selectedAgentId: string,
+): GatewayAdminApprovalAgent[] {
+  const agents = new Map<string, GatewayAdminApprovalAgent>();
+
+  for (const agentId of [
+    selectedAgentId,
+    ...listAgents().map((agent) => agent.id),
+  ]) {
+    const resolved = resolveAgentConfig(agentId);
+    agents.set(resolved.id, {
+      id: resolved.id,
+      name: resolved.name || null,
+      workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+    });
+  }
+
+  return [...agents.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+}
+
+function mapGatewayAdminPolicyRule(
+  rule: ReturnType<typeof readPolicyState>['rules'][number],
+): GatewayAdminPolicyRule {
+  return {
+    index: rule.index,
+    action: rule.action,
+    host: rule.host,
+    port: rule.port,
+    methods: [...rule.methods],
+    paths: [...rule.paths],
+    agent: rule.agent,
+    ...(rule.comment ? { comment: rule.comment } : {}),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
+  };
+}
+
+function mapGatewayAdminPolicyStateValue(
+  state: ReturnType<typeof readPolicyState>,
+): GatewayAdminPolicyState {
+  return {
+    exists: state.exists,
+    policyPath: state.policyPath,
+    workspacePath: state.workspacePath,
+    defaultAction: state.defaultAction,
+    presets: [...state.presets],
+    rules: state.rules.map(mapGatewayAdminPolicyRule),
+  };
+}
+
+function mapGatewayAdminPolicyState(agentId: string): GatewayAdminPolicyState {
+  return mapGatewayAdminPolicyStateValue(
+    readPolicyState(path.resolve(agentWorkspaceDir(agentId))),
+  );
+}
+
+function mapGatewayAdminPolicyPresetSummary(
+  preset: PolicyPresetSummary,
+): GatewayAdminPolicyPresetSummary {
+  return {
+    name: preset.name,
+    description: preset.description,
+  };
+}
+
+function resolveGatewayAdminPolicyWorkspace(agentId?: string): string {
+  const resolved = resolveAgentConfig(agentId);
+  return path.resolve(agentWorkspaceDir(resolved.id));
+}
+
+function mapGatewayAdminPendingApproval(
+  pending: ReturnType<typeof listPendingApprovals>[number],
+  sessionAgentIds: Map<string, string>,
+): GatewayAdminPendingApproval {
+  return {
+    sessionId: pending.sessionId,
+    agentId: sessionAgentIds.get(pending.sessionId) || null,
+    approvalId: pending.entry.approvalId,
+    userId: pending.entry.userId,
+    prompt: pending.entry.prompt,
+    createdAt: new Date(pending.entry.createdAt).toISOString(),
+    expiresAt: new Date(pending.entry.expiresAt).toISOString(),
+    allowSession: pending.entry.commandAction?.allowSession === true,
+    allowAgent: pending.entry.commandAction?.allowAgent === true,
+    allowAll: pending.entry.commandAction?.allowAll === true,
+    actionKey: pending.entry.commandAction?.actionKey?.trim() || null,
+  };
+}
+
+export function getGatewayAdminApprovals(params?: {
+  agentId?: string;
+}): GatewayAdminApprovalsResponse {
+  const selectedAgentId = resolveAgentConfig(params?.agentId).id;
+  const sessionAgentIds = new Map(
+    getAllSessions().map((session) => [
+      session.id,
+      resolveAgentForRequest({ session }).agentId,
+    ]),
+  );
+
+  return {
+    selectedAgentId,
+    agents: listGatewayAdminApprovalAgents(selectedAgentId),
+    pending: listPendingApprovals().map((pending) =>
+      mapGatewayAdminPendingApproval(pending, sessionAgentIds),
+    ),
+    policy: mapGatewayAdminPolicyState(selectedAgentId),
+    availablePresets: listPolicyPresetSummaries().map(
+      mapGatewayAdminPolicyPresetSummary,
+    ),
+  };
+}
+
+export function saveGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index?: number | null;
+  rule: Parameters<typeof addPolicyRule>[1];
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state =
+      input.index != null
+        ? updatePolicyRule(workspacePath, input.index, input.rule)
+        : addPolicyRule(workspacePath, input.rule);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function deleteGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index: number;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyDefault(input: {
+  agentId?: string;
+  defaultAction: 'allow' | 'deny';
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setPolicyDefault(workspacePath, input.defaultAction);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function applyGatewayAdminPolicyPreset(input: {
+  agentId?: string;
+  presetName: string;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {

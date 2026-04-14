@@ -4,6 +4,13 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { type NetworkRule, normalizeNetworkRule } from './network-policy.js';
+import {
+  type IndexedNetworkRule,
+  type ManagedNetworkRule,
+  type PolicyNetworkState,
+  readPolicyState,
+  setPolicyPresets,
+} from './policy-store.js';
 
 export interface PolicyPreset {
   name: string;
@@ -77,4 +84,129 @@ export function listPolicyPresetSummaries(): PolicyPresetSummary[] {
 
 export function loadPolicyPreset(name: string): PolicyPreset {
   return parsePresetFile(readPresetFile(name));
+}
+
+function networkRuleKey(rule: NetworkRule): string {
+  return JSON.stringify({
+    action: rule.action,
+    host: rule.host,
+    port: rule.port,
+    methods: [...rule.methods],
+    paths: [...rule.paths],
+    agent: rule.agent,
+  });
+}
+
+function stripRuleIndex(rule: IndexedNetworkRule): NetworkRule {
+  return {
+    action: rule.action,
+    host: rule.host,
+    port: rule.port,
+    methods: [...rule.methods],
+    paths: [...rule.paths],
+    agent: rule.agent,
+    ...(rule.comment ? { comment: rule.comment } : {}),
+  };
+}
+
+function stripRuleIndexWithMetadata(
+  rule: IndexedNetworkRule,
+): ManagedNetworkRule {
+  return {
+    ...stripRuleIndex(rule),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
+  };
+}
+
+function collectPresetAddedRules(
+  state: PolicyNetworkState,
+  preset: PolicyPreset,
+): ManagedNetworkRule[] {
+  const currentPresetKeys = new Set(
+    state.rules
+      .filter((rule) => rule.managedByPreset === preset.name)
+      .map((rule) => networkRuleKey(stripRuleIndex(rule))),
+  );
+  return preset.rules
+    .filter((rule) => !currentPresetKeys.has(networkRuleKey(rule)))
+    .map(
+      (rule) =>
+        ({
+          ...rule,
+          managedByPreset: preset.name,
+        }) satisfies ManagedNetworkRule,
+    );
+}
+
+export function previewPolicyPreset(
+  workspacePath: string,
+  presetName: string,
+): {
+  preset: PolicyPreset;
+  state: PolicyNetworkState;
+  addedRules: ManagedNetworkRule[];
+} {
+  const preset = loadPolicyPreset(presetName);
+  const state = readPolicyState(workspacePath);
+  return {
+    preset,
+    state,
+    addedRules: collectPresetAddedRules(state, preset),
+  };
+}
+
+export function applyPolicyPreset(
+  workspacePath: string,
+  presetName: string,
+): {
+  preset: PolicyPreset;
+  state: PolicyNetworkState;
+  addedRules: ManagedNetworkRule[];
+} {
+  const { preset, state, addedRules } = previewPolicyPreset(
+    workspacePath,
+    presetName,
+  );
+
+  const next = setPolicyPresets(workspacePath, {
+    presets: [...new Set([...state.presets, preset.name])],
+    rules: [
+      ...state.rules.map((rule) => stripRuleIndexWithMetadata(rule)),
+      ...addedRules,
+    ],
+  });
+
+  return {
+    preset,
+    state: next,
+    addedRules,
+  };
+}
+
+export function removePolicyPreset(
+  workspacePath: string,
+  presetName: string,
+): {
+  preset: PolicyPreset;
+  state: PolicyNetworkState;
+  removedCount: number;
+} {
+  const preset = loadPolicyPreset(presetName);
+  const state = readPolicyState(workspacePath);
+  const keptRules = state.rules
+    .filter((rule) => rule.managedByPreset !== preset.name)
+    .map((rule) => stripRuleIndexWithMetadata(rule));
+  const removedCount = state.rules.filter(
+    (rule) => rule.managedByPreset === preset.name,
+  ).length;
+  const next = setPolicyPresets(workspacePath, {
+    presets: state.presets.filter((name) => name !== preset.name),
+    rules: keptRules,
+  });
+
+  return {
+    preset,
+    state: next,
+    removedCount,
+  };
 }
