@@ -1,6 +1,11 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   Dialog,
   DialogClose,
@@ -44,8 +49,6 @@ function TestDialog(props: { onConfirm?: () => void }) {
     </Dialog>
   );
 }
-
-afterEach(cleanup);
 
 // ---------------------------------------------------------------------------
 // Drawer harness
@@ -178,24 +181,32 @@ describe('Dialog — drawer mode', () => {
     });
 
     expect(
-      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+      document.body
+        .querySelector('section[role="dialog"]')
+        ?.getAttribute('data-state'),
     ).toBe('closed');
   });
 
   it('clicking the overlay closes the drawer', () => {
     render(<TestDrawer initialOpen={true} />);
     expect(
-      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+      document.body
+        .querySelector('section[role="dialog"]')
+        ?.getAttribute('data-state'),
     ).toBe('open');
 
-    const overlay = document.body.querySelector('[data-sheet="overlay"]') as HTMLElement;
+    const overlay = document.body.querySelector(
+      '[data-sheet="overlay"]',
+    ) as HTMLElement;
     expect(overlay).not.toBeNull();
     act(() => {
       fireEvent.click(overlay);
     });
 
     expect(
-      document.body.querySelector('section[role="dialog"]')?.getAttribute('data-state'),
+      document.body
+        .querySelector('section[role="dialog"]')
+        ?.getAttribute('data-state'),
     ).toBe('closed');
   });
 
@@ -225,7 +236,9 @@ describe('Dialog — drawer mode', () => {
     });
 
     // The section must still be in the DOM (drawer is never unmounted).
-    const sectionAfterClose = document.body.querySelector('section[role="dialog"]');
+    const sectionAfterClose = document.body.querySelector(
+      'section[role="dialog"]',
+    );
     expect(sectionAfterClose).not.toBeNull();
     expect(sectionAfterClose?.getAttribute('data-state')).toBe('closed');
 
