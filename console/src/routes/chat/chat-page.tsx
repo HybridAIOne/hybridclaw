@@ -1,13 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createChatBranch,
-  fetchAppStatus,
   fetchChatHistory,
   fetchChatRecent,
   uploadMedia,
 } from '../../api/chat';
-import type { ChatMessage, MediaItem } from '../../api/chat-types';
+import type {
+  BranchVariant,
+  ChatMessage,
+  MediaItem,
+} from '../../api/chat-types';
+import { validateToken } from '../../api/client';
 import { useAuth } from '../../auth';
 import {
   type ApprovalAction,
@@ -24,9 +28,37 @@ import {
 import { cx } from '../../lib/cx';
 import css from './chat-page.module.css';
 import { ChatSidebar } from './chat-sidebar';
+import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatStream } from './use-chat-stream';
+
+type BranchInfo = {
+  current: number;
+  total: number;
+};
+
+function buildBranchInfoMap(
+  messages: ChatUiMessage[],
+  branchFamilies: Map<string, BranchVariant[]>,
+): Map<string, BranchInfo> {
+  const map = new Map<string, BranchInfo>();
+  for (const msg of messages) {
+    const key = msg.branchKey;
+    if (!key) continue;
+    const variants = branchFamilies.get(key);
+    if (!variants || variants.length < 2) continue;
+    const currentIdx = variants.findIndex(
+      (variant) => variant.sessionId === msg.sessionId,
+    );
+    if (currentIdx < 0) continue;
+    map.set(msg.id, {
+      current: currentIdx + 1,
+      total: variants.length,
+    });
+  }
+  return map;
+}
 
 export function ChatPage() {
   const auth = useAuth();
@@ -38,12 +70,15 @@ export function ChatPage() {
     const stored = readStoredSessionId();
     return stored || generateWebSessionId();
   });
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [branchFamilies, setBranchFamilies] = useState<Map<string, string[]>>(
+  const [branchFamilies, setBranchFamilies] = useState<
+    Map<string, BranchVariant[]>
+  >(new Map());
+  const [branchInfoMap, setBranchInfoMap] = useState<Map<string, BranchInfo>>(
     new Map(),
   );
 
@@ -84,7 +119,7 @@ export function ChatPage() {
   }, [sessionId]);
 
   useEffect(() => {
-    void fetchAppStatus(auth.token)
+    void validateToken(auth.token)
       .then((status) => {
         if (status.defaultAgentId) {
           defaultAgentIdRef.current = status.defaultAgentId
@@ -92,7 +127,14 @@ export function ChatPage() {
             .toLowerCase();
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Failed to load gateway status for chat page', err);
+        setError(
+          (prev) =>
+            prev ||
+            'Failed to load the default agent. New chats will use main until gateway status loads.',
+        );
+      });
   }, [auth.token]);
 
   const recentQuery = useQuery({
@@ -102,58 +144,77 @@ export function ChatPage() {
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
 
-  // Load history when session changes; flush queued edit if pending
+  const historyQuery = useQuery({
+    queryKey: ['chat-history', auth.token, sessionId],
+    queryFn: () => fetchChatHistory(auth.token, sessionId),
+    enabled: Boolean(sessionId),
+    staleTime: 45_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Apply loaded history when session changes; flush queued edit if pending
   useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
+    const data = historyQuery.data;
+    if (!sessionId || !data) return;
 
-    void fetchChatHistory(auth.token, sessionId)
-      .then((data) => {
-        if (cancelled) return;
-        // Only update sessionId if the server returned a different one
-        if (data.sessionId && data.sessionId !== sessionId) {
-          setSessionId(data.sessionId);
-        }
+    // Only update sessionId if the server returned a different one
+    if (data.sessionId && data.sessionId !== sessionId) {
+      setSessionId(data.sessionId);
+    }
 
-        const loaded: ChatMessage[] = (data.history ?? []).map((msg) => ({
-          id: nextMsgId(),
-          role: msg.role,
-          content: msg.content,
-          rawContent: msg.content,
-          sessionId: data.sessionId ?? sessionId,
-          messageId: msg.id ?? null,
-          media: [],
-          artifacts: [],
-          replayRequest:
-            msg.role === 'user' ? { content: msg.content, media: [] } : null,
-          assistantPresentation: data.assistantPresentation ?? null,
-        }));
-        setMessages(loaded);
-        setBranchFamilies(
-          new Map(
-            (data.branchFamilies ?? []).map((bf) => [
-              `${bf.anchorSessionId}:${bf.anchorMessageId}`,
-              bf.variants,
-            ]),
-          ),
-        );
+    const resolvedSessionId = data.sessionId ?? sessionId;
+    const loadedBranchFamilies = new Map(
+      (data.branchFamilies ?? []).map((bf) => [
+        `${bf.anchorSessionId}:${bf.anchorMessageId}`,
+        bf.variants,
+      ]),
+    );
+    const branchKeysByMessageId = new Map<number | string, string>();
+    for (const [branchKey, variants] of loadedBranchFamilies.entries()) {
+      const currentVariant = variants.find(
+        (variant) => variant.sessionId === resolvedSessionId,
+      );
+      if (!currentVariant) continue;
+      branchKeysByMessageId.set(currentVariant.messageId, branchKey);
+    }
 
-        const pending = pendingEditRef.current;
-        if (pending) {
-          pendingEditRef.current = null;
-          void sendMessageRef.current(pending.content, pending.media);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : String(err));
-      });
+    const loaded: ChatMessage[] = (data.history ?? []).map((msg) => ({
+      id: nextMsgId(),
+      role: msg.role,
+      content: msg.content,
+      rawContent: msg.content,
+      sessionId: resolvedSessionId,
+      messageId: msg.id ?? null,
+      media: [],
+      artifacts: [],
+      replayRequest:
+        msg.role === 'user' ? { content: msg.content, media: [] } : null,
+      assistantPresentation: data.assistantPresentation ?? null,
+      branchKey:
+        msg.id !== undefined && msg.id !== null
+          ? (branchKeysByMessageId.get(msg.id) ?? null)
+          : null,
+    }));
+    setMessages(loaded);
+    setBranchFamilies(loadedBranchFamilies);
+    setBranchInfoMap(buildBranchInfoMap(loaded, loadedBranchFamilies));
+    setError('');
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, auth.token]);
+    const pending = pendingEditRef.current;
+    if (pending) {
+      pendingEditRef.current = null;
+      void sendMessageRef.current(pending.content, pending.media);
+    }
+  }, [historyQuery.data, sessionId]);
+
+  useEffect(() => {
+    if (!historyQuery.error) return;
+    setError(
+      historyQuery.error instanceof Error
+        ? historyQuery.error.message
+        : String(historyQuery.error),
+    );
+  }, [historyQuery.error]);
 
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
@@ -176,6 +237,8 @@ export function ChatPage() {
 
   const resetChatState = useCallback(() => {
     setMessages([]);
+    setBranchFamilies(new Map());
+    setBranchInfoMap(new Map());
     setError('');
     setEditingId(null);
     setMobileSidebarOpen(false);
@@ -183,8 +246,11 @@ export function ChatPage() {
 
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
+      if (!msg.messageId || !msg.sessionId) {
+        setError('This message cannot be edited right now.');
+        return;
+      }
       setEditingId(null);
-      if (!msg.messageId || !msg.sessionId) return;
       try {
         const branch = await createChatBranch(
           auth.token,
@@ -276,27 +342,18 @@ export function ChatPage() {
       if (!key) return;
       const variants = branchFamilies.get(key);
       if (!variants || variants.length < 2) return;
-      const nextIdx = variants.indexOf(msg.sessionId) + direction;
+      const currentIdx = variants.findIndex(
+        (variant) => variant.sessionId === msg.sessionId,
+      );
+      if (currentIdx < 0) return;
+      const nextIdx = currentIdx + direction;
       if (nextIdx < 0 || nextIdx >= variants.length) return;
-      handleOpenSession(variants[nextIdx]);
+      const nextVariant = variants[nextIdx];
+      if (!nextVariant) return;
+      handleOpenSession(nextVariant.sessionId);
     },
     [branchFamilies, handleOpenSession],
   );
-
-  const branchInfoMap = useMemo(() => {
-    const map = new Map<string, { current: number; total: number }>();
-    for (const msg of messages) {
-      const key = msg.branchKey;
-      if (!key) continue;
-      const variants = branchFamilies.get(key);
-      if (!variants || variants.length < 2) continue;
-      map.set(msg.id, {
-        current: variants.indexOf(msg.sessionId) + 1,
-        total: variants.length,
-      });
-    }
-    return map;
-  }, [messages, branchFamilies]);
 
   /* ── Render ─────────────────────────────────────────────── */
 
@@ -311,24 +368,19 @@ export function ChatPage() {
 
   return (
     <div className={css.chatPage}>
-      <div className={css.sidebar}>
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          className={css.sidebarBackdrop}
+          tabIndex={-1}
+          aria-label="Close sidebar"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+
+      <div className={cx(css.sidebar, mobileSidebarOpen && css.sidebarOpen)}>
         <ChatSidebar {...sidebarProps} />
       </div>
-
-      {mobileSidebarOpen ? (
-        <>
-          <button
-            type="button"
-            className={css.sidebarBackdrop}
-            tabIndex={-1}
-            aria-label="Close sidebar"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <div className={cx(css.sidebar, css.sidebarOpen)}>
-            <ChatSidebar {...sidebarProps} />
-          </div>
-        </>
-      ) : null}
 
       <div className={css.chatMain}>
         <div className={css.mobileHeader}>
@@ -353,7 +405,7 @@ export function ChatPage() {
           <div className={css.messageArea} ref={messageAreaRef}>
             <div className={css.messageList}>
               {messages.map((msg) =>
-                editingId === msg.id ? (
+                editingId === msg.id && msg.role !== 'thinking' ? (
                   <div key={msg.id} className={css.messageBlock}>
                     <EditInline
                       initial={msg.rawContent ?? msg.content}
@@ -375,7 +427,10 @@ export function ChatPage() {
                     onApprovalAction={handleApprovalAction}
                     approvalBusy={approvalBusy}
                     branchInfo={branchInfoMap.get(msg.id) ?? null}
-                    onBranchNav={(dir) => handleBranchNav(msg, dir)}
+                    onBranchNav={(dir) => {
+                      if (msg.role === 'thinking') return;
+                      handleBranchNav(msg, dir);
+                    }}
                   />
                 ),
               )}

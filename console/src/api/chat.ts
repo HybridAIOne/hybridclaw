@@ -1,5 +1,4 @@
 import type {
-  AppStatusResponse,
   BranchResponse,
   ChatCommandsResponse,
   ChatHistoryResponse,
@@ -7,11 +6,12 @@ import type {
   CommandResponse,
   MediaUploadResponse,
 } from './chat-types';
-import { requestJson } from './client';
-
-export function fetchAppStatus(token: string): Promise<AppStatusResponse> {
-  return requestJson<AppStatusResponse>('/api/status', { token });
-}
+import {
+  buildWebCommandRequestBody,
+  dispatchAuthRequired,
+  requestHeaders,
+  requestJson,
+} from './client';
 
 export function fetchChatRecent(
   token: string,
@@ -75,14 +75,12 @@ export function executeCommand(
   return requestJson<CommandResponse>('/api/command', {
     token,
     method: 'POST',
-    body: {
+    body: buildWebCommandRequestBody({
       sessionId,
-      guildId: null,
-      channelId: 'web',
+      args,
       userId,
       username: 'web',
-      args,
-    },
+    }),
   });
 }
 
@@ -101,8 +99,42 @@ export function uploadMedia(
   });
 }
 
-export function artifactUrl(path: string, token?: string): string {
+export function artifactUrl(path: string): string {
   const params = new URLSearchParams({ path });
-  if (token) params.set('token', token);
   return `/api/artifact?${params.toString()}`;
+}
+
+export async function fetchArtifactBlob(
+  token: string,
+  artifactPath: string,
+): Promise<Blob> {
+  const response = await fetch(artifactUrl(artifactPath), {
+    headers: requestHeaders(token),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const contentType = (response.headers.get('content-type') || '')
+      .toLowerCase()
+      .trim();
+    let message = `${response.status} ${response.statusText}`;
+
+    if (contentType.includes('application/json')) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        text?: string;
+      } | null;
+      message = payload?.error || payload?.text || message;
+    } else {
+      const text = (await response.text().catch(() => '')).trim();
+      if (text) message = text;
+    }
+
+    if (response.status === 401) {
+      dispatchAuthRequired(message);
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
 }
