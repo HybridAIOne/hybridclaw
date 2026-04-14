@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { GATEWAY_BASE_URL, getConfigSnapshot } from '../../config/config.js';
+import { isRecord } from './utils.js';
 
 export interface VoiceWebhookPaths {
   basePath: string;
@@ -40,10 +41,6 @@ function normalizeBaseUrl(baseUrl: string): string {
     .replace(/\/+$/, '');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function resolveVoiceWebhookPaths(
   basePath = getConfigSnapshot().voice.webhookPath,
 ): VoiceWebhookPaths {
@@ -80,13 +77,6 @@ export function buildPublicHttpUrl(
   const base = resolvePublicBaseUrl(req);
   const normalizedPath = normalizePath(pathValue);
   return `${base}${normalizedPath}`;
-}
-
-export function buildConfiguredPublicHttpUrl(
-  baseUrl: string,
-  pathValue: string,
-): string {
-  return `${normalizeBaseUrl(baseUrl)}${normalizePath(pathValue)}`;
 }
 
 export function buildPublicWsUrl(

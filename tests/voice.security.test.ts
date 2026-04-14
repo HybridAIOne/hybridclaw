@@ -35,6 +35,22 @@ test('validateTwilioSignature accepts matching webhook signatures', () => {
       values,
     }),
   ).toBe(false);
+  expect(
+    validateTwilioSignature({
+      authToken,
+      signature: '',
+      url,
+      values,
+    }),
+  ).toBe(false);
+  expect(
+    validateTwilioSignature({
+      authToken,
+      signature: undefined,
+      url,
+      values,
+    }),
+  ).toBe(false);
 });
 
 test('ReplayProtector rejects duplicate tokens inside the TTL window', () => {

@@ -58,13 +58,15 @@ const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 const SHUTDOWN_POLL_MS = 100;
 const MAX_RECONNECT_ATTEMPTS = 1;
 const DUPLICATE_TWILIO_REQUEST_HEADER = 'i-twilio-idempotency-token';
+const PREINIT_MAX_CONCURRENT_CALLS = 1;
 
 const replayProtector = new ReplayProtector(REPLAY_TTL_MS);
 let runtimeInitialized = false;
 let draining = false;
 let voiceMessageHandler: VoiceMessageHandler | null = null;
+let missingTwilioAuthTokenLogged = false;
 const sessionStore = new VoiceCallSessionStore(
-  getConfigSnapshot().voice.maxConcurrentCalls,
+  PREINIT_MAX_CONCURRENT_CALLS,
   MAX_PENDING_UPGRADES,
   MAX_CONNECTIONS_PER_IP,
 );
@@ -86,6 +88,8 @@ type WebSocketServerLike = {
   ) => void;
   removeAllListeners: () => void;
 };
+// `ws` exposes `WebSocketServer` through a mixed ESM/CJS shape, so keep this
+// cast when reading the constructor from the namespace import.
 const WebSocketServerCtor = (
   wsModule as unknown as {
     WebSocketServer: new (options: { noServer: true }) => WebSocketServerLike;
@@ -137,7 +141,18 @@ function resolveRemoteIp(req: IncomingMessage): string {
 }
 
 function resolveTwilioAuthToken(): string {
-  return String(TWILIO_AUTH_TOKEN || '').trim();
+  const authToken = String(TWILIO_AUTH_TOKEN || '').trim();
+  if (!authToken) {
+    if (!missingTwilioAuthTokenLogged) {
+      missingTwilioAuthTokenLogged = true;
+      logger.warn(
+        'Voice runtime missing Twilio auth token; rejecting signed requests until configured.',
+      );
+    }
+    return '';
+  }
+  missingTwilioAuthTokenLogged = false;
+  return authToken;
 }
 
 function decodeCloseReason(reason: Buffer | string): string {
@@ -147,22 +162,25 @@ function decodeCloseReason(reason: Buffer | string): string {
   return decoded || '<empty>';
 }
 
-function isVoiceRelayDisconnectedError(error: unknown): boolean {
+function readSingleHeader(
+  req: IncomingMessage,
+  name: string,
+): string | undefined {
+  const value = req.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function isVoiceRelayDisconnectedError(error: unknown): boolean {
   return (
     error instanceof Error &&
     error.message === 'Voice websocket is not connected.'
   );
 }
 
-function observeReplay(req: IncomingMessage): void {
-  const raw = req.headers[DUPLICATE_TWILIO_REQUEST_HEADER];
-  const token = Array.isArray(raw) ? raw[0] : raw;
-  if (!replayProtector.observe(token)) {
-    logger.warn(
-      { replayToken: token },
-      'Duplicate Twilio voice request observed',
-    );
-  }
+function observeReplay(req: IncomingMessage): boolean {
+  return replayProtector.observe(
+    readSingleHeader(req, DUPLICATE_TWILIO_REQUEST_HEADER),
+  );
 }
 
 function validateHttpWebhookSignature(
@@ -170,9 +188,7 @@ function validateHttpWebhookSignature(
   url: URL,
   values: Record<string, string>,
 ): boolean {
-  const signature = Array.isArray(req.headers['x-twilio-signature'])
-    ? req.headers['x-twilio-signature'][0]
-    : req.headers['x-twilio-signature'];
+  const signature = readSingleHeader(req, 'x-twilio-signature');
   const authToken = resolveTwilioAuthToken();
   const fullUrl = buildPublicHttpUrl(req, `${url.pathname}${url.search}`);
   return validateTwilioSignature({
@@ -184,9 +200,7 @@ function validateHttpWebhookSignature(
 }
 
 function validateUpgradeSignature(req: IncomingMessage, url: URL): boolean {
-  const signature = Array.isArray(req.headers['x-twilio-signature'])
-    ? req.headers['x-twilio-signature'][0]
-    : req.headers['x-twilio-signature'];
+  const signature = readSingleHeader(req, 'x-twilio-signature');
   const authToken = resolveTwilioAuthToken();
   const fullUrl = buildPublicWsUrl(req, `${url.pathname}${url.search}`);
   return validateTwilioSignature({
@@ -194,6 +208,31 @@ function validateUpgradeSignature(req: IncomingMessage, url: URL): boolean {
     signature,
     url: fullUrl,
   });
+}
+
+async function readValidatedTwilioWebhookBody(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  remoteIp: string;
+  invalidSignatureMessage:
+    | 'Voice webhook rejected: invalid Twilio signature'
+    | 'Voice action callback rejected: invalid Twilio signature';
+}): Promise<Record<string, string> | null> {
+  const body = await readTwilioFormBody(params.req);
+  if (validateHttpWebhookSignature(params.req, params.url, body)) {
+    return body;
+  }
+  logger.warn(
+    {
+      remoteIp: params.remoteIp,
+      path: params.url.pathname,
+      hasSignature: Boolean(readSingleHeader(params.req, 'x-twilio-signature')),
+    },
+    params.invalidSignatureMessage,
+  );
+  sendXml(params.res, 403, buildEmptyTwiml());
+  return null;
 }
 
 function transitionSession(
@@ -227,7 +266,7 @@ async function sendWsPayload(
   });
 }
 
-async function sendBusyTwiml(res: ServerResponse): Promise<void> {
+function sendBusyTwiml(res: ServerResponse): void {
   sendXml(
     res,
     200,
@@ -237,13 +276,21 @@ async function sendBusyTwiml(res: ServerResponse): Promise<void> {
   );
 }
 
-async function sendUnavailableTwiml(res: ServerResponse): Promise<void> {
+function sendUnavailableTwiml(res: ServerResponse): void {
   sendXml(
     res,
     200,
     buildHangupTwiml(
       'HybridClaw voice is unavailable right now. Please try again shortly.',
     ),
+  );
+}
+
+function sendDuplicateReplayTwiml(res: ServerResponse): void {
+  sendXml(
+    res,
+    409,
+    buildHangupTwiml('Duplicate Twilio voice request ignored.'),
   );
 }
 
@@ -289,6 +336,7 @@ async function dispatchPromptToHandler(
   if (!handler || !session.ws) {
     return;
   }
+  const voiceConfig = getConfigSnapshot().voice;
 
   session.controller?.abort();
   const controller = new AbortController();
@@ -306,7 +354,7 @@ async function dispatchPromptToHandler(
       await sendWsPayload(session.ws, payload);
     },
     {
-      interruptible: getConfigSnapshot().voice.relay.interruptible,
+      interruptible: voiceConfig.relay.interruptible,
       language,
       onFirstToken: () => {
         transitionSession(session.callSid, 'speaking');
@@ -387,11 +435,13 @@ async function handleRelayMessage(
   session: VoiceCallSession,
   message: ConversationRelayInboundMessage,
 ): Promise<void> {
+  const voiceConfig = getConfigSnapshot().voice;
+  const relayLanguage = voiceConfig.relay.language;
   if (message.type === 'prompt') {
     logger.debug(
       {
         callSid: session.callSid,
-        language: message.lang || getConfigSnapshot().voice.relay.language,
+        language: message.lang || relayLanguage,
         last: message.last,
         promptLength: message.voicePrompt.length,
       },
@@ -410,7 +460,7 @@ async function handleRelayMessage(
     await dispatchPromptToHandler(
       session,
       merged,
-      message.lang || getConfigSnapshot().voice.relay.language,
+      message.lang || relayLanguage,
     );
     return;
   }
@@ -422,7 +472,7 @@ async function handleRelayMessage(
     await dispatchPromptToHandler(
       session,
       `The caller pressed the keypad digit "${message.digit}".`,
-      getConfigSnapshot().voice.relay.language,
+      relayLanguage,
     );
     return;
   }
@@ -483,8 +533,6 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
             },
             'Voice relay setup received',
           );
-          transitionSession(callSid, 'relay-connecting');
-          transitionSession(callSid, 'setup-received');
           transitionSession(callSid, 'listening');
           return;
         }
@@ -572,24 +620,34 @@ export async function handleVoiceWebhook(
   }
 
   if (url.pathname === paths.webhookPath) {
-    const body = await readTwilioFormBody(req);
-    if (!validateHttpWebhookSignature(req, url, body)) {
-      logger.warn(
-        {
-          remoteIp: resolveRemoteIp(req),
-          path: url.pathname,
-          hasSignature: Boolean(req.headers['x-twilio-signature']),
-        },
+    const remoteIp = resolveRemoteIp(req);
+    const body = await readValidatedTwilioWebhookBody({
+      req,
+      res,
+      url,
+      remoteIp,
+      invalidSignatureMessage:
         'Voice webhook rejected: invalid Twilio signature',
-      );
-      sendXml(res, 403, buildEmptyTwiml());
+    });
+    if (!body) {
       return true;
     }
-    observeReplay(req);
+    if (!observeReplay(req)) {
+      logger.warn(
+        {
+          remoteIp,
+          path: url.pathname,
+          replayToken: readSingleHeader(req, DUPLICATE_TWILIO_REQUEST_HEADER),
+        },
+        'Voice webhook rejected: duplicate Twilio request',
+      );
+      sendDuplicateReplayTwiml(res);
+      return true;
+    }
     if (!isVoiceRuntimeAvailable()) {
       logger.warn(
         {
-          remoteIp: resolveRemoteIp(req),
+          remoteIp,
           path: url.pathname,
           runtimeInitialized,
           draining,
@@ -597,14 +655,14 @@ export async function handleVoiceWebhook(
         },
         'Voice webhook rejected: runtime unavailable',
       );
-      await sendUnavailableTwiml(res);
+      sendUnavailableTwiml(res);
       return true;
     }
 
     const callSid = String(body.CallSid || '').trim();
     if (!callSid) {
       logger.warn(
-        { remoteIp: resolveRemoteIp(req), path: url.pathname },
+        { remoteIp, path: url.pathname },
         'Voice webhook rejected: missing CallSid',
       );
       sendXml(res, 400, buildEmptyTwiml());
@@ -612,20 +670,20 @@ export async function handleVoiceWebhook(
     }
     const session = sessionStore.getOrCreateFromWebhook({
       callSid,
-      remoteIp: resolveRemoteIp(req),
+      remoteIp,
       from: String(body.From || '').trim(),
       to: String(body.To || '').trim(),
       callerName: String(body.CallerName || '').trim() || undefined,
     });
     if (!session) {
-      await sendBusyTwiml(res);
+      sendBusyTwiml(res);
       return true;
     }
     transitionSession(callSid, 'twiml-issued');
     logger.info(
       {
         callSid,
-        remoteIp: resolveRemoteIp(req),
+        remoteIp,
         from: String(body.From || '').trim(),
         to: String(body.To || '').trim(),
       },
@@ -636,30 +694,39 @@ export async function handleVoiceWebhook(
   }
 
   if (url.pathname === paths.actionPath) {
-    const body = await readTwilioFormBody(req);
-    if (!validateHttpWebhookSignature(req, url, body)) {
-      logger.warn(
-        {
-          remoteIp: resolveRemoteIp(req),
-          path: url.pathname,
-          hasSignature: Boolean(req.headers['x-twilio-signature']),
-        },
+    const remoteIp = resolveRemoteIp(req);
+    const body = await readValidatedTwilioWebhookBody({
+      req,
+      res,
+      url,
+      remoteIp,
+      invalidSignatureMessage:
         'Voice action callback rejected: invalid Twilio signature',
-      );
-      sendXml(res, 403, buildEmptyTwiml());
+    });
+    if (!body) {
       return true;
     }
-    observeReplay(req);
+    if (!observeReplay(req)) {
+      logger.warn(
+        {
+          remoteIp,
+          path: url.pathname,
+          replayToken: readSingleHeader(req, DUPLICATE_TWILIO_REQUEST_HEADER),
+        },
+        'Voice action callback rejected: duplicate Twilio request',
+      );
+      sendDuplicateReplayTwiml(res);
+      return true;
+    }
 
+    // Accept signed action callbacks even during shutdown/restart so Twilio can
+    // complete terminal call cleanup after the relay has gone away.
     const callSid = String(body.CallSid || '').trim();
     const session = callSid ? sessionStore.get(callSid) : undefined;
-    if (callSid) {
-      sessionStore.markActionCallback(callSid);
-    }
     logger.info(
       {
         callSid,
-        remoteIp: resolveRemoteIp(req),
+        remoteIp,
         twilioSessionId: String(body.SessionId || '').trim(),
         sessionStatus: String(body.SessionStatus || '').trim(),
         callStatus: String(body.CallStatus || '').trim(),
@@ -708,10 +775,11 @@ export function handleVoiceUpgrade(
   if (url.pathname !== paths.relayPath) {
     return false;
   }
+  const remoteIp = resolveRemoteIp(req);
   if (!isVoiceRuntimeAvailable()) {
     logger.warn(
       {
-        remoteIp: resolveRemoteIp(req),
+        remoteIp,
         path: url.pathname,
         runtimeInitialized,
         draining,
@@ -725,16 +793,15 @@ export function handleVoiceUpgrade(
   if (!validateUpgradeSignature(req, url)) {
     logger.warn(
       {
-        remoteIp: resolveRemoteIp(req),
+        remoteIp,
         path: url.pathname,
-        hasSignature: Boolean(req.headers['x-twilio-signature']),
+        hasSignature: Boolean(readSingleHeader(req, 'x-twilio-signature')),
       },
       'Voice relay rejected: invalid Twilio signature',
     );
     writeUpgradeError(socket, 403, 'Forbidden');
     return true;
   }
-  const remoteIp = resolveRemoteIp(req);
   if (!sessionStore.beginPendingConnection(remoteIp)) {
     logger.warn(
       { remoteIp, path: url.pathname },

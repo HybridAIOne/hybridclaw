@@ -18,6 +18,8 @@ export function normalizeVoiceUserTextForGateway(text: string): string {
     return text;
   }
 
+  // Keep these STT-tolerant approval aliases aligned with the canonical
+  // approval reply vocabulary in container/src/approval-policy.ts.
   if (normalized === 'yes' || normalized === 'approve') {
     return 'yes';
   }

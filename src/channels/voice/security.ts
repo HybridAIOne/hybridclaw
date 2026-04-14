@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export type TwilioSignatureParams = Record<string, string | string[]>;
 
@@ -43,15 +43,9 @@ export function validateTwilioSignature(params: {
     values: params.values,
   });
   const actual = String(params.signature || '').trim();
-  if (!expected || !actual) {
-    return false;
-  }
-  const expectedBuffer = Buffer.from(expected, 'utf8');
-  const actualBuffer = Buffer.from(actual, 'utf8');
-  if (expectedBuffer.length !== actualBuffer.length) {
-    return false;
-  }
-  return timingSafeEqual(expectedBuffer, actualBuffer);
+  const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
+  const actualDigest = createHash('sha256').update(actual, 'utf8').digest();
+  return Boolean(expected) && timingSafeEqual(expectedDigest, actualDigest);
 }
 
 export class ReplayProtector {

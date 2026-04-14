@@ -56,7 +56,6 @@ import {
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
 import {
-  buildConfiguredPublicHttpUrl,
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
   resolveVoiceWebhookPaths,
@@ -3388,8 +3387,9 @@ function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
   }
 
   const paths = resolveVoiceWebhookPaths(webhookBasePath);
+  const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
   return {
-    url: buildConfiguredPublicHttpUrl(parsed.toString(), paths.webhookPath),
+    url: `${normalizedBaseUrl}${paths.webhookPath}`,
   };
 }
 

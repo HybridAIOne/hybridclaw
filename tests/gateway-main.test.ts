@@ -2356,4 +2356,52 @@ describe('gateway bootstrap', () => {
       }),
     );
   });
+
+  test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {
+    const state = await importFreshGatewayMain({
+      voiceEnabled: false,
+      twilioAuthToken: '',
+      voiceConfigAuthToken: '',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      voice: {
+        enabled: true,
+        provider: 'twilio',
+        twilio: {
+          accountSid: 'AC123',
+          authToken: 'config-token',
+          fromNumber: '+14155550123',
+        },
+        relay: {
+          ...state.currentConfig.voice.relay,
+        },
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
+      },
+    };
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountSidConfigured: true,
+        authTokenConfigured: false,
+        configAuthTokenConfigured: true,
+        fromNumberConfigured: true,
+        sharedAuthTokenConfigured: false,
+      }),
+      'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Voice integration disabled: Twilio credentials are incomplete',
+    );
+  });
 });

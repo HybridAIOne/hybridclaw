@@ -78,6 +78,8 @@ export function buildConversationRelayTwiml(params: {
       params.relay.transcriptionProvider,
     ),
     interruptible: resolveInterruptibleMode(params.relay.interruptible),
+    // Intentional Twilio defaults for the current voice UX: do not transcribe
+    // over active agent speech, and do not preempt the current spoken turn.
     reportInputDuringAgentSpeech: 'none',
     preemptible: 'false',
   });

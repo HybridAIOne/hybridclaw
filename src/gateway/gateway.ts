@@ -62,7 +62,11 @@ import {
   type TelegramReplyFn,
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
-import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
+import {
+  initVoice,
+  isVoiceRelayDisconnectedError,
+  shutdownVoice,
+} from '../channels/voice/runtime.js';
 import {
   createVoiceTextStreamFormatter,
   normalizeVoiceUserTextForGateway,
@@ -181,13 +185,6 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
-
-function isVoiceRelayDisconnectedError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message === 'Voice websocket is not connected.'
-  );
-}
 
 function equalStringLists(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false;
@@ -2311,6 +2308,12 @@ async function refreshVoiceIntegrationForConfigChange(
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
   if (!hasVoiceConfigChanged(next.voice, prev.voice)) return;
+  const sharedTwilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
+  const configTwilioAuthToken = String(
+    next.voice.twilio.authToken || '',
+  ).trim();
+  const accountSidConfigured = Boolean(next.voice.twilio.accountSid.trim());
+  const fromNumberConfigured = Boolean(next.voice.twilio.fromNumber.trim());
 
   logger.info(
     {
@@ -2327,6 +2330,27 @@ async function refreshVoiceIntegrationForConfigChange(
       'Failed to stop Voice runtime during config-change restart',
     );
   });
+  if (
+    next.voice.enabled &&
+    next.voice.provider === 'twilio' &&
+    accountSidConfigured &&
+    fromNumberConfigured &&
+    !sharedTwilioAuthToken
+  ) {
+    logger.warn(
+      {
+        accountSidConfigured,
+        authTokenConfigured: false,
+        configAuthTokenConfigured: Boolean(configTwilioAuthToken),
+        fromNumberConfigured,
+        sharedAuthTokenConfigured: false,
+      },
+      configTwilioAuthToken
+        ? 'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes'
+        : 'Config changed, leaving Voice integration stopped: Twilio auth token missing after reload',
+    );
+    return;
+  }
   await startVoiceIntegration();
 }
 

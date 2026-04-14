@@ -8,7 +8,6 @@ export type VoiceCallState =
   | 'initiated'
   | 'twiml-issued'
   | 'relay-connecting'
-  | 'setup-received'
   | 'listening'
   | 'thinking'
   | 'speaking'
@@ -20,10 +19,9 @@ export type VoiceCallState =
 
 const TERMINAL_STATES = new Set<VoiceCallState>(['ended', 'failed']);
 const ALLOWED_TRANSITIONS: Record<VoiceCallState, VoiceCallState[]> = {
-  initiated: ['twiml-issued', 'relay-connecting', 'failed'],
-  'twiml-issued': ['relay-connecting', 'failed'],
-  'relay-connecting': ['setup-received', 'failed', 'reconnecting'],
-  'setup-received': ['listening', 'failed'],
+  initiated: ['twiml-issued', 'relay-connecting', 'listening', 'failed'],
+  'twiml-issued': ['relay-connecting', 'listening', 'failed'],
+  'relay-connecting': ['listening', 'failed', 'reconnecting'],
   listening: ['thinking', 'interrupted', 'ending', 'failed', 'reconnecting'],
   thinking: ['speaking', 'interrupted', 'ending', 'failed', 'reconnecting'],
   speaking: ['listening', 'interrupted', 'ending', 'failed', 'reconnecting'],
@@ -48,7 +46,6 @@ export interface VoiceCallSession {
   state: VoiceCallState;
   promptBuffer: string;
   reconnectAttempts: number;
-  actionCallbacks: number;
   ws: WebSocket | null;
   controller: AbortController | null;
   setupMessage: ConversationRelaySetupMessage | null;
@@ -88,7 +85,6 @@ function createSession(params: {
     state: 'initiated',
     promptBuffer: '',
     reconnectAttempts: 0,
-    actionCallbacks: 0,
     ws: null,
     controller: null,
     setupMessage: null,
@@ -100,6 +96,7 @@ function createSession(params: {
 export class VoiceCallSessionStore {
   private readonly sessions = new Map<string, VoiceCallSession>();
   private readonly pendingConnectionsByIp = new Map<string, number>();
+  private activeSessions = 0;
 
   constructor(
     private maxConcurrentCalls: number,
@@ -112,13 +109,7 @@ export class VoiceCallSessionStore {
   }
 
   activeCount(): number {
-    let count = 0;
-    for (const session of this.sessions.values()) {
-      if (!TERMINAL_STATES.has(session.state)) {
-        count += 1;
-      }
-    }
-    return count;
+    return this.activeSessions;
   }
 
   get(callSid: string): VoiceCallSession | undefined {
@@ -160,6 +151,7 @@ export class VoiceCallSessionStore {
       callerName: params.callerName,
     });
     this.sessions.set(params.callSid, session);
+    this.activeSessions += 1;
     return session;
   }
 
@@ -230,7 +222,12 @@ export class VoiceCallSessionStore {
         `Invalid voice session state transition: ${session.state} -> ${next}`,
       );
     }
+    const wasActive = !TERMINAL_STATES.has(session.state);
+    const willBeActive = !TERMINAL_STATES.has(next);
     session.state = next;
+    if (wasActive && !willBeActive) {
+      this.activeSessions = Math.max(0, this.activeSessions - 1);
+    }
     session.updatedAt = now();
     return session;
   }
@@ -243,15 +240,12 @@ export class VoiceCallSessionStore {
     return session;
   }
 
-  markActionCallback(callSid: string): VoiceCallSession | undefined {
-    const session = this.sessions.get(callSid);
-    if (!session) return undefined;
-    session.actionCallbacks += 1;
-    session.updatedAt = now();
-    return session;
-  }
-
   remove(callSid: string): void {
+    const session = this.sessions.get(callSid);
+    if (!session) return;
+    if (!TERMINAL_STATES.has(session.state)) {
+      this.activeSessions = Math.max(0, this.activeSessions - 1);
+    }
     this.sessions.delete(callSid);
   }
 
