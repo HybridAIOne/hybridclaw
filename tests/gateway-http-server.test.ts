@@ -1,10 +1,10 @@
 import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
@@ -13,9 +13,9 @@ const OPENAI_SESSION_ID_RE =
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
 
-const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
+const makeTempDocsRoot = useTempDir('hybridclaw-health-');
 
 function signAuthPayload(
   payload: Record<string, unknown>,
@@ -33,7 +33,7 @@ function signAuthPayload(
 function makeTempDocsDir(options?: {
   includeMalformedFrontmatter?: boolean;
 }): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
+  const root = makeTempDocsRoot();
   const docsDir = path.join(root, 'docs');
   const contentDocsDir = path.join(docsDir, 'content');
   const gettingStartedDir = path.join(contentDocsDir, 'getting-started');
@@ -43,7 +43,6 @@ function makeTempDocsDir(options?: {
   const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
   const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
-  tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
   fs.mkdirSync(contentDocsDir, { recursive: true });
   fs.mkdirSync(gettingStartedDir, { recursive: true });
@@ -275,11 +274,7 @@ function makeTempDocsDir(options?: {
   return root;
 }
 
-function makeTempDataDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-data-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDataDir = useTempDir('hybridclaw-health-data-');
 
 function writeRuntimeConfig(
   homeDir: string,
@@ -1519,44 +1514,42 @@ async function importFreshHealth(options?: {
   };
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('node:http');
-  vi.doUnmock('node:dns/promises');
-  vi.doUnmock('../src/config/config.ts');
-  vi.doUnmock('../src/infra/install-root.js');
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/agent/conversation.js');
-  vi.doUnmock('../src/memory/db.js');
-  vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/gateway/gateway-chat-service.js');
-  vi.doUnmock('../src/gateway/openai-compatible-model.ts');
-  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
-  vi.doUnmock('../src/providers/factory.js');
-  vi.doUnmock('../src/channels/imessage/runtime.js');
-  vi.doUnmock('../src/channels/msteams/runtime.js');
-  vi.doUnmock('../src/channels/voice/runtime.js');
-  vi.doUnmock('../src/channels/message/tool-actions.js');
-  vi.doUnmock('../src/channels/discord/tool-actions.js');
-  vi.doUnmock('../src/gateway/media-upload-quota.ts');
-  vi.doUnmock('../src/plugins/plugin-manager.js');
-  vi.doUnmock('../src/gateway/gateway-restart.js');
-  vi.resetModules();
-  if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
-    delete process.env.HYBRIDCLAW_AUTH_SECRET;
-  } else {
-    process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
-  }
-  if (ORIGINAL_HOME === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = ORIGINAL_HOME;
-  }
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
+      delete process.env.HYBRIDCLAW_AUTH_SECRET;
+    } else {
+      process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
+    }
+    if (ORIGINAL_HOME === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = ORIGINAL_HOME;
+    }
+  },
+  resetModules: true,
+  unmock: [
+    'node:http',
+    'node:dns/promises',
+    '../src/config/config.ts',
+    '../src/infra/install-root.js',
+    '../src/logger.js',
+    '../src/agent/conversation.js',
+    '../src/memory/db.js',
+    '../src/gateway/gateway-service.js',
+    '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/openai-compatible-model.ts',
+    '../src/gateway/gateway-scheduled-task-service.js',
+    '../src/providers/factory.js',
+    '../src/channels/imessage/runtime.js',
+    '../src/channels/msteams/runtime.js',
+    '../src/channels/voice/runtime.js',
+    '../src/channels/message/tool-actions.js',
+    '../src/channels/discord/tool-actions.js',
+    '../src/gateway/media-upload-quota.ts',
+    '../src/plugins/plugin-manager.js',
+    '../src/gateway/gateway-restart.js',
+  ],
 });
 
 describe('gateway HTTP server', () => {
@@ -1573,10 +1566,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('routes voice webhooks using the configured webhookPath', async () => {
-    const homeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-voice-http-'),
-    );
-    tempDirs.push(homeDir);
+    const homeDir = makeTempDocsRoot('hybridclaw-voice-http-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir, (config) => {
       const voice = config.voice as Record<string, unknown>;
@@ -6427,8 +6417,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('dispatches gateway-owned http requests with URL auth rules and secret placeholders', async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-http-'));
-    tempDirs.push(homeDir);
+    const homeDir = makeTempDocsRoot('hybridclaw-http-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir, (config) => {
       const tools = config.tools as Record<string, unknown>;
@@ -6800,10 +6789,7 @@ describe('gateway HTTP server', () => {
 
   test('rejects symlinked artifact paths that escape the allowed roots', async () => {
     const dataDir = makeTempDataDir();
-    const outsideDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-health-outside-'),
-    );
-    tempDirs.push(outsideDir);
+    const outsideDir = makeTempDocsRoot('hybridclaw-health-outside-');
     const outsideFilePath = path.join(outsideDir, 'secret.docx');
     fs.writeFileSync(outsideFilePath, 'top secret', 'utf8');
 

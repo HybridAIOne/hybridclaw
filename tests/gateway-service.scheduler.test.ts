@@ -1,8 +1,5 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -13,15 +10,8 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 const ORIGINAL_HOME = process.env.HOME;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-gateway-scheduler-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-gateway-scheduler-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -31,17 +21,12 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
-  runAgentMock.mockReset();
-  vi.restoreAllMocks();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }
+useCleanMocks({
+  cleanup: () => {
+    runAgentMock.mockReset();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+  },
+  resetModules: true,
 });
 
 test('admin scheduler includes db-backed tasks and can pause, resume, and delete them', async () => {

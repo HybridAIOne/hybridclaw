@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -17,13 +17,9 @@ const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
 const ORIGINAL_WHISPER_CPP_MODEL = process.env.WHISPER_CPP_MODEL;
 const ORIGINAL_PATH = process.env.PATH;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-audio-home-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-audio-home-');
+const makeTempDir = useTempDir();
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -33,20 +29,17 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
-  runAgentMock.mockReset();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
-  restoreEnvVar('GROQ_API_KEY', ORIGINAL_GROQ_API_KEY);
-  restoreEnvVar('WHISPER_CPP_MODEL', ORIGINAL_WHISPER_CPP_MODEL);
-  restoreEnvVar('PATH', ORIGINAL_PATH);
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    runAgentMock.mockReset();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
+    restoreEnvVar('GROQ_API_KEY', ORIGINAL_GROQ_API_KEY);
+    restoreEnvVar('WHISPER_CPP_MODEL', ORIGINAL_WHISPER_CPP_MODEL);
+    restoreEnvVar('PATH', ORIGINAL_PATH);
+  },
+  resetModules: true,
+  unstubAllGlobals: true,
 });
 
 async function createGatewayAudioFixture() {
@@ -256,10 +249,7 @@ test('handleGatewayMessage prefers local CLI transcription before OpenAI when au
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  const binDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-whisper-bin-'),
-  );
-  tempDirs.push(binDir);
+  const binDir = makeTempDir('hybridclaw-whisper-bin-');
   const whisperPath = path.join(binDir, 'whisper');
   fs.writeFileSync(
     whisperPath,
@@ -338,10 +328,7 @@ test('handleGatewayMessage transcribes with a local CLI when no provider key is 
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  const binDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-whisper-local-bin-'),
-  );
-  tempDirs.push(binDir);
+  const binDir = makeTempDir('hybridclaw-whisper-local-bin-');
   const whisperPath = path.join(binDir, 'whisper');
   fs.writeFileSync(
     whisperPath,
@@ -419,14 +406,8 @@ test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  const binDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-whisper-cli-bin-'),
-  );
-  tempDirs.push(binDir);
-  const modelDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-whisper-cli-model-'),
-  );
-  tempDirs.push(modelDir);
+  const binDir = makeTempDir('hybridclaw-whisper-cli-bin-');
+  const modelDir = makeTempDir('hybridclaw-whisper-cli-model-');
   const modelPath = path.join(modelDir, 'ggml-tiny.bin');
   fs.writeFileSync(modelPath, 'fake-model', 'utf-8');
   process.env.WHISPER_CPP_MODEL = modelPath;
@@ -456,8 +437,7 @@ test('handleGatewayMessage transcribes managed WhatsApp temp audio with whisper-
   fs.chmodSync(whisperCliPath, 0o755);
   process.env.PATH = `${binDir}${path.delimiter}${ORIGINAL_PATH || ''}`;
 
-  const waTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
-  tempDirs.push(waTempDir);
+  const waTempDir = makeTempDir('hybridclaw-wa-');
   const waAudioPath = path.join(waTempDir, 'voice-note.ogg');
   fs.writeFileSync(waAudioPath, 'voice-bytes', 'utf-8');
 

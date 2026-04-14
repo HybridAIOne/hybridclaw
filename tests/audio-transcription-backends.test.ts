@@ -1,17 +1,15 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
-
+import { expect, test, vi } from 'vitest';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from '../src/media/audio-transcription-backends.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_PATH = process.env.PATH;
 const ORIGINAL_GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-const tempDirs: string[] = [];
 
 const DEFAULT_AUDIO_CONFIG = {
   enabled: true,
@@ -25,20 +23,15 @@ const DEFAULT_AUDIO_CONFIG = {
   models: [],
 } as const;
 
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
-afterEach(() => {
-  process.env.PATH = ORIGINAL_PATH;
-  process.env.GOOGLE_API_KEY = ORIGINAL_GOOGLE_API_KEY;
-  vi.unstubAllGlobals();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    process.env.PATH = ORIGINAL_PATH;
+    process.env.GOOGLE_API_KEY = ORIGINAL_GOOGLE_API_KEY;
+  },
+  restoreAllMocks: false,
+  unstubAllGlobals: true,
 });
 
 test('auto-detected audio backends do not require cache resets between PATH changes', async () => {

@@ -1,19 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.ts';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-scheduler-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-scheduler-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -54,21 +49,16 @@ function writeSchedulerState(homeDir: string, state: unknown): void {
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
 }
 
-afterEach(async () => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  restoreEnvVar(
-    'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
-    ORIGINAL_DISABLE_CONFIG_WATCHER,
-  );
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }
+useCleanMocks({
+  cleanup: async () => {
+    vi.useRealTimers();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    restoreEnvVar(
+      'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
+      ORIGINAL_DISABLE_CONFIG_WATCHER,
+    );
+  },
+  resetModules: true,
 });
 
 test('legacy backlog-assigned one-shot config jobs move to review after the default retry budget', async () => {

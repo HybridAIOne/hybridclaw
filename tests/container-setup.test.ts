@@ -1,21 +1,16 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
-function createTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-container-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir('hybridclaw-container-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -136,26 +131,21 @@ async function importFreshContainerSetup(options?: {
   return import('../src/infra/container-setup.ts');
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('node:child_process');
-  vi.doUnmock('../src/config/config.ts');
-  vi.resetModules();
-  vi.unstubAllEnvs();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  Object.defineProperty(process.stdin, 'isTTY', {
-    value: ORIGINAL_STDIN_IS_TTY,
-    configurable: true,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    value: ORIGINAL_STDOUT_IS_TTY,
-    configurable: true,
-  });
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: ORIGINAL_STDIN_IS_TTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: ORIGINAL_STDOUT_IS_TTY,
+      configurable: true,
+    });
+  },
+  resetModules: true,
+  unstubAllEnvs: true,
+  unmock: ['node:child_process', '../src/config/config.ts'],
 });
 
 describe('resolveContainerImageAcquisitionMode', () => {

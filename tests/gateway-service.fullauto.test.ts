@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -70,15 +70,8 @@ vi.mock('../src/providers/local-health.js', async () => {
 });
 
 const ORIGINAL_HOME = process.env.HOME;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-gateway-fullauto-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-gateway-fullauto-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -123,37 +116,34 @@ function buildLearningState(params: {
   ].join('\n');
 }
 
-afterEach(() => {
-  runAgentMock.mockReset();
-  stopSessionExecutionMock.mockReset();
-  stopSessionExecutionMock.mockImplementation(() => false);
-  getActiveExecutorSessionIdsMock.mockReset();
-  getActiveExecutorSessionIdsMock.mockImplementation(() => []);
-  getSandboxDiagnosticsMock.mockReset();
-  getSandboxDiagnosticsMock.mockImplementation(() => ({
-    mode: 'host' as const,
-    modeExplicit: true,
-    runningInsideContainer: false,
-    image: null,
-    network: null,
-    memory: null,
-    memorySwap: null,
-    cpus: null,
-    securityFlags: ['workspace fencing'],
-    mountAllowlistPath: '/tmp/mount-allowlist.json',
-    additionalMountsConfigured: 0,
-    activeSessions: 0,
-    activeSessionIds: [],
-    warning: 'Running in host mode without container isolation.',
-  }));
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    runAgentMock.mockReset();
+    stopSessionExecutionMock.mockReset();
+    stopSessionExecutionMock.mockImplementation(() => false);
+    getActiveExecutorSessionIdsMock.mockReset();
+    getActiveExecutorSessionIdsMock.mockImplementation(() => []);
+    getSandboxDiagnosticsMock.mockReset();
+    getSandboxDiagnosticsMock.mockImplementation(() => ({
+      mode: 'host' as const,
+      modeExplicit: true,
+      runningInsideContainer: false,
+      image: null,
+      network: null,
+      memory: null,
+      memorySwap: null,
+      cpus: null,
+      securityFlags: ['workspace fencing'],
+      mountAllowlistPath: '/tmp/mount-allowlist.json',
+      additionalMountsConfigured: 0,
+      activeSessions: 0,
+      activeSessionIds: [],
+      warning: 'Running in host mode without container isolation.',
+    }));
+    vi.useRealTimers();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+  },
+  resetModules: true,
 });
 
 test('fullauto command enables auto-turns, queues follow-up results, and can be disabled', async () => {

@@ -1,15 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -598,48 +592,45 @@ async function importFreshGatewayMain(options?: {
   return state;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/agent/executor.js');
-  vi.doUnmock('../src/agent/proactive-policy.js');
-  vi.doUnmock('../src/agent/silent-reply.js');
-  vi.doUnmock('../src/agent/silent-reply-stream.js');
-  vi.doUnmock('../src/audit/observability-ingest.js');
-  vi.doUnmock('../src/channels/discord/delivery.js');
-  vi.doUnmock('../src/channels/discord/mentions.js');
-  vi.doUnmock('../src/channels/discord/runtime.js');
-  vi.doUnmock('../src/channels/imessage/runtime.js');
-  vi.doUnmock('../src/channels/telegram/runtime.js');
-  vi.doUnmock('../src/channels/voice/runtime.js');
-  vi.doUnmock('../src/channels/msteams/attachments.js');
-  vi.doUnmock('../src/channels/msteams/runtime.js');
-  vi.doUnmock('../src/channels/slack/runtime.js');
-  vi.doUnmock('../src/channels/email/runtime.js');
-  vi.doUnmock('../src/channels/whatsapp/runtime.js');
-  vi.doUnmock('../src/channels/whatsapp/auth.js');
-  vi.doUnmock('../src/config/config.js');
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/memory/db.js');
-  vi.doUnmock('../src/memory/memory-service.js');
-  vi.doUnmock('../src/agents/agent-registry.js');
-  vi.doUnmock('../src/providers/local-discovery.js');
-  vi.doUnmock('../src/providers/local-health.js');
-  vi.doUnmock('../src/scheduler/heartbeat.js');
-  vi.doUnmock('../src/scheduler/scheduler.js');
-  vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/gateway/gateway-chat-service.js');
-  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
-  vi.doUnmock('../src/gateway/gateway-http-server.js');
-  vi.doUnmock('../src/gateway/proactive-delivery.js');
-  vi.doUnmock('../src/gateway/managed-media-cleanup.js');
-  vi.doUnmock('../src/workflow/executor.js');
-  vi.doUnmock('../src/workflow/service.js');
-  vi.resetModules();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  resetModules: true,
+  unstubAllGlobals: true,
+  unmock: [
+    '../src/agent/executor.js',
+    '../src/agent/proactive-policy.js',
+    '../src/agent/silent-reply.js',
+    '../src/agent/silent-reply-stream.js',
+    '../src/audit/observability-ingest.js',
+    '../src/channels/discord/delivery.js',
+    '../src/channels/discord/mentions.js',
+    '../src/channels/discord/runtime.js',
+    '../src/channels/imessage/runtime.js',
+    '../src/channels/telegram/runtime.js',
+    '../src/channels/voice/runtime.js',
+    '../src/channels/msteams/attachments.js',
+    '../src/channels/msteams/runtime.js',
+    '../src/channels/slack/runtime.js',
+    '../src/channels/email/runtime.js',
+    '../src/channels/whatsapp/runtime.js',
+    '../src/channels/whatsapp/auth.js',
+    '../src/config/config.js',
+    '../src/logger.js',
+    '../src/memory/db.js',
+    '../src/memory/memory-service.js',
+    '../src/agents/agent-registry.js',
+    '../src/providers/local-discovery.js',
+    '../src/providers/local-health.js',
+    '../src/scheduler/heartbeat.js',
+    '../src/scheduler/scheduler.js',
+    '../src/gateway/gateway-service.js',
+    '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/gateway-scheduled-task-service.js',
+    '../src/gateway/gateway-http-server.js',
+    '../src/gateway/proactive-delivery.js',
+    '../src/gateway/managed-media-cleanup.js',
+    '../src/workflow/executor.js',
+    '../src/workflow/service.js',
+  ],
 });
 
 describe('gateway bootstrap', () => {

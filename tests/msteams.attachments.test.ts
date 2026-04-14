@@ -3,14 +3,15 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
+const makeTempDir = useTempDir();
 const dataDirs: string[] = [];
 
 function trackTempDirFromMediaPath(filePath: string | null | undefined): void {
   if (!filePath) return;
-  tempDirs.push(path.dirname(filePath));
+  makeTempDir.track(path.dirname(filePath));
 }
 
 async function importAttachmentsModule(
@@ -46,26 +47,21 @@ async function importAttachmentsModule(
   return import('../src/channels/msteams/attachments.js');
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.resetModules();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  while (dataDirs.length > 0) {
-    const dir = dataDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: () => {
+    while (dataDirs.length > 0) {
+      const dir = dataDirs.pop();
+      if (!dir) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+  resetModules: true,
+  unstubAllGlobals: true,
 });
 
 test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
@@ -116,8 +112,7 @@ test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', 
 
 test('buildTeamsUploadedFileAttachment inlines small images for personal chats', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
@@ -164,8 +159,7 @@ test('buildTeamsUploadedFileAttachment inlines small images for personal chats',
 
 test('buildTeamsUploadedFileAttachment still inlines tall personal images under 4 MB', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
   const fileBuffer = Buffer.alloc(2_000_000, 1);
   fs.writeFileSync(filePath, fileBuffer);
@@ -211,8 +205,7 @@ test('buildTeamsUploadedFileAttachment still inlines tall personal images under 
 
 test('buildTeamsUploadedFileAttachment uses a file consent card for personal non-image files', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'report.pdf');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
@@ -267,8 +260,7 @@ test('buildTeamsUploadedFileAttachment uses a file consent card for personal non
 
 test('buildTeamsUploadedFileAttachment rejects large non-personal uploads without a storage fallback', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'large.zip');
   fs.writeFileSync(filePath, Buffer.alloc(4_300_000, 1));
 
@@ -312,8 +304,7 @@ test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a f
     buildTeamsUploadedFileAttachment,
     maybeHandleMSTeamsFileConsentInvoke,
   } = await importAttachmentsModule();
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
-  tempDirs.push(tempDir);
+  const tempDir = makeTempDir('hybridclaw-msteams-');
   const filePath = path.join(tempDir, 'report.pdf');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
 
