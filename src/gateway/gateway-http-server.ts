@@ -41,6 +41,7 @@ import {
   parseSchedulerBoardStatus,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -115,7 +116,6 @@ import {
   deleteGatewayAdminEmailMessage,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
-  GatewayRequestError,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgents,

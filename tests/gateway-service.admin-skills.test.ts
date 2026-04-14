@@ -105,7 +105,10 @@ test('createGatewayAdminSkill stages outside skills/ before publishing the skill
 test('createGatewayAdminSkill preserves a competing skill when the final rename loses the race', async () => {
   const projectDir = setupProjectCwd();
 
-  const { createGatewayAdminSkill, GatewayRequestError } = await import(
+  const { GatewayRequestError } = await import(
+    '../src/errors/gateway-request-error.ts'
+  );
+  const { createGatewayAdminSkill } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
@@ -133,7 +136,9 @@ test('createGatewayAdminSkill preserves a competing skill when the final rename 
     throw new Error('Expected createGatewayAdminSkill to throw.');
   } catch (error) {
     expect(error).toBeInstanceOf(GatewayRequestError);
-    expect((error as GatewayRequestError).statusCode).toBe(409);
+    expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
+      409,
+    );
     expect((error as Error).message).toContain(
       'Skill `my-skill` already exists',
     );
@@ -152,7 +157,10 @@ test('createGatewayAdminSkill preserves a competing skill when the final rename 
 test('uploadGatewayAdminSkillZip rejects corrupt archives as a bad request', async () => {
   setupProjectCwd();
 
-  const { uploadGatewayAdminSkillZip, GatewayRequestError } = await import(
+  const { GatewayRequestError } = await import(
+    '../src/errors/gateway-request-error.ts'
+  );
+  const { uploadGatewayAdminSkillZip } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
@@ -161,7 +169,9 @@ test('uploadGatewayAdminSkillZip rejects corrupt archives as a bad request', asy
     throw new Error('Expected uploadGatewayAdminSkillZip to throw.');
   } catch (error) {
     expect(error).toBeInstanceOf(GatewayRequestError);
-    expect((error as GatewayRequestError).statusCode).toBe(400);
+    expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
+      400,
+    );
     expect((error as Error).message).toBe(
       'Uploaded file is not a valid skill ZIP archive.',
     );
@@ -198,7 +208,10 @@ test('createGatewayAdminSkill rejects blocked skills before publishing them', as
     }),
   }));
 
-  const { createGatewayAdminSkill, GatewayRequestError } = await import(
+  const { GatewayRequestError } = await import(
+    '../src/errors/gateway-request-error.ts'
+  );
+  const { createGatewayAdminSkill } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
@@ -212,7 +225,9 @@ test('createGatewayAdminSkill rejects blocked skills before publishing them', as
     throw new Error('Expected createGatewayAdminSkill to throw.');
   } catch (error) {
     expect(error).toBeInstanceOf(GatewayRequestError);
-    expect((error as GatewayRequestError).statusCode).toBe(400);
+    expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
+      400,
+    );
     expect((error as Error).message).toBe(
       'Skill `my-skill` was blocked by the security scanner: blocked (workspace source + dangerous verdict, 2 finding(s)).',
     );
@@ -306,7 +321,10 @@ test('uploadGatewayAdminSkillZip rejects blocked skills before installation', as
     }),
   }));
 
-  const { uploadGatewayAdminSkillZip, GatewayRequestError } = await import(
+  const { GatewayRequestError } = await import(
+    '../src/errors/gateway-request-error.ts'
+  );
+  const { uploadGatewayAdminSkillZip } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
@@ -328,7 +346,9 @@ description: Blocked skill upload test
     throw new Error('Expected uploadGatewayAdminSkillZip to throw.');
   } catch (error) {
     expect(error).toBeInstanceOf(GatewayRequestError);
-    expect((error as GatewayRequestError).statusCode).toBe(400);
+    expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
+      400,
+    );
     expect((error as Error).message).toBe(
       'Skill `my-skill` was blocked by the security scanner: blocked (workspace source + dangerous verdict, 2 finding(s)).',
     );

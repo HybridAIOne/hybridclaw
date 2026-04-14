@@ -1,5 +1,8 @@
-import { AppError } from '../errors/app-error.js';
-
-export class SkillImportError extends AppError {}
+export class SkillImportError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
 
 export class SkillImportNotFoundError extends SkillImportError {}

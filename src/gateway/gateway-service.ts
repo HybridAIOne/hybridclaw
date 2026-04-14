@@ -103,7 +103,7 @@ import {
 } from '../config/runtime-config-edit.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
-import { GatewayRequestError } from '../errors/http-status-error.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -376,8 +376,6 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
-
-export { GatewayRequestError };
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;

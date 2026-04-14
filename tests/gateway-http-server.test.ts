@@ -1324,6 +1324,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
   }));
+  vi.doMock('../src/errors/gateway-request-error.js', () => ({
+    GatewayRequestError,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     createGatewayAdminSkill,
