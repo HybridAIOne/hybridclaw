@@ -43,6 +43,15 @@ import type {
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
 export const AUTH_REQUIRED_EVENT = 'hybridclaw:auth-required';
 
+export interface WebCommandRequestBody {
+  sessionId: string;
+  guildId: null;
+  channelId: 'web';
+  args: string[];
+  userId?: string;
+  username?: string;
+}
+
 export function requestHeaders(token: string, body?: unknown): HeadersInit {
   const trimmed = token.trim();
   return {
@@ -55,6 +64,22 @@ export function requestHeaders(token: string, body?: unknown): HeadersInit {
   };
 }
 
+export function buildWebCommandRequestBody(options: {
+  sessionId: string;
+  args: string[];
+  userId?: string;
+  username?: string;
+}): WebCommandRequestBody {
+  return {
+    sessionId: options.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: options.args,
+    ...(options.userId ? { userId: options.userId } : {}),
+    ...(options.username ? { username: options.username } : {}),
+  };
+}
+
 export function dispatchAuthRequired(message: string): void {
   clearStoredToken();
   window.dispatchEvent(
@@ -62,6 +87,35 @@ export function dispatchAuthRequired(message: string): void {
       detail: { message },
     }),
   );
+}
+
+export async function readErrorResponseMessage(
+  response: Response,
+): Promise<string> {
+  const fallback = `${response.status} ${response.statusText}`;
+  const text = (await response.text().catch(() => '')).trim();
+  if (!text) return fallback;
+
+  try {
+    const payload = JSON.parse(text) as {
+      error?: string;
+      text?: string;
+    };
+    return payload.error || payload.text || text;
+  } catch {
+    return text;
+  }
+}
+
+export async function throwResponseError(
+  response: Response,
+  options?: { onAuthError?: 'dispatch' | 'ignore' },
+): Promise<never> {
+  const message = await readErrorResponseMessage(response);
+  if (response.status === 401 && options?.onAuthError !== 'ignore') {
+    dispatchAuthRequired(message);
+  }
+  throw new Error(message);
 }
 
 export async function requestJson<T>(
@@ -87,20 +141,15 @@ export async function requestJson<T>(
         : (options.rawBody ?? undefined),
   });
 
+  if (!response.ok) {
+    await throwResponseError(response, {
+      onAuthError: options.onAuthError,
+    });
+  }
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;
     text?: string;
   };
-  if (!response.ok) {
-    const message =
-      payload.error ||
-      payload.text ||
-      `${response.status} ${response.statusText}`;
-    if (response.status === 401 && options.onAuthError !== 'ignore') {
-      dispatchAuthRequired(message);
-    }
-    throw new Error(message);
-  }
   return payload as T;
 }
 
@@ -427,12 +476,10 @@ function runAdminCommand(
   return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
-    body: {
+    body: buildWebCommandRequestBody({
       sessionId: 'web-admin-secrets',
-      guildId: null,
-      channelId: 'web',
       args,
-    },
+    }),
   });
 }
 
@@ -674,30 +721,18 @@ export function createSkill(
   });
 }
 
-export async function uploadSkillZip(
+export function uploadSkillZip(
   token: string,
   file: File,
 ): Promise<AdminSkillsResponse> {
-  const response = await fetch('/api/admin/skills/upload', {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills/upload', {
+    token,
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token.trim()}`,
+    rawBody: file,
+    extraHeaders: {
       'Content-Type': 'application/zip',
     },
-    body: file,
   });
-  const payload = (await response.json().catch(() => ({}))) as {
-    error?: string;
-  };
-  if (!response.ok) {
-    const message =
-      payload.error || `${response.status} ${response.statusText}`;
-    if (response.status === 401) {
-      dispatchAuthRequired(message);
-    }
-    throw new Error(message);
-  }
-  return payload as AdminSkillsResponse;
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

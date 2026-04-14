@@ -82,6 +82,10 @@
 }
 
 .sessionItem {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -90,6 +94,9 @@
   cursor: pointer;
   transition: background 0.12s;
   overflow: hidden;
+  text-align: left;
+  font: inherit;
+  color: inherit;
 }
 
 .sessionItem:hover {
@@ -102,7 +109,7 @@
 }
 
 .sessionTitle {
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: var(--text);
   white-space: nowrap;
@@ -510,14 +517,24 @@
 
 .artifactDownload {
   margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: 0.82rem;
   color: var(--primary);
   text-decoration: none;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .artifactDownload:hover {
   text-decoration: underline;
+}
+
+.artifactDownload:disabled {
+  opacity: 0.6;
+  cursor: default;
+  text-decoration: none;
 }
 
 .artifactPreview {

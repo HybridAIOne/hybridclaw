@@ -24,12 +24,12 @@ export interface AssistantPresentation {
 export interface BranchFamily {
   anchorSessionId: string;
   anchorMessageId: number | string;
-  variants: string[];
+  variants: BranchVariant[];
 }
 
-export interface BootstrapAutostart {
-  status: string;
-  fileName: string;
+export interface BranchVariant {
+  sessionId: string;
+  messageId: number | string;
 }
 
 export interface ChatHistoryResponse {
@@ -37,7 +37,6 @@ export interface ChatHistoryResponse {
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
   branchFamilies?: BranchFamily[];
-  bootstrapAutostart?: BootstrapAutostart | null;
 }
 
 export interface ChatCommandSuggestion {
@@ -102,11 +101,6 @@ export interface MediaUploadResponse {
   media: MediaItem;
 }
 
-export interface AppStatusResponse {
-  defaultAgentId?: string;
-  version?: string;
-}
-
 export interface BranchResponse {
   sessionId: string;
 }
@@ -118,7 +112,7 @@ export interface CommandResponse {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system' | 'thinking' | 'approval';
+  role: 'user' | 'assistant' | 'system' | 'approval';
   content: string;
   rawContent?: string;
   sessionId: string;

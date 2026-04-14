@@ -31,24 +31,26 @@ export function ChatSidebar(props: {
           <div className={css.sidebarLabel}>Recent</div>
           <ul className={css.sessionList} aria-live="polite">
             {props.sessions.map((s) => (
-              <li
-                key={s.sessionId}
-                className={cx(
-                  css.sessionItem,
-                  s.sessionId === props.activeSessionId &&
-                    css.sessionItemActive,
-                )}
-                onClick={() => props.onOpenSession(s.sessionId)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') props.onOpenSession(s.sessionId);
-                }}
-              >
-                <span className={css.sessionTitle}>
-                  {s.title || 'Untitled'}
-                </span>
-                <span className={css.sessionTime}>
-                  {formatRelativeTime(s.lastActive)}
-                </span>
+              <li key={s.sessionId}>
+                <button
+                  type="button"
+                  className={cx(
+                    css.sessionItem,
+                    s.sessionId === props.activeSessionId &&
+                      css.sessionItemActive,
+                  )}
+                  aria-current={
+                    s.sessionId === props.activeSessionId ? 'page' : undefined
+                  }
+                  onClick={() => props.onOpenSession(s.sessionId)}
+                >
+                  <span className={css.sessionTitle}>
+                    {s.title || 'Untitled'}
+                  </span>
+                  <span className={css.sessionTime}>
+                    {formatRelativeTime(s.lastActive)}
+                  </span>
+                </button>
               </li>
             ))}
           </ul>

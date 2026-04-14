@@ -99,9 +99,10 @@ export function Composer(props: {
     resize();
     const val = textareaRef.current?.value ?? '';
     if (val.startsWith('/')) {
+      const query = val.slice(1).trim();
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = setTimeout(() => {
-        void fetchSuggestions(val);
+        void fetchSuggestions(query);
       }, 150);
     } else {
       setShowSuggestions(false);

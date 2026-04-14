@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
+import { resolveCurrentAdminNavItem } from './admin-nav';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
@@ -17,8 +18,6 @@ import {
   SidebarTrigger,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
-
-const ALL_NAV_ITEMS = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 type AppShellConfigContextValue = {
@@ -71,8 +70,7 @@ export function AppShell(props: { children: ReactNode }) {
     ),
   })).filter((group) => group.items.length > 0);
   const navItems = sidebarGroups.flatMap((group) => group.items);
-  const currentNavItem =
-    navItems.find((item) => item.to === adminPath) ?? ALL_NAV_ITEMS[0];
+  const currentNavItem = resolveCurrentAdminNavItem(adminPath, navItems);
 
   return (
     <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>

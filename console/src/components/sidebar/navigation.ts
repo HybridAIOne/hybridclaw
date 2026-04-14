@@ -3,7 +3,6 @@ import {
   Agents,
   Audit,
   Channels,
-  Chat,
   Cog,
   Config,
   Dashboard,
@@ -38,7 +37,6 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     items: [
       { to: '/', label: 'Dashboard', icon: Dashboard },
       { to: '/approvals', label: 'Approvals', icon: Policy },
-      { to: '/chat', label: 'Chat', icon: Chat },
       { to: '/audit', label: 'Audit', icon: Audit },
       { to: '/jobs', label: 'Jobs', icon: Jobs },
     ],

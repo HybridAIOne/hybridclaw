@@ -8,6 +8,7 @@ import type {
 } from '../../api/chat-types';
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
+import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 
 interface ActiveRequest {
   controller: AbortController;
@@ -23,18 +24,19 @@ interface UseChatStreamOptions {
   token: string;
   userId: string;
   getSessionId: () => string;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setMessages: React.Dispatch<React.SetStateAction<ChatUiMessage[]>>;
   setSessionId: React.Dispatch<React.SetStateAction<string>>;
   setError: React.Dispatch<React.SetStateAction<string>>;
   refreshRecent: () => void;
 }
 
 export interface UseChatStreamReturn {
+  /** Returns true when a new send was started, false when rejected due to an active run. */
   sendMessage: (
     content: string,
     media: MediaItem[],
-    opts?: { hideUser?: boolean; branchKey?: string },
-  ) => Promise<void>;
+    opts?: { hideUser?: boolean },
+  ) => Promise<boolean>;
   stopRequest: () => Promise<void>;
   isStreaming: boolean;
   /** The message ID currently being streamed, or null. */
@@ -63,16 +65,22 @@ export function useChatStream(
     async (
       content: string,
       media: MediaItem[],
-      opts?: { hideUser?: boolean; branchKey?: string },
+      opts?: { hideUser?: boolean },
     ) => {
-      if (activeRequestRef.current) return;
+      if (activeRequestRef.current) {
+        setError(
+          'Wait for the current run to finish before sending another message.',
+        );
+        return false;
+      }
 
       const targetSessionId = getSessionId();
+      const userMsgId = !opts?.hideUser ? nextMsgId() : null;
       setError('');
 
-      if (!opts?.hideUser) {
+      if (userMsgId) {
         const userMsg: ChatMessage = {
-          id: nextMsgId(),
+          id: userMsgId,
           role: 'user',
           content,
           rawContent: content,
@@ -80,7 +88,6 @@ export function useChatStream(
           media,
           artifacts: [],
           replayRequest: { content, media },
-          branchKey: opts?.branchKey ?? null,
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -93,10 +100,10 @@ export function useChatStream(
           role: 'thinking',
           content: '',
           sessionId: targetSessionId,
-        },
+        } satisfies ThinkingChatMessage,
       ]);
 
-      const streamId = `stream-${thinkingId}`;
+      const streamId = nextMsgId();
       setStreamingMsgId(streamId);
 
       const req: ActiveRequest = {
@@ -217,12 +224,12 @@ export function useChatStream(
                   messageId: result.assistantMessageId ?? null,
                   artifacts: finalArtifacts,
                   pendingApproval: finalApproval,
-                  replayRequest: opts?.hideUser ? null : { content, media },
+                  replayRequest: { content, media },
                 }
-              : m.role === 'user' &&
-                  m.sessionId === targetSessionId &&
-                  !m.messageId &&
-                  m.rawContent === content
+              : userMsgId &&
+                  m.id === userMsgId &&
+                  m.role === 'user' &&
+                  !m.messageId
                 ? {
                     ...m,
                     messageId: result.userMessageId ?? null,
@@ -235,24 +242,28 @@ export function useChatStream(
         refreshRecent();
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
-        setMessages((prev) => prev.filter((m) => m.id !== thinkingId));
-        if (!req.stopping) {
-          const text = err instanceof Error ? err.message : String(err);
-          setMessages((prev) => [
-            ...prev,
+        const errorText =
+          !req.stopping && err instanceof Error ? err.message : String(err);
+        setMessages((prev) => {
+          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          if (req.stopping) return withoutThinking;
+          return [
+            ...withoutThinking,
             {
               id: nextMsgId(),
               role: 'system',
-              content: `Error: ${text}`,
+              content: `Error: ${errorText}`,
               sessionId: targetSessionId,
             },
-          ]);
-        }
+          ];
+        });
       } finally {
         activeRequestRef.current = null;
         setIsStreaming(false);
         setStreamingMsgId(null);
       }
+
+      return true;
     },
     [
       token,

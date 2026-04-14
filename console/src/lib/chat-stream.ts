@@ -1,5 +1,5 @@
 import type { ChatStreamApproval, ChatStreamResult } from '../api/chat-types';
-import { dispatchAuthRequired, requestHeaders } from '../api/client';
+import { requestHeaders, throwResponseError } from '../api/client';
 
 export interface ChatStreamCallbacks {
   onTextDelta: (delta: string) => void;
@@ -26,23 +26,7 @@ export async function requestChatStream(
   });
 
   if (!response.ok) {
-    const errorText = (await response.text().catch(() => '')).trim();
-    let errorMessage = `${response.status} ${response.statusText}`;
-    if (errorText) {
-      try {
-        const payload = JSON.parse(errorText) as {
-          error?: string;
-          text?: string;
-        };
-        errorMessage = payload.error || payload.text || errorText;
-      } catch {
-        errorMessage = errorText;
-      }
-    }
-    if (response.status === 401) {
-      dispatchAuthRequired(errorMessage);
-    }
-    throw new Error(errorMessage);
+    await throwResponseError(response);
   }
 
   const { callbacks } = options;
@@ -55,6 +39,7 @@ export async function requestChatStream(
     try {
       payload = JSON.parse(trimmedLine) as Record<string, unknown>;
     } catch {
+      console.warn('Ignoring malformed chat stream line', trimmedLine);
       return null;
     }
     if (!payload || typeof payload !== 'object') return null;
