@@ -230,7 +230,7 @@ test('help secret prints secret command usage', async () => {
   );
 });
 
-test('secret set, show --raw, and unset manage encrypted secrets', async () => {
+test('secret set, show, and unset manage encrypted secrets', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -250,9 +250,14 @@ test('secret set, show --raw, and unset manage encrypted secrets', async () => {
     `Path: ${runtimeSecrets.runtimeSecretsPath()}`,
   ]);
 
+  // --raw is no longer supported; show never outputs decrypted values
   logSpy.mockClear();
   await cli.main(['secret', 'show', 'SF_FULL_USERNAME', '--raw']);
-  expect(logSpy).toHaveBeenCalledWith('user@example.com');
+  expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
+    'Name: SF_FULL_USERNAME',
+    'Stored: yes',
+    `Path: ${runtimeSecrets.runtimeSecretsPath()}`,
+  ]);
 
   await cli.main(['secret', 'unset', 'SF_FULL_USERNAME']);
   expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBeNull();
