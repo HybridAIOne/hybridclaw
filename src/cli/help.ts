@@ -653,7 +653,7 @@ export function printSecretUsage(): void {
 Commands:
   hybridclaw secret list
   hybridclaw secret set <name> <value>
-  hybridclaw secret show <name> [--raw]
+  hybridclaw secret show <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
   hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
@@ -663,14 +663,13 @@ Examples:
   hybridclaw secret list
   hybridclaw secret set SF_FULL_USERNAME you@example.com
   hybridclaw secret show SF_FULL_USERNAME
-  hybridclaw secret show SF_FULL_USERNAME --raw
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
 
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
-  - \`show\` reports presence by default; use \`--raw\` only when another local script needs the decrypted value.
+  - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
   - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }

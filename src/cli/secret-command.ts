@@ -142,20 +142,12 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
   if (sub === 'show' || sub === 'status') {
     const secretName = String(normalized[1] || '').trim();
-    const rawOutput = normalized.slice(2).includes('--raw');
     if (!secretName) {
       printSecretUsage();
-      throw new Error('Usage: `hybridclaw secret show <name> [--raw]`');
+      throw new Error('Usage: `hybridclaw secret show <name>`');
     }
     assertSecretName(secretName);
     const stored = readStoredRuntimeSecret(secretName);
-    if (rawOutput) {
-      if (!stored) {
-        throw new Error(`Encrypted secret \`${secretName}\` is not set.`);
-      }
-      console.log(stored);
-      return;
-    }
     console.log(`Name: ${secretName}`);
     console.log(`Stored: ${stored ? 'yes' : 'no'}`);
     console.log(`Path: ${runtimeSecretsPath()}`);
