@@ -1058,7 +1058,9 @@ description: Docs helper.
 
     await expect(
       importSkill(`official/${skillName}`, { force: true }),
-    ).rejects.toThrow('Dangerous verdicts cannot be overridden with --force.');
+    ).rejects.toThrow(
+      'Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.',
+    );
   });
 
   test('rejects symlinked packaged skill content', async () => {

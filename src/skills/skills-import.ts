@@ -681,12 +681,18 @@ export async function importSkill(
         !guardDecision.allowed &&
         guardVerdict === 'caution';
       if (!guardDecision.allowed && !guardOverrideApplied) {
-        const forceSuffix =
-          options.force === true && guardVerdict === 'dangerous'
-            ? ' Dangerous verdicts cannot be overridden with --force.'
-            : '';
+        let overrideHint: string;
+        if (guardVerdict === 'dangerous' && options.force === true) {
+          overrideHint =
+            ' Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.';
+        } else if (guardVerdict === 'dangerous') {
+          overrideHint =
+            ' To install anyway, re-run with --skip-skill-scan.';
+        } else {
+          overrideHint = ' To install anyway, re-run with --force.';
+        }
         throw new SkillImportError(
-          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${forceSuffix}`,
+          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${overrideHint}`,
         );
       }
     } else {
