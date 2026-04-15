@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
-import { PanelLeft } from '../../components/icons';
 import {
   getSidebarStyleVars,
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarProvider,
-  useSidebar,
 } from '../../components/sidebar/index';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
@@ -34,7 +32,7 @@ export function ChatSidebarProvider(props: { children: ReactNode }) {
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
-    <Sidebar side="left" collapsible="offcanvas">
+    <Sidebar side="left" collapsible="none">
       <SidebarHeader>
         <ChatSidebarHeader />
         <button
@@ -55,22 +53,11 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
 export { SidebarTrigger as ChatSidebarTrigger } from '../../components/sidebar/index';
 
 function ChatSidebarHeader() {
-  const { toggleSidebar } = useSidebar();
-
   return (
     <div className={css.chatSidebarHeader}>
       <span className={css.sidebarLabel} style={{ margin: 0 }}>
         Sessions
       </span>
-      <button
-        type="button"
-        className={css.headerButton}
-        onClick={toggleSidebar}
-        aria-label="Toggle sessions"
-        title="Toggle sessions"
-      >
-        <PanelLeft />
-      </button>
     </div>
   );
 }

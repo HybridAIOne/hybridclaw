@@ -229,9 +229,14 @@ code {
   white-space: nowrap;
 }
 
+.topbar-compact {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
 .page-content-full {
-  height: calc(100% + 48px);
-  margin: -24px;
+  height: 100%;
+  margin: 0 -24px -24px;
 }
 
 .view-switch {

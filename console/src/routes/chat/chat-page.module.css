@@ -30,6 +30,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 0 4px;
+  overflow: hidden;
 }
 
 .newChatButton {
@@ -141,35 +142,6 @@
   overflow: hidden;
   position: relative;
   background: var(--page-bg);
-}
-
-.chatMainHeader {
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
-  flex-shrink: 0;
-}
-
-.headerButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  font-size: 1rem;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.headerButton:hover {
-  background: var(--muted);
-  color: var(--text);
 }
 
 .messageArea {
@@ -719,7 +691,7 @@
 
 .composerInput {
   flex: 1 1 auto;
-  min-height: 24px;
+  min-height: 36px;
   max-height: 180px;
   resize: none;
   border: none;
@@ -727,8 +699,13 @@
   background: transparent;
   color: var(--text);
   font-size: 0.92rem;
+  line-height: 36px;
+  padding: 0;
+}
+
+.composerInput:not(:placeholder-shown) {
   line-height: 1.5;
-  padding: 2px 0;
+  padding: 6px 0;
 }
 
 .composerInput:focus-visible {

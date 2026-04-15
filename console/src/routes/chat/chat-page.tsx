@@ -24,8 +24,6 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { PanelLeft } from '../../components/icons';
-import { useSidebar } from '../../components/sidebar/index';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -39,7 +37,7 @@ import {
   storeSessionId,
 } from '../../lib/chat-helpers';
 import css from './chat-page.module.css';
-import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
+import { ChatSidebarPanel } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
@@ -519,12 +517,10 @@ export function ChatPage() {
   } as const;
 
   return (
-    <ChatSidebarProvider>
-      <div className={css.chatPage} aria-busy={isPending}>
-        <ChatSidebarPanel {...sidebarProps} />
+    <div className={css.chatPage} aria-busy={isPending}>
+      <ChatSidebarPanel {...sidebarProps} />
 
-        <div className={css.chatMain}>
-          <ChatMainHeader />
+      <div className={css.chatMain}>
           {isEmpty ? (
             <div className={css.emptyState}>
               <h1 className={css.greeting}>
@@ -578,27 +574,7 @@ export function ChatPage() {
             onUploadFiles={handleUploadFiles}
             token={auth.token}
           />
-        </div>
       </div>
-    </ChatSidebarProvider>
-  );
-}
-
-function ChatMainHeader() {
-  const { state, isMobile, toggleSidebar } = useSidebar();
-  // Show the trigger on mobile (always) or when the session sidebar is collapsed
-  if (state === 'expanded' && !isMobile) return null;
-  return (
-    <div className={css.chatMainHeader}>
-      <button
-        type="button"
-        className={css.headerButton}
-        onClick={toggleSidebar}
-        aria-label="Open sessions"
-        title="Open sessions"
-      >
-        <PanelLeft />
-      </button>
     </div>
   );
 }
