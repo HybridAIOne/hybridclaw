@@ -40,7 +40,7 @@ describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () =>
       entrypoint: ['sleep', 'infinity'],
     });
     exec = container.exec;
-  });
+  }, 30_000);
 
   afterAll(() => {
     removeContainer(CONTAINER_NAME);
