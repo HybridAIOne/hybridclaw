@@ -53,6 +53,7 @@ describe('shouldFallbackFromStreamError', () => {
     expect(shouldFallbackFromStreamError(new Error('socket closed'))).toBe(
       true,
     );
+    expect(shouldFallbackFromStreamError(new Error('terminated'))).toBe(true);
   });
 
   test('falls back for generic Codex stream failures with request ids', () => {
@@ -139,6 +140,7 @@ describe('isRetryableModelError', () => {
     expect(isRetryableModelError(new Error('fetch failed'))).toBe(true);
     expect(isRetryableModelError(new Error('ECONNRESET upstream'))).toBe(true);
     expect(isRetryableModelError(new Error('timed out'))).toBe(true);
+    expect(isRetryableModelError(new Error('terminated'))).toBe(true);
   });
 
   test('retries generic Codex processing failures', () => {
