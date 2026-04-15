@@ -1,0 +1,24 @@
+name: Setup Node.js workspace
+description: Set up Node.js with npm cache, install root and container dependencies.
+
+inputs:
+  node-version:
+    description: Node.js version to use.
+    default: '22'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+
+    - name: Install root dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Install container dependencies
+      shell: bash
+      run: npm run setup
