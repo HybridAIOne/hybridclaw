@@ -16,6 +16,16 @@ import { resolveRuntimeRoot } from './runtime-paths.js';
 import { MAC_WINDOW_CHROME_CSS } from './window-chrome.js';
 
 const APP_NAME = 'HybridClaw';
+const IS_MAC = process.platform === 'darwin';
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 app.setName(APP_NAME);
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -42,6 +52,7 @@ const gateway = new GatewayRuntime({
   runtimeRoot,
 });
 const runtimeVersion = readRuntimeVersion(runtimeRoot);
+const hasDesktopIcon = fs.existsSync(desktopIconPath);
 
 const windows = new Map<DesktopRoute, BrowserWindow>();
 const windowRoutes = new Map<BrowserWindow, DesktopRoute>();
@@ -55,9 +66,7 @@ function titleForRoute(route: DesktopRoute): string {
       : 'HybridClaw Admin';
 }
 
-function widthForRoute(route: DesktopRoute): number {
-  return route === 'chat' ? 1440 : route === 'agents' ? 1480 : 1520;
-}
+const DEFAULT_WINDOW_WIDTH = 1440;
 
 function getFocusedContentWindow(): BrowserWindow | null {
   const focused = BrowserWindow.getFocusedWindow();
@@ -145,8 +154,13 @@ function readRuntimeVersion(root: string): string {
   }
 }
 
+let cachedAboutHtml: string | undefined;
+function getAboutHtml(): string {
+  return (cachedAboutHtml ??= buildAboutHtml());
+}
+
 function buildAboutHtml(): string {
-  const iconMarkup = fs.existsSync(desktopIconPath)
+  const iconMarkup = hasDesktopIcon
     ? `<img src="${nativeImage.createFromPath(desktopIconPath).toDataURL()}" alt="HybridClaw logo" class="logo">`
     : `<div class="logo-fallback">HC</div>`;
 
@@ -301,7 +315,7 @@ function buildAboutHtml(): string {
       </article>
       <article class="metric">
         <div class="metric-label">Gateway</div>
-        <div class="metric-value">${gateway.baseUrl}</div>
+        <div class="metric-value">${escapeHtml(gateway.baseUrl)}</div>
       </article>
     </section>
     <p>Use the app menu for Chat, Agents, and Admin, or restart the local gateway if the embedded surfaces need a fresh session.</p>
@@ -350,7 +364,7 @@ function openAboutWindow(): BrowserWindow {
     fullscreenable: false,
     modal: false,
     backgroundColor: '#f8fafc',
-    ...(fs.existsSync(desktopIconPath) ? { icon: desktopIconPath } : {}),
+    ...(hasDesktopIcon ? { icon: desktopIconPath } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -366,8 +380,10 @@ function openAboutWindow(): BrowserWindow {
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('hc-about://')) {
-      const route = url.slice('hc-about://'.length) as DesktopRoute;
-      void openRoute(route);
+      const candidate = url.slice('hc-about://'.length);
+      if (candidate === 'chat' || candidate === 'agents' || candidate === 'admin') {
+        void openRoute(candidate);
+      }
       return { action: 'deny' };
     }
     void shell.openExternal(url);
@@ -376,12 +392,14 @@ function openAboutWindow(): BrowserWindow {
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('hc-about://')) return;
     event.preventDefault();
-    const route = url.slice('hc-about://'.length) as DesktopRoute;
-    void openRoute(route);
+    const candidate = url.slice('hc-about://'.length);
+    if (candidate === 'chat' || candidate === 'agents' || candidate === 'admin') {
+      void openRoute(candidate);
+    }
   });
 
   void window.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(buildAboutHtml())}`,
+    `data:text/html;charset=utf-8,${encodeURIComponent(getAboutHtml())}`,
   );
   return window;
 }
@@ -396,14 +414,14 @@ function createWindow(
   }
 
   const window = new BrowserWindow({
-    width: widthForRoute(route),
+    width: DEFAULT_WINDOW_WIDTH,
     height: 920,
     minWidth: 1100,
     minHeight: 720,
     backgroundColor: '#ffffff',
     title: titleForRoute(route),
     titleBarStyle: 'hiddenInset',
-    ...(fs.existsSync(desktopIconPath) ? { icon: desktopIconPath } : {}),
+    ...(hasDesktopIcon ? { icon: desktopIconPath } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -422,40 +440,47 @@ function createWindow(
   window.on('page-title-updated', (event) => {
     event.preventDefault();
   });
+  let chromeCssKey: string | undefined;
   window.webContents.on('did-finish-load', () => {
-    if (process.platform === 'darwin') {
-      void window.webContents.insertCSS(MAC_WINDOW_CHROME_CSS);
-      void syncWindowChrome(window, window.webContents.getURL());
+    if (IS_MAC) {
+      const applyChrome = async () => {
+        if (chromeCssKey) {
+          await window.webContents.removeInsertedCSS(chromeCssKey);
+        }
+        chromeCssKey = await window.webContents.insertCSS(MAC_WINDOW_CHROME_CSS);
+        await syncWindowChrome(window, window.webContents.getURL());
+      };
+      void applyChrome();
     }
   });
   window.webContents.on('did-navigate', (_event, url) => {
     syncWindowRouteFromUrl(window, url);
-    if (process.platform === 'darwin') {
+    if (IS_MAC) {
       void syncWindowChrome(window, url);
     }
   });
   window.webContents.on('did-navigate-in-page', (_event, url) => {
     syncWindowRouteFromUrl(window, url);
-    if (process.platform === 'darwin') {
+    if (IS_MAC) {
       void syncWindowChrome(window, url);
     }
   });
 
-  const handleWindowOpen = (target: string): boolean => {
+  const handleWindowOpen = (target: string): void => {
     if (isInAppUrl(target, gateway.baseUrl)) {
       const nextRoute = routeForUrl(target, gateway.baseUrl);
       if (nextRoute) {
         navigateWindow(window, nextRoute, target);
       }
-      return false;
+      return;
     }
 
     void shell.openExternal(target);
-    return false;
   };
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    return { action: handleWindowOpen(url) ? 'allow' : 'deny' };
+    handleWindowOpen(url);
+    return { action: 'deny' };
   });
 
   window.webContents.on('will-navigate', (event, url) => {
@@ -495,7 +520,6 @@ async function openRoute(route: DesktopRoute): Promise<void> {
 }
 
 function buildMenu(): Menu {
-  const isMac = process.platform === 'darwin';
   return Menu.buildFromTemplate([
     {
       label: APP_NAME,
@@ -551,7 +575,7 @@ function buildMenu(): Menu {
           },
         },
         { type: 'separator' },
-        isMac ? { role: 'hide' } : { role: 'minimize' },
+        IS_MAC ? { role: 'hide' } : { role: 'minimize' },
         { role: 'quit' },
       ],
     },
