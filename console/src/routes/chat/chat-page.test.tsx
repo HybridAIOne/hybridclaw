@@ -261,7 +261,9 @@ describe('ChatPage', () => {
       throw new Error('Missing branch action container');
     }
 
-    fireEvent.click(within(initialActions).getByRole('button', { name: '›' }));
+    fireEvent.click(
+      within(initialActions).getByRole('button', { name: 'Next branch' }),
+    );
 
     expect(await screen.findByText('Alternate assistant reply')).not.toBeNull();
     expect(await screen.findByText('2/2')).not.toBeNull();

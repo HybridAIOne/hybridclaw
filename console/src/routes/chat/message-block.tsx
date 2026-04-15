@@ -365,6 +365,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               <button
                 type="button"
                 className={css.branchButton}
+                aria-label="Previous branch"
                 disabled={props.branchInfo.current <= 1}
                 onClick={() => props.onBranchNav(-1)}
               >
@@ -376,6 +377,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               <button
                 type="button"
                 className={css.branchButton}
+                aria-label="Next branch"
                 disabled={props.branchInfo.current >= props.branchInfo.total}
                 onClick={() => props.onBranchNav(1)}
               >

@@ -1,5 +1,16 @@
-import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useTransition } from 'react';
+import {
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useTransition,
+} from 'react';
 import {
   createChatBranch,
   fetchAppStatus,
@@ -44,6 +55,7 @@ function buildBranchInfoMap(
   branchFamilies: Map<string, BranchVariant[]>,
 ): Map<string, BranchInfo> {
   const map = new Map<string, BranchInfo>();
+  if (branchFamilies.size === 0) return map;
   for (const msg of messages) {
     const key = msg.branchKey;
     if (!key) continue;
@@ -82,7 +94,10 @@ type ChatAction =
       branchFamilies: Map<string, BranchVariant[]>;
       sessionId?: string;
     }
-  | { type: 'MESSAGES_SET'; updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]) }
+  | {
+      type: 'MESSAGES_SET';
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]);
+    }
   | { type: 'ERROR_SET'; error: string }
   | { type: 'ERROR_CLEAR' }
   | { type: 'EDIT_START'; id: string }
@@ -115,9 +130,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...(action.sessionId ? { sessionId: action.sessionId } : {}),
       };
     case 'MESSAGES_SET': {
-      const messages = typeof action.updater === 'function'
-        ? action.updater(state.messages)
-        : action.updater;
+      const messages =
+        typeof action.updater === 'function'
+          ? action.updater(state.messages)
+          : action.updater;
       return { ...state, messages };
     }
     case 'ERROR_SET':
@@ -157,33 +173,46 @@ export function ChatPage() {
 
   const sidebar = useSidebar();
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only on mount/unmount — sidebar state changes must not re-trigger
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only snapshot — capture sidebar state once and restore on unmount
   useEffect(() => {
     const wasOpen = sidebar.open;
-    if (wasOpen && !sidebar.isMobile) {
+    const wasMobile = sidebar.isMobile;
+    if (wasOpen && !wasMobile) {
       sidebar.setOpen(false);
     }
     return () => {
-      if (wasOpen && !sidebar.isMobile) {
+      if (wasOpen && !wasMobile) {
         sidebar.setOpen(true);
       }
     };
   }, []);
 
-  const [state, dispatch] = useReducer(chatReducer, undefined, (): ChatState => {
-    const stored = readStoredSessionId();
-    const sessionId = stored || generateWebSessionId();
-    return {
-      sessionId,
-      messages: [],
-      error: '',
-      editingId: null,
-      approvalBusy: false,
-      mobileSidebarOpen: false,
-      branchFamilies: new Map(),
-    };
-  });
-  const { sessionId, messages, error, editingId, approvalBusy, mobileSidebarOpen, branchFamilies } = state;
+  const [state, dispatch] = useReducer(
+    chatReducer,
+    undefined,
+    (): ChatState => {
+      const stored = readStoredSessionId();
+      const sessionId = stored || generateWebSessionId();
+      return {
+        sessionId,
+        messages: [],
+        error: '',
+        editingId: null,
+        approvalBusy: false,
+        mobileSidebarOpen: false,
+        branchFamilies: new Map(),
+      };
+    },
+  );
+  const {
+    sessionId,
+    messages,
+    error,
+    editingId,
+    approvalBusy,
+    mobileSidebarOpen,
+    branchFamilies,
+  } = state;
 
   const [isPending, startTransition] = useTransition();
 
@@ -206,7 +235,9 @@ export function ChatPage() {
   const getSessionId = useCallback(() => sessionIdRef.current, []);
 
   const setMessages = useCallback(
-    (updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[])) => {
+    (
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+    ) => {
       dispatch({ type: 'MESSAGES_SET', updater });
     },
     [],
@@ -254,7 +285,10 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!appStatusQuery.error) return;
-    console.error('Failed to load gateway status for chat page', appStatusQuery.error);
+    console.error(
+      'Failed to load gateway status for chat page',
+      appStatusQuery.error,
+    );
     dispatch({
       type: 'ERROR_SET',
       error:
@@ -328,7 +362,10 @@ export function ChatPage() {
     }
   }, [historyQuery.data, sessionId]);
 
-  const branchInfoMap = useMemo(() => buildBranchInfoMap(messages, branchFamilies), [messages, branchFamilies]);
+  const branchInfoMap = useMemo(
+    () => buildBranchInfoMap(messages, branchFamilies),
+    [messages, branchFamilies],
+  );
 
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
@@ -352,7 +389,10 @@ export function ChatPage() {
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
       if (!msg.messageId || !msg.sessionId) {
-        dispatch({ type: 'ERROR_SET', error: 'This message cannot be edited right now.' });
+        dispatch({
+          type: 'ERROR_SET',
+          error: 'This message cannot be edited right now.',
+        });
         return;
       }
       dispatch({ type: 'EDIT_CANCEL' });
@@ -368,7 +408,10 @@ export function ChatPage() {
         };
         dispatch({ type: 'SESSION_ID_UPDATE', sessionId: branch.sessionId });
       } catch (err) {
-        dispatch({ type: 'ERROR_SET', error: err instanceof Error ? err.message : String(err) });
+        dispatch({
+          type: 'ERROR_SET',
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     },
     [auth.token],
@@ -411,7 +454,10 @@ export function ChatPage() {
           uploaded.push(r.value.media);
         } else if (r.status === 'rejected') {
           const err = r.reason;
-          dispatch({ type: 'ERROR_SET', error: err instanceof Error ? err.message : String(err) });
+          dispatch({
+            type: 'ERROR_SET',
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
       return uploaded;
@@ -421,18 +467,27 @@ export function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
-      dispatch({ type: 'ERROR_SET', error: 'Stop the current run before starting a new chat.' });
+      dispatch({
+        type: 'ERROR_SET',
+        error: 'Stop the current run before starting a new chat.',
+      });
       return;
     }
     dispatch({ type: 'RESET' });
-    dispatch({ type: 'SESSION_ID_UPDATE', sessionId: generateWebSessionId(defaultAgentIdRef.current) });
+    dispatch({
+      type: 'SESSION_ID_UPDATE',
+      sessionId: generateWebSessionId(defaultAgentIdRef.current),
+    });
     refreshRecent();
   }, [stream, refreshRecent]);
 
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
-        dispatch({ type: 'ERROR_SET', error: 'Stop the current run before switching chats.' });
+        dispatch({
+          type: 'ERROR_SET',
+          error: 'Stop the current run before switching chats.',
+        });
         return;
       }
       startTransition(() => {
@@ -493,7 +548,9 @@ export function ChatPage() {
           className={css.sidebarBackdrop}
           tabIndex={-1}
           aria-label="Close sidebar"
-          onClick={() => dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: false })}
+          onClick={() =>
+            dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: false })
+          }
         />
       ) : null}
 
@@ -506,7 +563,9 @@ export function ChatPage() {
           <button
             type="button"
             className="ghost-button"
-            onClick={() => dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: true })}
+            onClick={() =>
+              dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: true })
+            }
             aria-label="Open chat sidebar"
           >
             ☰

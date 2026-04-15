@@ -49,12 +49,6 @@ export function ChatSidebar(props: {
                   }
                   onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
                   onClick={() => props.onOpenSession(s.sessionId)}
-                  onKeyDown={(e) => {
-                    if (e.key === ' ') {
-                      e.preventDefault();
-                      props.onOpenSession(s.sessionId);
-                    }
-                  }}
                 >
                   <span className={css.sessionTitle}>
                     {s.title || 'Untitled'}

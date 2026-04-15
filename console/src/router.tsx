@@ -1,11 +1,12 @@
+import { QueryErrorResetBoundary } from '@tanstack/react-query';
 import {
   createRootRoute,
   createRoute,
   createRouter,
   Outlet,
 } from '@tanstack/react-router';
-import { Component, lazy, Suspense } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { Component, lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
@@ -43,7 +44,7 @@ const LazyChatPage = lazy(async () => {
 });
 
 class ChatErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; onReset?: () => void },
   { error: string | null }
 > {
   state = { error: null as string | null };
@@ -56,14 +57,22 @@ class ChatErrorBoundary extends Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="empty-state" style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <div
+          className="empty-state"
+          style={{ textAlign: 'center', padding: '48px 24px' }}
+        >
           <p>Something went wrong loading the chat.</p>
-          <p style={{ fontSize: '0.84rem', color: 'var(--muted-foreground)' }}>{this.state.error}</p>
+          <p style={{ fontSize: '0.84rem', color: 'var(--muted-foreground)' }}>
+            {this.state.error}
+          </p>
           <button
             type="button"
             className="ghost-button"
             style={{ marginTop: 12 }}
-            onClick={() => this.setState({ error: null })}
+            onClick={() => {
+              this.props.onReset?.();
+              this.setState({ error: null });
+            }}
           >
             Try again
           </button>
@@ -76,11 +85,15 @@ class ChatErrorBoundary extends Component<
 
 function ChatRouteComponent() {
   return (
-    <ChatErrorBoundary>
-      <Suspense fallback={<div className="empty-state">Loading chat…</div>}>
-        <LazyChatPage />
-      </Suspense>
-    </ChatErrorBoundary>
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ChatErrorBoundary onReset={reset}>
+          <Suspense fallback={<div className="empty-state">Loading chat…</div>}>
+            <LazyChatPage />
+          </Suspense>
+        </ChatErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
   );
 }
 
