@@ -184,7 +184,7 @@ CLI and local TUI/web slash-command surface:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <name> <value>
-hybridclaw secret show <name> [--raw]
+hybridclaw secret show <name>
 hybridclaw secret unset <name>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
@@ -203,8 +203,9 @@ hybridclaw secret route remove <url-prefix> [header]
 
 - local-only surface: `/secret ...` is available from local TUI and local web
   chat sessions, not from Discord or other remote channels
-- `hybridclaw secret show <name>` reports whether the secret is stored; add
-  `--raw` only when another local script needs the decrypted value
+- `hybridclaw secret show <name>` reports whether the secret is stored; it
+  never outputs decrypted values. Secrets are only resolved gateway-side via
+  `<secret:NAME>` placeholders or auth rules
 - stored secret names must use uppercase letters, digits, and underscores
 - built-in provider keys and custom names share the same encrypted
   `~/.hybridclaw/credentials.json` store

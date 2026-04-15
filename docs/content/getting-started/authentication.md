@@ -99,7 +99,7 @@ gateway-side auth routing from local TUI and local web chat sessions:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <NAME> <VALUE>
-hybridclaw secret show <NAME> [--raw]
+hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
