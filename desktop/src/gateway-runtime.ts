@@ -1,19 +1,26 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import {
   buildGatewayEnv,
   normalizeGatewayBaseUrl,
   type DesktopRoute,
   routeUrl,
 } from './gateway-target.js';
-import { resolveGatewayEntry } from './runtime-paths.js';
+import {
+  resolveGatewayEntry,
+  resolveGatewayNodeExecutable,
+} from './runtime-paths.js';
 
 const GATEWAY_READY_TIMEOUT_MS = 20_000;
 const GATEWAY_PING_TIMEOUT_MS = 1_500;
 
 export interface GatewayRuntimeOptions {
   baseUrl: string;
+  packaged: boolean;
+  processEnv: NodeJS.ProcessEnv;
+  processExecPath: string;
   runtimeRoot: string;
 }
 
@@ -24,6 +31,9 @@ export interface GatewayExitPayload {
 
 export class GatewayRuntime extends EventEmitter {
   readonly baseUrl: string;
+  readonly packaged: boolean;
+  readonly processEnv: NodeJS.ProcessEnv;
+  readonly processExecPath: string;
   readonly runtimeRoot: string;
   #child: ChildProcess | null = null;
   #startedChild = false;
@@ -32,6 +42,9 @@ export class GatewayRuntime extends EventEmitter {
   constructor(options: GatewayRuntimeOptions) {
     super();
     this.baseUrl = normalizeGatewayBaseUrl(options.baseUrl);
+    this.packaged = options.packaged;
+    this.processEnv = options.processEnv;
+    this.processExecPath = options.processExecPath;
     this.runtimeRoot = options.runtimeRoot;
   }
 
@@ -85,21 +98,39 @@ export class GatewayRuntime extends EventEmitter {
 
   private startChild(): void {
     const gatewayEntry = resolveGatewayEntry(this.runtimeRoot);
+    const nodeExecutable = resolveGatewayNodeExecutable({
+      env: this.processEnv,
+      packaged: this.packaged,
+      processExecPath: this.processExecPath,
+      runtimeRoot: this.runtimeRoot,
+    });
+
     if (!fs.existsSync(gatewayEntry)) {
       throw new Error(
         `HybridClaw gateway build not found at ${gatewayEntry}. Run \`npm run build\` before starting the desktop app.`,
       );
     }
+    if (!fs.existsSync(nodeExecutable)) {
+      throw new Error(
+        this.packaged
+          ? `HybridClaw bundled Node runtime not found at ${nodeExecutable}. Rebuild the desktop app package.`
+          : `HybridClaw Node runtime not found at ${nodeExecutable}. Relaunch the desktop app from \`npm run desktop\`.`,
+      );
+    }
+
+    const runtimeNodeModules = path.join(this.runtimeRoot, 'node_modules');
+    if (this.packaged && !fs.existsSync(runtimeNodeModules)) {
+      throw new Error(
+        `HybridClaw bundled gateway dependencies not found at ${runtimeNodeModules}. Rebuild the desktop app package.`,
+      );
+    }
 
     const child = spawn(
-      process.execPath,
+      nodeExecutable,
       [gatewayEntry, 'gateway', 'start', '--foreground'],
       {
         cwd: this.runtimeRoot,
-        env: {
-          ...buildGatewayEnv(this.baseUrl),
-          ELECTRON_RUN_AS_NODE: '1',
-        },
+        env: buildGatewayEnv(this.baseUrl),
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );

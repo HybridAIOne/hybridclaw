@@ -36,6 +36,9 @@ const gateway = new GatewayRuntime({
       process.env.GATEWAY_BASE_URL ||
       undefined,
   ),
+  packaged: app.isPackaged,
+  processEnv: process.env,
+  processExecPath: process.execPath,
   runtimeRoot,
 });
 const runtimeVersion = readRuntimeVersion(runtimeRoot);

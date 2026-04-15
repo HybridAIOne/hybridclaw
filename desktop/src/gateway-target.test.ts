@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  buildGatewayPath,
   buildGatewayEnv,
   isInAppUrl,
   normalizeGatewayBaseUrl,
@@ -63,5 +64,20 @@ describe('buildGatewayEnv', () => {
     expect(env.GATEWAY_BASE_URL).toBe('https://hybridclaw.local:19090');
     expect(env.HEALTH_HOST).toBe('hybridclaw.local');
     expect(env.HEALTH_PORT).toBe('19090');
+  });
+
+  test('extends a minimal GUI PATH with common Docker install locations', () => {
+    const gatewayPath = buildGatewayPath('/usr/bin:/bin:/usr/sbin:/sbin');
+    expect(gatewayPath.split(':')).toEqual([
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+      '/usr/local/bin',
+      '/usr/local/sbin',
+      '/Applications/Docker.app/Contents/Resources/bin',
+    ]);
   });
 });

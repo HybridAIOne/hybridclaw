@@ -9,13 +9,14 @@
   "main": "dist/main.js",
   "scripts": {
     "build:icon": "swift scripts/generate-mac-icon.swift",
-    "build": "npm run build:icon && tsc --project tsconfig.json",
-    "build:dmg": "node scripts/build-dmg.mjs",
+    "build:runtime": "node scripts/prepare-runtime.mjs",
+    "build": "npm run build:icon && npm run build:runtime && tsc --project tsconfig.json",
+    "build:dmg": "node scripts/run-build-dmg.mjs",
     "start": "node scripts/start-dev.mjs",
     "test": "vitest run --configLoader runner --config vitest.config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json",
-    "dist:mac": "npm run build:icon && electron-builder --mac dir zip && npm run build:dmg",
-    "pack:mac": "npm run build:icon && electron-builder --mac dir"
+    "dist:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir zip && npm run build:dmg",
+    "pack:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir"
   },
   "dependencies": {
     "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
@@ -23,9 +24,6 @@
   "devDependencies": {
     "electron": "37.10.3",
     "electron-builder": "26.8.1"
-  },
-  "optionalDependencies": {
-    "appdmg": "0.6.6"
   },
   "build": {
     "appId": "com.hybridaione.hybridclaw.desktop",
@@ -69,6 +67,21 @@
           "SECURITY.md",
           "TRUST_MODEL.md",
           "config.example.json"
+        ]
+      },
+      {
+        "from": "build/runtime-deps/root-node_modules",
+        "to": "hybridclaw-runtime/node_modules"
+      },
+      {
+        "from": "build/runtime-deps/container-node_modules",
+        "to": "hybridclaw-runtime/container/node_modules"
+      },
+      {
+        "from": "build/runtime-bin",
+        "to": "hybridclaw-runtime/bin",
+        "filter": [
+          "node"
         ]
       }
     ],
