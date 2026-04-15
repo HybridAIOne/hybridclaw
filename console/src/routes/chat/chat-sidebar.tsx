@@ -13,10 +13,7 @@ import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
 
-const CHAT_SIDEBAR_STYLE = {
-  ...getSidebarStyleVars('260px', '280px'),
-  '--sidebar-width-icon': '0px',
-} as React.CSSProperties;
+const CHAT_SIDEBAR_STYLE = getSidebarStyleVars('260px', '280px');
 
 export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
@@ -37,7 +34,7 @@ export function ChatSidebarProvider(props: { children: ReactNode }) {
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
-    <Sidebar side="left">
+    <Sidebar side="left" collapsible="offcanvas">
       <SidebarHeader>
         <ChatSidebarHeader />
       </SidebarHeader>

@@ -34,9 +34,12 @@ type SidebarContextValue = {
   toggleSidebar: () => void;
 };
 
+type SidebarCollapsible = 'icon' | 'offcanvas' | 'none';
+
 type SidebarProps = {
   children: ReactNode;
   side?: Extract<SheetSide, 'left' | 'right'>;
+  collapsible?: SidebarCollapsible;
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -180,7 +183,11 @@ export function useSidebar(): SidebarContextSnapshot {
   return useSidebarContext();
 }
 
-export function Sidebar({ side = 'left', children }: SidebarProps) {
+export function Sidebar({
+  side = 'left',
+  collapsible = 'icon',
+  children,
+}: SidebarProps) {
   const context = useSidebarContext();
 
   // Mobile: delegate entirely to Sheet which owns portalling, focus trap,
@@ -206,12 +213,23 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
     );
   }
 
-  // Desktop: collapsible panel.
+  // Non-collapsible sidebar — always expanded.
+  if (collapsible === 'none') {
+    return (
+      <aside className={styles.root} data-side={side} data-state="expanded">
+        {children}
+      </aside>
+    );
+  }
+
+  // Desktop: collapsible panel (icon or offcanvas mode).
+  const state = context.open ? 'expanded' : 'collapsed';
   return (
     <aside
       className={styles.root}
       data-side={side}
-      data-state={context.open ? 'expanded' : 'collapsed'}
+      data-state={state}
+      data-collapsible={state === 'collapsed' ? collapsible : ''}
     >
       {children}
     </aside>
