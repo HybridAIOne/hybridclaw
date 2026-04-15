@@ -1689,6 +1689,27 @@ export function promoteWorkspaceSkills(workspaceDir: string): void {
   const workspaceSkillsDir = path.join(workspaceDir, 'skills');
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
+  // Quick check: are there any skill directories with a SKILL.md to promote?
+  // Avoids the expensive collectResolvedSkillCandidates() scan on turns where
+  // the agent created no skills (the common case).
+  let hasCandidate = false;
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (
+        entry.isDirectory() &&
+        fs.existsSync(path.join(workspaceSkillsDir, entry.name, 'SKILL.md'))
+      ) {
+        hasCandidate = true;
+        break;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (!hasCandidate) return;
+
   const communityDir = resolveManagedCommunitySkillsDir();
 
   // Build a set of skill names already known from any catalog source so we
@@ -1719,9 +1740,14 @@ export function promoteWorkspaceSkills(workspaceDir: string): void {
         /* use dir name */
       }
 
-      // Skip skills that already exist in the catalog from another source.
+      // Skip skills that already exist in the catalog from another source
+      // (checked by canonical skill name from frontmatter).
       if (knownSkillNames.has(skillName)) continue;
 
+      // Also skip if a directory with the same name already exists in the
+      // managed dir — guards against the case where the frontmatter name
+      // differs from the dir name, and also prevents races when two
+      // concurrent turns try to promote the same skill simultaneously.
       const communitySkillDir = path.join(communityDir, entry.name);
       if (fs.existsSync(communitySkillDir)) continue;
 
