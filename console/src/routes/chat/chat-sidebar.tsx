@@ -1,4 +1,5 @@
 import type { ChatRecentSession } from '../../api/chat-types';
+import { HybridClaw } from '../../components/icons';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
@@ -14,11 +15,7 @@ export function ChatSidebar(props: {
   return (
     <>
       <div className={css.sidebarHeader}>
-        <img
-          className={css.sidebarLogo}
-          src="/static/hybridclaw-logo.svg"
-          alt="HybridClaw"
-        />
+        <HybridClaw className={css.sidebarLogo} />
         <span className={css.sidebarBrand}>HybridClaw</span>
       </div>
       <button

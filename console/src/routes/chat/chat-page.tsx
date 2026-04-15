@@ -181,7 +181,13 @@ export function ChatPage() {
     undefined,
     (): ChatState => {
       const stored = readStoredSessionId();
-      const sessionId = stored || generateWebSessionId();
+      const sessionId =
+        stored ||
+        (() => {
+          const id = generateWebSessionId();
+          storeSessionId(id);
+          return id;
+        })();
       return {
         sessionId,
         messages: [],

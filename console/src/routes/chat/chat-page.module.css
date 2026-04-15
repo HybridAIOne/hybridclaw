@@ -32,6 +32,7 @@
   width: 28px;
   height: 28px;
   flex-shrink: 0;
+  color: var(--primary);
 }
 
 .sidebarBrand {
@@ -49,17 +50,20 @@
   width: 100%;
   padding: 9px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
-  background: var(--panel-bg);
-  color: var(--text);
+  border: 1px solid transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.84rem;
   font-weight: 500;
-  transition: background 0.15s;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 
 .newChatButton:hover {
-  background: var(--accent-soft);
+  background: var(--ring);
+  box-shadow: var(--shadow-raised);
 }
 
 .sidebarLabel {
@@ -633,6 +637,11 @@
   background: var(--panel-bg);
   box-shadow: var(--shadow-raised);
   overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
 }
 
 .pendingMediaRow {
