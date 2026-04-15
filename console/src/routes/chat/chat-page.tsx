@@ -36,9 +36,8 @@ import {
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
-import { cx } from '../../lib/cx';
 import css from './chat-page.module.css';
-import { ChatSidebar } from './chat-sidebar';
+import { ChatSidebarPanel } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
@@ -80,7 +79,6 @@ interface ChatState {
   error: string;
   editingId: string | null;
   approvalBusy: boolean;
-  mobileSidebarOpen: boolean;
   branchFamilies: Map<string, BranchVariant[]>;
 }
 
@@ -101,8 +99,7 @@ type ChatAction =
   | { type: 'ERROR_CLEAR' }
   | { type: 'EDIT_START'; id: string }
   | { type: 'EDIT_CANCEL' }
-  | { type: 'APPROVAL_BUSY_SET'; busy: boolean }
-  | { type: 'MOBILE_SIDEBAR_TOGGLE'; open: boolean };
+  | { type: 'APPROVAL_BUSY_SET'; busy: boolean };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -116,7 +113,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         error: '',
         editingId: null,
         approvalBusy: false,
-        mobileSidebarOpen: false,
         branchFamilies: new Map(),
       };
     case 'HISTORY_LOADED':
@@ -144,8 +140,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, editingId: null };
     case 'APPROVAL_BUSY_SET':
       return { ...state, approvalBusy: action.busy };
-    case 'MOBILE_SIDEBAR_TOGGLE':
-      return { ...state, mobileSidebarOpen: action.open };
     default:
       return state;
   }
@@ -177,20 +171,12 @@ export function ChatPage() {
         error: '',
         editingId: null,
         approvalBusy: false,
-        mobileSidebarOpen: false,
         branchFamilies: new Map(),
       };
     },
   );
-  const {
-    sessionId,
-    messages,
-    error,
-    editingId,
-    approvalBusy,
-    mobileSidebarOpen,
-    branchFamilies,
-  } = state;
+  const { sessionId, messages, error, editingId, approvalBusy, branchFamilies } =
+    state;
 
   const [isPending, startTransition] = useTransition();
 
@@ -526,36 +512,9 @@ export function ChatPage() {
 
   return (
     <div className={css.chatPage} aria-busy={isPending}>
-      {mobileSidebarOpen ? (
-        <button
-          type="button"
-          className={css.sidebarBackdrop}
-          tabIndex={-1}
-          aria-label="Close sidebar"
-          onClick={() =>
-            dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: false })
-          }
-        />
-      ) : null}
-
-      <div className={cx(css.sidebar, mobileSidebarOpen && css.sidebarOpen)}>
-        <ChatSidebar {...sidebarProps} />
-      </div>
+      <ChatSidebarPanel {...sidebarProps} />
 
       <div className={css.chatMain}>
-        <div className={css.mobileHeader}>
-          <button
-            type="button"
-            className={css.headerButton}
-            onClick={() =>
-              dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: true })
-            }
-            aria-label="Open chat sidebar"
-          >
-            ☰
-          </button>
-          <span style={{ fontWeight: 600 }}>HybridClaw</span>
-        </div>
 
         {isEmpty ? (
           <div className={css.emptyState}>

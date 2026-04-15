@@ -83,45 +83,47 @@ export function AppShell(props: { children: ReactNode }) {
           onLogout={auth.logout}
         />
         <SidebarInset className="main-panel">
-          <div className={isChatRoute ? 'topbar topbar-compact' : 'topbar'}>
-            {!isChatRoute ? (
+          {!isChatRoute ? (
+            <div className="topbar">
               <div className="topbar-title">
                 <div className="topbar-heading">
                   <h2>{currentNavItem.label}</h2>
                 </div>
               </div>
-            ) : null}
-            <nav className="view-switch" aria-label="Switch view">
-              {VIEW_SWITCH_ITEMS.map((item) => {
-                const inner = (
-                  <>
-                    <span className="nav-link-icon" aria-hidden="true">
-                      <item.icon />
+              <nav className="view-switch" aria-label="Switch view">
+                {VIEW_SWITCH_ITEMS.map((item) => {
+                  const inner = (
+                    <>
+                      <span className="nav-link-icon" aria-hidden="true">
+                        <item.icon />
+                      </span>
+                      <span>{item.label}</span>
+                    </>
+                  );
+                  return item.active ? (
+                    <span
+                      key={item.href}
+                      className="view-switch-link active"
+                      aria-current="page"
+                    >
+                      {inner}
                     </span>
-                    <span>{item.label}</span>
-                  </>
-                );
-                return item.active ? (
-                  <span
-                    key={item.href}
-                    className="view-switch-link active"
-                    aria-current="page"
-                  >
-                    {inner}
-                  </span>
-                ) : (
-                  <a
-                    key={item.href}
-                    className="view-switch-link"
-                    href={item.href}
-                  >
-                    {inner}
-                  </a>
-                );
-              })}
-            </nav>
+                  ) : (
+                    <a
+                      key={item.href}
+                      className="view-switch-link"
+                      href={item.href}
+                    >
+                      {inner}
+                    </a>
+                  );
+                })}
+              </nav>
+            </div>
+          ) : null}
+          <div className={isChatRoute ? 'page-content page-content-full' : 'page-content'}>
+            {props.children}
           </div>
-          <div className="page-content">{props.children}</div>
         </SidebarInset>
       </SidebarProvider>
     </AppShellConfigContext.Provider>

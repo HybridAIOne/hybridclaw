@@ -1,23 +1,68 @@
 import type { ChatRecentSession } from '../../api/chat-types';
-import { HybridClaw } from '../../components/icons';
+import { HybridClaw, PanelLeft } from '../../components/icons';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarProvider,
+  getSidebarStyleVars,
+  useSidebar,
+} from '../../components/sidebar/index';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
 
-export function ChatSidebar(props: {
+const CHAT_SIDEBAR_STYLE = getSidebarStyleVars('260px', '280px');
+
+export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
   activeSessionId: string;
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
   onHoverSession?: (sessionId: string) => void;
   isPending?: boolean;
-}) {
+}
+
+export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
-    <>
-      <div className={css.sidebarHeader}>
+    <SidebarProvider style={CHAT_SIDEBAR_STYLE} defaultOpen>
+      <Sidebar side="left">
+        <SidebarHeader>
+          <ChatSidebarHeader onNewChat={props.onNewChat} />
+        </SidebarHeader>
+        <SidebarContent>
+          <ChatSessionList {...props} />
+        </SidebarContent>
+      </Sidebar>
+    </SidebarProvider>
+  );
+}
+
+function ChatSidebarHeader(props: { onNewChat: () => void }) {
+  const { toggleSidebar } = useSidebar();
+
+  return (
+    <div className={css.chatSidebarHeader}>
+      <div className={css.chatSidebarBrand}>
         <HybridClaw className={css.sidebarLogo} />
         <span className={css.sidebarBrand}>HybridClaw</span>
       </div>
+      <button
+        type="button"
+        className={css.headerButton}
+        onClick={toggleSidebar}
+        aria-label="Toggle sessions"
+        title="Toggle sessions"
+      >
+        <PanelLeft />
+      </button>
+    </div>
+  );
+}
+
+function ChatSessionList(props: ChatSidebarProps) {
+  return (
+    <div className={css.chatSidebarContent}>
       <button
         type="button"
         className={css.newChatButton}
@@ -59,6 +104,6 @@ export function ChatSidebar(props: {
           </ul>
         </>
       ) : null}
-    </>
+    </div>
   );
 }

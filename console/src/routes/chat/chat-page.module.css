@@ -1,8 +1,7 @@
 /* ── Chat Page Layout ─────────────────────────────────────── */
 
 .chatPage {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: flex;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -10,22 +9,26 @@
 
 /* ── Chat Sidebar ─────────────────────────────────────────── */
 
-.sidebar {
+.chatSidebarHeader {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--sidebar);
-  border-right: 1px solid var(--line);
-  padding: 16px 12px;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  padding: 0 4px;
 }
 
-.sidebarHeader {
+.chatSidebarBrand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 6px 12px;
+  min-width: 0;
+}
+
+.chatSidebarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
 }
 
 .sidebarLogo {
@@ -145,7 +148,9 @@
 .chatMain {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   position: relative;
 }
@@ -877,40 +882,6 @@
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 900px) {
-  .chatPage {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    display: none;
-  }
-
-  .sidebarOpen {
-    display: flex;
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 100;
-    width: 280px;
-    max-width: 85vw;
-    animation: slideIn 0.2s ease;
-  }
-
-  .sidebarBackdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-    background: rgba(0, 0, 0, 0.4);
-    border: none;
-    padding: 0;
-    cursor: default;
-  }
-
-  .mobileHeader {
-    display: flex;
-  }
-
   .messageArea {
     padding: 16px 16px 8px;
   }
@@ -921,21 +892,6 @@
 
   .slashSuggestions {
     max-height: 40vh;
-  }
-}
-
-@media (min-width: 901px) {
-  .sidebarBackdrop {
-    display: none;
-  }
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
   }
 }
 

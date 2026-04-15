@@ -275,30 +275,6 @@ describe('ChatPage', () => {
     );
   });
 
-  it('keeps a single sidebar tree when the mobile drawer opens', async () => {
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'session-a',
-      history: [
-        {
-          id: 101,
-          role: 'assistant',
-          content: 'Opened session A',
-        },
-      ],
-    });
-
-    renderChatPage();
-
-    expect(await screen.findByText('Opened session A')).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open chat sidebar' }));
-
-    expect(screen.getAllByText('Recent')).toHaveLength(1);
-    expect(
-      screen.getByRole('button', { name: 'Close sidebar' }),
-    ).not.toBeNull();
-  });
-
   it('shows an error and keeps edit mode open when the message cannot be branched', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
