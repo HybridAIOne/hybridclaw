@@ -57,11 +57,14 @@ function getIsMobile() {
   return window.innerWidth < SIDEBAR_MOBILE_BREAKPOINT;
 }
 
-const SIDEBAR_STORAGE_KEY = 'hybridclaw_sidebar_state';
+const DEFAULT_STORAGE_KEY = 'hybridclaw_sidebar_state';
 
-function readPersistedOpen(defaultOpen: boolean): boolean {
-  if (typeof window === 'undefined') return defaultOpen;
-  const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+function readPersistedOpen(
+  defaultOpen: boolean,
+  storageKey: string | false,
+): boolean {
+  if (!storageKey || typeof window === 'undefined') return defaultOpen;
+  const stored = localStorage.getItem(storageKey);
   if (stored === 'true') return true;
   if (stored === 'false') return false;
   return defaultOpen;
@@ -71,23 +74,28 @@ export function SidebarProvider(props: {
   children: ReactNode;
   style?: CSSProperties;
   defaultOpen?: boolean;
+  /** localStorage key for persisting state. Pass false to disable persistence. */
+  storageKey?: string | false;
 }) {
+  const key = props.storageKey ?? DEFAULT_STORAGE_KEY;
   const [open, setOpenRaw] = useState(() =>
-    readPersistedOpen(props.defaultOpen ?? true),
+    readPersistedOpen(props.defaultOpen ?? true, key),
   );
   const setOpen = useCallback(
     (value: boolean | ((prev: boolean) => boolean)) => {
       setOpenRaw((prev) => {
         const next = typeof value === 'function' ? value(prev) : value;
-        try {
-          localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
-        } catch {
-          // localStorage may be unavailable
+        if (key) {
+          try {
+            localStorage.setItem(key, String(next));
+          } catch {
+            // localStorage may be unavailable
+          }
         }
         return next;
       });
     },
-    [],
+    [key],
   );
   const [openMobile, setOpenMobile] = useState(false);
   const [isMobile, setIsMobile] = useState(getIsMobile);

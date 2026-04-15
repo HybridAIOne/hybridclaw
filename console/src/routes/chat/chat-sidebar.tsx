@@ -27,11 +27,9 @@ export interface ChatSidebarProps {
   isPending?: boolean;
 }
 
-export function ChatSidebarProvider(props: {
-  children: ReactNode;
-}) {
+export function ChatSidebarProvider(props: { children: ReactNode }) {
   return (
-    <SidebarProvider style={CHAT_SIDEBAR_STYLE} defaultOpen>
+    <SidebarProvider style={CHAT_SIDEBAR_STYLE} defaultOpen storageKey={false}>
       {props.children}
     </SidebarProvider>
   );
