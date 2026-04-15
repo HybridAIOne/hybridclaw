@@ -25,6 +25,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from './index';
 import styles from './index.module.css';
@@ -39,7 +40,10 @@ export function AppSidebar(props: {
   return (
     <Sidebar>
       <SidebarHeader>
-        <SidebarBrand />
+        <div className={styles.headerRow}>
+          <SidebarBrand />
+          <SidebarTrigger className={styles.sidebarToggle} />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {props.groups.map((group) => (

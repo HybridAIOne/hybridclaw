@@ -562,9 +562,6 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarInset>
-          <SidebarTrigger />
-        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');

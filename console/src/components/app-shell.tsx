@@ -15,7 +15,6 @@ import {
   getSidebarStyleVars,
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
@@ -72,6 +71,7 @@ export function AppShell(props: { children: ReactNode }) {
   })).filter((group) => group.items.length > 0);
   const navItems = sidebarGroups.flatMap((group) => group.items);
   const currentNavItem = resolveCurrentAdminNavItem(adminPath, navItems);
+  const isChatRoute = adminPath === '/chat';
 
   return (
     <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
@@ -83,13 +83,14 @@ export function AppShell(props: { children: ReactNode }) {
           onLogout={auth.logout}
         />
         <SidebarInset className="main-panel">
-          <div className="topbar">
-            <SidebarTrigger className="topbar-sidebar-trigger" />
-            <div className="topbar-title">
-              <div className="topbar-heading">
-                <h2>{currentNavItem.label}</h2>
+          <div className={isChatRoute ? 'topbar topbar-compact' : 'topbar'}>
+            {!isChatRoute ? (
+              <div className="topbar-title">
+                <div className="topbar-heading">
+                  <h2>{currentNavItem.label}</h2>
+                </div>
               </div>
-            </div>
+            ) : null}
             <nav className="view-switch" aria-label="Switch view">
               {VIEW_SWITCH_ITEMS.map((item) => {
                 const inner = (

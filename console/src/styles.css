@@ -229,8 +229,9 @@ code {
   white-space: nowrap;
 }
 
-.topbar-sidebar-trigger {
-  flex: 0 0 auto;
+.topbar-compact {
+  padding-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .view-switch {
