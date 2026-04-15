@@ -1,6 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 import { expect, test } from 'vitest';
 
@@ -21,7 +21,10 @@ function writeExecutable(filePath: string, content: string): void {
   fs.chmodSync(filePath, 0o755);
 }
 
-function runLoadProfile(configPath: string, secretCommand: string): {
+function runLoadProfile(
+  configPath: string,
+  secretCommand: string,
+): {
   ok: boolean;
   error?: string;
   type?: string;
