@@ -1080,4 +1080,192 @@ description: Docs helper.
       'Refusing to import symlinked content',
     );
   });
+
+  test('imports a skill from a local directory', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const tempSourceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-local-skill-source-'),
+    );
+    fs.writeFileSync(
+      path.join(tempSourceDir, 'SKILL.md'),
+      `---
+name: local-dir-skill
+description: Skill imported from a local directory.
+---
+
+# Local Dir Skill
+
+Use this skill for local testing.
+`,
+    );
+    fs.mkdirSync(path.join(tempSourceDir, 'references'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempSourceDir, 'references', 'notes.md'),
+      '# Notes\n',
+    );
+
+    try {
+      const result = await importSkill(tempSourceDir, { skipGuard: true });
+
+      expect(result.skillName).toBe('local-dir-skill');
+      expect(result.replacedExisting).toBe(false);
+      expect(result.resolvedSource).toBe(path.resolve(tempSourceDir));
+      expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
+      expect(
+        fs.existsSync(path.join(result.skillDir, 'references', 'notes.md')),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(tempSourceDir, { recursive: true, force: true });
+    }
+  });
+
+  test('imports a skill from a relative local directory path', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const tempSourceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-local-skill-relative-'),
+    );
+    fs.writeFileSync(
+      path.join(tempSourceDir, 'SKILL.md'),
+      `---
+name: relative-skill
+description: Skill from relative path.
+---
+
+# Relative Skill
+`,
+    );
+
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(path.dirname(tempSourceDir));
+      const relativePath = `./${path.basename(tempSourceDir)}`;
+
+      const result = await importSkill(relativePath, { skipGuard: true });
+
+      expect(result.skillName).toBe('relative-skill');
+      expect(result.resolvedSource).toBe(path.resolve(relativePath));
+      expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(tempSourceDir, { recursive: true, force: true });
+    }
+  });
+
+  test('imports a skill from a local .zip file', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: zipped-skill
+description: Skill from a zip file.
+---
+
+# Zipped Skill
+`,
+      },
+      {
+        name: 'scripts/helper.sh',
+        content: '#!/bin/bash\necho "hello"\n',
+      },
+    ]);
+
+    const tempZipPath = path.join(
+      os.tmpdir(),
+      `hybridclaw-local-skill-${Date.now()}.zip`,
+    );
+    fs.writeFileSync(tempZipPath, archiveBytes);
+
+    try {
+      const result = await importSkill(tempZipPath, { skipGuard: true });
+
+      expect(result.skillName).toBe('zipped-skill');
+      expect(result.resolvedSource).toBe(tempZipPath);
+      expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
+      expect(
+        fs.existsSync(path.join(result.skillDir, 'scripts', 'helper.sh')),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(tempZipPath, { force: true });
+    }
+  });
+
+  test('rejects a local source that does not exist', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    await expect(importSkill('/nonexistent/path/to/skill')).rejects.toThrow(
+      'Local skill source not found',
+    );
+  });
+
+  test('rejects a local file that is not a .zip', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const tempFile = path.join(
+      os.tmpdir(),
+      `hybridclaw-not-zip-${Date.now()}.txt`,
+    );
+    fs.writeFileSync(tempFile, 'not a skill');
+
+    try {
+      await expect(importSkill(tempFile)).rejects.toThrow(
+        'Local skill source must be a directory or a .zip file',
+      );
+    } finally {
+      fs.rmSync(tempFile, { force: true });
+    }
+  });
+
+  test('rejects a local directory without a SKILL.md file', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const tempSourceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-local-skill-no-manifest-'),
+    );
+    fs.writeFileSync(path.join(tempSourceDir, 'README.md'), '# Not a skill\n');
+
+    try {
+      await expect(importSkill(tempSourceDir)).rejects.toThrow(
+        'did not provide a SKILL.md file',
+      );
+    } finally {
+      fs.rmSync(tempSourceDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects symlinked content in a local directory import', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const tempSourceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-local-skill-symlink-'),
+    );
+    fs.writeFileSync(
+      path.join(tempSourceDir, 'SKILL.md'),
+      `---
+name: symlink-skill
+description: Has a symlink.
+---
+
+# Symlink Skill
+`,
+    );
+    const outsideFile = path.join(
+      os.tmpdir(),
+      `hybridclaw-outside-${Date.now()}.txt`,
+    );
+    fs.writeFileSync(outsideFile, 'secret');
+    fs.symlinkSync(outsideFile, path.join(tempSourceDir, 'linked.txt'));
+
+    try {
+      await expect(importSkill(tempSourceDir)).rejects.toThrow(
+        'Refusing to import symlinked content',
+      );
+    } finally {
+      fs.rmSync(tempSourceDir, { recursive: true, force: true });
+      fs.rmSync(outsideFile, { force: true });
+    }
+  });
 });

@@ -26,12 +26,20 @@ import {
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com']);
 const SKILLS_SH_HOSTS = new Set(['skills.sh', 'www.skills.sh']);
 
+type LocalSkillImportSource = {
+  kind: 'local';
+  displaySource: string;
+  resolvedPath: string;
+  isZip: boolean;
+};
+
 type SkillImportSource =
   | {
       kind: 'packaged-community';
       displaySource: string;
       requestedPath: string;
     }
+  | LocalSkillImportSource
   | GitHubSkillImportSource
   | HubSkillImportSource;
 
@@ -136,6 +144,57 @@ function readSkillNameFromFile(skillFilePath: string): string {
     raw,
     path.basename(path.dirname(skillFilePath)),
   );
+}
+
+function parseLocalSource(input: string): LocalSkillImportSource | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const isExplicitLocal =
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('~/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../');
+
+  if (!isExplicitLocal) return null;
+
+  const expanded = trimmed.startsWith('~/')
+    ? path.join(os.homedir(), trimmed.slice(2))
+    : trimmed;
+  const resolved = path.resolve(expanded);
+
+  if (!fs.existsSync(resolved)) {
+    throw new SkillImportError(`Local skill source not found: ${resolved}`);
+  }
+
+  const stat = fs.statSync(resolved);
+  const isZip = stat.isFile() && resolved.endsWith('.zip');
+
+  if (!stat.isDirectory() && !isZip) {
+    throw new SkillImportError(
+      `Local skill source must be a directory or a .zip file: ${resolved}`,
+    );
+  }
+
+  return {
+    kind: 'local',
+    displaySource: input,
+    resolvedPath: resolved,
+    isZip,
+  };
+}
+
+async function populateFromLocalSource(
+  source: LocalSkillImportSource,
+  targetDir: string,
+): Promise<string> {
+  if (source.isZip) {
+    const { safeExtractZip } = await import('../agents/claw-security.js');
+    await safeExtractZip(source.resolvedPath, targetDir);
+  } else {
+    copyDirectoryContents(source.resolvedPath, targetDir);
+  }
+  return source.resolvedPath;
 }
 
 function parseGitHubUrl(input: string): SkillImportSource | null {
@@ -426,16 +485,19 @@ function parsePackagedCommunitySource(input: string): SkillImportSource | null {
 }
 
 function unsupportedSkillSourceMessage(input: string): string {
-  return `Unsupported skill source: ${input}. Use official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].`;
+  return `Unsupported skill source: ${input}. Use a local path (/path/to/skill, ./skill, ~/skill, or /path/to/skill.zip), official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].`;
 }
 
 function resolveSkillImportSource(input: string): SkillImportSource {
   const trimmed = String(input || '').trim();
   if (!trimmed) {
     throw new SkillImportError(
-      'Missing skill source. Use official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].',
+      'Missing skill source. Use a local path (/path/to/skill, ./skill, ~/skill, or /path/to/skill.zip), official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].',
     );
   }
+
+  const localSource = parseLocalSource(trimmed);
+  if (localSource) return localSource;
 
   const packagedCommunity = parsePackagedCommunitySource(trimmed);
   if (packagedCommunity) return packagedCommunity;
@@ -553,19 +615,21 @@ export async function importSkill(
 
   try {
     const resolvedRemoteSource =
-      resolvedSource.kind === 'packaged-community'
-        ? populateFromPackagedCommunitySource(resolvedSource, tempSkillDir)
-        : resolvedSource.kind === 'github'
-          ? await populateFromGitHubSource(
-              fetchImpl,
-              resolvedSource,
-              tempSkillDir,
-            )
-          : await populateFromHubSource(
-              fetchImpl,
-              resolvedSource,
-              tempSkillDir,
-            );
+      resolvedSource.kind === 'local'
+        ? await populateFromLocalSource(resolvedSource, tempSkillDir)
+        : resolvedSource.kind === 'packaged-community'
+          ? populateFromPackagedCommunitySource(resolvedSource, tempSkillDir)
+          : resolvedSource.kind === 'github'
+            ? await populateFromGitHubSource(
+                fetchImpl,
+                resolvedSource,
+                tempSkillDir,
+              )
+            : await populateFromHubSource(
+                fetchImpl,
+                resolvedSource,
+                tempSkillDir,
+              );
 
     normalizeSkillManifestFile(tempSkillDir);
     const skillFilePath = path.join(tempSkillDir, 'SKILL.md');
