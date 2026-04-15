@@ -43,6 +43,12 @@ export function ChatSidebar(props: {
                     s.sessionId === props.activeSessionId ? 'page' : undefined
                   }
                   onClick={() => props.onOpenSession(s.sessionId)}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ') {
+                      e.preventDefault();
+                      props.onOpenSession(s.sessionId);
+                    }
+                  }}
                 >
                   <span className={css.sessionTitle}>
                     {s.title || 'Untitled'}

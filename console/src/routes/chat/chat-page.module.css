@@ -377,6 +377,10 @@
   opacity: 1;
 }
 
+.messageBlock:focus-within .messageActions {
+  opacity: 1;
+}
+
 .actionButton {
   display: flex;
   align-items: center;
@@ -397,6 +401,17 @@
 .actionButton:hover {
   background: var(--muted);
   color: var(--text);
+}
+
+.actionButton:focus-visible,
+.branchButton:focus-visible,
+.approvalAllow:focus-visible,
+.approvalDeny:focus-visible,
+.newChatButton:focus-visible,
+.attachButton:focus-visible,
+.sendButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .actionButtonSuccess {
@@ -671,6 +686,12 @@
   padding: 2px 0;
 }
 
+.composerInput:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
 .composerInput::placeholder {
   color: var(--muted-foreground);
 }
@@ -813,7 +834,9 @@
   .sidebarOpen {
     display: flex;
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
     z-index: 100;
     width: 280px;
     max-width: 85vw;
@@ -846,6 +869,10 @@
   .composerWrapper {
     padding: 0 16px 12px;
   }
+
+  .slashSuggestions {
+    max-height: 40vh;
+  }
 }
 
 @media (min-width: 901px) {
@@ -864,5 +891,34 @@
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .bubbleUser,
+  .bubbleAssistant {
+    max-width: 95%;
+  }
+
+  .messageArea {
+    padding: 12px 8px 8px;
+  }
+
+  .composerWrapper {
+    padding: 0 8px 8px;
+  }
+
+  .emptyState h1 {
+    font-size: 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebarOpen {
+    animation: none;
+  }
+
+  .thinkingDot {
+    animation: none;
   }
 }

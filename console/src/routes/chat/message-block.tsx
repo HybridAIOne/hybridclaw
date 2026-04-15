@@ -333,6 +333,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
             type="button"
             className={cx(css.actionButton, copied && css.actionButtonSuccess)}
             title="Copy"
+            aria-label={copied ? 'Copied' : 'Copy message'}
             onClick={handleCopy}
           >
             {copied ? '✓' : '⧉'}
@@ -342,6 +343,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               type="button"
               className={css.actionButton}
               title="Edit"
+              aria-label="Edit message"
               onClick={() => props.onEdit(msg)}
             >
               ✎
@@ -352,6 +354,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               type="button"
               className={css.actionButton}
               title="Regenerate"
+              aria-label="Regenerate response"
               onClick={() => props.onRegenerate(msg)}
             >
               ↻
@@ -398,6 +401,7 @@ export function EditInline(props: {
         className={css.editArea}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        aria-label="Edit message"
         // biome-ignore lint/a11y/noAutofocus: edit mode should focus the textarea immediately
         autoFocus
       />

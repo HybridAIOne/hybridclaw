@@ -77,9 +77,14 @@ export function AppSidebar(props: {
 }
 
 function SidebarBrand() {
+  const { state } = useSidebar();
+
   return (
     <div className={styles.brand}>
-      <div className={styles.brandTitle}>
+      <div
+        className={styles.brandTitle}
+        title={state === 'collapsed' ? 'HybridClaw' : undefined}
+      >
         <span className={styles.brandMark} aria-hidden="true">
           <HybridClaw />
         </span>
@@ -93,11 +98,12 @@ function SidebarBrand() {
 }
 
 function SidebarNavLink(props: { item: SidebarNavItem }) {
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile, state } = useSidebar();
 
   return (
     <Link
       to={props.item.to}
+      title={state === 'collapsed' ? props.item.label : undefined}
       activeProps={{
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}

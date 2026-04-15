@@ -13,6 +13,7 @@ import type {
 } from '../../api/chat-types';
 import { validateToken } from '../../api/client';
 import { useAuth } from '../../auth';
+import { useSidebar } from '../../components/sidebar/index';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -65,6 +66,21 @@ export function ChatPage() {
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
+
+  const sidebar = useSidebar();
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only on mount/unmount — sidebar state changes must not re-trigger
+  useEffect(() => {
+    const wasOpen = sidebar.open;
+    if (wasOpen && !sidebar.isMobile) {
+      sidebar.setOpen(false);
+    }
+    return () => {
+      if (wasOpen && !sidebar.isMobile) {
+        sidebar.setOpen(true);
+      }
+    };
+  }, []);
 
   const [sessionId, setSessionId] = useState<string>(() => {
     const stored = readStoredSessionId();
@@ -388,7 +404,7 @@ export function ChatPage() {
             type="button"
             className="ghost-button"
             onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open sidebar"
+            aria-label="Open chat sidebar"
           >
             ☰
           </button>

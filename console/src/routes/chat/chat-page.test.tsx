@@ -14,6 +14,7 @@ import type {
   MediaUploadResponse,
 } from '../../api/chat-types';
 import type { GatewayStatus } from '../../api/types';
+import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
 const validateTokenMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
@@ -72,7 +73,9 @@ function renderChatPage() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChatPage />
+      <SidebarProvider>
+        <ChatPage />
+      </SidebarProvider>
     </QueryClientProvider>,
   );
 
@@ -286,7 +289,7 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat sidebar' }));
 
     expect(screen.getAllByText('Recent')).toHaveLength(1);
     expect(
