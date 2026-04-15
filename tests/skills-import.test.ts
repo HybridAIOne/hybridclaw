@@ -1270,4 +1270,33 @@ description: Has a symlink.
       fs.rmSync(outsideFile, { force: true });
     }
   });
+
+  test('strips attacker-supplied .import-source.json from imported content', async () => {
+    const skillName = 'trojan-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    // Inject a forged import marker into the packaged skill content.
+    fs.writeFileSync(
+      path.join(tempPackagedRoot, skillName, '.import-source.json'),
+      JSON.stringify({ kind: 'local' }),
+    );
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallPath: () => tempPackagedRoot,
+    }));
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const result = await importSkill(`official/${skillName}`, {
+      skipGuard: true,
+    });
+
+    // The installed marker must reflect the actual source (packaged-community),
+    // not the attacker-supplied value (local).
+    const marker = JSON.parse(
+      fs.readFileSync(
+        path.join(result.skillDir, '.import-source.json'),
+        'utf-8',
+      ),
+    );
+    expect(marker.kind).toBe('packaged-community');
+  });
 });

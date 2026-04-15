@@ -25,6 +25,7 @@ import {
 
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com']);
 const SKILLS_SH_HOSTS = new Set(['skills.sh', 'www.skills.sh']);
+export const IMPORT_SOURCE_FILE = '.import-source.json';
 
 type LocalSkillImportSource = {
   kind: 'local';
@@ -686,8 +687,7 @@ export async function importSkill(
           overrideHint =
             ' Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.';
         } else if (guardVerdict === 'dangerous') {
-          overrideHint =
-            ' To install anyway, re-run with --skip-skill-scan.';
+          overrideHint = ' To install anyway, re-run with --skip-skill-scan.';
         } else {
           overrideHint = ' To install anyway, re-run with --force.';
         }
@@ -706,6 +706,11 @@ export async function importSkill(
       `.${targetDirName}.import-${randomUUID().slice(0, 8)}`,
     );
     fs.mkdirSync(installRoot, { recursive: true });
+    // Strip any attacker-supplied import marker before copying content.
+    const untrustedMarker = path.join(tempSkillDir, IMPORT_SOURCE_FILE);
+    if (fs.existsSync(untrustedMarker)) {
+      fs.rmSync(untrustedMarker, { force: true });
+    }
     copyDirectoryContents(tempSkillDir, stageDir);
     const replacedExisting = fs.existsSync(targetDir);
     if (replacedExisting) {
@@ -717,6 +722,11 @@ export async function importSkill(
       fs.rmSync(targetDir, { recursive: true, force: true });
     }
     fs.renameSync(stageDir, targetDir);
+    // Written after content copy so skill content cannot forge the marker.
+    fs.writeFileSync(
+      path.join(targetDir, IMPORT_SOURCE_FILE),
+      JSON.stringify({ kind: resolvedSource.kind }),
+    );
 
     return {
       skillName,
