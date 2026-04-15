@@ -1,0 +1,4 @@
+interface:
+  display_name: "Salesforce"
+  short_description: "Inspect Salesforce schema and SOQL data"
+  default_prompt: "Use $salesforce to inspect Salesforce schema, relationships, and SOQL rows safely."
