@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
+import { SquarePen } from '../../components/icons';
 import {
   getSidebarStyleVars,
   Sidebar,
@@ -34,31 +35,25 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
     <Sidebar side="left" collapsible="none">
       <SidebarHeader>
-        <ChatSidebarHeader />
-        <button
-          type="button"
-          className={css.newChatButton}
-          onClick={props.onNewChat}
-        >
-          + New Conversation
-        </button>
+        <div className={css.chatSidebarHeader}>
+          <span className={css.sidebarLabel} style={{ margin: 0 }}>
+            Sessions
+          </span>
+          <button
+            type="button"
+            className={css.newChatButton}
+            onClick={props.onNewChat}
+            aria-label="New conversation"
+            title="New conversation"
+          >
+            <SquarePen />
+          </button>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <ChatSessionList {...props} />
       </SidebarContent>
     </Sidebar>
-  );
-}
-
-export { SidebarTrigger as ChatSidebarTrigger } from '../../components/sidebar/index';
-
-function ChatSidebarHeader() {
-  return (
-    <div className={css.chatSidebarHeader}>
-      <span className={css.sidebarLabel} style={{ margin: 0 }}>
-        Sessions
-      </span>
-    </div>
   );
 }
 

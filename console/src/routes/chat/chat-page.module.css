@@ -37,24 +37,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 9px 12px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--panel-bg);
+  color: var(--muted-foreground);
   cursor: pointer;
-  font-size: 0.84rem;
-  font-weight: 500;
+  flex-shrink: 0;
   transition:
-    background 0.15s,
-    box-shadow 0.15s;
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.newChatButton svg {
+  width: 16px;
+  height: 16px;
 }
 
 .newChatButton:hover {
-  background: var(--ring);
-  box-shadow: var(--shadow-raised);
+  background: var(--accent-soft);
+  color: var(--primary);
+  border-color: var(--line-strong);
 }
 
 .sidebarLabel {

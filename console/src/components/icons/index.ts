@@ -22,5 +22,6 @@ export { Policy } from './Policy';
 export { Scheduler } from './Scheduler';
 export { Sessions } from './Sessions';
 export { Skills } from './Skills';
+export { SquarePen } from './SquarePen';
 export { Terminal } from './Terminal';
 export { Tools } from './Tools';
