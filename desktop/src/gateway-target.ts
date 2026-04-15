@@ -1,6 +1,15 @@
+import path from 'node:path';
+
 export type DesktopRoute = 'chat' | 'agents' | 'admin';
 
 export const DEFAULT_GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+const COMMON_DESKTOP_PATH_ENTRIES = [
+  '/opt/homebrew/bin',
+  '/opt/homebrew/sbin',
+  '/usr/local/bin',
+  '/usr/local/sbin',
+  '/Applications/Docker.app/Contents/Resources/bin',
+];
 
 export function normalizeGatewayBaseUrl(
   raw = DEFAULT_GATEWAY_BASE_URL,
@@ -61,11 +70,29 @@ export function isInAppUrl(candidate: string, baseUrl: string): boolean {
   return routeForUrl(candidate, baseUrl) !== null;
 }
 
+export function buildGatewayPath(
+  currentPath = process.env.PATH || '',
+): string {
+  const entries = currentPath
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const entry of COMMON_DESKTOP_PATH_ENTRIES) {
+    if (!entries.includes(entry)) {
+      entries.push(entry);
+    }
+  }
+
+  return entries.join(path.delimiter);
+}
+
 export function buildGatewayEnv(baseUrl: string): NodeJS.ProcessEnv {
   const normalizedBaseUrl = normalizeGatewayBaseUrl(baseUrl);
   const url = new URL(`${normalizedBaseUrl}/`);
   return {
     ...process.env,
+    PATH: buildGatewayPath(process.env.PATH),
     GATEWAY_BASE_URL: normalizedBaseUrl,
     HEALTH_HOST: url.hostname,
     HEALTH_PORT: url.port || (url.protocol === 'https:' ? '443' : '80'),

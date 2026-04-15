@@ -94,7 +94,10 @@ async function main() {
 
   const child = spawn('/usr/bin/open', ['-W', '-n', preparedExecutablePath, '--args', desktopDir], {
     stdio: 'inherit',
-    env: process.env,
+    env: {
+      ...process.env,
+      HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE: process.execPath,
+    },
   });
 
   child.on('exit', (code, signal) => {

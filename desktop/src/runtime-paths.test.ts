@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { resolveGatewayEntry, resolveRuntimeRoot } from './runtime-paths.js';
+import {
+  resolveGatewayEntry,
+  resolveGatewayNodeExecutable,
+  resolveRuntimeRoot,
+} from './runtime-paths.js';
 
 describe('resolveRuntimeRoot', () => {
   test('uses the bundled runtime inside packaged apps', () => {
@@ -28,5 +32,51 @@ describe('resolveGatewayEntry', () => {
     expect(resolveGatewayEntry('/Users/example/src/hybridclaw')).toBe(
       '/Users/example/src/hybridclaw/dist/cli.js',
     );
+  });
+});
+
+describe('resolveGatewayNodeExecutable', () => {
+  test('uses the bundled node binary inside packaged apps', () => {
+    expect(
+      resolveGatewayNodeExecutable({
+        env: {},
+        packaged: true,
+        processExecPath:
+          '/Applications/HybridClaw.app/Contents/MacOS/HybridClaw',
+        runtimeRoot: '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime',
+      }),
+    ).toBe(
+      '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime/bin/node',
+    );
+  });
+
+  test('prefers the injected node executable in development', () => {
+    expect(
+      resolveGatewayNodeExecutable({
+        env: {
+          HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE:
+            '/Users/example/.nvm/versions/node/v22.15.1/bin/node',
+          npm_node_execpath: '/usr/local/bin/node',
+        },
+        packaged: false,
+        processExecPath:
+          '/Users/example/src/hybridclaw/desktop/.electron-dev/HybridClaw.app/Contents/MacOS/Electron',
+        runtimeRoot: '/Users/example/src/hybridclaw',
+      }),
+    ).toBe('/Users/example/.nvm/versions/node/v22.15.1/bin/node');
+  });
+
+  test('falls back to npm node execpath in development', () => {
+    expect(
+      resolveGatewayNodeExecutable({
+        env: {
+          npm_node_execpath: '/opt/homebrew/bin/node',
+        },
+        packaged: false,
+        processExecPath:
+          '/Users/example/src/hybridclaw/desktop/.electron-dev/HybridClaw.app/Contents/MacOS/Electron',
+        runtimeRoot: '/Users/example/src/hybridclaw',
+      }),
+    ).toBe('/opt/homebrew/bin/node');
   });
 });
