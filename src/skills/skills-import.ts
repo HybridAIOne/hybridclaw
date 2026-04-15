@@ -163,6 +163,15 @@ function parseLocalSource(input: string): LocalSkillImportSource | null {
     : trimmed;
   const resolved = path.resolve(expanded);
 
+  return {
+    kind: 'local',
+    displaySource: input,
+    resolvedPath: resolved,
+    isZip: resolved.endsWith('.zip'),
+  };
+}
+
+function validateLocalSource(resolved: string): { isZip: boolean } {
   if (!fs.existsSync(resolved)) {
     throw new SkillImportError(`Local skill source not found: ${resolved}`);
   }
@@ -176,19 +185,15 @@ function parseLocalSource(input: string): LocalSkillImportSource | null {
     );
   }
 
-  return {
-    kind: 'local',
-    displaySource: input,
-    resolvedPath: resolved,
-    isZip,
-  };
+  return { isZip };
 }
 
 async function populateFromLocalSource(
   source: LocalSkillImportSource,
   targetDir: string,
 ): Promise<string> {
-  if (source.isZip) {
+  const { isZip } = validateLocalSource(source.resolvedPath);
+  if (isZip) {
     const { safeExtractZip } = await import('../agents/claw-security.js');
     await safeExtractZip(source.resolvedPath, targetDir);
   } else {
@@ -614,22 +619,35 @@ export async function importSkill(
   fs.mkdirSync(tempSkillDir, { recursive: true });
 
   try {
-    const resolvedRemoteSource =
-      resolvedSource.kind === 'local'
-        ? await populateFromLocalSource(resolvedSource, tempSkillDir)
-        : resolvedSource.kind === 'packaged-community'
-          ? populateFromPackagedCommunitySource(resolvedSource, tempSkillDir)
-          : resolvedSource.kind === 'github'
-            ? await populateFromGitHubSource(
-                fetchImpl,
-                resolvedSource,
-                tempSkillDir,
-              )
-            : await populateFromHubSource(
-                fetchImpl,
-                resolvedSource,
-                tempSkillDir,
-              );
+    let resolvedRemoteSource: string;
+    switch (resolvedSource.kind) {
+      case 'local':
+        resolvedRemoteSource = await populateFromLocalSource(
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      case 'packaged-community':
+        resolvedRemoteSource = populateFromPackagedCommunitySource(
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      case 'github':
+        resolvedRemoteSource = await populateFromGitHubSource(
+          fetchImpl,
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      default:
+        resolvedRemoteSource = await populateFromHubSource(
+          fetchImpl,
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+    }
 
     normalizeSkillManifestFile(tempSkillDir);
     const skillFilePath = path.join(tempSkillDir, 'SKILL.md');
@@ -650,7 +668,7 @@ export async function importSkill(
       guardDecision = guardSkillDirectory({
         skillName,
         skillPath: tempSkillDir,
-        sourceTag: 'community',
+        sourceTag: resolvedSource.kind === 'local' ? 'extra' : 'community',
       });
       guardVerdict = guardDecision.result.verdict;
       guardFindingsCount = guardDecision.result.findings.length;
