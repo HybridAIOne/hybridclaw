@@ -27,13 +27,14 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
-function setupProjectCwd(): string {
+function setupProjectCwd(): { projectDir: string; managedSkillsDir: string } {
   const homeDir = setupHome();
   makeTempDir.track(homeDir);
   const projectDir = path.join(homeDir, 'project');
   fs.mkdirSync(projectDir, { recursive: true });
   process.chdir(projectDir);
-  return projectDir;
+  const managedSkillsDir = path.join(homeDir, '.hybridclaw', 'skills');
+  return { projectDir, managedSkillsDir };
 }
 
 async function createZipArchive(
@@ -69,7 +70,7 @@ async function createZipArchive(
 }
 
 test('createGatewayAdminSkill stages outside skills/ before publishing the skill', async () => {
-  const projectDir = setupProjectCwd();
+  const { managedSkillsDir } = setupProjectCwd();
 
   const { createGatewayAdminSkill } = await import(
     '../src/gateway/gateway-service.ts'
@@ -87,7 +88,7 @@ test('createGatewayAdminSkill stages outside skills/ before publishing the skill
     files: [{ path: 'scripts/run.mjs', content: 'console.log("ok");\n' }],
   });
 
-  const skillDir = path.join(projectDir, 'skills', 'my-skill');
+  const skillDir = path.join(managedSkillsDir, 'my-skill');
   expect(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')).toContain(
     'name: my-skill',
   );
@@ -97,13 +98,13 @@ test('createGatewayAdminSkill stages outside skills/ before publishing the skill
   expect(result.skills.some((skill) => skill.name === 'my-skill')).toBe(true);
   expect(
     fs
-      .readdirSync(projectDir)
+      .readdirSync(managedSkillsDir)
       .filter((entry) => entry.startsWith('.my-skill.create-')),
   ).toEqual([]);
 });
 
 test('createGatewayAdminSkill preserves a competing skill when the final rename loses the race', async () => {
-  const projectDir = setupProjectCwd();
+  const { managedSkillsDir } = setupProjectCwd();
 
   const { GatewayRequestError } = await import(
     '../src/errors/gateway-request-error.ts'
@@ -112,7 +113,7 @@ test('createGatewayAdminSkill preserves a competing skill when the final rename 
     '../src/gateway/gateway-service.ts'
   );
 
-  const skillDir = path.join(projectDir, 'skills', 'my-skill');
+  const skillDir = path.join(managedSkillsDir, 'my-skill');
   const originalRenameSync = fs.renameSync;
   vi.spyOn(fs, 'renameSync')
     .mockImplementationOnce((_oldPath, _newPath) => {
@@ -149,7 +150,7 @@ test('createGatewayAdminSkill preserves a competing skill when the final rename 
   );
   expect(
     fs
-      .readdirSync(projectDir)
+      .readdirSync(managedSkillsDir)
       .filter((entry) => entry.startsWith('.my-skill.create-')),
   ).toEqual([]);
 });
@@ -179,7 +180,7 @@ test('uploadGatewayAdminSkillZip rejects corrupt archives as a bad request', asy
 });
 
 test('createGatewayAdminSkill rejects blocked skills before publishing them', async () => {
-  const projectDir = setupProjectCwd();
+  const { managedSkillsDir } = setupProjectCwd();
   vi.doMock('../src/skills/skills-guard.js', () => ({
     guardSkillDirectory: () => ({
       allowed: false,
@@ -233,18 +234,16 @@ test('createGatewayAdminSkill rejects blocked skills before publishing them', as
     );
   }
 
-  expect(fs.existsSync(path.join(projectDir, 'skills', 'my-skill'))).toBe(
-    false,
-  );
+  expect(fs.existsSync(path.join(managedSkillsDir, 'my-skill'))).toBe(false);
   expect(
     fs
-      .readdirSync(projectDir)
+      .readdirSync(managedSkillsDir)
       .filter((entry) => entry.startsWith('.my-skill.create-')),
   ).toEqual([]);
 });
 
 test('uploadGatewayAdminSkillZip accepts wrapped archives with macOS metadata entries', async () => {
-  const projectDir = setupProjectCwd();
+  const { managedSkillsDir } = setupProjectCwd();
 
   const { uploadGatewayAdminSkillZip } = await import(
     '../src/gateway/gateway-service.ts'
@@ -277,22 +276,18 @@ description: Wrapped skill upload test
 
   const result = await uploadGatewayAdminSkillZip(zipBuffer);
 
-  const skillDir = path.join(projectDir, 'skills', 'my-skill');
+  const skillDir = path.join(managedSkillsDir, 'my-skill');
   expect(result.skills.some((skill) => skill.name === 'my-skill')).toBe(true);
   expect(fs.existsSync(path.join(skillDir, 'SKILL.md'))).toBe(true);
   expect(
     fs.readFileSync(path.join(skillDir, 'scripts', 'run.mjs'), 'utf-8'),
   ).toBe('console.log("wrapped");\n');
-  expect(fs.existsSync(path.join(projectDir, 'skills', '__MACOSX'))).toBe(
-    false,
-  );
-  expect(fs.existsSync(path.join(projectDir, 'skills', '.DS_Store'))).toBe(
-    false,
-  );
+  expect(fs.existsSync(path.join(managedSkillsDir, '__MACOSX'))).toBe(false);
+  expect(fs.existsSync(path.join(managedSkillsDir, '.DS_Store'))).toBe(false);
 });
 
 test('uploadGatewayAdminSkillZip rejects blocked skills before installation', async () => {
-  const projectDir = setupProjectCwd();
+  const { managedSkillsDir } = setupProjectCwd();
   vi.doMock('../src/skills/skills-guard.js', () => ({
     guardSkillDirectory: () => ({
       allowed: false,
@@ -354,7 +349,5 @@ description: Blocked skill upload test
     );
   }
 
-  expect(fs.existsSync(path.join(projectDir, 'skills', 'my-skill'))).toBe(
-    false,
-  );
+  expect(fs.existsSync(path.join(managedSkillsDir, 'my-skill'))).toBe(false);
 });

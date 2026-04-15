@@ -1673,10 +1673,96 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
-function resolveManagedCommunitySkillsDir(
+export function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
   return path.join(homeDir, 'skills');
+}
+
+/**
+ * Promote agent-created skills from the workspace to the managed community
+ * skills directory (~/.hybridclaw/skills/). Skills created by the agent land
+ * in workspace/skills/ but the canonical source for installed skills is the
+ * managed community dir. This function copies new workspace skills there so
+ * they survive the prune-and-sync cycle in loadSkills().
+ */
+export function promoteWorkspaceSkills(workspaceDir: string): void {
+  const workspaceSkillsDir = path.join(workspaceDir, 'skills');
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  // Quick check: are there any skill directories with a SKILL.md to promote?
+  // Avoids the expensive collectResolvedSkillCandidates() scan on turns where
+  // the agent created no skills (the common case).
+  let hasCandidate = false;
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (
+        entry.isDirectory() &&
+        fs.existsSync(path.join(workspaceSkillsDir, entry.name, 'SKILL.md'))
+      ) {
+        hasCandidate = true;
+        break;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (!hasCandidate) return;
+
+  const communityDir = resolveManagedCommunitySkillsDir();
+
+  // Build a set of skill names already known from any catalog source so we
+  // only promote genuinely new skills the agent created, not synced copies of
+  // bundled or imported skills.
+  const knownSkillNames = new Set(
+    collectResolvedSkillCandidates().map((s) => s.name),
+  );
+
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+
+      const wsSkillDir = path.join(workspaceSkillsDir, entry.name);
+      const skillFile = path.join(wsSkillDir, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+
+      // Parse the skill name from frontmatter (or fall back to dir name).
+      let skillName = entry.name;
+      try {
+        const raw = fs.readFileSync(skillFile, 'utf-8');
+        const frontmatter = parseFrontmatter(raw);
+        const metaName = (frontmatter.meta.name || '').trim();
+        if (metaName) skillName = metaName;
+      } catch {
+        /* use dir name */
+      }
+
+      // Skip skills that already exist in the catalog from another source
+      // (checked by canonical skill name from frontmatter).
+      if (knownSkillNames.has(skillName)) continue;
+
+      // Also skip if a directory with the same name already exists in the
+      // managed dir — guards against the case where the frontmatter name
+      // differs from the dir name, and also prevents races when two
+      // concurrent turns try to promote the same skill simultaneously.
+      const communitySkillDir = path.join(communityDir, entry.name);
+      if (fs.existsSync(communitySkillDir)) continue;
+
+      // New skill found in workspace that doesn't exist in the managed dir.
+      fs.mkdirSync(communityDir, { recursive: true });
+      fs.cpSync(wsSkillDir, communitySkillDir, { recursive: true });
+      logger.info(
+        { skill: skillName, from: wsSkillDir, to: communitySkillDir },
+        'Promoted agent-created skill to managed skills directory',
+      );
+    }
+  } catch (err) {
+    logger.debug({ workspaceDir, err }, 'Failed to promote workspace skills');
+  }
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {

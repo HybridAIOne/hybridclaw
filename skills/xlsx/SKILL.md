@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Inspect, create, clean, analyze, and format `.xlsx` workbooks and tabular data with Node.js and XlsxPopulate.
+description: Create, edit, inspect, and analyze `.xlsx` spreadsheets and Excel workbooks. Use this skill whenever the user asks to make a spreadsheet, generate an Excel file, create a table as xlsx, import CSV/TSV to xlsx, or work with any `.xlsx` file.
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -9,11 +9,14 @@ requires:
 metadata:
   hybridclaw:
     category: office
-    short_description: "XLSX editing and analysis."
+    short_description: "Create and edit Excel spreadsheets (.xlsx)."
     tags:
       - office
       - spreadsheet
       - xlsx
+      - excel
+      - table
+      - csv
     related_skills:
       - docx
 ---
@@ -23,7 +26,7 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 
 ## Default Workflow
 
-1. Use a workspace CommonJS `.cjs` script with `require("xlsx-populate")` for workbook creation and structural edits.
+1. For creation tasks, use `skills/xlsx/scripts/create_xlsx.cjs` to create a new workbook from headers/rows or JSON data. Fall back to a workspace `.cjs` script only when the bundled script cannot handle the requirement.
 2. Use `skills/xlsx/scripts/import_delimited.cjs` for messy CSV or TSV inputs when it saves time, then polish the workbook with `xlsx-populate`.
 3. Do table reshaping in plain JavaScript, then write the final workbook with `xlsx-populate`.
 4. After meaningful formula edits, run LibreOffice-backed recalculation when `soffice` is available so cached values and error checks are current.
@@ -40,6 +43,7 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 - Preserve existing worksheets, named ranges, freeze panes, filters, and formats unless the user asked for a redesign.
 - Prefer `.xlsx` as the final deliverable. Only fall back to CSV/TSV if the user explicitly wants a flat export.
 - Use number formats, explicit column widths, alignment, and header styling for user-facing workbooks.
+- For creation tasks ("make a spreadsheet", "create an xlsx"), always use `skills/xlsx/scripts/create_xlsx.cjs` first. Only write a custom workspace script if the user's requirements exceed what the bundled script supports.
 - Treat `skills/` as bundled tooling. Do not write generated task scripts under `skills/xlsx/` or `skills/office/` for normal workbook jobs.
 - Put new helper scripts in workspace `scripts/` or the workspace root, then run them from there. Use `skills/xlsx/scripts/...` and `skills/office/...` only as shipped helper commands.
 
@@ -50,6 +54,7 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 ## Useful Commands
 
 ```bash
+node skills/xlsx/scripts/create_xlsx.cjs output.xlsx --headers "Name,Age,City" --rows "Alice,30,NYC;Bob,25,LA" --json
 node skills/xlsx/scripts/recalc.cjs workbook.xlsx --json
 node skills/xlsx/scripts/import_delimited.cjs raw.csv cleaned.xlsx --json
 ```
@@ -86,6 +91,30 @@ async function main() {
 
 main();
 ```
+
+## Create a New Workbook
+
+Use `skills/xlsx/scripts/create_xlsx.cjs` to create a professionally styled `.xlsx` from scratch. This is the preferred method for creation tasks.
+
+### With headers and rows
+
+```bash
+node skills/xlsx/scripts/create_xlsx.cjs output.xlsx --headers "Name,Age,City" --rows "Alice,30,NYC;Bob,25,LA" --json
+```
+
+### With JSON data
+
+```bash
+node skills/xlsx/scripts/create_xlsx.cjs output.xlsx --json-data '[{"Name":"Alice","Age":30},{"Name":"Bob","Age":25}]' --json
+```
+
+### With formulas
+
+```bash
+node skills/xlsx/scripts/create_xlsx.cjs output.xlsx --headers "Revenue,Cost,Profit" --rows "120000,45000,=A2-B2" --sheet-name "Summary" --json
+```
+
+The script applies professional styling automatically: bold headers with fill color, freeze panes at row 2, auto-filter, and auto-sized column widths. Numbers are auto-detected and written as numbers, not strings. Values starting with `=` are written as formulas.
 
 ## CSV / TSV Import
 

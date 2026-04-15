@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+export { ToggleGroup, ToggleGroupItem };
+
 export type TableSortDirection = 'asc' | 'desc';
 
 export interface TableSortState<Key extends string> {
@@ -176,38 +179,27 @@ export function SegmentedToggle(props: {
   }>;
   onChange: (value: string) => void;
   disabled?: boolean;
+  size?: 'sm' | 'default';
 }) {
   return (
-    <fieldset
-      className={
-        props.className ? `binary-toggle ${props.className}` : 'binary-toggle'
-      }
-      aria-label={props.ariaLabel}
+    <ToggleGroup
+      value={props.value}
+      onValueChange={props.onChange}
+      ariaLabel={props.ariaLabel}
+      className={props.className}
+      disabled={props.disabled}
+      size={props.size}
     >
-      {props.options.map((option) => {
-        const active = option.value === props.value;
-        return (
-          <button
-            key={option.value}
-            className={
-              active
-                ? `binary-toggle-button active ${option.activeTone ?? 'is-on'}`
-                : 'binary-toggle-button'
-            }
-            type="button"
-            disabled={props.disabled}
-            aria-pressed={active}
-            onClick={() => {
-              if (!active) {
-                props.onChange(option.value);
-              }
-            }}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </fieldset>
+      {props.options.map((opt) => (
+        <ToggleGroupItem
+          key={opt.value}
+          value={opt.value}
+          activeTone={opt.activeTone}
+        >
+          {opt.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   );
 }
 
@@ -244,12 +236,14 @@ export function BooleanToggle(props: {
   falseLabel?: string;
   disabled?: boolean;
   ariaLabel: string;
+  size?: 'sm' | 'default';
 }) {
   return (
     <SegmentedToggle
       className="boolean-toggle"
       ariaLabel={props.ariaLabel}
       value={props.value ? 'true' : 'false'}
+      size={props.size}
       options={[
         {
           value: 'true',

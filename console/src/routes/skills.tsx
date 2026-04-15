@@ -878,6 +878,7 @@ export function SkillsPage() {
                           <BooleanToggle
                             value={skill.enabled}
                             ariaLabel={`${skill.name} status`}
+                            size="sm"
                             disabled={
                               toggleMutation.isPending ||
                               (!skill.available && !skill.enabled)
