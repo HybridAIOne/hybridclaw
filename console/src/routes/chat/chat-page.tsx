@@ -24,8 +24,6 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { PanelLeft } from '../../components/icons';
-import { useSidebar } from '../../components/sidebar/index';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -160,22 +158,6 @@ export function ChatPage() {
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
-
-  const sidebar = useSidebar();
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only snapshot — capture sidebar state once and restore on unmount
-  useEffect(() => {
-    const wasOpen = sidebar.open;
-    const wasMobile = sidebar.isMobile;
-    if (wasOpen && !wasMobile) {
-      sidebar.setOpen(false);
-    }
-    return () => {
-      if (wasOpen && !wasMobile) {
-        sidebar.setOpen(true);
-      }
-    };
-  }, []);
 
   const [state, dispatch] = useReducer(
     chatReducer,
@@ -561,10 +543,10 @@ export function ChatPage() {
       </div>
 
       <div className={css.chatMain}>
-        <div className={css.chatHeader}>
+        <div className={css.mobileHeader}>
           <button
             type="button"
-            className={cx(css.headerButton, css.mobileOnly)}
+            className={css.headerButton}
             onClick={() =>
               dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: true })
             }
@@ -572,15 +554,7 @@ export function ChatPage() {
           >
             ☰
           </button>
-          <button
-            type="button"
-            className={cx(css.headerButton, css.desktopOnly)}
-            onClick={() => sidebar.toggleSidebar()}
-            aria-label={sidebar.open ? 'Collapse navigation' : 'Expand navigation'}
-            title={sidebar.open ? 'Collapse navigation' : 'Expand navigation'}
-          >
-            <PanelLeft />
-          </button>
+          <span style={{ fontWeight: 600 }}>HybridClaw</span>
         </div>
 
         {isEmpty ? (

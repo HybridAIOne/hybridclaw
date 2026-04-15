@@ -150,13 +150,13 @@
   position: relative;
 }
 
-.chatHeader {
-  display: flex;
+.mobileHeader {
+  display: none;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  flex-shrink: 0;
+  gap: 10px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .headerButton {
@@ -907,8 +907,8 @@
     cursor: default;
   }
 
-  .desktopOnly {
-    display: none;
+  .mobileHeader {
+    display: flex;
   }
 
   .messageArea {
@@ -925,10 +925,6 @@
 }
 
 @media (min-width: 901px) {
-  .mobileOnly {
-    display: none;
-  }
-
   .sidebarBackdrop {
     display: none;
   }

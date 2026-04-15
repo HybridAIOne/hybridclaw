@@ -73,7 +73,10 @@ function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
 }
 
 describe('SidebarProvider', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('exposes full context shape', () => {
@@ -178,7 +181,10 @@ describe('SidebarProvider', () => {
 });
 
 describe('Sidebar — desktop', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders expanded by default', () => {
@@ -216,7 +222,10 @@ describe('Sidebar — desktop', () => {
 });
 
 describe('Sidebar — mobile overlay', () => {
-  beforeEach(() => setViewport(900));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(900);
+  });
   afterEach(cleanup);
 
   it('renders as mobile overlay with data-mobile="true"', () => {
@@ -356,6 +365,7 @@ describe('Sidebar — mobile overlay', () => {
 });
 
 describe('SidebarTrigger', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('renders on desktop', () => {
@@ -426,7 +436,10 @@ describe('SidebarTrigger', () => {
 });
 
 describe('AppSidebar', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders brand and nav sections', () => {
@@ -607,6 +620,7 @@ describe('AppSidebar', () => {
 });
 
 describe('Editable-element guards', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('Escape does not close mobile drawer when focus is in an input', () => {
