@@ -81,6 +81,12 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-grpc": "0.214.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.214.0",
+    "@opentelemetry/resources": "2.6.1",
+    "@opentelemetry/sdk-node": "0.214.0",
+    "@opentelemetry/semantic-conventions": "1.40.0",
     "@slack/bolt": "4.7.0",
     "@huggingface/transformers": "3.8.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",

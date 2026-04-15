@@ -41,6 +41,7 @@ import {
   type BuildMemoryPromptResult,
   memoryService,
 } from '../memory/memory-service.js';
+import { withSpan } from '../observability/otel.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -113,6 +114,21 @@ import {
 const MAX_HISTORY_MESSAGES = 40;
 
 export async function handleGatewayMessage(
+  req: GatewayChatRequest,
+): Promise<GatewayChatResult> {
+  return withSpan(
+    'hybridclaw.gateway.handle_message',
+    {
+      'hybridclaw.session_id': req.sessionId,
+      'hybridclaw.agent_id': req.agentId || '',
+      'hybridclaw.channel_id': req.channelId || '',
+      'hybridclaw.model': req.model || '',
+    },
+    async () => handleGatewayMessageInner(req),
+  );
+}
+
+async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();

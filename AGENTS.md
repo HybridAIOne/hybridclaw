@@ -90,6 +90,26 @@ User message → Gateway (HTTP/Discord) → ContainerInput (JSON)
 | Approval rule | `.hybridclaw/policy.yaml`                                    | §7.4     |
 | Template      | `templates/<name>.md` + `src/workspace.ts`                   | §7.5     |
 
+### OpenTelemetry (Distributed Tracing)
+
+The gateway supports optional OpenTelemetry instrumentation for distributed
+tracing in cloud deployments. OTel is OFF by default (zero overhead).
+
+| Env Var                          | Purpose                                                      |
+|----------------------------------|--------------------------------------------------------------|
+| `OTEL_ENABLED=true`             | Enable OTel SDK initialization                               |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OTLP collector endpoint (also enables OTel if set)           |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`   | `grpc` (default) or `http/protobuf`                          |
+| `OTEL_SERVICE_NAME`             | Service name reported in spans (default: `hybridclaw-gateway`)|
+
+When enabled, spans are emitted for: gateway message handling, agent runs,
+host/container execution, and skill loading. Trace context (traceId, spanId)
+is injected into structured log lines for correlation.
+
+Implementation: `src/observability/otel.ts`. The SDK packages
+(`@opentelemetry/sdk-node`, exporters) are dynamically imported only when
+OTel is active.
+
 ---
 
 ## 3) Engineering Principles

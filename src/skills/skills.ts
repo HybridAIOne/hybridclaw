@@ -20,6 +20,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { withSpanSync } from '../observability/otel.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
@@ -1804,6 +1805,17 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
  * the container can read it via /workspace/... paths.
  */
 export function loadSkills(
+  agentId: string,
+  channelKind?: SkillConfigChannelKind,
+): Skill[] {
+  return withSpanSync(
+    'hybridclaw.skills.load',
+    { 'hybridclaw.agent_id': agentId },
+    () => loadSkillsInner(agentId, channelKind),
+  );
+}
+
+function loadSkillsInner(
   agentId: string,
   channelKind?: SkillConfigChannelKind,
 ): Skill[] {

@@ -106,6 +106,7 @@ import {
   listQueuedProactiveMessages,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { initOtel, shutdownOtel } from '../observability/otel.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -2544,6 +2545,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');
     });
+    await shutdownOtel().catch((error) => {
+      logger.debug({ error }, 'Failed to shut down OTel during shutdown');
+    });
     stopScheduler();
     stopMemoryConsolidationScheduler();
     if (proactiveFlushTimer) {
@@ -2730,6 +2734,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 }
 
 async function main(): Promise<void> {
+  await initOtel();
   logger.info('Starting HybridClaw gateway');
   initDatabase();
   listAgents();
