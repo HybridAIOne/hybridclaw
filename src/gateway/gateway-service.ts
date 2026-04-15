@@ -71,12 +71,21 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
+  DISCORD_TOKEN,
+  EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   GATEWAY_BASE_URL,
+  HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
+  IMESSAGE_PASSWORD,
+  MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
+  MSTEAMS_APP_ID,
+  MSTEAMS_APP_PASSWORD,
+  MSTEAMS_TENANT_ID,
+  OPENROUTER_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
@@ -84,6 +93,9 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
+  SLACK_APP_TOKEN,
+  SLACK_BOT_TOKEN,
+  TELEGRAM_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -1476,6 +1488,7 @@ function buildGatewayProviderHealth(params: {
               ? 'Login required'
               : 'Not authenticated',
           }),
+      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
       modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
       detail:
         params.codex.authenticated && !params.codex.reloginRequired
@@ -2716,7 +2729,7 @@ function resolveGatewayTokenStatus(params: {
 function buildOpenRouterAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
-    process.env.OPENROUTER_API_KEY,
+    OPENROUTER_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2733,7 +2746,7 @@ function buildOpenRouterAuthStatusLines(): string[] {
 function buildMistralAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('MISTRAL_API_KEY', [
-    process.env.MISTRAL_API_KEY,
+    MISTRAL_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2750,8 +2763,7 @@ function buildMistralAuthStatusLines(): string[] {
 function buildHuggingFaceAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('HF_TOKEN', [
-    process.env.HF_TOKEN,
-    process.env.HUGGINGFACE_API_KEY,
+    HUGGINGFACE_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2802,13 +2814,10 @@ function buildLocalAuthStatusLines(): string[] {
 function buildMSTeamsAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('MSTEAMS_APP_PASSWORD', [
-    process.env.MSTEAMS_APP_PASSWORD,
+    MSTEAMS_APP_PASSWORD,
   ]);
-  const appId =
-    String(process.env.MSTEAMS_APP_ID || '').trim() || config.msteams.appId;
-  const tenantId =
-    String(process.env.MSTEAMS_TENANT_ID || '').trim() ||
-    config.msteams.tenantId;
+  const appId = MSTEAMS_APP_ID;
+  const tenantId = MSTEAMS_TENANT_ID;
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
@@ -3634,6 +3643,7 @@ export function buildTokenUsageAuditPayload(
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
+  const hybridai = getHybridAIAuthStatus();
   const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
     await Promise.allSettled([
       localBackendsProbe.get(),
@@ -3679,7 +3689,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   });
   const discordCredential = resolveRuntimeCredentialStatus(
     'DISCORD_TOKEN',
-    [process.env.DISCORD_TOKEN],
+    [DISCORD_TOKEN],
     storedSecrets.DISCORD_TOKEN,
   );
   const discord = {
@@ -3688,12 +3698,12 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   } as NonNullable<GatewayStatus['discord']>;
   const slackBotCredential = resolveRuntimeCredentialStatus(
     'SLACK_BOT_TOKEN',
-    [process.env.SLACK_BOT_TOKEN],
+    [SLACK_BOT_TOKEN],
     storedSecrets.SLACK_BOT_TOKEN,
   );
   const slackAppCredential = resolveRuntimeCredentialStatus(
     'SLACK_APP_TOKEN',
-    [process.env.SLACK_APP_TOKEN],
+    [SLACK_APP_TOKEN],
     storedSecrets.SLACK_APP_TOKEN,
   );
   const slack = {
@@ -3704,24 +3714,24 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   } as NonNullable<GatewayStatus['slack']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
-    envValues: [process.env.TELEGRAM_BOT_TOKEN],
+    envValues: [TELEGRAM_BOT_TOKEN],
     configValue: runtimeConfig.telegram.botToken,
     storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
   });
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
-    envValues: [process.env.EMAIL_PASSWORD],
+    envValues: [EMAIL_PASSWORD],
     configValue: runtimeConfig.email.password,
     storedValue: storedSecrets.EMAIL_PASSWORD,
   });
   const imessage = resolveGatewayPasswordStatus({
     storedSecretName: 'IMESSAGE_PASSWORD',
-    envValues: [process.env.IMESSAGE_PASSWORD],
+    envValues: [IMESSAGE_PASSWORD],
     configValue: runtimeConfig.imessage.password,
     storedValue: storedSecrets.IMESSAGE_PASSWORD,
   });
   const voiceAuth = resolveGatewayVoiceAuthStatus({
-    envValues: [process.env.TWILIO_AUTH_TOKEN],
+    envValues: [TWILIO_AUTH_TOKEN],
     configValue: runtimeConfig.voice.twilio.authToken,
     storedValue: storedSecrets.TWILIO_AUTH_TOKEN,
   });
@@ -3747,6 +3757,10 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       accountId: codex.accountId,
       expiresAt: codex.expiresAt,
       reloginRequired: codex.reloginRequired,
+    },
+    hybridai: {
+      apiKeyConfigured: hybridai.authenticated,
+      apiKeySource: hybridai.source,
     },
     sandbox,
     observability: getObservabilityIngestState(),
@@ -4230,7 +4244,7 @@ function resolveGatewayAdminEmailPassword(
   runtimeConfig: RuntimeConfig,
 ): string {
   const credential = resolveRuntimeCredentialStatus('EMAIL_PASSWORD', [
-    process.env.EMAIL_PASSWORD,
+    EMAIL_PASSWORD,
   ]);
   return credential.value || String(runtimeConfig.email.password || '').trim();
 }

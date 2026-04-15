@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -2928,6 +2929,142 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+function extractUpstreamError(payload: unknown, status: number): string {
+  const record = payload as Record<string, unknown> | null;
+  const nested = record?.error;
+  return String(
+    (typeof record?.message === 'string' && record.message) ||
+      (typeof nested === 'string' && nested) ||
+      (nested &&
+        typeof nested === 'object' &&
+        typeof (nested as Record<string, unknown>).message === 'string' &&
+        (nested as Record<string, unknown>).message) ||
+      `HybridAI API returned HTTP ${status}`,
+  );
+}
+
+async function hybridAIFetch(
+  baseUrl: string,
+  apiKey: string,
+  path: string,
+  method: 'GET' | 'POST' = 'GET',
+): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  let payload: unknown;
+  if (contentType.includes('application/json')) {
+    payload = await response.json().catch(() => null);
+  } else {
+    const text = await response.text().catch(() => '');
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
+
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function handleApiAdminEmailConfigFetch(
+  res: ServerResponse,
+): Promise<void> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch {
+    sendJson(res, 400, {
+      error:
+        'HYBRIDAI_API_KEY is not configured. Run `hybridclaw auth login hybridai` first.',
+    });
+    return;
+  }
+
+  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
+    /\/+$/,
+    '',
+  );
+
+  // Step 1: list agent handles
+  let handlesResult: { ok: boolean; status: number; payload: unknown };
+  try {
+    handlesResult = await hybridAIFetch(
+      baseUrl,
+      apiKey,
+      '/api/v1/agent-handles/',
+    );
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Could not reach HybridAI API: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  if (!handlesResult.ok) {
+    sendJson(res, 502, {
+      error: extractUpstreamError(handlesResult.payload, handlesResult.status),
+    });
+    return;
+  }
+
+  const handlesPayload = handlesResult.payload as {
+    handles?: Array<{ id?: string; handle?: string; status?: string }>;
+  };
+  const handles = Array.isArray(handlesPayload?.handles)
+    ? handlesPayload.handles
+    : [];
+
+  if (handles.length === 0) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles: [], credentials: null });
+    return;
+  }
+
+  // Step 2: fetch mailbox credentials for the first active handle
+  const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
+  const handleId = activeHandle.id || activeHandle.handle;
+
+  if (!handleId) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles, credentials: null });
+    return;
+  }
+
+  let credResult: { ok: boolean; status: number; payload: unknown };
+  try {
+    credResult = await hybridAIFetch(
+      baseUrl,
+      apiKey,
+      `/api/v1/agent-handles/${encodeURIComponent(handleId)}/mailbox/credentials`,
+      'POST',
+    );
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Could not fetch mailbox credentials: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  if (!credResult.ok) {
+    sendJson(res, 502, {
+      error: extractUpstreamError(credResult.payload, credResult.status),
+    });
+    return;
+  }
+
+  res.setHeader('Cache-Control', 'no-store');
+  sendJson(res, 200, {
+    handles,
+    credentials: credResult.payload,
+    handleId,
+  });
+}
+
 async function handleApiAdminModels(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3838,6 +3975,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/email-config/fetch' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminEmailConfigFetch(res);
             return;
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {

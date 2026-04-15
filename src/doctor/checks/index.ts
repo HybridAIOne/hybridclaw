@@ -8,6 +8,7 @@ import { checkDocker } from './docker.js';
 import { checkGateway } from './gateway.js';
 import { checkLocalBackendsCategory } from './local-backends.js';
 import { checkProviders } from './providers.js';
+import { resourceHygieneDoctorChecks } from './resource-hygiene.js';
 import { checkRuntime } from './runtime.js';
 import { checkSecurity } from './security.js';
 import { checkSkills } from './skills.js';
@@ -74,5 +75,6 @@ export function doctorChecks(): DoctorCheck[] {
       label: 'Disk',
       run: checkDisk,
     },
+    ...resourceHygieneDoctorChecks(),
   ];
 }
