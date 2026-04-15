@@ -922,7 +922,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-
   .thinkingDot {
     animation: none;
   }
