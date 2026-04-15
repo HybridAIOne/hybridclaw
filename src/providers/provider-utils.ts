@@ -5,11 +5,14 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
  * provider prefix (case-insensitive, trimmed).
  */
 export function createModelMatcher(prefix: string): (model: string) => boolean {
+  const normalizedPrefix = String(prefix || '')
+    .trim()
+    .toLowerCase();
   return (model: string): boolean =>
     String(model || '')
       .trim()
       .toLowerCase()
-      .startsWith(prefix);
+      .startsWith(normalizedPrefix);
 }
 
 /**
