@@ -68,10 +68,6 @@ async function prepareDevBundle() {
 async function main() {
   const preparedExecutablePath = await prepareDevBundle();
 
-  if (process.argv.includes('--prepare-only')) {
-    return;
-  }
-
   if (process.platform !== 'darwin') {
     const child = spawn(
       path.join(repoRoot, 'node_modules', '.bin', 'electron'),

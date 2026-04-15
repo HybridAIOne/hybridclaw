@@ -59,7 +59,7 @@ export class GatewayRuntime extends EventEmitter {
       this.startChild();
     }
 
-    const ready = await waitForGatewayReachable(this.baseUrl, timeoutMs);
+    const ready = await waitForGatewayReachable(this.baseUrl, timeoutMs, this.#child);
     if (ready) return;
 
     await this.stop();
@@ -70,7 +70,14 @@ export class GatewayRuntime extends EventEmitter {
 
   async restart(timeoutMs = GATEWAY_READY_TIMEOUT_MS): Promise<void> {
     await this.stop();
-    await this.ensureRunning(timeoutMs);
+    this.startChild();
+    const ready = await waitForGatewayReachable(this.baseUrl, timeoutMs, this.#child);
+    if (ready) return;
+
+    await this.stop();
+    throw new Error(
+      `HybridClaw gateway did not become reachable at ${this.baseUrl} within ${timeoutMs}ms.`,
+    );
   }
 
   async stop(): Promise<void> {
@@ -178,13 +185,23 @@ async function isGatewayReachable(baseUrl: string): Promise<boolean> {
 async function waitForGatewayReachable(
   baseUrl: string,
   timeoutMs: number,
+  child?: ChildProcess | null,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await isGatewayReachable(baseUrl)) return true;
-    await delay(250);
+
+  let exited = false;
+  const onExit = () => { exited = true; };
+  child?.once('exit', onExit);
+
+  try {
+    while (Date.now() < deadline && !exited) {
+      if (await isGatewayReachable(baseUrl)) return true;
+      await delay(250);
+    }
+    return isGatewayReachable(baseUrl);
+  } finally {
+    child?.removeListener('exit', onExit);
   }
-  return isGatewayReachable(baseUrl);
 }
 
 async function waitForExit(

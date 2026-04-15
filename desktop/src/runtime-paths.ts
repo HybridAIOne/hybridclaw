@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 export interface RuntimeRootInput {
@@ -17,7 +18,14 @@ export function resolveRuntimeRoot(params: RuntimeRootInput): string {
   if (params.packaged) {
     return path.join(params.resourcesPath, 'hybridclaw-runtime');
   }
-  return path.resolve(path.dirname(params.currentFile), '..', '..');
+  const root = path.resolve(path.dirname(params.currentFile), '..', '..');
+  if (!fs.existsSync(path.join(root, 'package.json'))) {
+    throw new Error(
+      `HybridClaw runtime root resolved to ${root} but no package.json was found. ` +
+      `Run the desktop app from the repository root via \`npm run desktop\`.`,
+    );
+  }
+  return root;
 }
 
 export function resolveGatewayEntry(runtimeRoot: string): string {
