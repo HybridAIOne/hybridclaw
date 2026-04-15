@@ -9,7 +9,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveAgentConfig } from '../agents/agent-registry.js';
+import {
+  listAgents,
+  resolveAgentConfig,
+} from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
@@ -1672,6 +1675,19 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
+  const agentWorkspaceSkills: SkillCandidate[] = [];
+  try {
+    for (const agent of listAgents()) {
+      const wsSkillsDir = path.join(
+        agentWorkspaceDir(agent.id),
+        'skills',
+      );
+      agentWorkspaceSkills.push(...scanSkillsDir(wsSkillsDir, 'workspace'));
+    }
+  } catch {
+    /* ignore errors when agent registry is not yet initialized */
+  }
+
   const extraSkills = extraDirs.flatMap((dir) =>
     scanSkillsDir(
       dir,
@@ -1713,6 +1729,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   mergeSkills(claudeSkills);
   mergeSkills(agentsPersonalSkills);
   mergeSkills(projectAgentsSkills);
+  mergeSkills(agentWorkspaceSkills);
   mergeSkills(workspaceSkills);
 
   return Array.from(byName.values());
