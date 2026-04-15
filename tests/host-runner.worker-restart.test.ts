@@ -111,6 +111,17 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  spawnImpl = () => {
+    throw new Error('spawn not configured for this test');
+  };
+  readOutputImpl = () => {
+    throw new Error('readOutput not configured for this test');
+  };
+  resolveModelRuntimeCredentialsImpl = () => {
+    throw new Error(
+      'resolveModelRuntimeCredentials not configured for this test',
+    );
+  };
 });
 
 test('HostExecutor respawns the pooled worker when the provider changes for a session', async () => {

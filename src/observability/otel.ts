@@ -5,7 +5,7 @@
  * When inactive, all tracing calls are no-ops via the default @opentelemetry/api.
  */
 
-import { context, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
+import { context, SpanStatusCode, trace } from '@opentelemetry/api';
 
 let sdkInstance: { shutdown(): Promise<void> } | null = null;
 
@@ -22,7 +22,7 @@ function isOtelRequested(): boolean {
  * — returns immediately as a no-op.
  */
 export async function initOtel(): Promise<void> {
-  if (!isOtelRequested()) return;
+  if (!isOtelRequested() || sdkInstance) return;
 
   // Dynamic imports so the SDK packages are only loaded when OTel is active.
   const { NodeSDK } = await import('@opentelemetry/sdk-node');
@@ -64,7 +64,14 @@ export async function initOtel(): Promise<void> {
     traceExporter,
   });
 
-  sdk.start();
+  try {
+    sdk.start();
+  } catch (err) {
+    // Log a warning but do not crash the gateway — tracing is optional.
+    // eslint-disable-next-line no-console
+    console.warn('Failed to start OpenTelemetry SDK:', err);
+    return;
+  }
   sdkInstance = sdk;
 }
 
@@ -73,12 +80,10 @@ export async function initOtel(): Promise<void> {
  * Safe to call when OTel was never initialized.
  */
 export async function shutdownOtel(): Promise<void> {
-  if (!sdkInstance) return;
-  try {
-    await sdkInstance.shutdown();
-  } finally {
-    sdkInstance = null;
-  }
+  const sdk = sdkInstance;
+  if (!sdk) return;
+  sdkInstance = null;
+  await sdk.shutdown();
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +103,7 @@ function getTracer() {
 export async function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean | undefined>,
-  fn: (span: Span) => Promise<T>,
+  fn: () => Promise<T>,
 ): Promise<T> {
   const tracer = getTracer();
   return tracer.startActiveSpan(
@@ -106,7 +111,7 @@ export async function withSpan<T>(
     { attributes: cleanAttributes(attributes) },
     async (span) => {
       try {
-        const result = await fn(span);
+        const result = await fn();
         span.setStatus({ code: SpanStatusCode.OK });
         return result;
       } catch (err) {
@@ -132,7 +137,7 @@ export async function withSpan<T>(
 export function withSpanSync<T>(
   name: string,
   attributes: Record<string, string | number | boolean | undefined>,
-  fn: (span: Span) => T,
+  fn: () => T,
 ): T {
   const tracer = getTracer();
   return tracer.startActiveSpan(
@@ -140,7 +145,7 @@ export function withSpanSync<T>(
     { attributes: cleanAttributes(attributes) },
     (span) => {
       try {
-        const result = fn(span);
+        const result = fn();
         span.setStatus({ code: SpanStatusCode.OK });
         return result;
       } catch (err) {

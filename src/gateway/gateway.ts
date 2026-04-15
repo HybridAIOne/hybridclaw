@@ -2545,11 +2545,11 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');
     });
+    stopScheduler();
+    stopMemoryConsolidationScheduler();
     await shutdownOtel().catch((error) => {
       logger.debug({ error }, 'Failed to shut down OTel during shutdown');
     });
-    stopScheduler();
-    stopMemoryConsolidationScheduler();
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;

@@ -72,7 +72,7 @@ function createPrettyDestination(
 }
 
 function createLogger() {
-  const options: pino.LoggerOptions = {
+  const options = {
     errorKey: LOGGER_ERROR_KEY,
     level: initialLevel,
     serializers: LOGGER_SERIALIZERS,
