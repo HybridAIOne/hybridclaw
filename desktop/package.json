@@ -44,8 +44,10 @@
         "filter": [
           "package.json",
           "dist/**/*",
+          "!dist/**/*.js.map",
           "console/dist/**/*",
           "container/dist/**/*",
+          "!container/dist/**/*.js.map",
           "container/package.json",
           "container/package-lock.json",
           "container/tsconfig.json",

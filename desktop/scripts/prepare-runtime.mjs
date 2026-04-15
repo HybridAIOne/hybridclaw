@@ -126,10 +126,46 @@ async function shouldIncludePackage(packagePath) {
   }
 }
 
-async function copyPackageDir(sourceDir, targetDir, packagePath) {
-  if (!(await shouldIncludePackage(packagePath))) {
-    return;
+/** Packages excluded from the runtime bundle (browser-only / unused). */
+const EXCLUDED_PACKAGES = new Set([
+  'onnxruntime-web',
+]);
+
+/**
+ * Directory basenames stripped from every copied package to shed test fixtures
+ * and other files that aren't needed at runtime.
+ */
+const STRIPPED_DIRS = new Set([
+  'test',
+  'tests',
+  '__tests__',
+]);
+
+function shouldCopyEntry(src) {
+  const base = path.basename(src);
+  if (base.endsWith('.js.map')) return false;
+  if (STRIPPED_DIRS.has(base)) {
+    const parent = path.basename(path.dirname(src));
+    // Only strip when the directory sits directly inside a package (or scoped
+    // package).  Never strip "test" inside deeply-nested paths that may be
+    // runtime-required.
+    if (!parent.startsWith('@') && parent !== 'node_modules') {
+      return false;
+    }
   }
+  return true;
+}
+
+function isExcludedPackage(packagePath) {
+  const name = path.basename(packagePath);
+  const parent = path.basename(path.dirname(packagePath));
+  const fullName = parent.startsWith('@') ? `${parent}/${name}` : name;
+  return EXCLUDED_PACKAGES.has(fullName);
+}
+
+async function copyPackageDir(sourceDir, targetDir, packagePath) {
+  if (isExcludedPackage(packagePath)) return;
+  if (!(await shouldIncludePackage(packagePath))) return;
 
   const relativePath = path.relative(sourceDir, packagePath);
   const targetPath = path.join(targetDir, relativePath);
@@ -137,6 +173,7 @@ async function copyPackageDir(sourceDir, targetDir, packagePath) {
   await fs.cp(packagePath, targetPath, {
     recursive: true,
     dereference: true,
+    filter: shouldCopyEntry,
   });
 }
 
