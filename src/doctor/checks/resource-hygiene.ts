@@ -70,6 +70,40 @@ interface SessionDatabaseSnapshot {
   allSessionKeys: Set<string>;
 }
 
+interface ExportCandidateShell {
+  path: string;
+  displayPath: string;
+  ageMs: number;
+}
+
+class HygieneRunContext {
+  private _snapshot: SessionDatabaseSnapshot | null = null;
+  private _snapshotError: unknown = null;
+  private _snapshotLoaded = false;
+  private _diskState: { freeBytes: number | null; critical: boolean } | null =
+    null;
+
+  getSnapshot(): SessionDatabaseSnapshot {
+    if (!this._snapshotLoaded) {
+      try {
+        this._snapshot = loadSessionSnapshotFromDatabase();
+      } catch (error) {
+        this._snapshotError = error;
+      }
+      this._snapshotLoaded = true;
+    }
+    if (this._snapshotError) throw this._snapshotError;
+    return this._snapshot!;
+  }
+
+  getDiskState(): { freeBytes: number | null; critical: boolean } {
+    if (!this._diskState) {
+      this._diskState = readCriticalDiskState();
+    }
+    return this._diskState;
+  }
+}
+
 function safeFilePart(raw: string): string {
   const normalized = raw.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
   return normalized || 'session';
@@ -310,9 +344,9 @@ function listPotentialStaleWorkspaceCandidates(
 
 function listPotentialOrphanedExportCandidates(
   nowMs = Date.now(),
-): CleanupCandidate[] {
+): ExportCandidateShell[] {
   const agentsRoot = path.join(DATA_DIR, AGENTS_DIR_NAME);
-  const candidates: CleanupCandidate[] = [];
+  const candidates: ExportCandidateShell[] = [];
 
   for (const entry of readDirEntries(agentsRoot)) {
     if (!entry.isDirectory()) continue;
@@ -336,7 +370,6 @@ function listPotentialOrphanedExportCandidates(
         candidates.push({
           path: exportPath,
           displayPath: shortenHomePath(exportPath),
-          sizeBytes: readDirSize(exportPath),
           ageMs,
         });
       }
@@ -344,6 +377,15 @@ function listPotentialOrphanedExportCandidates(
   }
 
   return candidates;
+}
+
+function resolveExportCandidateSizes(
+  shells: ExportCandidateShell[],
+): CleanupCandidate[] {
+  return shells.map((shell) => ({
+    ...shell,
+    sizeBytes: readDirSize(shell.path),
+  }));
 }
 
 function readPromptDumpCandidate(nowMs = Date.now()): CleanupCandidate | null {
@@ -386,7 +428,9 @@ function formatCleanupMessage(params: {
   return parts.join(', ');
 }
 
-export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
+export async function checkStaleWorkspaces(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   const configuredWorkspaceIds = new Set(
     listAgents().map((agent) =>
       safeFilePart(resolveAgentWorkspaceId(agent.id)),
@@ -409,7 +453,7 @@ export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
 
   let snapshot: SessionDatabaseSnapshot;
   try {
-    snapshot = loadSessionSnapshotFromDatabase();
+    snapshot = ctx.getSnapshot();
   } catch (error) {
     return [
       makeResult(
@@ -441,7 +485,7 @@ export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
     ];
   }
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const { freeBytes, critical } = ctx.getDiskState();
   const safeCandidates = staleCandidates.filter(
     (candidate) => !candidate.gitBacked,
   );
@@ -497,7 +541,9 @@ export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
   return results;
 }
 
-export async function checkOldTempMedia(): Promise<DiagResult[]> {
+export async function checkOldTempMedia(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   const candidates = listManagedTempMediaCandidates();
   if (candidates.length === 0) {
     return [
@@ -510,7 +556,7 @@ export async function checkOldTempMedia(): Promise<DiagResult[]> {
     ];
   }
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const { freeBytes, critical } = ctx.getDiskState();
   return [
     makeResult(
       'disk',
@@ -532,7 +578,9 @@ export async function checkOldTempMedia(): Promise<DiagResult[]> {
   ];
 }
 
-export async function checkOldRunLogs(): Promise<DiagResult[]> {
+export async function checkOldRunLogs(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   const candidates = listFinishedEvalRunCandidates();
   if (candidates.length === 0) {
     return [
@@ -545,7 +593,7 @@ export async function checkOldRunLogs(): Promise<DiagResult[]> {
     ];
   }
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const { freeBytes, critical } = ctx.getDiskState();
   return [
     makeResult(
       'disk',
@@ -567,7 +615,9 @@ export async function checkOldRunLogs(): Promise<DiagResult[]> {
   ];
 }
 
-export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
+export async function checkSessionCompactionBacklog(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   if (!SESSION_COMPACTION_ENABLED) {
     return [
       makeResult(
@@ -581,7 +631,7 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
 
   let snapshot: SessionDatabaseSnapshot;
   try {
-    snapshot = loadSessionSnapshotFromDatabase();
+    snapshot = ctx.getSnapshot();
   } catch (error) {
     return [
       makeResult(
@@ -642,7 +692,7 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
     null,
   );
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const { freeBytes, critical } = ctx.getDiskState();
   return [
     makeResult(
       'database',
@@ -683,7 +733,9 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
   ];
 }
 
-export async function checkOrphanedExports(): Promise<DiagResult[]> {
+export async function checkOrphanedExports(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   const exportCandidates = listPotentialOrphanedExportCandidates();
 
   if (exportCandidates.length === 0) {
@@ -699,7 +751,7 @@ export async function checkOrphanedExports(): Promise<DiagResult[]> {
 
   let snapshot: SessionDatabaseSnapshot;
   try {
-    snapshot = loadSessionSnapshotFromDatabase();
+    snapshot = ctx.getSnapshot();
   } catch (error) {
     return [
       makeResult(
@@ -711,12 +763,12 @@ export async function checkOrphanedExports(): Promise<DiagResult[]> {
     ];
   }
 
-  const orphanedExports = exportCandidates.filter((candidate) => {
+  const orphanedShells = exportCandidates.filter((candidate) => {
     const sessionDirName = path.basename(candidate.path);
     return !snapshot.allSessionKeys.has(sessionDirName);
   });
 
-  if (orphanedExports.length === 0) {
+  if (orphanedShells.length === 0) {
     return [
       makeResult(
         'disk',
@@ -727,7 +779,8 @@ export async function checkOrphanedExports(): Promise<DiagResult[]> {
     ];
   }
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const orphanedExports = resolveExportCandidateSizes(orphanedShells);
+  const { freeBytes, critical } = ctx.getDiskState();
   return [
     makeResult(
       'disk',
@@ -749,7 +802,9 @@ export async function checkOrphanedExports(): Promise<DiagResult[]> {
   ];
 }
 
-export async function checkStalePromptDump(): Promise<DiagResult[]> {
+export async function checkStalePromptDump(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
   const promptDumpCandidate = readPromptDumpCandidate();
 
   if (!promptDumpCandidate) {
@@ -763,7 +818,7 @@ export async function checkStalePromptDump(): Promise<DiagResult[]> {
     ];
   }
 
-  const { freeBytes, critical } = readCriticalDiskState();
+  const { freeBytes, critical } = ctx.getDiskState();
   return [
     makeResult(
       'disk',
@@ -786,36 +841,37 @@ export async function checkStalePromptDump(): Promise<DiagResult[]> {
 }
 
 export function resourceHygieneDoctorChecks(): DoctorCheck[] {
+  const ctx = new HygieneRunContext();
   return [
     {
       category: 'disk',
       label: 'Stale workspaces',
-      run: checkStaleWorkspaces,
+      run: () => checkStaleWorkspaces(ctx),
     },
     {
       category: 'disk',
       label: 'Old temp media',
-      run: checkOldTempMedia,
+      run: () => checkOldTempMedia(ctx),
     },
     {
       category: 'disk',
       label: 'Old run logs',
-      run: checkOldRunLogs,
+      run: () => checkOldRunLogs(ctx),
     },
     {
       category: 'database',
       label: 'Session compaction backlog',
-      run: checkSessionCompactionBacklog,
+      run: () => checkSessionCompactionBacklog(ctx),
     },
     {
       category: 'disk',
       label: 'Orphaned exports',
-      run: checkOrphanedExports,
+      run: () => checkOrphanedExports(ctx),
     },
     {
       category: 'disk',
       label: 'Stale prompt dump',
-      run: checkStalePromptDump,
+      run: () => checkStalePromptDump(ctx),
     },
   ];
 }
