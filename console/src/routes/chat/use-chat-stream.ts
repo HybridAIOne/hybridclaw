@@ -25,8 +25,8 @@ interface UseChatStreamOptions {
   userId: string;
   getSessionId: () => string;
   setMessages: React.Dispatch<React.SetStateAction<ChatUiMessage[]>>;
-  setSessionId: React.Dispatch<React.SetStateAction<string>>;
-  setError: React.Dispatch<React.SetStateAction<string>>;
+  setSessionId: (id: string) => void;
+  setError: (err: string) => void;
   refreshRecent: () => void;
 }
 

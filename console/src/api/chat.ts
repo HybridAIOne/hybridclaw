@@ -6,12 +6,20 @@ import type {
   CommandResponse,
   MediaUploadResponse,
 } from './chat-types';
+import type { GatewayStatus } from './types';
 import {
   buildWebCommandRequestBody,
   dispatchAuthRequired,
   requestHeaders,
   requestJson,
 } from './client';
+
+export function fetchAppStatus(token: string): Promise<GatewayStatus> {
+  return requestJson<GatewayStatus>('/api/status', {
+    token,
+    onAuthError: 'ignore',
+  });
+}
 
 export function fetchChatRecent(
   token: string,

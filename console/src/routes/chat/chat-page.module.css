@@ -108,6 +108,15 @@
   box-shadow: var(--shadow-raised);
 }
 
+.sessionItemPending {
+  animation: sessionPulse 1s ease-in-out infinite;
+}
+
+@keyframes sessionPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .sessionTitle {
   font-size: 0.875rem;
   font-weight: 500;
@@ -919,6 +928,10 @@
   }
 
   .thinkingDot {
+    animation: none;
+  }
+
+  .sessionItemPending {
     animation: none;
   }
 }

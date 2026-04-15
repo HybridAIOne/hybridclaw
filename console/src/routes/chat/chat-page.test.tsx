@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { Suspense } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BranchResponse,
@@ -17,7 +18,7 @@ import type { GatewayStatus } from '../../api/types';
 import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
-const validateTokenMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
+const fetchAppStatusMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
 const fetchChatRecentMock =
   vi.fn<(token: string, userId: string) => Promise<ChatRecentResponse>>();
 const fetchChatHistoryMock =
@@ -39,6 +40,7 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
+  fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (token: string, userId: string) =>
     fetchChatRecentMock(token, userId),
   fetchChatHistory: (token: string, sessionId: string) =>
@@ -49,10 +51,6 @@ vi.mock('../../api/chat', () => ({
     beforeMessageId: number | string,
   ) => createChatBranchMock(token, sessionId, beforeMessageId),
   uploadMedia: (token: string, file: File) => uploadMediaMock(token, file),
-}));
-
-vi.mock('../../api/client', () => ({
-  validateToken: (token: string) => validateTokenMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -74,7 +72,9 @@ function renderChatPage() {
   render(
     <QueryClientProvider client={queryClient}>
       <SidebarProvider>
-        <ChatPage />
+        <Suspense fallback={<div>Loading chat…</div>}>
+          <ChatPage />
+        </Suspense>
       </SidebarProvider>
     </QueryClientProvider>,
   );
@@ -89,7 +89,7 @@ describe('ChatPage', () => {
     localStorage.setItem('hybridclaw_session', 'session-a');
     localStorage.setItem('hybridclaw_user_id', 'web-user-1');
 
-    validateTokenMock.mockReset();
+    fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
     createChatBranchMock.mockReset();
@@ -101,7 +101,7 @@ describe('ChatPage', () => {
     useChatStreamMock.mockReset();
 
     useAuthMock.mockReturnValue({ token: 'test-token' });
-    validateTokenMock.mockResolvedValue({
+    fetchAppStatusMock.mockResolvedValue({
       status: 'ok',
       webAuthConfigured: true,
       version: '0.0.0',
@@ -331,7 +331,7 @@ describe('ChatPage', () => {
 
   it('surfaces gateway status load failures instead of swallowing them', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    validateTokenMock.mockRejectedValue(new Error('Gateway offline'));
+    fetchAppStatusMock.mockRejectedValue(new Error('Gateway offline'));
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],

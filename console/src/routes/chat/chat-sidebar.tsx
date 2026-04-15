@@ -8,6 +8,8 @@ export function ChatSidebar(props: {
   activeSessionId: string;
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
+  onHoverSession?: (sessionId: string) => void;
+  isPending?: boolean;
 }) {
   return (
     <>
@@ -38,10 +40,14 @@ export function ChatSidebar(props: {
                     css.sessionItem,
                     s.sessionId === props.activeSessionId &&
                       css.sessionItemActive,
+                    s.sessionId === props.activeSessionId &&
+                      props.isPending &&
+                      css.sessionItemPending,
                   )}
                   aria-current={
                     s.sessionId === props.activeSessionId ? 'page' : undefined
                   }
+                  onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
                   onClick={() => props.onOpenSession(s.sessionId)}
                   onKeyDown={(e) => {
                     if (e.key === ' ') {
