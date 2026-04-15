@@ -9,6 +9,7 @@ test('classifyGatewayError marks merged transient patterns as transient', () => 
   expect(
     classifyGatewayError('connection reset by peer, please try again'),
   ).toBe('transient');
+  expect(classifyGatewayError('API error: terminated')).toBe('transient');
 });
 
 test('classifyGatewayError marks permanent auth and policy failures as permanent', () => {
