@@ -19,6 +19,7 @@ import {
   printMainUsage,
   printMigrationUsage,
   printOnboardingUsage,
+  printPolicyUsage,
   printTuiUsage,
 } from './cli/help.js';
 import { ensureOnboardingApi } from './cli/onboarding-api.js';
@@ -1286,6 +1287,16 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   await runRuntimeConfigFileCheck();
 }
 
+async function handlePolicyCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (isHelpRequest(normalized)) {
+    printPolicyUsage();
+    return;
+  }
+  const policyCli = await import('./policy/policy-cli.js');
+  await policyCli.handlePolicyCommand(normalized);
+}
+
 async function handleLocalCommand(args: string[]): Promise<void> {
   const cliAuth = await import('./cli/auth-command.js');
   await cliAuth.handleLocalCommand(args);
@@ -1478,6 +1489,9 @@ export async function main(
       break;
     case 'config':
       await handleConfigCommand(subargs);
+      break;
+    case 'policy':
+      await handlePolicyCommand(subargs);
       break;
     case 'gateway':
       await handleGatewayCommand(subargs);

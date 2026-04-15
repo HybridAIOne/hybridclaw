@@ -42,6 +42,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   scheduler: 'Scheduler',
   telegram: 'Telegram',
   tui: 'TUI',
+  voice: 'Voice',
   whatsapp: 'WhatsApp',
 };
 

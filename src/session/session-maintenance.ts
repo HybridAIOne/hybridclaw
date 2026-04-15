@@ -12,6 +12,7 @@ import {
   SESSION_COMPACTION_THRESHOLD,
   SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
+import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -212,9 +213,10 @@ export async function runPreCompactionMemoryFlush(params: {
     );
   }
 
+  const flushSessionId = `memory-flush:${params.sessionId}:${Date.now()}`;
   try {
     const output = await runAgent({
-      sessionId: `memory-flush:${params.sessionId}:${Date.now()}`,
+      sessionId: flushSessionId,
       messages,
       chatbotId,
       enableRag: params.enableRag,
@@ -251,6 +253,8 @@ export async function runPreCompactionMemoryFlush(params: {
       { sessionId: params.sessionId, err },
       'Pre-compaction memory flush crashed',
     );
+  } finally {
+    stopSessionHostProcess(flushSessionId);
   }
 }
 

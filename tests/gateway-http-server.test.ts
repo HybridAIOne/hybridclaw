@@ -1,10 +1,10 @@
 import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
@@ -13,9 +13,9 @@ const OPENAI_SESSION_ID_RE =
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
 
-const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
+const makeTempDocsRoot = useTempDir('hybridclaw-health-');
 
 function signAuthPayload(
   payload: Record<string, unknown>,
@@ -33,7 +33,7 @@ function signAuthPayload(
 function makeTempDocsDir(options?: {
   includeMalformedFrontmatter?: boolean;
 }): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
+  const root = makeTempDocsRoot();
   const docsDir = path.join(root, 'docs');
   const contentDocsDir = path.join(docsDir, 'content');
   const gettingStartedDir = path.join(contentDocsDir, 'getting-started');
@@ -43,7 +43,6 @@ function makeTempDocsDir(options?: {
   const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
   const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
-  tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
   fs.mkdirSync(contentDocsDir, { recursive: true });
   fs.mkdirSync(gettingStartedDir, { recursive: true });
@@ -275,11 +274,7 @@ function makeTempDocsDir(options?: {
   return root;
 }
 
-function makeTempDataDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-data-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDataDir = useTempDir('hybridclaw-health-data-');
 
 function writeRuntimeConfig(
   homeDir: string,
@@ -1039,6 +1034,129 @@ async function importFreshHealth(options?: {
     limit: 60,
     entries: [],
   }));
+  const getGatewayAdminApprovals = vi.fn(() => ({
+    selectedAgentId: 'main',
+    agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        workspacePath: '/tmp/main/workspace',
+      },
+    ],
+    pending: [
+      {
+        sessionId: DEFAULT_WEB_SESSION_ID,
+        agentId: 'main',
+        approvalId: 'approve-1',
+        userId: 'user-a',
+        prompt: 'Approval required for https://example.com',
+        createdAt: '2026-03-11T10:00:00.000Z',
+        expiresAt: '2026-03-11T10:02:00.000Z',
+        allowSession: true,
+        allowAgent: true,
+        allowAll: true,
+        actionKey: 'network:example.com',
+      },
+    ],
+    policy: {
+      exists: true,
+      policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
+      workspacePath: '/tmp/main/workspace',
+      defaultAction: 'deny',
+      presets: ['github'],
+      rules: [
+        {
+          index: 1,
+          action: 'allow',
+          host: 'example.com',
+          port: '*',
+          methods: ['*'],
+          paths: ['/**'],
+          agent: 'main',
+          comment: 'manual allow',
+        },
+      ],
+    },
+    availablePresets: [
+      {
+        name: 'github',
+        description: 'GitHub API and raw content',
+      },
+      {
+        name: 'npm',
+        description: 'npm registry and tarballs',
+      },
+    ],
+  }));
+  const saveGatewayAdminPolicyRule = vi.fn(
+    (params: {
+      agentId?: string;
+      index?: number | null;
+      rule: {
+        action: 'allow' | 'deny';
+        host: string;
+        port: number | '*';
+        methods: string[];
+        paths: string[];
+        agent: string;
+        comment?: string;
+      };
+    }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [],
+      rules: [
+        {
+          index: params.index || 1,
+          ...params.rule,
+        },
+      ],
+    }),
+  );
+  const saveGatewayAdminPolicyDefault = vi.fn(
+    (params: { agentId?: string; defaultAction: 'allow' | 'deny' }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: params.defaultAction,
+      presets: [],
+      rules: [],
+    }),
+  );
+  const applyGatewayAdminPolicyPreset = vi.fn(
+    (params: { agentId?: string; presetName: string }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [params.presetName],
+      rules: [
+        {
+          index: 1,
+          action: 'allow',
+          host: 'registry.npmjs.org',
+          port: '*',
+          methods: ['*'],
+          paths: ['/**'],
+          agent: '*',
+          managedByPreset: params.presetName,
+        },
+      ],
+    }),
+  );
+  const deleteGatewayAdminPolicyRule = vi.fn(
+    (params: { agentId?: string; index: number }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      presets: [],
+      rules: [],
+      deletedIndex: params.index,
+    }),
+  );
   const getGatewayAdminTools = vi.fn(() => ({
     totals: {
       totalTools: 2,
@@ -1244,6 +1362,8 @@ async function importFreshHealth(options?: {
   );
   const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
+  const handleVoiceWebhook = vi.fn(async () => false);
+  const handleVoiceUpgrade = vi.fn(() => false);
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
@@ -1303,6 +1423,10 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/channels/imessage/runtime.js', () => ({
     handleIMessageWebhook,
   }));
+  vi.doMock('../src/channels/voice/runtime.js', () => ({
+    handleVoiceUpgrade,
+    handleVoiceWebhook,
+  }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getSessionById,
@@ -1323,6 +1447,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
   }));
+  vi.doMock('../src/errors/gateway-request-error.js', () => ({
+    GatewayRequestError,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     createGatewayAdminSkill,
@@ -1334,9 +1461,12 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminApprovals,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    applyGatewayAdminPolicyPreset,
+    deleteGatewayAdminPolicyRule,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -1363,6 +1493,8 @@ async function importFreshHealth(options?: {
     restoreGatewayAdminAgentMarkdownRevision,
     saveGatewayAdminConfig,
     saveGatewayAdminAgentMarkdownFile,
+    saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
@@ -1457,6 +1589,11 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminApprovals,
+    saveGatewayAdminPolicyDefault,
+    applyGatewayAdminPolicyPreset,
+    saveGatewayAdminPolicyRule,
+    deleteGatewayAdminPolicyRule,
     runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
@@ -1503,6 +1640,8 @@ async function importFreshHealth(options?: {
     resolveGatewayChatbotId,
     resolveModelRuntimeCredentials,
     handleIMessageWebhook,
+    handleVoiceUpgrade,
+    handleVoiceWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -1511,43 +1650,43 @@ async function importFreshHealth(options?: {
   };
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('node:http');
-  vi.doUnmock('node:dns/promises');
-  vi.doUnmock('../src/config/config.ts');
-  vi.doUnmock('../src/infra/install-root.js');
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/agent/conversation.js');
-  vi.doUnmock('../src/memory/db.js');
-  vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/gateway/gateway-chat-service.js');
-  vi.doUnmock('../src/gateway/openai-compatible-model.ts');
-  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
-  vi.doUnmock('../src/providers/factory.js');
-  vi.doUnmock('../src/channels/imessage/runtime.js');
-  vi.doUnmock('../src/channels/msteams/runtime.js');
-  vi.doUnmock('../src/channels/message/tool-actions.js');
-  vi.doUnmock('../src/channels/discord/tool-actions.js');
-  vi.doUnmock('../src/gateway/media-upload-quota.ts');
-  vi.doUnmock('../src/plugins/plugin-manager.js');
-  vi.doUnmock('../src/gateway/gateway-restart.js');
-  vi.resetModules();
-  if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
-    delete process.env.HYBRIDCLAW_AUTH_SECRET;
-  } else {
-    process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
-  }
-  if (ORIGINAL_HOME === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = ORIGINAL_HOME;
-  }
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
+      delete process.env.HYBRIDCLAW_AUTH_SECRET;
+    } else {
+      process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
+    }
+    if (ORIGINAL_HOME === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = ORIGINAL_HOME;
+    }
+  },
+  resetModules: true,
+  unmock: [
+    'node:http',
+    'node:dns/promises',
+    '../src/config/config.ts',
+    '../src/infra/install-root.js',
+    '../src/logger.js',
+    '../src/agent/conversation.js',
+    '../src/memory/db.js',
+    '../src/gateway/gateway-service.js',
+    '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/openai-compatible-model.ts',
+    '../src/gateway/gateway-scheduled-task-service.js',
+    '../src/providers/factory.js',
+    '../src/channels/imessage/runtime.js',
+    '../src/channels/msteams/runtime.js',
+    '../src/channels/voice/runtime.js',
+    '../src/channels/message/tool-actions.js',
+    '../src/channels/discord/tool-actions.js',
+    '../src/gateway/media-upload-quota.ts',
+    '../src/plugins/plugin-manager.js',
+    '../src/gateway/gateway-restart.js',
+  ],
 });
 
 describe('gateway HTTP server', () => {
@@ -1561,6 +1700,36 @@ describe('gateway HTTP server', () => {
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
+  });
+
+  test('routes voice webhooks using the configured webhookPath', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-voice-http-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const voice = config.voice as Record<string, unknown>;
+      voice.webhookPath = '/telephony';
+    });
+
+    const state = await importFreshHealth();
+    state.handleVoiceWebhook.mockImplementationOnce(async (_req, res) => {
+      res.statusCode = 202;
+      res.end('voice-webhook');
+      return true;
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/telephony/webhook',
+      headers: { host: 'voice.example.com' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await vi.waitFor(() =>
+      expect(state.handleVoiceWebhook).toHaveBeenCalledTimes(1),
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('voice-webhook');
   });
 
   test('rejects unauthorized API requests from non-loopback addresses', async () => {
@@ -4624,6 +4793,166 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('returns pending approvals and policy state for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/approvals?agentId=writer' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminApprovals).toHaveBeenCalledWith({
+      agentId: 'writer',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      selectedAgentId: 'main',
+      pending: [
+        {
+          approvalId: 'approve-1',
+          actionKey: 'network:example.com',
+        },
+      ],
+      policy: {
+        defaultAction: 'deny',
+        rules: [
+          {
+            host: 'example.com',
+            port: '*',
+          },
+        ],
+      },
+    });
+  });
+
+  test('saves admin policy rules for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        rule: {
+          action: 'deny',
+          host: 'bad.example',
+          port: '*',
+          methods: ['GET', 'POST'],
+          paths: ['/admin/**'],
+          agent: 'writer',
+          comment: 'Blocked',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyRule).toHaveBeenCalledWith({
+      agentId: 'writer',
+      rule: {
+        action: 'deny',
+        host: 'bad.example',
+        port: '*',
+        methods: ['GET', 'POST'],
+        paths: ['/admin/**'],
+        agent: 'writer',
+        comment: 'Blocked',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      rules: [
+        {
+          action: 'deny',
+          host: 'bad.example',
+          port: '*',
+        },
+      ],
+    });
+  });
+
+  test('saves the admin policy default for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        defaultAction: 'allow',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyDefault).toHaveBeenCalledWith({
+      agentId: 'writer',
+      defaultAction: 'allow',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      defaultAction: 'allow',
+    });
+  });
+
+  test('applies admin policy templates for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        presetName: 'npm',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.applyGatewayAdminPolicyPreset).toHaveBeenCalledWith({
+      agentId: 'writer',
+      presetName: 'npm',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      presets: ['npm'],
+      rules: [
+        {
+          host: 'registry.npmjs.org',
+          managedByPreset: 'npm',
+        },
+      ],
+    });
+  });
+
+  test('deletes admin policy rules by index for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/policy?agentId=writer&index=2',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.deleteGatewayAdminPolicyRule).toHaveBeenCalledWith({
+      agentId: 'writer',
+      index: 2,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      rules: [],
+    });
+  });
+
   test('returns admin tools for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/tools' });
@@ -5408,7 +5737,7 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
-  test('handles /approve always from the web chat path', async () => {
+  test('rejects /approve always from the web chat path', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(
       '../src/gateway/pending-approvals.js'
@@ -5444,15 +5773,10 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.handleGatewayCommand).not.toHaveBeenCalled();
-    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'session-web-approve',
-        content: 'yes approve-123 for session',
-      }),
-    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      result: 'Approved.',
+      result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
 
@@ -6385,8 +6709,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('dispatches gateway-owned http requests with URL auth rules and secret placeholders', async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-http-'));
-    tempDirs.push(homeDir);
+    const homeDir = makeTempDocsRoot('hybridclaw-http-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir, (config) => {
       const tools = config.tools as Record<string, unknown>;
@@ -6758,10 +7081,7 @@ describe('gateway HTTP server', () => {
 
   test('rejects symlinked artifact paths that escape the allowed roots', async () => {
     const dataDir = makeTempDataDir();
-    const outsideDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-health-outside-'),
-    );
-    tempDirs.push(outsideDir);
+    const outsideDir = makeTempDocsRoot('hybridclaw-health-outside-');
     const outsideFilePath = path.join(outsideDir, 'secret.docx');
     fs.writeFileSync(outsideFilePath, 'top secret', 'utf8');
 

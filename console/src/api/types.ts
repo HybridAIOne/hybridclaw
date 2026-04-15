@@ -11,6 +11,7 @@ export interface GatewayStatus {
   uptime: number;
   sessions: number;
   activeContainers: number;
+  defaultAgentId: string;
   defaultModel: string;
   ragDefault: boolean;
   timestamp: string;
@@ -20,6 +21,10 @@ export interface GatewayStatus {
     accountId: string | null;
     expiresAt: number | null;
     reloginRequired: boolean;
+  };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
   };
   sandbox?: {
     mode: 'container' | 'host';
@@ -72,6 +77,15 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  voice?: {
+    enabled: boolean;
+    accountSidConfigured: boolean;
+    fromNumberConfigured: boolean;
+    authTokenConfigured: boolean;
+    authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    webhookPath: string;
+    maxConcurrentCalls: number;
+  };
   whatsapp?: {
     linked: boolean;
     jid: string | null;
@@ -87,6 +101,7 @@ export interface GatewayStatus {
       error?: string;
       modelCount?: number;
       detail?: string;
+      loginRequired?: boolean;
     }
   >;
   localBackends?: Record<
@@ -333,6 +348,16 @@ export interface AdminConfig {
     enableRag: boolean;
     models: string[];
   };
+  channelInstructions: {
+    discord: string;
+    msteams: string;
+    slack: string;
+    telegram: string;
+    voice: string;
+    whatsapp: string;
+    email: string;
+    imessage: string;
+  };
   discord: {
     prefix: string;
     guildMembersIntent: boolean;
@@ -446,6 +471,25 @@ export interface AdminConfig {
     requireMention: boolean;
     textChunkLimit: number;
     mediaMaxMb: number;
+  };
+  voice: {
+    enabled: boolean;
+    provider: 'twilio';
+    twilio: {
+      accountSid: string;
+      authToken: string;
+      fromNumber: string;
+    };
+    relay: {
+      ttsProvider: 'default' | 'google' | 'amazon';
+      voice: string;
+      transcriptionProvider: 'default' | 'deepgram' | 'google';
+      language: string;
+      interruptible: boolean;
+      welcomeGreeting: string;
+    };
+    webhookPath: string;
+    maxConcurrentCalls: number;
   };
   whatsapp: {
     dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
@@ -793,6 +837,70 @@ export interface AdminAuditResponse {
   eventType: string;
   limit: number;
   entries: AdminAuditEntry[];
+}
+
+export interface AdminApprovalAgent {
+  id: string;
+  name: string | null;
+  workspacePath: string;
+}
+
+export interface AdminPendingApproval {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  createdAt: string;
+  expiresAt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+  actionKey: string | null;
+}
+
+export interface AdminPolicyRule {
+  index: number;
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+  managedByPreset?: string;
+}
+
+export interface AdminPolicyRuleInput {
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+}
+
+export interface AdminPolicyState {
+  exists: boolean;
+  policyPath: string;
+  workspacePath: string;
+  defaultAction: 'allow' | 'deny';
+  presets: string[];
+  rules: AdminPolicyRule[];
+}
+
+export interface AdminPolicyPresetSummary {
+  name: string;
+  description: string;
+}
+
+export interface AdminApprovalsResponse {
+  selectedAgentId: string;
+  agents: AdminApprovalAgent[];
+  pending: AdminPendingApproval[];
+  policy: AdminPolicyState;
+  availablePresets: AdminPolicyPresetSummary[];
 }
 
 export interface AdminSkill {

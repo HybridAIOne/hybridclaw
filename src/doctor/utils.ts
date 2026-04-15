@@ -2,7 +2,12 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { DiagResult, DoctorCategory, DoctorReport } from './types.js';
+import type {
+  DiagResult,
+  DoctorCategory,
+  DoctorCheck,
+  DoctorReport,
+} from './types.js';
 import { DOCTOR_CATEGORIES } from './types.js';
 
 const SEVERITY_ORDER: Record<DiagResult['severity'], number> = {
@@ -179,6 +184,30 @@ export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export async function runChecks(checks: DoctorCheck[]): Promise<DiagResult[]> {
+  const settled = await Promise.allSettled(checks.map((check) => check.run()));
+  const results: DiagResult[] = [];
+
+  settled.forEach((result, index) => {
+    const check = checks[index];
+    if (result.status === 'fulfilled') {
+      results.push(...result.value);
+      return;
+    }
+
+    results.push(
+      makeResult(
+        check.category,
+        check.label,
+        'error',
+        `Diagnostic failed: ${toErrorMessage(result.reason)}`,
+      ),
+    );
+  });
+
+  return results;
+}
+
 export function summarizeCounts(
   results: DiagResult[],
 ): DoctorReport['summary'] {
@@ -250,4 +279,12 @@ export function buildChmodFix(
             fs.chmodSync(filePath, previousMode & 0o777);
           },
   };
+}
+
+export function pluralize(
+  n: number,
+  singular: string,
+  plural: string,
+): string {
+  return n === 1 ? singular : plural;
 }

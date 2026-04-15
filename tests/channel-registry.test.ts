@@ -46,6 +46,7 @@ test('getChannelByContextId resolves Discord, WhatsApp, Telegram, iMessage, emai
   expect(getChannelByContextId('19:channel@thread.tacv2')?.kind).toBe(
     'msteams',
   );
+  expect(getChannelByContextId('voice:CA1234567890abcdef')?.kind).toBe('voice');
 });
 
 test('getChannel normalizes the teams alias only for registered channels', async () => {
@@ -119,6 +120,7 @@ test('capability presets match expected defaults', async () => {
     TELEGRAM_CAPABILITIES,
     SYSTEM_CAPABILITIES,
     TUI_CAPABILITIES,
+    VOICE_CAPABILITIES,
     WHATSAPP_CAPABILITIES,
   } = await importFreshChannelRegistryModules();
 
@@ -133,4 +135,6 @@ test('capability presets match expected defaults', async () => {
   expect(TUI_CAPABILITIES).toBe(SYSTEM_CAPABILITIES);
   expect(EMAIL_CAPABILITIES.attachments).toBe(true);
   expect(EMAIL_CAPABILITIES.reactions).toBe(false);
+  expect(VOICE_CAPABILITIES.attachments).toBe(false);
+  expect(VOICE_CAPABILITIES.maxMessageLength).toBe(4_000);
 });

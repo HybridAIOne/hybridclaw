@@ -9,6 +9,7 @@ export function printMainUsage(): void {
   agent      Export, inspect, install, or uninstall portable agent archives
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
+  policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
@@ -40,6 +41,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]
   hybridclaw gateway bot info
+  hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
@@ -142,6 +144,7 @@ Interactive slash commands inside TUI:
   /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
+  /policy [status|list|allow|deny|delete|preset|default|reset]
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
   /rag [on|off]
   /ralph [info|on|off|set n]
@@ -153,7 +156,8 @@ Interactive slash commands inside TUI:
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /voice [info|call <e164-number>]`);
 }
 
 export function printOnboardingUsage(): void {
@@ -501,6 +505,29 @@ Notes:
   - \`--json\` prints a machine-readable report and still uses exit code 1 when any errors remain.`);
 }
 
+export function printPolicyUsage(): void {
+  console.log(`Usage: hybridclaw policy <subcommand>
+
+Commands:
+  hybridclaw policy status
+  hybridclaw policy list [--agent <id>] [--json]
+  hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+  hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+  hybridclaw policy delete <number|host>
+  hybridclaw policy reset
+  hybridclaw policy preset list
+  hybridclaw policy preset add <name> [--dry-run]
+  hybridclaw policy preset remove <name>
+  hybridclaw policy default <allow|deny>
+
+Notes:
+  - Rules are evaluated in order; first match wins.
+  - Rule fields default to \`port=*\`, \`methods=*\`, \`paths=/**\`, and \`agent=*\`.
+  - Bare site-scope hosts like \`github.com\` also match subdomains like \`api.github.com\`.
+  - \`list --agent <id>\` shows both global (\`*\`) rules and rules scoped to that agent.
+  - \`preset add --dry-run\` previews bundled endpoints without modifying policy.yaml.`);
+}
+
 export function printSkillUsage(): void {
   console.log(`Usage: hybridclaw skill <command>
 
@@ -668,6 +695,7 @@ Topics:
   openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
+  policy      Help for workspace network policy commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   slack       Help for Slack auth/setup commands
@@ -746,6 +774,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'config':
       printConfigUsage();
+      return true;
+    case 'policy':
+      printPolicyUsage();
       return true;
     case 'plugin':
       printPluginUsage();

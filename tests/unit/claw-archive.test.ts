@@ -1,17 +1,12 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as yazl from 'yazl';
+import { useCleanMocks, useTempDir } from '../test-utils.ts';
 
 const originalCwd = process.cwd();
-const tempDirs: string[] = [];
 
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function writeSkillDir(dir: string, skillName: string): void {
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
@@ -151,24 +146,25 @@ function setZipGeneralPurposeBitFlag(
   fs.writeFileSync(archivePath, buffer);
 }
 
-afterEach(async () => {
-  process.chdir(originalCwd);
-  vi.resetModules();
-  vi.unstubAllEnvs();
-  vi.doUnmock('../../src/agents/claw-security.ts');
-  vi.doUnmock('../../src/agents/claw-security.js');
-  vi.doUnmock('../../src/skills/skills-import.ts');
-  vi.doUnmock('../../src/skills/skills-import.js');
-  vi.doUnmock('../../src/plugins/plugin-manager.ts');
-  vi.doUnmock('../../src/plugins/plugin-manager.js');
-  vi.doUnmock('../../src/plugins/plugin-install.ts');
-  vi.doUnmock('../../src/plugins/plugin-install.js');
-  vi.doUnmock('../../src/infra/ipc.ts');
-  vi.doUnmock('../../src/infra/ipc.js');
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  cleanup: async () => {
+    process.chdir(originalCwd);
+  },
+  restoreAllMocks: false,
+  resetModules: true,
+  unstubAllEnvs: true,
+  unmock: [
+    '../../src/agents/claw-security.ts',
+    '../../src/agents/claw-security.js',
+    '../../src/skills/skills-import.ts',
+    '../../src/skills/skills-import.js',
+    '../../src/plugins/plugin-manager.ts',
+    '../../src/plugins/plugin-manager.js',
+    '../../src/plugins/plugin-install.ts',
+    '../../src/plugins/plugin-install.js',
+    '../../src/infra/ipc.ts',
+    '../../src/infra/ipc.js',
+  ],
 });
 
 beforeEach(() => {

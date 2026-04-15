@@ -14,12 +14,23 @@
       "msteams": [],
       "slack": [],
       "telegram": [],
+      "voice": [],
       "whatsapp": [],
       "email": []
     }
   },
   "tools": {
     "disabled": []
+  },
+  "channelInstructions": {
+    "discord": "",
+    "msteams": "",
+    "slack": "",
+    "telegram": "",
+    "voice": "This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.\nAbsolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.\nDo not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.\nDo not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.",
+    "whatsapp": "",
+    "email": "",
+    "imessage": ""
   },
   "adaptiveSkills": {
     "enabled": false,
@@ -156,6 +167,25 @@
     "sendReadReceipts": true,
     "ackReaction": "👀",
     "mediaMaxMb": 20
+  },
+  "voice": {
+    "enabled": false,
+    "provider": "twilio",
+    "twilio": {
+      "accountSid": "",
+      "authToken": "",
+      "fromNumber": ""
+    },
+    "relay": {
+      "ttsProvider": "default",
+      "voice": "",
+      "transcriptionProvider": "default",
+      "language": "en-US",
+      "interruptible": true,
+      "welcomeGreeting": "Hello! How can I help you today?"
+    },
+    "webhookPath": "/voice",
+    "maxConcurrentCalls": 8
   },
   "imessage": {
     "enabled": false,
@@ -459,6 +489,29 @@
   },
   "scheduler": {
     "jobs": [
+      {
+        "id": "resource-hygiene",
+        "name": "Resource Hygiene",
+        "description": "Runs conservative doctor-based resource hygiene twice daily and auto-applies only safe cleanup.",
+        "schedule": {
+          "kind": "every",
+          "at": null,
+          "everyMs": 43200000,
+          "expr": null,
+          "tz": "UTC"
+        },
+        "action": {
+          "kind": "system_event",
+          "message": "resource_hygiene_maintenance"
+        },
+        "delivery": {
+          "kind": "last-channel",
+          "channel": "",
+          "to": "",
+          "webhookUrl": ""
+        },
+        "enabled": true
+      },
       {
         "id": "morning-standup",
         "name": "Daily Standup Report",

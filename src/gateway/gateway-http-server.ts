@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -15,6 +16,11 @@ import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
+import {
+  handleVoiceUpgrade,
+  handleVoiceWebhook,
+} from '../channels/voice/runtime.js';
+import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
@@ -36,6 +42,7 @@ import {
   parseSchedulerBoardStatus,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -104,16 +111,18 @@ import {
   upsertGatewayAdminSchedulerJob,
 } from './gateway-scheduled-task-service.js';
 import {
+  applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
+  deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
-  GatewayRequestError,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgents,
+  getGatewayAdminApprovals,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
@@ -141,6 +150,8 @@ import {
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
+  saveGatewayAdminPolicyDefault,
+  saveGatewayAdminPolicyRule,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -227,6 +238,13 @@ type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiAdminTerminalRequestBody = {
   cols?: number;
   rows?: number;
+};
+type ApiAdminPolicyRequestBody = {
+  agentId?: unknown;
+  index?: unknown;
+  defaultAction?: unknown;
+  presetName?: unknown;
+  rule?: unknown;
 };
 
 // Keep this local instead of importing the container helper. The gateway and
@@ -340,6 +358,136 @@ function parsePositiveInteger(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parseApiAdminPolicyIndex(value: unknown): number {
+  const parsed = parsePositiveInteger(value);
+  if (parsed == null) {
+    throw new GatewayRequestError(400, 'Expected positive integer `index`.');
+  }
+  return parsed;
+}
+
+function parseApiAdminPolicyStringList(
+  value: unknown,
+  label: 'methods' | 'paths',
+): string[] | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const normalized = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      `Expected \`${label}\` to be a string or array of strings.`,
+    );
+  }
+  const normalized = value
+    .map((entry) => {
+      if (typeof entry !== 'string') {
+        throw new GatewayRequestError(
+          400,
+          `Expected \`${label}\` to be a string or array of strings.`,
+        );
+      }
+      return entry.trim();
+    })
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function parseApiAdminPolicyPort(value: unknown): number | '*' {
+  if (value == null) return '*';
+  if (value === '*') return '*';
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0 && value <= 65_535) {
+      return value;
+    }
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized === '*') return '*';
+  if (!/^\d+$/.test(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 65_535) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `port` to be `*` or an integer from 1 to 65535.',
+    );
+  }
+  return parsed;
+}
+
+function parseApiAdminPolicyRuleInput(value: unknown): {
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected object `rule` in request body.',
+    );
+  }
+  const raw = value as Record<string, unknown>;
+  const rawAction = String(raw.action || '')
+    .trim()
+    .toLowerCase();
+  if (rawAction !== 'allow' && rawAction !== 'deny') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.action` to be `allow` or `deny`.',
+    );
+  }
+  const host = normalizeOptionalString(raw.host);
+  if (!host) {
+    throw new GatewayRequestError(400, 'Expected non-empty `rule.host`.');
+  }
+  if (raw.agent != null && typeof raw.agent !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.agent` to be a string when provided.',
+    );
+  }
+  if (raw.comment != null && typeof raw.comment !== 'string') {
+    throw new GatewayRequestError(
+      400,
+      'Expected `rule.comment` to be a string when provided.',
+    );
+  }
+  const agent = normalizeOptionalString(raw.agent) || '*';
+  const comment = normalizeOptionalString(raw.comment);
+  return {
+    action: rawAction,
+    host,
+    port: parseApiAdminPolicyPort(raw.port),
+    methods: parseApiAdminPolicyStringList(raw.methods, 'methods') || ['*'],
+    paths: parseApiAdminPolicyStringList(raw.paths, 'paths') || ['/**'],
+    agent,
+    ...(comment ? { comment } : {}),
+  };
+}
+
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
 const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
@@ -413,7 +561,7 @@ async function readHttpResponseBuffer(
     if (typeof response.arrayBuffer === 'function') {
       const buffered = Buffer.from(await response.arrayBuffer());
       if (buffered.length > maxResponseBytes) {
-        throw new HttpRequestError(
+        throw new GatewayRequestError(
           413,
           `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
         );
@@ -434,7 +582,7 @@ async function readHttpResponseBuffer(
       totalBytes += value.byteLength;
       if (totalBytes > maxResponseBytes) {
         await reader.cancel();
-        throw new HttpRequestError(
+        throw new GatewayRequestError(
           413,
           `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
         );
@@ -451,25 +599,25 @@ async function readHttpResponseBuffer(
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
-    throw new HttpRequestError(400, 'Missing `url` in request body.');
+    throw new GatewayRequestError(400, 'Missing `url` in request body.');
   }
 
   let parsed: URL;
   try {
     parsed = new URL(input);
   } catch {
-    throw new HttpRequestError(400, `Invalid URL: ${input}`);
+    throw new GatewayRequestError(400, `Invalid URL: ${input}`);
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       `Unsupported URL protocol: ${parsed.protocol}`,
     );
   }
 
   if (await isPrivateHost(parsed.hostname)) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
     );
@@ -484,7 +632,7 @@ function normalizeHttpRequestMethod(value: unknown): string {
     .toUpperCase();
   if (!normalized) return 'GET';
   if (!/^[A-Z]+$/.test(normalized)) {
-    throw new HttpRequestError(400, `Invalid HTTP method: ${normalized}`);
+    throw new GatewayRequestError(400, `Invalid HTTP method: ${normalized}`);
   }
   return normalized;
 }
@@ -492,7 +640,10 @@ function normalizeHttpRequestMethod(value: unknown): string {
 function normalizeHeaderNameOrThrow(value: string): string {
   const normalized = value.trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(normalized)) {
-    throw new HttpRequestError(400, `Invalid HTTP header name: ${normalized}`);
+    throw new GatewayRequestError(
+      400,
+      `Invalid HTTP header name: ${normalized}`,
+    );
   }
   return normalized;
 }
@@ -556,11 +707,14 @@ function withAuthPrefix(secret: string, prefix: string): string {
 
 function resolveStoredSecretOrThrow(secretName: string): string {
   if (!isRuntimeSecretName(secretName)) {
-    throw new HttpRequestError(400, `Invalid secret name: ${secretName}`);
+    throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
   }
   const value = readStoredRuntimeSecret(secretName);
   if (!value) {
-    throw new HttpRequestError(400, `Stored secret ${secretName} is not set.`);
+    throw new GatewayRequestError(
+      400,
+      `Stored secret ${secretName} is not set.`,
+    );
   }
   return value;
 }
@@ -720,15 +874,6 @@ function isMalformedCanonicalSessionId(value: string | undefined): boolean {
     classifySessionKeyShape(String(value || '').trim()) ===
     'canonical_malformed'
   );
-}
-
-class HttpRequestError extends Error {
-  statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
-  }
 }
 
 function isRuntimeDiscordChannelConfig(
@@ -997,7 +1142,7 @@ function resolveArtifactRequestPath(rawPath: string): string | null {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
     if (!uploadedMediaCacheDir) {
-      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+      throw new GatewayRequestError(503, 'Uploaded media cache unavailable.');
     }
     return resolveDisplayPathAlias(
       trimmed,
@@ -1030,7 +1175,7 @@ function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
     if (!uploadedMediaCacheDir) {
-      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+      throw new GatewayRequestError(503, 'Uploaded media cache unavailable.');
     }
     const resolved = resolveDisplayPathAlias(
       trimmed,
@@ -1071,14 +1216,14 @@ function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
 function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
-    throw new HttpRequestError(400, 'Invalid `media` in request body.');
+    throw new GatewayRequestError(400, 'Invalid `media` in request body.');
   }
   if (raw.length === 0) return [];
 
   const normalized: MediaContextItem[] = [];
   for (const [index, item] of raw.entries()) {
     if (!item || typeof item !== 'object') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}]\` item.`);
+      throw new GatewayRequestError(400, `Invalid \`media[${index}]\` item.`);
     }
     const mediaItem = item as Record<string, unknown>;
 
@@ -1087,24 +1232,27 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
     const originalUrl = normalizeOptionalString(mediaItem.originalUrl);
     const filename = normalizeOptionalString(mediaItem.filename);
     if (!pathValue) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].path\`.`);
+      throw new GatewayRequestError(400, `Missing \`media[${index}].path\`.`);
     }
     if (!url) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].url\`.`);
+      throw new GatewayRequestError(400, `Missing \`media[${index}].url\`.`);
     }
     if (!originalUrl) {
-      throw new HttpRequestError(
+      throw new GatewayRequestError(
         400,
         `Missing \`media[${index}].originalUrl\`.`,
       );
     }
     if (!filename) {
-      throw new HttpRequestError(400, `Missing \`media[${index}].filename\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Missing \`media[${index}].filename\`.`,
+      );
     }
 
     const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
     if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
-      throw new HttpRequestError(
+      throw new GatewayRequestError(
         400,
         `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
       );
@@ -1112,15 +1260,24 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
 
     const rawSizeBytes = mediaItem.sizeBytes;
     if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
     }
     if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].sizeBytes\`.`,
+      );
     }
 
     const rawMimeType = mediaItem.mimeType;
     if (rawMimeType != null && typeof rawMimeType !== 'string') {
-      throw new HttpRequestError(400, `Invalid \`media[${index}].mimeType\`.`);
+      throw new GatewayRequestError(
+        400,
+        `Invalid \`media[${index}].mimeType\`.`,
+      );
     }
 
     normalized.push({
@@ -1283,7 +1440,7 @@ async function readRequestBody(
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
     if (total > maxBytes) {
-      throw new HttpRequestError(413, 'Request body too large.');
+      throw new GatewayRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
@@ -1298,7 +1455,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(raw) as unknown;
   } catch {
-    throw new HttpRequestError(400, 'Invalid JSON body');
+    throw new GatewayRequestError(400, 'Invalid JSON body');
   }
 }
 
@@ -1857,7 +2014,7 @@ async function handleApiPluginTool(
     });
     sendJson(res, 200, { ok: true, result });
   } catch (error) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       500,
       error instanceof Error ? error.message : String(error),
     );
@@ -1934,7 +2091,7 @@ async function handleApiHttpRequest(
       ? replaceSecretPlaceholdersInString(body.body)
       : body.body;
   } else if (body.body !== undefined) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
     );
@@ -1953,7 +2110,10 @@ async function handleApiHttpRequest(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new HttpRequestError(502, `Outbound HTTP request failed: ${message}`);
+    throw new GatewayRequestError(
+      502,
+      `Outbound HTTP request failed: ${message}`,
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -1962,7 +2122,7 @@ async function handleApiHttpRequest(
     response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
     response.status <= REDIRECT_RESPONSE_STATUS_MAX
   ) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       400,
       'Outbound HTTP redirects are blocked by the SSRF guard.',
     );
@@ -1973,7 +2133,7 @@ async function handleApiHttpRequest(
     10,
   );
   if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new HttpRequestError(
+    throw new GatewayRequestError(
       413,
       `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
     );
@@ -2769,6 +2929,142 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+function extractUpstreamError(payload: unknown, status: number): string {
+  const record = payload as Record<string, unknown> | null;
+  const nested = record?.error;
+  return String(
+    (typeof record?.message === 'string' && record.message) ||
+      (typeof nested === 'string' && nested) ||
+      (nested &&
+        typeof nested === 'object' &&
+        typeof (nested as Record<string, unknown>).message === 'string' &&
+        (nested as Record<string, unknown>).message) ||
+      `HybridAI API returned HTTP ${status}`,
+  );
+}
+
+async function hybridAIFetch(
+  baseUrl: string,
+  apiKey: string,
+  path: string,
+  method: 'GET' | 'POST' = 'GET',
+): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  let payload: unknown;
+  if (contentType.includes('application/json')) {
+    payload = await response.json().catch(() => null);
+  } else {
+    const text = await response.text().catch(() => '');
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
+
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function handleApiAdminEmailConfigFetch(
+  res: ServerResponse,
+): Promise<void> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch {
+    sendJson(res, 400, {
+      error:
+        'HYBRIDAI_API_KEY is not configured. Run `hybridclaw auth login hybridai` first.',
+    });
+    return;
+  }
+
+  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
+    /\/+$/,
+    '',
+  );
+
+  // Step 1: list agent handles
+  let handlesResult: { ok: boolean; status: number; payload: unknown };
+  try {
+    handlesResult = await hybridAIFetch(
+      baseUrl,
+      apiKey,
+      '/api/v1/agent-handles/',
+    );
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Could not reach HybridAI API: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  if (!handlesResult.ok) {
+    sendJson(res, 502, {
+      error: extractUpstreamError(handlesResult.payload, handlesResult.status),
+    });
+    return;
+  }
+
+  const handlesPayload = handlesResult.payload as {
+    handles?: Array<{ id?: string; handle?: string; status?: string }>;
+  };
+  const handles = Array.isArray(handlesPayload?.handles)
+    ? handlesPayload.handles
+    : [];
+
+  if (handles.length === 0) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles: [], credentials: null });
+    return;
+  }
+
+  // Step 2: fetch mailbox credentials for the first active handle
+  const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
+  const handleId = activeHandle.id || activeHandle.handle;
+
+  if (!handleId) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles, credentials: null });
+    return;
+  }
+
+  let credResult: { ok: boolean; status: number; payload: unknown };
+  try {
+    credResult = await hybridAIFetch(
+      baseUrl,
+      apiKey,
+      `/api/v1/agent-handles/${encodeURIComponent(handleId)}/mailbox/credentials`,
+      'POST',
+    );
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Could not fetch mailbox credentials: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  if (!credResult.ok) {
+    sendJson(res, 502, {
+      error: extractUpstreamError(credResult.payload, credResult.status),
+    });
+    return;
+  }
+
+  res.setHeader('Cache-Control', 'no-store');
+  sendJson(res, 200, {
+    handles,
+    credentials: credResult.payload,
+    handleId,
+  });
+}
+
 async function handleApiAdminModels(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2919,6 +3215,107 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
       limit,
     }),
   );
+}
+
+function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getGatewayAdminApprovals({
+      agentId: url.searchParams.get('agentId') || '',
+    }),
+  );
+}
+
+function sendApiAdminPolicyError(res: ServerResponse, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
+    error: message,
+  });
+}
+
+async function handleApiAdminPolicy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'PUT') {
+    try {
+      const body = (await readJsonBody(req)) as ApiAdminPolicyRequestBody;
+      if (body.presetName !== undefined) {
+        const presetName = normalizeOptionalString(body.presetName);
+        if (!presetName) {
+          throw new GatewayRequestError(
+            400,
+            'Expected non-empty `presetName`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          applyGatewayAdminPolicyPreset({
+            agentId: normalizeOptionalString(body.agentId),
+            presetName,
+          }),
+        );
+        return;
+      }
+      if (body.defaultAction !== undefined) {
+        const rawDefaultAction = String(body.defaultAction || '')
+          .trim()
+          .toLowerCase();
+        if (rawDefaultAction !== 'allow' && rawDefaultAction !== 'deny') {
+          throw new GatewayRequestError(
+            400,
+            'Expected `defaultAction` to be `allow` or `deny`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminPolicyDefault({
+            agentId: normalizeOptionalString(body.agentId),
+            defaultAction: rawDefaultAction,
+          }),
+        );
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        saveGatewayAdminPolicyRule({
+          agentId: normalizeOptionalString(body.agentId),
+          ...(body.index === undefined
+            ? {}
+            : { index: parseApiAdminPolicyIndex(body.index) }),
+          rule: parseApiAdminPolicyRuleInput(body.rule),
+        }),
+      );
+    } catch (error) {
+      sendApiAdminPolicyError(res, error);
+    }
+    return;
+  }
+
+  if (method === 'DELETE') {
+    try {
+      sendJson(
+        res,
+        200,
+        deleteGatewayAdminPolicyRule({
+          agentId: url.searchParams.get('agentId') || '',
+          index: parseApiAdminPolicyIndex(url.searchParams.get('index')),
+        }),
+      );
+    } catch (error) {
+      sendApiAdminPolicyError(res, error);
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
 }
 
 async function handleApiAdminTools(res: ServerResponse): Promise<void> {
@@ -3079,12 +3476,6 @@ async function handleApiAdminSkillUpload(
     sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
   } catch (error) {
     if (error instanceof GatewayRequestError) {
-      sendJson(res, error.statusCode, {
-        error: error.message,
-      });
-      return;
-    }
-    if (error instanceof HttpRequestError) {
       const message =
         error.statusCode === 413
           ? `Skill zip upload exceeds the maximum size of ${MAX_SKILL_ZIP_UPLOAD_BYTES} bytes.`
@@ -3430,6 +3821,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    const voicePaths = resolveVoiceWebhookPaths(
+      getRuntimeConfig().voice.webhookPath,
+    );
+    if (
+      method === 'POST' &&
+      (pathname === voicePaths.webhookPath ||
+        pathname === voicePaths.actionPath)
+    ) {
+      dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
+      return;
+    }
+
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
         dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
@@ -3451,7 +3854,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
             err instanceof GatewayRequestError ||
             err instanceof AdminTerminalCapacityError
               ? err.statusCode
@@ -3466,10 +3868,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
-            err instanceof GatewayRequestError
-              ? err.statusCode
-              : 500;
+            err instanceof GatewayRequestError ? err.statusCode : 500;
           sendJson(res, statusCode, { error: errorText });
         }
         return;
@@ -3578,8 +3977,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminConfig(req, res);
             return;
           }
+          if (
+            pathname === '/api/admin/email-config/fetch' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminEmailConfigFetch(res);
+            return;
+          }
           if (pathname === '/api/admin/audit' && method === 'GET') {
             handleApiAdminAudit(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/approvals' && method === 'GET') {
+            handleApiAdminApprovals(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/policy' &&
+            (method === 'PUT' || method === 'DELETE')
+          ) {
+            await handleApiAdminPolicy(req, res, url);
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
@@ -3673,10 +4090,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
-            err instanceof HttpRequestError ||
-            err instanceof GatewayRequestError
-              ? err.statusCode
-              : 500;
+            err instanceof GatewayRequestError ? err.statusCode : 500;
           sendJson(res, statusCode, { error: errorText });
         }
       })();
@@ -3750,6 +4164,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   server.on('upgrade', (req, socket, head) => {
     const host = String(req.headers.host || 'localhost');
     const url = new URL(req.url || '/', `http://${host}`);
+
+    if (handleVoiceUpgrade(req, socket, head, url)) {
+      return;
+    }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
       writeUpgradeError(socket, 404, 'Not Found');

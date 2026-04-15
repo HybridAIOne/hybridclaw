@@ -125,6 +125,51 @@ test('cleanupExpiredPendingApprovals removes expired entries and disables button
   expect(pendingApprovals.getPendingApproval('session-3')).toBeNull();
 });
 
+test('listPendingApprovals returns only unresolved, unexpired entries', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-10T10:00:00Z'));
+
+  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+
+  await pendingApprovals.setPendingApproval('session-active', {
+    approvalId: 'live-1',
+    prompt: 'still pending',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'user-1',
+    resolvedAt: null,
+  });
+  await pendingApprovals.setPendingApproval('session-resolved', {
+    approvalId: 'done-1',
+    prompt: 'already handled',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'user-2',
+    resolvedAt: Date.now(),
+  });
+  await pendingApprovals.setPendingApproval('session-expired-list', {
+    approvalId: 'expired-1',
+    prompt: 'expired entry',
+    createdAt: Date.now() - 120_000,
+    expiresAt: Date.now() - 1,
+    userId: 'user-3',
+    resolvedAt: null,
+  });
+
+  expect(pendingApprovals.listPendingApprovals()).toEqual([
+    {
+      sessionId: 'session-active',
+      entry: expect.objectContaining({
+        approvalId: 'live-1',
+        userId: 'user-1',
+      }),
+    },
+  ]);
+
+  await pendingApprovals.clearPendingApproval('session-active');
+  await pendingApprovals.clearPendingApproval('session-resolved');
+});
+
 test('claimPendingApprovalByApprovalId marks an approval handled after first claim', async () => {
   const pendingApprovals = await import('../src/gateway/pending-approvals.js');
 
