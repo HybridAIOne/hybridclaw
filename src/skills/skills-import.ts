@@ -146,15 +146,19 @@ function readSkillNameFromFile(skillFilePath: string): string {
   );
 }
 
+function hasZipExtension(filePath: string): boolean {
+  return filePath.toLowerCase().endsWith('.zip');
+}
+
 function parseLocalSource(input: string): LocalSkillImportSource | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
   const isExplicitLocal =
-    trimmed.startsWith('/') ||
     trimmed.startsWith('~/') ||
     trimmed.startsWith('./') ||
-    trimmed.startsWith('../');
+    trimmed.startsWith('../') ||
+    path.isAbsolute(trimmed);
 
   if (!isExplicitLocal) return null;
 
@@ -167,7 +171,7 @@ function parseLocalSource(input: string): LocalSkillImportSource | null {
     kind: 'local',
     displaySource: input,
     resolvedPath: resolved,
-    isZip: resolved.endsWith('.zip'),
+    isZip: hasZipExtension(resolved),
   };
 }
 
@@ -177,7 +181,7 @@ function validateLocalSource(resolved: string): { isZip: boolean } {
   }
 
   const stat = fs.statSync(resolved);
-  const isZip = stat.isFile() && resolved.endsWith('.zip');
+  const isZip = stat.isFile() && hasZipExtension(resolved);
 
   if (!stat.isDirectory() && !isZip) {
     throw new SkillImportError(
