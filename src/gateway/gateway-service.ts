@@ -117,6 +117,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -6213,14 +6214,12 @@ async function runDelegationTaskWithRetry(
   let lastError = 'Delegation failed with unknown error';
   let lastStatus: DelegationRunStatus = 'failed';
   let lastDuration = 0;
-  let lastSessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
   let lastToolsUsed: string[] = [];
   let lastArtifacts: ArtifactMetadata[] | undefined;
 
   while (attempt < maxAttempts) {
     attempt += 1;
-    const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
-    lastSessionId = sessionId;
     const startedAt = Date.now();
     try {
       const output = await runAgent({
@@ -6250,6 +6249,7 @@ async function runDelegationTaskWithRetry(
       lastArtifacts = output.artifacts;
 
       if (output.status === 'success' && output.result?.trim()) {
+        stopSessionHostProcess(sessionId);
         return {
           status: 'completed',
           sessionId,
@@ -6309,9 +6309,10 @@ async function runDelegationTaskWithRetry(
     }
   }
 
+  stopSessionHostProcess(sessionId);
   return {
     status: lastStatus,
-    sessionId: lastSessionId,
+    sessionId,
     model: task.model,
     durationMs: lastDuration,
     attempts: attempt,

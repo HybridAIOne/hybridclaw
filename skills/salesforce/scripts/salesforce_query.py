@@ -1,77 +1,57 @@
 #!/usr/bin/env python3
 # ruff: noqa: INP001
-"""Read-only Salesforce schema and query helper."""
+"""Read-only Salesforce schema and query helper.
+
+All HTTP traffic is routed through the HybridClaw gateway proxy at
+``/api/http/request`` so that stored secrets (``<secret:NAME>`` placeholders)
+are resolved gateway-side and never enter this process.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
-import shlex
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
 DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT * 1000
 DEFAULT_MAX_RECORDS = 200
 DEFAULT_FIELD_LIMIT = 80
 DEFAULT_OBJECT_LIMIT = 200
-SECRET_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
-STORE_SECRET_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
-SECRET_COMMAND_STATUS_PREFIXES = (
-    "Name:",
-    "Stored:",
-    "Path:",
-    "Usage:",
-    "hybridclaw error:",
-    "Hint:",
-)
-SECRET_COMMAND_NOISE_PREFIXES = (
-    "[runtime-",
-    "Migrating .env to ",
-)
 
-DEFAULT_AUTH_PROFILE: dict[str, Any] = {
-    "username": {"source": "store", "id": "SF_FULL_USERNAME"},
-    "password": {"source": "store", "id": "SF_FULL_PASSWORD"},
-    "client_id": {"source": "store", "id": "SF_FULL_CLIENTID"},
-    "client_secret": {"source": "store", "id": "SF_FULL_SECRET"},
-    "domain": {"source": "store", "id": "SF_DOMAIN"},
-}
+SF_ACCESS_TOKEN_SECRET = "SF_ACCESS_TOKEN"
+SF_INSTANCE_URL_SECRET = "SF_INSTANCE_URL"
+
+DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
 
 
 class ConfigError(RuntimeError):
-    """Raised when the auth profile is invalid."""
+    """Raised when configuration is invalid."""
 
 
 class SalesforceError(RuntimeError):
     """Raised when a Salesforce API call fails."""
 
 
+class GatewayError(RuntimeError):
+    """Raised when the gateway proxy returns an error."""
+
+
 @dataclass
-class AuthConfig:
-    username: str
-    password: str
-    client_id: str
-    client_secret: str
-    domain: str
-    api_version: str = "latest"
+class GatewayConfig:
+    base_url: str
+    api_token: str
+    timeout_ms: int
 
 
 @dataclass
 class SalesforceSession:
-    instance_url: str
-    access_token: str
     api_version: str
-    timeout: int
-
-    def headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.access_token}"}
+    gateway: GatewayConfig
 
     def data_path(self, suffix: str) -> str:
         return f"/services/data/v{self.api_version}{suffix}"
@@ -80,225 +60,201 @@ class SalesforceSession:
         url = (
             path_or_url
             if path_or_url.startswith("http://") or path_or_url.startswith("https://")
-            else f"{self.instance_url}{path_or_url}"
+            else f"<secret:{SF_INSTANCE_URL_SECRET}>{path_or_url}"
         )
-        return request_json(url, headers=self.headers(), timeout=self.timeout)
+        return gateway_request(
+            self.gateway,
+            url=url,
+            method="GET",
+            bearer_secret=SF_ACCESS_TOKEN_SECRET,
+            replace_placeholders=True,
+        )
 
 
 def is_mapping(value: Any) -> bool:
     return isinstance(value, dict)
 
 
-def default_secret_command() -> str:
-    return os.environ.get("HYBRIDCLAW_SECRET_COMMAND", "").strip() or "hybridclaw"
-
-
-def load_profile(config_path: Path | None, secret_command: str) -> AuthConfig:
-    raw_profile: dict[str, Any] = {}
-    if config_path is not None:
-        try:
-            raw = json.loads(config_path.read_text(encoding="utf-8"))
-        except FileNotFoundError as exc:
-            raise ConfigError(f"Config file not found: {config_path}") from exc
-        except json.JSONDecodeError as exc:
-            raise ConfigError(
-                f"Config file is not valid JSON: {config_path}: {exc}"
-            ) from exc
-        if not is_mapping(raw):
-            raise ConfigError("Config file must contain a JSON object")
-        raw_profile = raw
-
-    auth_section = (
-        raw_profile.get("auth") if is_mapping(raw_profile.get("auth")) else raw_profile
+def resolve_gateway_url() -> str:
+    return (
+        os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
+        or os.environ.get("GATEWAY_BASE_URL", "").strip()
+        or DEFAULT_GATEWAY_URL
     )
-    merged_auth = {
-        **DEFAULT_AUTH_PROFILE,
-        **(auth_section if is_mapping(auth_section) else {}),
+
+
+def resolve_gateway_token() -> str:
+    return (
+        os.environ.get("HYBRIDCLAW_GATEWAY_TOKEN", "").strip()
+        or os.environ.get("GATEWAY_API_TOKEN", "").strip()
+        or ""
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gateway proxy
+# ---------------------------------------------------------------------------
+
+
+def gateway_request(
+    gw: GatewayConfig,
+    *,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+    json_payload: dict[str, Any] | None = None,
+    bearer_secret: str | None = None,
+    replace_placeholders: bool = False,
+    capture_response_fields: list[dict[str, str]] | None = None,
+) -> Any:
+    """Send an HTTP request through the gateway proxy.
+
+    The gateway resolves ``<secret:NAME>`` placeholders and injects bearer
+    tokens from the encrypted secret store so real credentials never enter
+    this process.
+    """
+    proxy_url = f"{gw.base_url.rstrip('/')}/api/http/request"
+    payload: dict[str, Any] = {
+        "url": url,
+        "method": method,
+        "timeoutMs": gw.timeout_ms,
     }
-    api_version = str(raw_profile.get("api_version", "latest")).strip() or "latest"
+    if headers:
+        payload["headers"] = headers
+    if body is not None:
+        payload["body"] = body
+    if json_payload is not None:
+        payload["json"] = json_payload
+    if bearer_secret:
+        payload["bearerSecretName"] = bearer_secret
+    if replace_placeholders:
+        payload["replaceSecretPlaceholders"] = True
+    if capture_response_fields is not None:
+        payload["captureResponseFields"] = capture_response_fields
 
-    return AuthConfig(
-        username=resolve_secret_input(
-            merged_auth.get("username"),
-            "auth.username",
-            secret_command,
-        ),
-        password=resolve_secret_input(
-            merged_auth.get("password"),
-            "auth.password",
-            secret_command,
-        ),
-        client_id=resolve_secret_input(
-            merged_auth.get("client_id"),
-            "auth.client_id",
-            secret_command,
-        ),
-        client_secret=resolve_secret_input(
-            merged_auth.get("client_secret"),
-            "auth.client_secret",
-            secret_command,
-        ),
-        domain=resolve_secret_input(
-            merged_auth.get("domain"),
-            "auth.domain",
-            secret_command,
-        ),
-        api_version=normalize_api_version(api_version),
+    proxy_headers: dict[str, str] = {"Content-Type": "application/json"}
+    if gw.api_token:
+        proxy_headers["Authorization"] = f"Bearer {gw.api_token}"
+
+    encoded = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    req = request.Request(
+        proxy_url, data=encoded, method="POST", headers=proxy_headers,
     )
+    try:
+        with request.urlopen(req, timeout=gw.timeout_ms / 1000 + 5) as resp:
+            raw = resp.read().decode("utf-8")
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise GatewayError(
+            f"Gateway proxy returned {exc.code} for {method} {url}: {detail}"
+        ) from exc
+    except error.URLError as exc:
+        raise GatewayError(
+            f"Cannot reach gateway at {proxy_url}: {exc.reason}"
+        ) from exc
+    except OSError as exc:
+        raise GatewayError(
+            f"Network error reaching gateway at {proxy_url}: {exc}"
+        ) from exc
 
-
-def read_stored_secret(secret_name: str, secret_command: str) -> str:
-    if not STORE_SECRET_NAME_PATTERN.fullmatch(secret_name):
-        raise ConfigError(
-            f"{secret_name} is not a valid HybridClaw stored secret name"
-        )
-
-    command_text = secret_command.strip() or "hybridclaw"
-    command_parts = shlex.split(command_text)
-    if not command_parts:
-        raise ConfigError("HYBRIDCLAW_SECRET_COMMAND resolved to an empty command")
-    executable = command_parts[0]
-    if (
-        "/" not in executable
-        and "\\" not in executable
-        and shutil.which(executable) is None
-    ):
-        raise ConfigError(
-            f"Cannot resolve `{executable}` in PATH. Set HYBRIDCLAW_SECRET_COMMAND or pass --secret-command."
-        )
+    if not raw:
+        return {}
 
     try:
-        completed = subprocess.run(
-            [*command_parts, "secret", "show", secret_name, "--raw"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
+        envelope = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise GatewayError("Gateway returned non-JSON response") from exc
+
+    if not is_mapping(envelope):
+        raise GatewayError("Gateway response is not a JSON object")
+
+    if not envelope.get("ok", False):
+        status = envelope.get("status", "?")
+        resp_body = envelope.get("body", "")
+        raise SalesforceError(
+            f"{status} response from Salesforce for {method} {url}: {resp_body}"
         )
-    except OSError as exc:
-        raise ConfigError(
-            f"Failed to run `{command_text} secret show {secret_name} --raw`: {exc}"
+
+    # When the gateway auto-captured OAuth tokens, it returns a minimal
+    # envelope with {ok, status, captured} — return it as-is.
+    if "captured" in envelope:
+        return envelope
+
+    body_text = envelope.get("body", "")
+    if envelope.get("json") is not None:
+        return envelope["json"]
+    if not body_text:
+        return {}
+    try:
+        return json.loads(body_text)
+    except json.JSONDecodeError as exc:
+        raise SalesforceError(
+            f"Salesforce returned non-JSON data for {url}"
         ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise ConfigError(
-            f"`{command_text} secret show {secret_name} --raw` timed out"
-        ) from exc
-
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
-        if not detail:
-            detail = "unknown error"
-        raise ConfigError(
-            f"stored secret {secret_name} could not be read via `{command_text} secret show {secret_name} --raw`: {detail}"
-        )
-
-    resolved = normalize_stored_secret_output(
-        completed.stdout,
-        secret_name=secret_name,
-        command_text=command_text,
-    )
-    if not resolved:
-        raise ConfigError(f"stored secret {secret_name} is empty")
-    return resolved
 
 
-def normalize_stored_secret_output(
-    stdout: str, *, secret_name: str, command_text: str
-) -> str:
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    if not lines:
-        return ""
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
 
-    if len(lines) == 1:
-        return lines[0]
 
-    if any(
-        line.startswith(SECRET_COMMAND_STATUS_PREFIXES) for line in lines
-    ):
-        raise ConfigError(
-            f"`{command_text} secret show {secret_name} --raw` did not return a raw secret value. "
-            "Use a HybridClaw build that supports `secret show --raw`, or point "
-            "`--secret-command` / `HYBRIDCLAW_SECRET_COMMAND` at the correct CLI."
-        )
+def authenticate(gw: GatewayConfig, api_version: str) -> SalesforceSession:
+    """Perform OAuth2 username-password flow via the gateway proxy.
 
-    non_secret_lines = lines[:-1]
-    if non_secret_lines and all(
-        line.startswith(SECRET_COMMAND_NOISE_PREFIXES) for line in non_secret_lines
-    ):
-        return lines[-1] or ""
+    Credentials are sent as ``<secret:NAME>`` placeholders in the request body
+    so the gateway resolves them server-side.  The gateway auto-detects the
+    OAuth token response, stores ``access_token`` in the encrypted secret
+    store, and strips the entire response body — the token never enters this
+    process.
 
-    raise ConfigError(
-        f"`{command_text} secret show {secret_name} --raw` returned unexpected multi-line output. "
-        "Set `--secret-command` / `HYBRIDCLAW_SECRET_COMMAND` to the exact HybridClaw CLI you want to use."
+    ``instance_url`` is stored separately via a second proxy call so that
+    subsequent API calls can reference it via ``<secret:SF_INSTANCE_URL>``.
+    """
+    oauth_body = (
+        "grant_type=password"
+        "&client_id=<secret:SF_FULL_CLIENTID>"
+        "&client_secret=<secret:SF_FULL_SECRET>"
+        "&username=<secret:SF_FULL_USERNAME>"
+        "&password=<secret:SF_FULL_PASSWORD>"
     )
 
-
-def resolve_secret_input(value: Any, field_name: str, secret_command: str) -> str:
-    if isinstance(value, str):
-        candidate = value.strip()
-        if not candidate:
-            raise ConfigError(f"{field_name} is required")
-        match = SECRET_REF_PATTERN.fullmatch(candidate)
-        if not match:
-            return candidate
-        env_name = match.group(1)
-        resolved = os.environ.get(env_name, "").strip()
-        if not resolved:
-            raise ConfigError(
-                f"{field_name} references environment variable {env_name}, but it is not set"
-            )
-        return resolved
-
-    if not is_mapping(value):
-        raise ConfigError(
-            f'{field_name} must be a string, ${{ENV_VAR}}, or {{"source": "env"|"store", "id": "NAME"}}'
-        )
-
-    source = value.get("source")
-    ref_id = value.get("id")
-    if source == "env":
-        if not isinstance(ref_id, str) or not re.fullmatch(
-            r"[A-Za-z_][A-Za-z0-9_]*", ref_id
-        ):
-            raise ConfigError(
-                f'{field_name} must use {{"source": "env", "id": "ENV_VAR"}}'
-            )
-        resolved = os.environ.get(ref_id, "").strip()
-        if not resolved:
-            raise ConfigError(
-                f"{field_name} references environment variable {ref_id}, but it is not set"
-            )
-        return resolved
-
-    if source == "store":
-        if not isinstance(ref_id, str) or not STORE_SECRET_NAME_PATTERN.fullmatch(
-            ref_id
-        ):
-            raise ConfigError(
-                f'{field_name} must use {{"source": "store", "id": "SECRET_NAME"}}'
-            )
-        return read_stored_secret(ref_id, secret_command)
-
-    if not isinstance(ref_id, str):
-        raise ConfigError(
-            f'{field_name} must use {{"source": "env"|"store", "id": "NAME"}}'
-        )
-    raise ConfigError(
-        f'{field_name} uses unsupported secret source "{source}"; expected "env" or "store"'
+    payload = gateway_request(
+        gw,
+        url="https://<secret:SF_DOMAIN>.salesforce.com/services/oauth2/token",
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        body=oauth_body,
+        replace_placeholders=True,
+        capture_response_fields=[
+            {"jsonPath": "access_token", "secretName": SF_ACCESS_TOKEN_SECRET},
+            {"jsonPath": "instance_url", "secretName": SF_INSTANCE_URL_SECRET},
+        ],
     )
 
+    if not is_mapping(payload):
+        raise SalesforceError("Salesforce auth response was not a JSON object")
 
-def normalize_domain(raw_domain: str) -> str:
-    domain = raw_domain.strip().rstrip("/")
-    if not domain:
-        raise ConfigError("auth.domain is required")
-    if domain in {"login", "production"}:
-        return "https://login.salesforce.com"
-    if domain in {"test", "sandbox"}:
-        return "https://test.salesforce.com"
-    if domain.startswith("http://") or domain.startswith("https://"):
-        return domain
-    return f"https://{domain}"
+    captured = payload.get("captured", {})
+    if not is_mapping(captured) or "access_token" not in captured:
+        raise SalesforceError(
+            "Gateway did not capture access_token from OAuth response"
+        )
+    if "instance_url" not in captured:
+        raise SalesforceError(
+            "Gateway did not capture instance_url from OAuth response"
+        )
+
+    resolved_version = (
+        api_version
+        if api_version != "latest"
+        else resolve_latest_api_version(gw)
+    )
+
+    return SalesforceSession(
+        api_version=resolved_version,
+        gateway=gw,
+    )
 
 
 def normalize_api_version(raw_value: str) -> str:
@@ -308,88 +264,13 @@ def normalize_api_version(raw_value: str) -> str:
     return value[1:] if value.lower().startswith("v") else value
 
 
-def request_json(
-    url: str,
-    *,
-    headers: dict[str, str] | None = None,
-    body: bytes | None = None,
-    method: str | None = None,
-    timeout: int = DEFAULT_TIMEOUT,
-) -> Any:
-    req = request.Request(url, data=body, method=method, headers=headers or {})
-    try:
-        with request.urlopen(req, timeout=timeout) as response:
-            payload = response.read().decode("utf-8")
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        message = detail or exc.reason or "request failed"
-        raise SalesforceError(
-            f"{exc.code} response from Salesforce for {url}: {message}"
-        ) from exc
-    except error.URLError as exc:
-        raise SalesforceError(
-            f"Failed to reach Salesforce at {url}: {exc.reason}"
-        ) from exc
-    except OSError as exc:
-        raise SalesforceError(f"Network error while requesting {url}: {exc}") from exc
-
-    if not payload:
-        return {}
-
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError as exc:
-        raise SalesforceError(f"Salesforce returned non-JSON data for {url}") from exc
-
-
-def authenticate(auth: AuthConfig, timeout: int) -> SalesforceSession:
-    token_url = f"{normalize_domain(auth.domain)}/services/oauth2/token"
-    body = parse.urlencode(
-        {
-            "grant_type": "password",
-            "client_id": auth.client_id,
-            "client_secret": auth.client_secret,
-            "username": auth.username,
-            "password": auth.password,
-        }
-    ).encode("utf-8")
-    payload = request_json(
-        token_url,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        body=body,
-        method="POST",
-        timeout=timeout,
-    )
-    if not is_mapping(payload):
-        raise SalesforceError("Salesforce auth response was not a JSON object")
-    access_token = str(payload.get("access_token", "")).strip()
-    instance_url = str(payload.get("instance_url", "")).strip().rstrip("/")
-    if not access_token or not instance_url:
-        raise SalesforceError(
-            "Salesforce auth response did not include access_token and instance_url"
-        )
-
-    api_version = (
-        auth.api_version
-        if auth.api_version != "latest"
-        else resolve_latest_api_version(instance_url, access_token, timeout)
-    )
-
-    return SalesforceSession(
-        instance_url=instance_url,
-        access_token=access_token,
-        api_version=api_version,
-        timeout=timeout,
-    )
-
-
-def resolve_latest_api_version(
-    instance_url: str, access_token: str, timeout: int
-) -> str:
-    versions = request_json(
-        f"{instance_url}/services/data/",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=timeout,
+def resolve_latest_api_version(gw: GatewayConfig) -> str:
+    versions = gateway_request(
+        gw,
+        url=f"<secret:{SF_INSTANCE_URL_SECRET}>/services/data/",
+        method="GET",
+        bearer_secret=SF_ACCESS_TOKEN_SECRET,
+        replace_placeholders=True,
     )
     if not isinstance(versions, list) or not versions:
         raise SalesforceError("Salesforce did not return any API versions")
@@ -408,6 +289,11 @@ def resolve_latest_api_version(
     if not version:
         raise SalesforceError("Salesforce returned an invalid API version payload")
     return version
+
+
+# ---------------------------------------------------------------------------
+# Salesforce operations (unchanged logic, now using gateway proxy)
+# ---------------------------------------------------------------------------
 
 
 def strip_attributes(value: Any) -> Any:
@@ -585,11 +471,8 @@ def run_query(
     keep_attributes: bool,
 ) -> dict[str, Any]:
     query_path = "/tooling/query" if tooling else "/query"
-    url = (
-        f"{session.instance_url}{session.data_path(query_path)}?"
-        f"{parse.urlencode({'q': soql})}"
-    )
-    payload = session.get_json(url)
+    path = f"{session.data_path(query_path)}?{parse.urlencode({'q': soql})}"
+    payload = session.get_json(path)
     if not is_mapping(payload):
         raise SalesforceError("Unexpected query response")
 
@@ -636,6 +519,11 @@ def run_query(
         "truncated": False,
         "records": records,
     }
+
+
+# ---------------------------------------------------------------------------
+# Output formatting (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def to_cell(value: Any) -> str:
@@ -828,45 +716,68 @@ def emit(payload: dict[str, Any], output_format: str) -> None:
     print(render_text(payload))
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Read-only Salesforce schema and query helper"
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help="Optional JSON profile containing auth secret refs and api_version",
-    )
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _add_common_args(
+    parser: argparse.ArgumentParser, *, with_defaults: bool = True,
+) -> None:
+    """Register shared flags on *parser*.
+
+    When *with_defaults* is ``False`` the arguments use
+    ``argparse.SUPPRESS`` so the subparser does not override a value
+    already set by the main parser.  This lets flags like ``--format``
+    work in any position on the command line.
+    """
+    _sup = argparse.SUPPRESS
+
     parser.add_argument(
         "--format",
         choices=("text", "json"),
-        default="text",
+        default="text" if with_defaults else _sup,
         help="Output format",
     )
     parser.add_argument(
         "--timeout",
         type=int,
-        default=DEFAULT_TIMEOUT,
+        default=DEFAULT_TIMEOUT if with_defaults else _sup,
         help=f"HTTP timeout in seconds (default: {DEFAULT_TIMEOUT})",
     )
     parser.add_argument(
         "--api-version",
-        help="Override config api_version. Use 'latest' or a version like 61.0",
+        default="latest" if with_defaults else _sup,
+        help="API version. Use 'latest' or a version like 61.0",
     )
     parser.add_argument(
         "--keep-attributes",
         action="store_true",
+        default=False if with_defaults else _sup,
         help="Keep Salesforce attributes blocks in query output",
     )
     parser.add_argument(
-        "--secret-command",
-        default=default_secret_command(),
-        help="Command used to resolve HybridClaw store-backed secrets (default: HYBRIDCLAW_SECRET_COMMAND or 'hybridclaw')",
+        "--gateway-url",
+        default=resolve_gateway_url() if with_defaults else _sup,
+        help=f"Gateway proxy base URL (default: HYBRIDCLAW_GATEWAY_URL or {DEFAULT_GATEWAY_URL})",
     )
+    parser.add_argument(
+        "--gateway-token",
+        default=resolve_gateway_token() if with_defaults else _sup,
+        help="Gateway API token (default: HYBRIDCLAW_GATEWAY_TOKEN)",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Read-only Salesforce schema and query helper"
+    )
+    _add_common_args(parser, with_defaults=True)
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     objects_parser = subparsers.add_parser("objects", help="List available sObjects")
+    _add_common_args(objects_parser, with_defaults=False)
     objects_parser.add_argument(
         "--search", default="", help="Filter by object name or label"
     )
@@ -881,6 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     describe_parser = subparsers.add_parser("describe", help="Describe one sObject")
+    _add_common_args(describe_parser, with_defaults=False)
     describe_parser.add_argument("sobject", help="Salesforce object API name")
     describe_parser.add_argument(
         "--field-limit",
@@ -892,9 +804,11 @@ def build_parser() -> argparse.ArgumentParser:
     relations_parser = subparsers.add_parser(
         "relations", help="Show parent and child relationships for an sObject"
     )
+    _add_common_args(relations_parser, with_defaults=False)
     relations_parser.add_argument("sobject", help="Salesforce object API name")
 
     query_parser = subparsers.add_parser("query", help="Run a SOQL row query")
+    _add_common_args(query_parser, with_defaults=False)
     query_parser.add_argument("soql", help="SOQL statement to execute")
     query_parser.add_argument(
         "--max-records",
@@ -906,6 +820,7 @@ def build_parser() -> argparse.ArgumentParser:
     tooling_parser = subparsers.add_parser(
         "tooling-query", help="Run a Tooling API SOQL query"
     )
+    _add_common_args(tooling_parser, with_defaults=False)
     tooling_parser.add_argument("soql", help="Tooling API SOQL statement to execute")
     tooling_parser.add_argument(
         "--max-records",
@@ -922,10 +837,14 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        profile = load_profile(args.config, args.secret_command)
-        if args.api_version:
-            profile.api_version = normalize_api_version(args.api_version)
-        session = authenticate(profile, timeout=args.timeout)
+        gw = GatewayConfig(
+            base_url=args.gateway_url,
+            api_token=args.gateway_token,
+            timeout_ms=args.timeout * 1000,
+        )
+
+        api_version = normalize_api_version(args.api_version)
+        session = authenticate(gw, api_version)
 
         if args.command == "objects":
             payload = list_objects(
@@ -958,7 +877,7 @@ def main() -> int:
                 max_records=args.max_records,
                 keep_attributes=args.keep_attributes,
             )
-    except (ConfigError, SalesforceError) as exc:
+    except (ConfigError, SalesforceError, GatewayError) as exc:
         payload = {"status": "error", "message": str(exc)}
         if args.format == "json":
             print(json.dumps(payload, ensure_ascii=True, indent=2))

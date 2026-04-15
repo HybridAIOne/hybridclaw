@@ -28,12 +28,12 @@ Use this skill for read-only Salesforce exploration from an org you can access w
 - relationship discovery for lookup, master-detail, and child links
 - SOQL row queries
 - Tooling API metadata queries
-- credential setup guidance using HybridClaw stored secret refs
+- credential setup guidance using HybridClaw stored secrets
 
 ## Default Workflow
 
 1. Start read-only. Do not create, update, delete, or deploy anything unless the user explicitly asks.
-2. Prefer the bundled helper:
+2. Run the bundled helper directly via bash in the current session:
    ```bash
    python3 skills/salesforce/scripts/salesforce_query.py ...
    ```
@@ -45,13 +45,23 @@ Use this skill for read-only Salesforce exploration from an org you can access w
 
 ## Secret Refs
 
-By default, the helper resolves these stored secret refs internally:
+The helper routes all HTTP traffic through the HybridClaw gateway proxy.
+OAuth credentials are sent as `<secret:NAME>` placeholders that the gateway
+resolves server-side — real secret values never enter the Python process or
+the agent context.
+
+Required stored secrets:
 
 - `SF_FULL_USERNAME`
 - `SF_FULL_PASSWORD`
 - `SF_FULL_CLIENTID`
 - `SF_FULL_SECRET`
-- `SF_DOMAIN`
+- `SF_DOMAIN` — `login` for production, `test` for sandbox
+
+The gateway automatically captures the OAuth `access_token` from the login
+response and stores it as `SF_ACCESS_TOKEN` — the token never enters the
+Python process or the agent context. Subsequent API calls reference it via
+`bearerSecretName`.
 
 Ask the user to set them once from a local HybridClaw session:
 
@@ -72,26 +82,6 @@ hybridclaw secret set SF_FULL_CLIENTID '<connected-app-client-id>'
 hybridclaw secret set SF_FULL_SECRET '<connected-app-client-secret>'
 hybridclaw secret set SF_DOMAIN login
 ```
-
-No config file is required if those stored secrets are present.
-
-To override the default org or make the auth source explicit, create an untracked JSON file such as `/tmp/salesforce-profile.json`:
-
-```json
-{
-  "auth": {
-    "username": { "source": "store", "id": "SF_FULL_USERNAME" },
-    "password": { "source": "store", "id": "SF_FULL_PASSWORD" },
-    "client_id": { "source": "store", "id": "SF_FULL_CLIENTID" },
-    "client_secret": { "source": "store", "id": "SF_FULL_SECRET" },
-    "domain": { "source": "store", "id": "SF_DOMAIN" }
-  },
-  "api_version": "latest"
-}
-```
-
-The helper also accepts env refs such as `${SF_FULL_USERNAME}` or `{ "source": "env", "id": "SF_FULL_USERNAME" }`.
-Keep profile files out of git.
 
 ## Command Contract
 
@@ -131,23 +121,11 @@ Emit JSON for downstream tooling:
 python3 skills/salesforce/scripts/salesforce_query.py --format json describe Account
 ```
 
-Use a custom profile file:
-
-```bash
-python3 skills/salesforce/scripts/salesforce_query.py --config /tmp/salesforce-profile.json query "SELECT Id FROM Contact LIMIT 5"
-```
-
-Override the secret lookup command when `hybridclaw` is not on `PATH`:
-
-```bash
-python3 skills/salesforce/scripts/salesforce_query.py --secret-command "hybridclaw" query "SELECT Id FROM Contact LIMIT 5"
-```
-
 ## Working Rules
 
 - Keep the default posture read-only.
 - Never print secrets, dump the full environment, or commit auth profile files.
-- Treat `SF_DOMAIN` as one of: `login`, `test`, a Salesforce host name, or a full `https://...` base URL.
+- Treat `SF_DOMAIN` as one of: `login` (production) or `test` (sandbox).
 - Prefer `--format json` when another tool or script needs the response.
 - For large tables, narrow the selected columns and use a SOQL `LIMIT` first.
 - The helper strips Salesforce `attributes` objects by default to keep row output compact. Use `--keep-attributes` only when the caller explicitly needs them.
