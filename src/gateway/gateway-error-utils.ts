@@ -19,6 +19,7 @@ const TRANSIENT_GATEWAY_ERROR_PATTERNS: RegExp[] = [
   /abort/i,
   /interrupt/i,
   /killed/i,
+  /terminated/i,
 ];
 
 const PERMANENT_GATEWAY_ERROR_PATTERNS: RegExp[] = [

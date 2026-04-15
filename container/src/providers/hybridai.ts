@@ -6,6 +6,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface StreamToolCallDelta {
   index?: number;
@@ -259,7 +260,10 @@ export async function callHybridAIProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });

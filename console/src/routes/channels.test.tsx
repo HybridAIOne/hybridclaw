@@ -917,9 +917,11 @@ describe('ChannelsPage', () => {
     await screen.findByRole('button', { name: /WhatsApp/i });
 
     fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
-    const panel = screen
-      .getByRole('heading', { name: 'WhatsApp settings' })
-      .closest('section');
+    const panel = (
+      await screen.findByRole('heading', {
+        name: 'WhatsApp settings',
+      })
+    ).closest('section');
     expect(panel).not.toBeNull();
     const enabledToggle = within(panel as HTMLElement).getByRole('group', {
       name: 'Enabled',

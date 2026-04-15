@@ -1,8 +1,10 @@
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import {
@@ -162,77 +164,81 @@ export function AuthProvider(props: { children: ReactNode }) {
     };
   }, []);
 
-  const value: AuthContextValue = {
-    ...state,
-    async login(token: string) {
-      const trimmed = token.trim();
-      if (!trimmed) {
-        setState({
-          status: 'prompt',
-          token: '',
-          gatewayStatus: null,
-          error: 'Enter a WEB_API_TOKEN to continue.',
-        });
-        return;
-      }
-
+  const login = useCallback(async (token: string): Promise<void> => {
+    const trimmed = token.trim();
+    if (!trimmed) {
       setState({
-        status: 'checking',
-        token: trimmed,
+        status: 'prompt',
+        token: '',
         gatewayStatus: null,
+        error: 'Enter a WEB_API_TOKEN to continue.',
+      });
+      return;
+    }
+
+    setState({
+      status: 'checking',
+      token: trimmed,
+      gatewayStatus: null,
+      error: null,
+    });
+
+    try {
+      const gatewayStatus = await validateToken(trimmed);
+      storeToken(trimmed);
+      setState({
+        status: 'ready',
+        token: trimmed,
+        gatewayStatus,
         error: null,
       });
-
-      try {
-        const gatewayStatus = await validateToken(trimmed);
-        storeToken(trimmed);
-        setState({
-          status: 'ready',
-          token: trimmed,
-          gatewayStatus,
-          error: null,
-        });
-      } catch (error) {
-        clearStoredToken();
-        setState({
-          status: 'prompt',
-          token: '',
-          gatewayStatus: null,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-    logout() {
+    } catch (error) {
       clearStoredToken();
-      if (state.gatewayStatus?.webAuthConfigured) {
-        setState({
+      setState({
+        status: 'prompt',
+        token: '',
+        gatewayStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, []);
+
+  const logout = useCallback((): void => {
+    clearStoredToken();
+    setState((prev) => {
+      if (prev.gatewayStatus?.webAuthConfigured) {
+        return {
           status: 'prompt',
           token: '',
           gatewayStatus: null,
           error: null,
-        });
-        return;
+        };
       }
-      if (state.gatewayStatus) {
-        setState({
+      if (prev.gatewayStatus) {
+        return {
           status: 'ready',
           token: '',
-          gatewayStatus: state.gatewayStatus,
+          gatewayStatus: prev.gatewayStatus,
           error: null,
-        });
-        return;
+        };
       }
-      setState({
+      return {
         status: 'checking',
         token: '',
         gatewayStatus: null,
         error: null,
-      });
-    },
-    async retry() {
-      window.location.reload();
-    },
-  };
+      };
+    });
+  }, []);
+
+  const retry = useCallback(async (): Promise<void> => {
+    window.location.reload();
+  }, []);
+
+  const value: AuthContextValue = useMemo(
+    () => ({ ...state, login, logout, retry }),
+    [state, login, logout, retry],
+  );
 
   return (
     <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>

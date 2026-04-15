@@ -36,6 +36,19 @@ function TerminalRouteComponent() {
   );
 }
 
+const LazyChatPage = lazy(async () => {
+  const mod = await import('./routes/chat');
+  return { default: mod.ChatPage };
+});
+
+function ChatRouteComponent() {
+  return (
+    <Suspense fallback={<div className="empty-state">Loading chat…</div>}>
+      <LazyChatPage />
+    </Suspense>
+  );
+}
+
 function RootLayout() {
   return (
     <AppShell>
@@ -150,6 +163,12 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat',
+  component: ChatRouteComponent,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   approvalsRoute,
@@ -168,6 +187,7 @@ const routeTree = rootRoute.addChildren([
   skillsRoute,
   pluginsRoute,
   toolsRoute,
+  chatRoute,
 ]);
 
 export const router = createRouter({
