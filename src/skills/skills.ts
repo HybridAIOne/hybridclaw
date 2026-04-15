@@ -9,10 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  listAgents,
-  resolveAgentConfig,
-} from '../agents/agent-registry.js';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
@@ -1656,10 +1653,70 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
-function resolveManagedCommunitySkillsDir(
+export function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
   return path.join(homeDir, 'skills');
+}
+
+/**
+ * Promote agent-created skills from the workspace to the managed community
+ * skills directory (~/.hybridclaw/skills/). Skills created by the agent land
+ * in workspace/skills/ but the canonical source for installed skills is the
+ * managed community dir. This function copies new workspace skills there so
+ * they survive the prune-and-sync cycle in loadSkills().
+ */
+export function promoteWorkspaceSkills(workspaceDir: string): void {
+  const workspaceSkillsDir = path.join(workspaceDir, 'skills');
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  const communityDir = resolveManagedCommunitySkillsDir();
+
+  // Build a set of skill names already known from any catalog source so we
+  // only promote genuinely new skills the agent created, not synced copies of
+  // bundled or imported skills.
+  const knownSkillNames = new Set(
+    collectResolvedSkillCandidates().map((s) => s.name),
+  );
+
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+
+      const wsSkillDir = path.join(workspaceSkillsDir, entry.name);
+      const skillFile = path.join(wsSkillDir, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+
+      // Parse the skill name from frontmatter (or fall back to dir name).
+      let skillName = entry.name;
+      try {
+        const raw = fs.readFileSync(skillFile, 'utf-8');
+        const frontmatter = parseFrontmatter(raw);
+        const metaName = (frontmatter.meta.name || '').trim();
+        if (metaName) skillName = metaName;
+      } catch {
+        /* use dir name */
+      }
+
+      // Skip skills that already exist in the catalog from another source.
+      if (knownSkillNames.has(skillName)) continue;
+
+      const communitySkillDir = path.join(communityDir, entry.name);
+      if (fs.existsSync(communitySkillDir)) continue;
+
+      // New skill found in workspace that doesn't exist in the managed dir.
+      fs.mkdirSync(communityDir, { recursive: true });
+      fs.cpSync(wsSkillDir, communitySkillDir, { recursive: true });
+      logger.info(
+        { skill: skillName, from: wsSkillDir, to: communitySkillDir },
+        'Promoted agent-created skill to managed skills directory',
+      );
+    }
+  } catch (err) {
+    logger.debug({ workspaceDir, err }, 'Failed to promote workspace skills');
+  }
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {
@@ -1674,19 +1731,6 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const managedCommunitySkillsDir = resolveManagedCommunitySkillsDir();
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
-
-  const agentWorkspaceSkills: SkillCandidate[] = [];
-  try {
-    for (const agent of listAgents()) {
-      const wsSkillsDir = path.join(
-        agentWorkspaceDir(agent.id),
-        'skills',
-      );
-      agentWorkspaceSkills.push(...scanSkillsDir(wsSkillsDir, 'workspace'));
-    }
-  } catch {
-    /* ignore errors when agent registry is not yet initialized */
-  }
 
   const extraSkills = extraDirs.flatMap((dir) =>
     scanSkillsDir(
@@ -1729,7 +1773,6 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   mergeSkills(claudeSkills);
   mergeSkills(agentsPersonalSkills);
   mergeSkills(projectAgentsSkills);
-  mergeSkills(agentWorkspaceSkills);
   mergeSkills(workspaceSkills);
 
   return Array.from(byName.values());

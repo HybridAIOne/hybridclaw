@@ -277,7 +277,10 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { loadSkillCatalog } from '../skills/skills.js';
+import {
+  loadSkillCatalog,
+  resolveManagedCommunitySkillsDir,
+} from '../skills/skills.js';
 import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
@@ -5174,7 +5177,7 @@ export function createGatewayAdminSkill(input: {
   const category = normalizeCreatedSkillCategory(input.category);
   const shortDescription = String(input.shortDescription || '').trim();
 
-  const projectSkillsDir = path.join(process.cwd(), 'skills');
+  const projectSkillsDir = resolveManagedCommunitySkillsDir();
   const skillDir = path.join(projectSkillsDir, name);
 
   if (fs.existsSync(skillDir)) {
@@ -5253,7 +5256,7 @@ export function createGatewayAdminSkill(input: {
   // Stage outside skills/ so catalog scans never see partial skill directories.
   fs.mkdirSync(projectSkillsDir, { recursive: true });
   const stagedSkillDir = fs.mkdtempSync(
-    path.join(process.cwd(), `.${name}.create-`),
+    path.join(projectSkillsDir, `.${name}.create-`),
   );
   try {
     fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
@@ -5444,7 +5447,7 @@ export async function uploadGatewayAdminSkillZip(
     }
     assertGatewayAdminSkillAllowed(skillName, skillRoot);
 
-    const projectSkillsDir = path.join(process.cwd(), 'skills');
+    const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
     if (fs.existsSync(targetDir)) {
       throw new GatewayRequestError(
