@@ -121,7 +121,11 @@ export function AppShell(props: { children: ReactNode }) {
               </nav>
             </div>
           ) : null}
-          <div className={isChatRoute ? 'page-content page-content-full' : 'page-content'}>
+          <div
+            className={
+              isChatRoute ? 'page-content page-content-full' : 'page-content'
+            }
+          >
             {props.children}
           </div>
         </SidebarInset>

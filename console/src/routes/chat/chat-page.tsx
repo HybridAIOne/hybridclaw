@@ -36,8 +36,13 @@ import {
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
+import { PanelLeft } from '../../components/icons';
+import { useSidebar } from '../../components/sidebar/index';
 import css from './chat-page.module.css';
-import { ChatSidebarPanel } from './chat-sidebar';
+import {
+  ChatSidebarPanel,
+  ChatSidebarProvider,
+} from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
@@ -175,8 +180,14 @@ export function ChatPage() {
       };
     },
   );
-  const { sessionId, messages, error, editingId, approvalBusy, branchFamilies } =
-    state;
+  const {
+    sessionId,
+    messages,
+    error,
+    editingId,
+    approvalBusy,
+    branchFamilies,
+  } = state;
 
   const [isPending, startTransition] = useTransition();
 
@@ -511,11 +522,12 @@ export function ChatPage() {
   } as const;
 
   return (
-    <div className={css.chatPage} aria-busy={isPending}>
-      <ChatSidebarPanel {...sidebarProps} />
+    <ChatSidebarProvider>
+      <div className={css.chatPage} aria-busy={isPending}>
+        <ChatSidebarPanel {...sidebarProps} />
 
-      <div className={css.chatMain}>
-
+        <div className={css.chatMain}>
+          <ChatMainHeader />
         {isEmpty ? (
           <div className={css.emptyState}>
             <h1 className={css.greeting}>
@@ -570,6 +582,26 @@ export function ChatPage() {
           token={auth.token}
         />
       </div>
+    </div>
+    </ChatSidebarProvider>
+  );
+}
+
+function ChatMainHeader() {
+  const { state, isMobile, toggleSidebar } = useSidebar();
+  // Show the trigger on mobile (always) or when the session sidebar is collapsed
+  if (state === 'expanded' && !isMobile) return null;
+  return (
+    <div className={css.chatMainHeader}>
+      <button
+        type="button"
+        className={css.headerButton}
+        onClick={toggleSidebar}
+        aria-label="Open sessions"
+        title="Open sessions"
+      >
+        <PanelLeft />
+      </button>
     </div>
   );
 }

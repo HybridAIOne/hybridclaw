@@ -1,18 +1,22 @@
+import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { HybridClaw, PanelLeft } from '../../components/icons';
 import {
+  getSidebarStyleVars,
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarProvider,
-  getSidebarStyleVars,
   useSidebar,
 } from '../../components/sidebar/index';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
 
-const CHAT_SIDEBAR_STYLE = getSidebarStyleVars('260px', '280px');
+const CHAT_SIDEBAR_STYLE = {
+  ...getSidebarStyleVars('260px', '280px'),
+  '--sidebar-width-icon': '0px',
+} as React.CSSProperties;
 
 export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
@@ -23,22 +27,32 @@ export interface ChatSidebarProps {
   isPending?: boolean;
 }
 
-export function ChatSidebarPanel(props: ChatSidebarProps) {
+export function ChatSidebarProvider(props: {
+  children: ReactNode;
+}) {
   return (
     <SidebarProvider style={CHAT_SIDEBAR_STYLE} defaultOpen>
-      <Sidebar side="left">
-        <SidebarHeader>
-          <ChatSidebarHeader onNewChat={props.onNewChat} />
-        </SidebarHeader>
-        <SidebarContent>
-          <ChatSessionList {...props} />
-        </SidebarContent>
-      </Sidebar>
+      {props.children}
     </SidebarProvider>
   );
 }
 
-function ChatSidebarHeader(props: { onNewChat: () => void }) {
+export function ChatSidebarPanel(props: ChatSidebarProps) {
+  return (
+    <Sidebar side="left">
+      <SidebarHeader>
+        <ChatSidebarHeader />
+      </SidebarHeader>
+      <SidebarContent>
+        <ChatSessionList {...props} />
+      </SidebarContent>
+    </Sidebar>
+  );
+}
+
+export { SidebarTrigger as ChatSidebarTrigger } from '../../components/sidebar/index';
+
+function ChatSidebarHeader() {
   const { toggleSidebar } = useSidebar();
 
   return (
