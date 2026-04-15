@@ -521,59 +521,59 @@ export function ChatPage() {
       <ChatSidebarPanel {...sidebarProps} />
 
       <div className={css.chatMain}>
-          {isEmpty ? (
-            <div className={css.emptyState}>
-              <h1 className={css.greeting}>
-                Ready to claw through your to-do list?
-              </h1>
-            </div>
-          ) : (
-            <div className={css.messageArea} ref={messageAreaRef}>
-              <div className={css.messageList}>
-                {messages.map((msg) =>
-                  editingId === msg.id && msg.role !== 'thinking' ? (
-                    <div key={msg.id} className={css.messageBlock}>
-                      <EditInline
-                        initial={msg.rawContent ?? msg.content}
-                        onSave={(newContent) =>
-                          void handleEditSave(msg, newContent)
-                        }
-                        onCancel={() => dispatch({ type: 'EDIT_CANCEL' })}
-                      />
-                    </div>
-                  ) : (
-                    <MessageBlock
-                      key={msg.id}
-                      message={msg}
-                      token={auth.token}
-                      isStreaming={msg.id === stream.streamingMsgId}
-                      onCopy={copyToClipboard}
-                      onEdit={(m) => dispatch({ type: 'EDIT_START', id: m.id })}
-                      onRegenerate={handleRegenerate}
-                      onApprovalAction={handleApprovalAction}
-                      approvalBusy={approvalBusy}
-                      branchInfo={branchInfoMap.get(msg.id) ?? null}
-                      onBranchNav={(dir) => {
-                        if (msg.role === 'thinking') return;
-                        handleBranchNav(msg, dir);
-                      }}
+        {isEmpty ? (
+          <div className={css.emptyState}>
+            <h1 className={css.greeting}>
+              Ready to claw through your to-do list?
+            </h1>
+          </div>
+        ) : (
+          <div className={css.messageArea} ref={messageAreaRef}>
+            <div className={css.messageList}>
+              {messages.map((msg) =>
+                editingId === msg.id && msg.role !== 'thinking' ? (
+                  <div key={msg.id} className={css.messageBlock}>
+                    <EditInline
+                      initial={msg.rawContent ?? msg.content}
+                      onSave={(newContent) =>
+                        void handleEditSave(msg, newContent)
+                      }
+                      onCancel={() => dispatch({ type: 'EDIT_CANCEL' })}
                     />
-                  ),
-                )}
-                <div ref={messagesEndRef} />
-              </div>
+                  </div>
+                ) : (
+                  <MessageBlock
+                    key={msg.id}
+                    message={msg}
+                    token={auth.token}
+                    isStreaming={msg.id === stream.streamingMsgId}
+                    onCopy={copyToClipboard}
+                    onEdit={(m) => dispatch({ type: 'EDIT_START', id: m.id })}
+                    onRegenerate={handleRegenerate}
+                    onApprovalAction={handleApprovalAction}
+                    approvalBusy={approvalBusy}
+                    branchInfo={branchInfoMap.get(msg.id) ?? null}
+                    onBranchNav={(dir) => {
+                      if (msg.role === 'thinking') return;
+                      handleBranchNav(msg, dir);
+                    }}
+                  />
+                ),
+              )}
+              <div ref={messagesEndRef} />
             </div>
-          )}
+          </div>
+        )}
 
-          {error ? <div className={css.errorBanner}>{error}</div> : null}
+        {error ? <div className={css.errorBanner}>{error}</div> : null}
 
-          <Composer
-            isStreaming={stream.isStreaming}
-            onSend={(content, media) => void stream.sendMessage(content, media)}
-            onStop={() => void stream.stopRequest()}
-            onUploadFiles={handleUploadFiles}
-            token={auth.token}
-          />
+        <Composer
+          isStreaming={stream.isStreaming}
+          onSend={(content, media) => void stream.sendMessage(content, media)}
+          onStop={() => void stream.stopRequest()}
+          onUploadFiles={handleUploadFiles}
+          token={auth.token}
+        />
       </div>
     </div>
   );

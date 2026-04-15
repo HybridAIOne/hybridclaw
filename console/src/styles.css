@@ -230,8 +230,9 @@ code {
 }
 
 .topbar-compact {
+  justify-content: flex-end;
   padding-bottom: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .page-content-full {
