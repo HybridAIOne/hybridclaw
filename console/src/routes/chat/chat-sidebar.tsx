@@ -37,6 +37,13 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
     <Sidebar side="left" collapsible="offcanvas">
       <SidebarHeader>
         <ChatSidebarHeader />
+        <button
+          type="button"
+          className={css.newChatButton}
+          onClick={props.onNewChat}
+        >
+          + New Conversation
+        </button>
       </SidebarHeader>
       <SidebarContent>
         <ChatSessionList {...props} />
@@ -71,13 +78,6 @@ function ChatSidebarHeader() {
 function ChatSessionList(props: ChatSidebarProps) {
   return (
     <div className={css.chatSidebarContent}>
-      <button
-        type="button"
-        className={css.newChatButton}
-        onClick={props.onNewChat}
-      >
-        + New Conversation
-      </button>
       {props.sessions.length > 0 ? (
         <>
           <div className={css.sidebarLabel}>Recent</div>
