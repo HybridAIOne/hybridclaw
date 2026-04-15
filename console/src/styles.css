@@ -230,7 +230,6 @@ code {
 }
 
 .topbar-sidebar-trigger {
-  display: inline-flex;
   flex: 0 0 auto;
 }
 
