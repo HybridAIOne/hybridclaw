@@ -725,7 +725,10 @@ export async function importSkill(
     // Written after content copy so skill content cannot forge the marker.
     fs.writeFileSync(
       path.join(targetDir, IMPORT_SOURCE_FILE),
-      JSON.stringify({ kind: resolvedSource.kind }),
+      JSON.stringify({
+        kind: resolvedSource.kind,
+        guardSkipped: guardSkipped || undefined,
+      }),
     );
 
     return {

@@ -1737,10 +1737,22 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   return Array.from(byName.values());
 }
 
+function wasGuardSkippedAtImport(baseDir: string): boolean {
+  try {
+    const markerPath = path.join(baseDir, IMPORT_SOURCE_MARKER);
+    const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    return raw?.guardSkipped === true;
+  } catch {
+    return false;
+  }
+}
+
 function filterGuardedSkillCandidates(
   skills: SkillCandidate[],
 ): SkillCandidate[] {
   return skills.filter((skill) => {
+    if (wasGuardSkippedAtImport(skill.baseDir)) return true;
+
     const decision = guardSkillDirectory({
       skillName: skill.name,
       skillPath: skill.baseDir,
