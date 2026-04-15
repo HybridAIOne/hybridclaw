@@ -306,7 +306,9 @@ hybridclaw audit instructions [--sync]
 
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
-`claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
+directories, and `.zip` archives. Locally-imported skills receive personal
+trust and persist their import-source marker across restarts.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.
