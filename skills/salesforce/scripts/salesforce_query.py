@@ -23,6 +23,18 @@ DEFAULT_FIELD_LIMIT = 80
 DEFAULT_OBJECT_LIMIT = 200
 SECRET_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 STORE_SECRET_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+SECRET_COMMAND_STATUS_PREFIXES = (
+    "Name:",
+    "Stored:",
+    "Path:",
+    "Usage:",
+    "hybridclaw error:",
+    "Hint:",
+)
+SECRET_COMMAND_NOISE_PREFIXES = (
+    "[runtime-",
+    "Migrating .env to ",
+)
 
 DEFAULT_AUTH_PROFILE: dict[str, Any] = {
     "username": {"source": "store", "id": "SF_FULL_USERNAME"},
@@ -180,10 +192,45 @@ def read_stored_secret(secret_name: str, secret_command: str) -> str:
             f"stored secret {secret_name} could not be read via `{command_text} secret show {secret_name} --raw`: {detail}"
         )
 
-    resolved = completed.stdout.strip()
+    resolved = normalize_stored_secret_output(
+        completed.stdout,
+        secret_name=secret_name,
+        command_text=command_text,
+    )
     if not resolved:
         raise ConfigError(f"stored secret {secret_name} is empty")
     return resolved
+
+
+def normalize_stored_secret_output(
+    stdout: str, *, secret_name: str, command_text: str
+) -> str:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    if len(lines) == 1:
+        return lines[0]
+
+    if any(
+        line.startswith(SECRET_COMMAND_STATUS_PREFIXES) for line in lines
+    ):
+        raise ConfigError(
+            f"`{command_text} secret show {secret_name} --raw` did not return a raw secret value. "
+            "Use a HybridClaw build that supports `secret show --raw`, or point "
+            "`--secret-command` / `HYBRIDCLAW_SECRET_COMMAND` at the correct CLI."
+        )
+
+    non_secret_lines = lines[:-1]
+    if non_secret_lines and all(
+        line.startswith(SECRET_COMMAND_NOISE_PREFIXES) for line in non_secret_lines
+    ):
+        return lines[-1] or ""
+
+    raise ConfigError(
+        f"`{command_text} secret show {secret_name} --raw` returned unexpected multi-line output. "
+        "Set `--secret-command` / `HYBRIDCLAW_SECRET_COMMAND` to the exact HybridClaw CLI you want to use."
+    )
 
 
 def resolve_secret_input(value: Any, field_name: str, secret_command: str) -> str:
