@@ -102,7 +102,9 @@ class HygieneRunContext {
       this._snapshotLoaded = true;
     }
     if (this._snapshotError) throw this._snapshotError;
-    return this._snapshot!;
+    if (!this._snapshot)
+      throw new Error('Session snapshot is unexpectedly null');
+    return this._snapshot;
   }
 
   getDiskState(): { freeBytes: number | null; critical: boolean } {
