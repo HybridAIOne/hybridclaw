@@ -1,6 +1,6 @@
 # Changelog
 
-## [Coming up]
+## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 
 ### Added
 
