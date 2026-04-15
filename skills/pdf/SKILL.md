@@ -31,6 +31,7 @@ This skill is intentionally **Node/JS-only** for supported workflows. Do not swi
 
 ## Supported Workflows
 
+- **create new PDFs** with text content
 - extract text from PDFs
 - render PDF pages to PNG images
 - extract invoice/document fields from PDF text
@@ -150,6 +151,18 @@ node skills/pdf/scripts/extract_pdf_text.mjs "/path/from-current-turn.pdf" --jso
 4. Do not read Discord history unless the user asked about prior messages.
 
 ## Bundled Scripts
+
+### Create a New PDF
+
+```bash
+node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Hello World"
+node skills/pdf/scripts/create_pdf.mjs output.pdf --title "Heading" --text "Body content"
+node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Line 1\nLine 2" --font-size 18
+```
+
+For creation tasks ("make a PDF", "create a PDF with X"), always use this bundled
+script or the recipe from [reference.md](./reference.md). Never call `drawText()`
+without passing an embedded `font` — omitting it produces a blank/corrupt page.
 
 ### Text Extraction
 

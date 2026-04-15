@@ -1,17 +1,11 @@
+import { createModelMatcher } from './provider-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-const ANTHROPIC_MODEL_PREFIX = 'anthropic/';
-
-export function isAnthropicModel(model: string): boolean {
-  return String(model || '')
-    .trim()
-    .toLowerCase()
-    .startsWith(ANTHROPIC_MODEL_PREFIX);
-}
+export const isAnthropicModel = createModelMatcher('anthropic/');
 
 async function resolveAnthropicRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
