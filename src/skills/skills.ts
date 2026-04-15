@@ -909,6 +909,24 @@ function resolveCodexSkillsDirs(): string[] {
   });
 }
 
+// Must match IMPORT_SOURCE_FILE in skills-import.ts.
+const IMPORT_SOURCE_MARKER = '.import-source.json';
+
+function resolveImportSourceOverride(
+  baseDir: string,
+  defaultSource: SkillSource,
+): SkillSource {
+  if (defaultSource !== 'community') return defaultSource;
+  try {
+    const markerPath = path.join(baseDir, IMPORT_SOURCE_MARKER);
+    const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    if (raw?.kind === 'local') return 'extra';
+  } catch {
+    // No marker or unreadable — keep default.
+  }
+  return defaultSource;
+}
+
 function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
   if (!fs.existsSync(dir)) return [];
 
@@ -931,6 +949,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
+        const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
           name,
@@ -948,7 +967,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
           },
           filePath: skillFile,
           baseDir,
-          source,
+          source: effectiveSource,
         });
       } catch (err) {
         logger.warn({ path: skillFile, err }, 'Failed to parse skill');
@@ -1778,10 +1797,22 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   return Array.from(byName.values());
 }
 
+function wasGuardSkippedAtImport(baseDir: string): boolean {
+  try {
+    const markerPath = path.join(baseDir, IMPORT_SOURCE_MARKER);
+    const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    return raw?.guardSkipped === true;
+  } catch {
+    return false;
+  }
+}
+
 function filterGuardedSkillCandidates(
   skills: SkillCandidate[],
 ): SkillCandidate[] {
   return skills.filter((skill) => {
+    if (wasGuardSkippedAtImport(skill.baseDir)) return true;
+
     const decision = guardSkillDirectory({
       skillName: skill.name,
       skillPath: skill.baseDir,

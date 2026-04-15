@@ -1,4 +1,3 @@
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { OPENROUTER_BASE_URL } from '../config/config.js';
 import {
   discoverOpenRouterModels,
@@ -10,6 +9,7 @@ import {
   OPENROUTER_MODEL_PREFIX,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
+import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -17,17 +17,12 @@ import type {
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
 
-export function isOpenRouterModel(model: string): boolean {
-  return String(model || '')
-    .trim()
-    .toLowerCase()
-    .startsWith(OPENROUTER_MODEL_PREFIX);
-}
+export const isOpenRouterModel = createModelMatcher(OPENROUTER_MODEL_PREFIX);
 
 async function resolveOpenRouterRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
-  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agentId = normalizeAgentId(params.agentId);
   await discoverOpenRouterModels();
   return {
     provider: 'openrouter',
