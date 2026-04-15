@@ -230,7 +230,8 @@ code {
 }
 
 .page-content-full {
-  height: 100%;
+  height: calc(100% + 48px);
+  margin: -24px;
 }
 
 .view-switch {

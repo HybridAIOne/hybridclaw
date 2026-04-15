@@ -7,6 +7,14 @@
   overflow: hidden;
 }
 
+/* The nested SidebarProvider wraps content in a .layout div with
+   min-height: 100vh. Override it so the chat sidebar fits within
+   the chat page's flex layout instead of forcing its own viewport. */
+.chatPage > div {
+  min-height: 0;
+  height: 100%;
+}
+
 /* ── Chat Sidebar ─────────────────────────────────────────── */
 
 .chatSidebarHeader {
@@ -153,21 +161,13 @@
   min-width: 0;
   overflow: hidden;
   position: relative;
+  background: var(--page-bg);
 }
 
 .chatMainHeader {
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  flex-shrink: 0;
-}
-
-.mobileHeader {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 
@@ -922,9 +922,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebarOpen {
-    animation: none;
-  }
 
   .thinkingDot {
     animation: none;
