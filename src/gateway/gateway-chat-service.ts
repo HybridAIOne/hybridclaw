@@ -1027,13 +1027,14 @@ export async function handleGatewayMessage(
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
       const durationMs = Date.now() - startedAt;
-      logger.debug(
+      logger.warn(
         {
           ...debugMeta,
           durationMs,
           toolCallCount: toolExecutions.length,
           firstTextDeltaMs,
           artifactCount: output.artifacts?.length || 0,
+          agentError: errorMessage,
         },
         'Gateway chat completed with agent error',
       );

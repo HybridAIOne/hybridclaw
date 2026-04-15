@@ -16,6 +16,10 @@ import {
   extractThinkingBlocks,
 } from './thinking-extractor.js';
 import {
+  readWithIdleTimeout,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-utils.js';
+import {
   normalizeToolCalls,
   resolveToolCallTextParser,
 } from './tool-call-normalizer.js';
@@ -660,7 +664,10 @@ export async function callLocalOpenAICompatProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
