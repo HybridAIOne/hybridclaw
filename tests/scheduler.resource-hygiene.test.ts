@@ -125,8 +125,6 @@ test('scheduler runs the built-in resource hygiene system event without delegati
   await vi.advanceTimersByTimeAsync(0);
   stopScheduler();
 
-  expect(runResourceHygieneMaintenanceMock).toHaveBeenCalledWith({
-    trigger: 'scheduler',
-  });
+  expect(runResourceHygieneMaintenanceMock).toHaveBeenCalledWith();
   expect(runner).not.toHaveBeenCalled();
 });

@@ -710,7 +710,7 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     job.action.kind === 'system_event' &&
     job.action.message === RESOURCE_HYGIENE_SYSTEM_EVENT
   ) {
-    await runResourceHygieneMaintenance({ trigger: 'scheduler' });
+    await runResourceHygieneMaintenance();
     return;
   }
 

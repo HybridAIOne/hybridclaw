@@ -19,6 +19,7 @@ import {
   formatBytes,
   formatDuration,
   makeResult,
+  pluralize,
   readDirSize,
   readDiskFreeBytes,
   shortenHomePath,
@@ -90,11 +91,6 @@ function maxCandidateAgeMs(candidates: CleanupCandidate[]): number {
 }
 
 function removeCleanupPath(targetPath: string): void {
-  const stat = fs.lstatSync(targetPath);
-  if (stat.isSymbolicLink()) {
-    fs.unlinkSync(targetPath);
-    return;
-  }
   fs.rmSync(targetPath, { recursive: true, force: true });
 }
 
@@ -108,7 +104,6 @@ function buildCleanupFix(params: {
     requiresApproval: params.requiresApproval === true,
     apply: async () => {
       for (const candidate of params.candidates) {
-        if (!fs.existsSync(candidate.path)) continue;
         removeCleanupPath(candidate.path);
       }
     },
@@ -133,11 +128,16 @@ function openReadonlyDatabase(): Database.Database {
   });
 }
 
+const ALLOWED_PRAGMA_TABLES = new Set(['sessions']);
+
 function databaseHasColumn(
   db: Database.Database,
   tableName: string,
   columnName: string,
 ): boolean {
+  if (!ALLOWED_PRAGMA_TABLES.has(tableName)) {
+    throw new Error(`Unexpected table: ${tableName}`);
+  }
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
     name?: string;
   }>;
@@ -375,7 +375,7 @@ function formatCleanupMessage(params: {
   note: string;
 }): string {
   const parts = [
-    `${params.count} item${params.count === 1 ? '' : 's'}`,
+    `${params.count} ${pluralize(params.count, 'item', 'items')}`,
     `${formatBytes(params.totalBytes)} reclaimable`,
     `oldest ${formatAge(params.oldestAgeMs)}`,
     params.note,
@@ -464,7 +464,7 @@ export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
           note: 'orphaned workspace directories are outside configured agents and active sessions',
         }),
         buildCleanupFix({
-          summary: `Remove ${safeCandidates.length} orphaned workspace director${safeCandidates.length === 1 ? 'y' : 'ies'}`,
+          summary: `Remove ${safeCandidates.length} orphaned workspace ${pluralize(safeCandidates.length, 'directory', 'directories')}`,
           candidates: safeCandidates,
           requiresApproval: critical,
         }),
@@ -486,7 +486,7 @@ export async function checkStaleWorkspaces(): Promise<DiagResult[]> {
           note: 'orphaned workspace directories contain .git and require approval',
         }),
         buildCleanupFix({
-          summary: `Remove ${riskyCandidates.length} git-backed orphaned workspace director${riskyCandidates.length === 1 ? 'y' : 'ies'}`,
+          summary: `Remove ${riskyCandidates.length} git-backed orphaned workspace ${pluralize(riskyCandidates.length, 'directory', 'directories')}`,
           candidates: riskyCandidates,
           requiresApproval: true,
         }),
@@ -524,7 +524,7 @@ export async function checkOldTempMedia(): Promise<DiagResult[]> {
         note: 'managed temp media directories are safe to prune',
       }),
       buildCleanupFix({
-        summary: `Delete ${candidates.length} managed temp media entr${candidates.length === 1 ? 'y' : 'ies'}`,
+        summary: `Delete ${candidates.length} managed temp media ${pluralize(candidates.length, 'entry', 'entries')}`,
         candidates,
         requiresApproval: critical,
       }),
@@ -559,7 +559,7 @@ export async function checkOldRunLogs(): Promise<DiagResult[]> {
         note: 'finished eval run directories are safe to prune',
       }),
       buildCleanupFix({
-        summary: `Prune ${candidates.length} finished run log director${candidates.length === 1 ? 'y' : 'ies'}`,
+        summary: `Prune ${candidates.length} finished run log ${pluralize(candidates.length, 'directory', 'directories')}`,
         candidates,
         requiresApproval: critical,
       }),
@@ -594,7 +594,19 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
   }
 
   const nowMs = Date.now();
-  const threshold = Math.max(SESSION_COMPACTION_THRESHOLD, 20);
+
+  if (SESSION_COMPACTION_THRESHOLD < 20) {
+    return [
+      makeResult(
+        'database',
+        'Session compaction backlog',
+        'warn',
+        `SESSION_COMPACTION_THRESHOLD is ${SESSION_COMPACTION_THRESHOLD} (minimum is 20) — skipping compaction backlog check`,
+      ),
+    ];
+  }
+
+  const threshold = SESSION_COMPACTION_THRESHOLD;
   const backlog = snapshot.currentSessions
     .filter(
       (session) =>
@@ -637,7 +649,7 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
       'Session compaction backlog',
       critical ? 'error' : 'warn',
       [
-        `${backlog.length} idle session${backlog.length === 1 ? '' : 's'} exceed the ${threshold}-message threshold`,
+        `${backlog.length} ${pluralize(backlog.length, 'idle session exceeds', 'idle sessions exceed')} the ${threshold}-message threshold`,
         `largest ${backlog[0]?.messageCount ?? threshold} messages`,
         oldestBacklogSession?.lastActive
           ? `oldest activity ${oldestBacklogSession.lastActive}`
@@ -647,7 +659,7 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
         .filter((part): part is string => Boolean(part))
         .join(', '),
       {
-        summary: `Compact ${backlog.length} oversized idle session${backlog.length === 1 ? '' : 's'}`,
+        summary: `Compact ${backlog.length} oversized ${pluralize(backlog.length, 'idle session', 'idle sessions')}`,
         requiresApproval: critical,
         apply: async () => {
           for (const session of backlog) {
@@ -671,116 +683,106 @@ export async function checkSessionCompactionBacklog(): Promise<DiagResult[]> {
   ];
 }
 
-export async function checkOrphanedExportsAndPromptDumps(): Promise<
-  DiagResult[]
-> {
-  const results: DiagResult[] = [];
+export async function checkOrphanedExports(): Promise<DiagResult[]> {
   const exportCandidates = listPotentialOrphanedExportCandidates();
-  const promptDumpCandidate = readPromptDumpCandidate();
 
-  if (exportCandidates.length > 0) {
-    let snapshot: SessionDatabaseSnapshot;
-    let snapshotLoaded = true;
-    try {
-      snapshot = loadSessionSnapshotFromDatabase();
-    } catch (error) {
-      snapshotLoaded = false;
-      results.push(
-        makeResult(
-          'disk',
-          'Orphaned exports',
-          'error',
-          `Cannot verify export ownership without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
-        ),
-      );
-      snapshot = {
-        currentSessions: [],
-        allSessionKeys: new Set<string>(),
-      };
-    }
-
-    if (snapshotLoaded) {
-      const orphanedExports = exportCandidates.filter((candidate) => {
-        const sessionDirName = path.basename(candidate.path);
-        return !snapshot.allSessionKeys.has(sessionDirName);
-      });
-
-      if (orphanedExports.length > 0) {
-        const { freeBytes, critical } = readCriticalDiskState();
-        results.push(
-          makeResult(
-            'disk',
-            'Orphaned exports',
-            critical ? 'error' : 'warn',
-            formatCleanupMessage({
-              count: orphanedExports.length,
-              totalBytes: sumCandidateBytes(orphanedExports),
-              oldestAgeMs: maxCandidateAgeMs(orphanedExports),
-              freeBytes,
-              note: 'session export directories no longer match any stored session',
-            }),
-            buildCleanupFix({
-              summary: `Remove ${orphanedExports.length} orphaned export director${orphanedExports.length === 1 ? 'y' : 'ies'}`,
-              candidates: orphanedExports,
-              requiresApproval: critical,
-            }),
-          ),
-        );
-      } else {
-        results.push(
-          makeResult(
-            'disk',
-            'Orphaned exports',
-            'ok',
-            `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
-          ),
-        );
-      }
-    }
-  } else {
-    results.push(
+  if (exportCandidates.length === 0) {
+    return [
       makeResult(
         'disk',
         'Orphaned exports',
         'ok',
         `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
       ),
-    );
+    ];
   }
 
-  if (promptDumpCandidate) {
-    const { freeBytes, critical } = readCriticalDiskState();
-    results.push(
+  let snapshot: SessionDatabaseSnapshot;
+  try {
+    snapshot = loadSessionSnapshotFromDatabase();
+  } catch (error) {
+    return [
       makeResult(
         'disk',
-        'Prompt dump',
-        critical ? 'error' : 'warn',
-        [
-          `${promptDumpCandidate.displayPath} is older than ${formatAge(PROMPT_DUMP_MAX_AGE_MS)}`,
-          `${formatBytes(promptDumpCandidate.sizeBytes)} reclaimable`,
-          freeBytes != null ? `${formatBytes(freeBytes)} free` : null,
-        ]
-          .filter((part): part is string => Boolean(part))
-          .join(', '),
-        buildCleanupFix({
-          summary: `Remove stale prompt dump at ${promptDumpCandidate.displayPath}`,
-          candidates: [promptDumpCandidate],
-          requiresApproval: critical,
-        }),
+        'Orphaned exports',
+        'error',
+        `Cannot verify export ownership without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    );
-  } else {
-    results.push(
+    ];
+  }
+
+  const orphanedExports = exportCandidates.filter((candidate) => {
+    const sessionDirName = path.basename(candidate.path);
+    return !snapshot.allSessionKeys.has(sessionDirName);
+  });
+
+  if (orphanedExports.length === 0) {
+    return [
+      makeResult(
+        'disk',
+        'Orphaned exports',
+        'ok',
+        `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
+      ),
+    ];
+  }
+
+  const { freeBytes, critical } = readCriticalDiskState();
+  return [
+    makeResult(
+      'disk',
+      'Orphaned exports',
+      critical ? 'error' : 'warn',
+      formatCleanupMessage({
+        count: orphanedExports.length,
+        totalBytes: sumCandidateBytes(orphanedExports),
+        oldestAgeMs: maxCandidateAgeMs(orphanedExports),
+        freeBytes,
+        note: 'session export directories no longer match any stored session',
+      }),
+      buildCleanupFix({
+        summary: `Remove ${orphanedExports.length} orphaned export ${pluralize(orphanedExports.length, 'directory', 'directories')}`,
+        candidates: orphanedExports,
+        requiresApproval: critical,
+      }),
+    ),
+  ];
+}
+
+export async function checkStalePromptDump(): Promise<DiagResult[]> {
+  const promptDumpCandidate = readPromptDumpCandidate();
+
+  if (!promptDumpCandidate) {
+    return [
       makeResult(
         'disk',
         'Prompt dump',
         'ok',
         `No prompt dump older than ${formatAge(PROMPT_DUMP_MAX_AGE_MS)}`,
       ),
-    );
+    ];
   }
 
-  return results;
+  const { freeBytes, critical } = readCriticalDiskState();
+  return [
+    makeResult(
+      'disk',
+      'Prompt dump',
+      critical ? 'error' : 'warn',
+      [
+        `${promptDumpCandidate.displayPath} is older than ${formatAge(PROMPT_DUMP_MAX_AGE_MS)}`,
+        `${formatBytes(promptDumpCandidate.sizeBytes)} reclaimable`,
+        freeBytes != null ? `${formatBytes(freeBytes)} free` : null,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(', '),
+      buildCleanupFix({
+        summary: `Remove stale prompt dump at ${promptDumpCandidate.displayPath}`,
+        candidates: [promptDumpCandidate],
+        requiresApproval: critical,
+      }),
+    ),
+  ];
 }
 
 export function resourceHygieneDoctorChecks(): DoctorCheck[] {
@@ -807,8 +809,13 @@ export function resourceHygieneDoctorChecks(): DoctorCheck[] {
     },
     {
       category: 'disk',
-      label: 'Orphaned exports / prompt dumps',
-      run: checkOrphanedExportsAndPromptDumps,
+      label: 'Orphaned exports',
+      run: checkOrphanedExports,
+    },
+    {
+      category: 'disk',
+      label: 'Stale prompt dump',
+      run: checkStalePromptDump,
     },
   ];
 }

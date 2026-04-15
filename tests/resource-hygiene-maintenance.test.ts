@@ -73,7 +73,7 @@ test('resource hygiene maintenance auto-applies only safe warn fixes', async () 
     '../src/doctor/resource-hygiene.ts'
   );
 
-  const report = await runResourceHygieneMaintenance({ trigger: 'scheduler' });
+  const report = await runResourceHygieneMaintenance();
 
   expect(safeApplyMock).toHaveBeenCalledTimes(1);
   expect(riskyApplyMock).not.toHaveBeenCalled();

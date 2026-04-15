@@ -16,6 +16,8 @@ export const DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB = Object.freeze({
     kind: 'system_event',
     message: RESOURCE_HYGIENE_SYSTEM_EVENT,
   },
+  // delivery is required by RuntimeSchedulerJob but ignored for system_event
+  // actions — dispatchConfigJob short-circuits before reaching delivery routing.
   delivery: {
     kind: 'last-channel',
     channel: '',

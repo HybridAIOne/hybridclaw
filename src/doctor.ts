@@ -3,14 +3,13 @@ import { doctorChecks } from './doctor/checks/index.js';
 import type {
   DiagResult,
   DoctorArgs,
-  DoctorCheck,
   DoctorFixOutcome,
   DoctorReport,
 } from './doctor/types.js';
 import {
-  makeResult,
   normalizeComponent,
   normalizeDoctorComponentList,
+  runChecks,
   summarizeCounts,
   toErrorMessage,
 } from './doctor/utils.js';
@@ -57,31 +56,6 @@ function parseDoctorArgs(args: string[]): DoctorArgs {
   }
 
   return { component, fix, json };
-}
-
-async function runChecks(checks: DoctorCheck[]): Promise<DiagResult[]> {
-  const settled = await Promise.allSettled(checks.map((check) => check.run()));
-  const results: DiagResult[] = [];
-
-  settled.forEach((result, index) => {
-    const check = checks[index];
-    if (result.status === 'fulfilled') {
-      results.push(...result.value);
-      return;
-    }
-
-    const message = toErrorMessage(result.reason);
-    results.push(
-      makeResult(
-        check.category,
-        check.label,
-        'error',
-        `Diagnostic failed: ${message}`,
-      ),
-    );
-  });
-
-  return results;
 }
 
 function shouldPromptForFixes(args: DoctorArgs): boolean {
