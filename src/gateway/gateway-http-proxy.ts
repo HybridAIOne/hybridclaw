@@ -33,8 +33,7 @@ import {
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
-const HTTP_REQUEST_SECRET_PLACEHOLDER_RE =
-  /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
 const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 
@@ -340,6 +339,52 @@ function replaceSecretPlaceholders(value: unknown): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// Domain binding for bearer tokens
+// ---------------------------------------------------------------------------
+
+const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
+
+/**
+ * Extract a base domain from a hostname by taking the last two segments.
+ * `login.salesforce.com` → `salesforce.com`
+ * `na139.my.salesforce.com` → `salesforce.com`
+ */
+function extractBaseDomain(hostname: string): string {
+  const parts = hostname.toLowerCase().split('.');
+  if (parts.length <= 2) return hostname.toLowerCase();
+  return parts.slice(-2).join('.');
+}
+
+/**
+ * Check whether a target URL is allowed for a given bearer secret.
+ *
+ * When a token is captured via OAuth, the gateway stores a domain binding
+ * as `{SECRET_NAME}_BOUND_DOMAIN`.  If a binding exists, the target URL's
+ * hostname must match (exact or subdomain).  If no binding exists, any URL
+ * is allowed (backward-compatible).
+ */
+function assertBearerDomainBinding(
+  secretName: string,
+  targetUrl: URL,
+): void {
+  const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
+  const boundDomain = readStoredRuntimeSecret(bindingKey);
+  if (!boundDomain) return; // no binding → unrestricted
+
+  const targetHost = targetUrl.hostname.toLowerCase();
+  const allowed = boundDomain.toLowerCase();
+  if (targetHost === allowed || targetHost.endsWith(`.${allowed}`)) {
+    return;
+  }
+
+  throw new GatewayRequestError(
+    403,
+    `Bearer secret ${secretName} is bound to *.${allowed} — ` +
+      `request to ${targetHost} is blocked.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // OAuth response capture
 // ---------------------------------------------------------------------------
 
@@ -372,10 +417,15 @@ function normalizeCaptureResponseFields(
  * `access_token` in the JSON body.  When detected, capture all matching
  * fields into the secret store and return the mapping.  The original
  * response body is **never** forwarded to the caller.
+ *
+ * For every captured secret that looks like a token (contains "token" in
+ * the jsonPath), a domain binding is stored so that `bearerSecretName`
+ * only works against the same domain the token was issued from.
  */
 function captureOAuthResponse(
   responseJson: unknown,
   rules: CaptureFieldRule[],
+  requestUrl: URL,
 ): Record<string, string> | null {
   if (!responseJson || typeof responseJson !== 'object') return null;
   const obj = responseJson as Record<string, unknown>;
@@ -383,6 +433,7 @@ function captureOAuthResponse(
     return null;
   }
 
+  const baseDomain = extractBaseDomain(requestUrl.hostname);
   const secrets: Record<string, string> = {};
   const captured: Record<string, string> = {};
 
@@ -391,6 +442,12 @@ function captureOAuthResponse(
     if (typeof value === 'string' && value.trim()) {
       secrets[rule.secretName] = value.trim();
       captured[rule.jsonPath] = rule.secretName;
+
+      // Bind token secrets to the OAuth endpoint's domain so they
+      // cannot be exfiltrated to an attacker-controlled URL.
+      if (rule.jsonPath.includes('token')) {
+        secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
+      }
     }
   }
 
@@ -471,6 +528,7 @@ export async function handleApiHttpRequest(
       ? body.bearerSecretName.trim()
       : '';
   if (bearerSecretName) {
+    assertBearerDomainBinding(bearerSecretName, url);
     setHeaderValue(
       headers,
       'Authorization',
@@ -481,6 +539,7 @@ export async function handleApiHttpRequest(
   for (const secretHeader of normalizeHttpRequestSecretHeaders(
     body.secretHeaders,
   )) {
+    assertBearerDomainBinding(secretHeader.secretName, url);
     setHeaderValue(
       headers,
       secretHeader.name,
@@ -577,7 +636,7 @@ export async function handleApiHttpRequest(
   // Auto-detect OAuth2 token responses: if the JSON body contains
   // `access_token`, store the tokens in the secret store and return only
   // a confirmation.  The original response body is never forwarded.
-  const captured = captureOAuthResponse(responseJson, captureFields);
+  const captured = captureOAuthResponse(responseJson, captureFields, url);
   if (captured) {
     sendJson(res, 200, {
       ok: response.ok,

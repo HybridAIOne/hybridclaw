@@ -41,7 +41,6 @@ import {
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
-import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -91,6 +90,7 @@ import {
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
@@ -317,7 +317,6 @@ type ApiPluginToolRequestBody = {
   channelId?: unknown;
 };
 
-
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized || undefined;
@@ -463,7 +462,6 @@ function parseApiAdminPolicyRuleInput(value: unknown): {
     ...(comment ? { comment } : {}),
   };
 }
-
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
   return buildSessionKey(
@@ -1712,7 +1710,6 @@ async function handleApiPluginTool(
     );
   }
 }
-
 
 async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();

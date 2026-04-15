@@ -17,7 +17,9 @@ test('salesforce helper --help exits cleanly', () => {
   });
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain('Read-only Salesforce schema and query helper');
+  expect(result.stdout).toContain(
+    'Read-only Salesforce schema and query helper',
+  );
   expect(result.stdout).toContain('--gateway-url');
   expect(result.stdout).toContain('--gateway-token');
 });
