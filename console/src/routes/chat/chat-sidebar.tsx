@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
-import { HybridClaw, PanelLeft } from '../../components/icons';
+import { PanelLeft } from '../../components/icons';
 import {
   getSidebarStyleVars,
   Sidebar,
@@ -52,10 +52,9 @@ function ChatSidebarHeader() {
 
   return (
     <div className={css.chatSidebarHeader}>
-      <div className={css.chatSidebarBrand}>
-        <HybridClaw className={css.sidebarLogo} />
-        <span className={css.sidebarBrand}>HybridClaw</span>
-      </div>
+      <span className={css.sidebarLabel} style={{ margin: 0 }}>
+        Sessions
+      </span>
       <button
         type="button"
         className={css.headerButton}

@@ -25,32 +25,11 @@
   padding: 0 4px;
 }
 
-.chatSidebarBrand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
 .chatSidebarContent {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 0 4px;
-}
-
-.sidebarLogo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  color: var(--primary);
-}
-
-.sidebarBrand {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.02em;
 }
 
 .newChatButton {
