@@ -1,10 +1,10 @@
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HUGGINGFACE_BASE_URL } from '../config/config.js';
 import { getDiscoveredHuggingFaceModelContextWindow } from './huggingface-discovery.js';
 import {
   HUGGINGFACE_MODEL_PREFIX,
   readHuggingFaceApiKey,
 } from './huggingface-utils.js';
+import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -12,17 +12,12 @@ import type {
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
 
-export function isHuggingFaceModel(model: string): boolean {
-  return String(model || '')
-    .trim()
-    .toLowerCase()
-    .startsWith(HUGGINGFACE_MODEL_PREFIX);
-}
+export const isHuggingFaceModel = createModelMatcher(HUGGINGFACE_MODEL_PREFIX);
 
 async function resolveHuggingFaceRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
-  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'huggingface',
     apiKey: readHuggingFaceApiKey({ required: true }),
