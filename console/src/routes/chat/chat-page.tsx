@@ -103,8 +103,7 @@ type ChatAction =
   | { type: 'EDIT_START'; id: string }
   | { type: 'EDIT_CANCEL' }
   | { type: 'APPROVAL_BUSY_SET'; busy: boolean }
-  | { type: 'MOBILE_SIDEBAR_TOGGLE'; open: boolean }
-  | { type: 'RESET' };
+  | { type: 'MOBILE_SIDEBAR_TOGGLE'; open: boolean };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -148,16 +147,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, approvalBusy: action.busy };
     case 'MOBILE_SIDEBAR_TOGGLE':
       return { ...state, mobileSidebarOpen: action.open };
-    case 'RESET':
-      return {
-        ...state,
-        messages: [],
-        error: '',
-        editingId: null,
-        approvalBusy: false,
-        mobileSidebarOpen: false,
-        branchFamilies: new Map(),
-      };
     default:
       return state;
   }
@@ -406,7 +395,7 @@ export function ChatPage() {
           content: newContent,
           media: msg.media ?? [],
         };
-        dispatch({ type: 'SESSION_ID_UPDATE', sessionId: branch.sessionId });
+        dispatch({ type: 'SESSION_SWITCH', sessionId: branch.sessionId });
       } catch (err) {
         dispatch({
           type: 'ERROR_SET',
@@ -473,9 +462,8 @@ export function ChatPage() {
       });
       return;
     }
-    dispatch({ type: 'RESET' });
     dispatch({
-      type: 'SESSION_ID_UPDATE',
+      type: 'SESSION_SWITCH',
       sessionId: generateWebSessionId(defaultAgentIdRef.current),
     });
     refreshRecent();
