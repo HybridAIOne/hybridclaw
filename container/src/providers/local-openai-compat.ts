@@ -11,14 +11,11 @@ import {
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 import {
   createThinkingStreamEmitter,
   extractThinkingBlocks,
 } from './thinking-extractor.js';
-import {
-  readWithIdleTimeout,
-  STREAM_IDLE_TIMEOUT_MS,
-} from './stream-utils.js';
 import {
   normalizeToolCalls,
   resolveToolCallTextParser,

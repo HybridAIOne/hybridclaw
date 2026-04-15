@@ -6,10 +6,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
-import {
-  readWithIdleTimeout,
-  STREAM_IDLE_TIMEOUT_MS,
-} from './stream-utils.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface StreamToolCallDelta {
   index?: number;

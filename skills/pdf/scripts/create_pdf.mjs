@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import process from 'node:process';
 
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
 function parseArgs(argv) {
   const args = {
