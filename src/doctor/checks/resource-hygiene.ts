@@ -13,6 +13,7 @@ import {
   SESSION_COMPACTION_ENABLED,
   SESSION_COMPACTION_THRESHOLD,
 } from '../../config/config.js';
+import { deleteSessionData } from '../../memory/db.js';
 import { maybeCompactSession } from '../../session/session-maintenance.js';
 import type { DiagFix, DiagResult, DoctorCheck } from '../types.js';
 import {
@@ -39,6 +40,7 @@ const RUN_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ORPHANED_EXPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PROMPT_DUMP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SESSION_COMPACTION_IDLE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const EMPTY_SESSION_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-', 'hybridclaw-slack-'];
 
 interface CleanupCandidate {
@@ -65,9 +67,16 @@ interface SessionSnapshot {
   lastActiveMs: number | null;
 }
 
+interface EmptySessionSnapshot {
+  id: string;
+  lastActive: string;
+  lastActiveMs: number | null;
+}
+
 interface SessionDatabaseSnapshot {
   currentSessions: SessionSnapshot[];
   allSessionKeys: Set<string>;
+  emptySessions: EmptySessionSnapshot[];
 }
 
 interface ExportCandidateShell {
@@ -201,6 +210,14 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
       .prepare('SELECT id FROM sessions')
       .all() as Array<{ id: string }>;
 
+    const emptySessionRows = db
+      .prepare(
+        `SELECT id, last_active
+           FROM sessions
+          WHERE COALESCE(message_count, 0) = 0`,
+      )
+      .all() as Array<{ id: string; last_active: string }>;
+
     return {
       currentSessions: currentSessionRows.map((row) => {
         const lastActiveMs = Date.parse(row.last_active);
@@ -219,6 +236,14 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
       allSessionKeys: new Set(
         allSessionRows.map((row) => safeFilePart(String(row.id || ''))),
       ),
+      emptySessions: emptySessionRows.map((row) => {
+        const lastActiveMs = Date.parse(row.last_active);
+        return {
+          id: row.id,
+          lastActive: row.last_active,
+          lastActiveMs: Number.isFinite(lastActiveMs) ? lastActiveMs : null,
+        };
+      }),
     };
   } finally {
     db.close();
@@ -840,6 +865,82 @@ export async function checkStalePromptDump(
   ];
 }
 
+export async function checkEmptySessions(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
+  let snapshot: SessionDatabaseSnapshot;
+  try {
+    snapshot = ctx.getSnapshot();
+  } catch (error) {
+    return [
+      makeResult(
+        'database',
+        'Empty sessions',
+        'error',
+        `Cannot inspect sessions without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
+      ),
+    ];
+  }
+
+  const nowMs = Date.now();
+  const stale = snapshot.emptySessions.filter(
+    (session) =>
+      session.lastActiveMs != null &&
+      nowMs - session.lastActiveMs >= EMPTY_SESSION_MAX_AGE_MS,
+  );
+
+  if (stale.length === 0) {
+    return [
+      makeResult(
+        'database',
+        'Empty sessions',
+        'ok',
+        `No empty sessions older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
+      ),
+    ];
+  }
+
+  const oldestSession = stale.reduce<EmptySessionSnapshot | null>(
+    (oldest, session) => {
+      if (session.lastActiveMs == null) return oldest;
+      if (
+        oldest == null ||
+        oldest.lastActiveMs == null ||
+        session.lastActiveMs < oldest.lastActiveMs
+      ) {
+        return session;
+      }
+      return oldest;
+    },
+    null,
+  );
+
+  return [
+    makeResult(
+      'database',
+      'Empty sessions',
+      'warn',
+      [
+        `${stale.length} ${pluralize(stale.length, 'session has', 'sessions have')} zero messages and ${pluralize(stale.length, 'is', 'are')} older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
+        oldestSession?.lastActive
+          ? `oldest activity ${oldestSession.lastActive}`
+          : null,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(', '),
+      {
+        summary: `Delete ${stale.length} empty ${pluralize(stale.length, 'session', 'sessions')}`,
+        requiresApproval: false,
+        apply: async () => {
+          for (const session of stale) {
+            deleteSessionData(session.id);
+          }
+        },
+      },
+    ),
+  ];
+}
+
 export function resourceHygieneDoctorChecks(): DoctorCheck[] {
   const ctx = new HygieneRunContext();
   return [
@@ -872,6 +973,11 @@ export function resourceHygieneDoctorChecks(): DoctorCheck[] {
       category: 'disk',
       label: 'Stale prompt dump',
       run: () => checkStalePromptDump(ctx),
+    },
+    {
+      category: 'database',
+      label: 'Empty sessions',
+      run: () => checkEmptySessions(ctx),
     },
   ];
 }
