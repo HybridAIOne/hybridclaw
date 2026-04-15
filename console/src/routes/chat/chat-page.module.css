@@ -386,37 +386,15 @@
   opacity: 1;
 }
 
+/* Size overrides for action/branch buttons (Button component handles
+   variant, hover, focus, disabled) */
+
 .actionButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
   height: 28px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.82rem;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.actionButton:hover {
-  background: var(--muted);
-  color: var(--text);
-}
-
-.actionButton:focus-visible,
-.branchButton:focus-visible,
-.approvalAllow:focus-visible,
-.approvalDeny:focus-visible,
-.newChatButton:focus-visible,
-.attachButton:focus-visible,
-.sendButton:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
 }
 
 .actionButtonSuccess {
@@ -435,27 +413,11 @@
 }
 
 .branchButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 22px;
   height: 22px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.8rem;
-}
-
-.branchButton:hover {
-  background: var(--muted);
-  color: var(--text);
-}
-
-.branchButton:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* ── Approval Actions ─────────────────────────────────────── */
@@ -468,39 +430,9 @@
 }
 
 .approvalAllow {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--success-border);
+  border-color: var(--success-border);
   background: var(--success-soft);
   color: var(--success);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalAllow:hover {
-  opacity: 0.85;
-}
-
-.approvalDeny {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalDeny:hover {
-  opacity: 0.85;
-}
-
-.approvalAllow:disabled,
-.approvalDeny:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* ── Artifacts ────────────────────────────────────────────── */
@@ -725,6 +657,12 @@
   transition:
     background 0.12s,
     color 0.12s;
+}
+
+.attachButton:focus-visible,
+.sendButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .attachButton {
