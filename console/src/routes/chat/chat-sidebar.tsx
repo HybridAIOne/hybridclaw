@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
+import { Button } from '../../components/button';
 import { SquarePen } from '../../components/icons';
 import {
   getSidebarStyleVars,
@@ -39,15 +40,16 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
           <span className={css.sidebarLabel} style={{ margin: 0 }}>
             Sessions
           </span>
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="icon"
             className={css.newChatButton}
             onClick={props.onNewChat}
             aria-label="New conversation"
             title="New conversation"
           >
             <SquarePen />
-          </button>
+          </Button>
         </div>
       </SidebarHeader>
       <SidebarContent>

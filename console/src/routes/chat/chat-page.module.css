@@ -34,32 +34,13 @@
 }
 
 .newChatButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-bg);
-  color: var(--muted-foreground);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background 0.12s,
-    color 0.12s,
-    border-color 0.12s;
 }
 
 .newChatButton svg {
   width: 16px;
   height: 16px;
-}
-
-.newChatButton:hover {
-  background: var(--accent-soft);
-  color: var(--primary);
-  border-color: var(--line-strong);
 }
 
 .sidebarLabel {
