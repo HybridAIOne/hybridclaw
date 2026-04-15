@@ -909,6 +909,24 @@ function resolveCodexSkillsDirs(): string[] {
   });
 }
 
+// Must match IMPORT_SOURCE_FILE in skills-import.ts.
+const IMPORT_SOURCE_MARKER = '.import-source.json';
+
+function resolveImportSourceOverride(
+  baseDir: string,
+  defaultSource: SkillSource,
+): SkillSource {
+  if (defaultSource !== 'community') return defaultSource;
+  try {
+    const markerPath = path.join(baseDir, IMPORT_SOURCE_MARKER);
+    const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    if (raw?.kind === 'local') return 'extra';
+  } catch {
+    // No marker or unreadable — keep default.
+  }
+  return defaultSource;
+}
+
 function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
   if (!fs.existsSync(dir)) return [];
 
@@ -931,6 +949,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
+        const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
           name,
@@ -948,7 +967,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
           },
           filePath: skillFile,
           baseDir,
-          source,
+          source: effectiveSource,
         });
       } catch (err) {
         logger.warn({ path: skillFile, err }, 'Failed to parse skill');
@@ -1653,10 +1672,96 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
-function resolveManagedCommunitySkillsDir(
+export function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
   return path.join(homeDir, 'skills');
+}
+
+/**
+ * Promote agent-created skills from the workspace to the managed community
+ * skills directory (~/.hybridclaw/skills/). Skills created by the agent land
+ * in workspace/skills/ but the canonical source for installed skills is the
+ * managed community dir. This function copies new workspace skills there so
+ * they survive the prune-and-sync cycle in loadSkills().
+ */
+export function promoteWorkspaceSkills(workspaceDir: string): void {
+  const workspaceSkillsDir = path.join(workspaceDir, 'skills');
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  // Quick check: are there any skill directories with a SKILL.md to promote?
+  // Avoids the expensive collectResolvedSkillCandidates() scan on turns where
+  // the agent created no skills (the common case).
+  let hasCandidate = false;
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (
+        entry.isDirectory() &&
+        fs.existsSync(path.join(workspaceSkillsDir, entry.name, 'SKILL.md'))
+      ) {
+        hasCandidate = true;
+        break;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (!hasCandidate) return;
+
+  const communityDir = resolveManagedCommunitySkillsDir();
+
+  // Build a set of skill names already known from any catalog source so we
+  // only promote genuinely new skills the agent created, not synced copies of
+  // bundled or imported skills.
+  const knownSkillNames = new Set(
+    collectResolvedSkillCandidates().map((s) => s.name),
+  );
+
+  try {
+    for (const entry of fs.readdirSync(workspaceSkillsDir, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+
+      const wsSkillDir = path.join(workspaceSkillsDir, entry.name);
+      const skillFile = path.join(wsSkillDir, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+
+      // Parse the skill name from frontmatter (or fall back to dir name).
+      let skillName = entry.name;
+      try {
+        const raw = fs.readFileSync(skillFile, 'utf-8');
+        const frontmatter = parseFrontmatter(raw);
+        const metaName = (frontmatter.meta.name || '').trim();
+        if (metaName) skillName = metaName;
+      } catch {
+        /* use dir name */
+      }
+
+      // Skip skills that already exist in the catalog from another source
+      // (checked by canonical skill name from frontmatter).
+      if (knownSkillNames.has(skillName)) continue;
+
+      // Also skip if a directory with the same name already exists in the
+      // managed dir — guards against the case where the frontmatter name
+      // differs from the dir name, and also prevents races when two
+      // concurrent turns try to promote the same skill simultaneously.
+      const communitySkillDir = path.join(communityDir, entry.name);
+      if (fs.existsSync(communitySkillDir)) continue;
+
+      // New skill found in workspace that doesn't exist in the managed dir.
+      fs.mkdirSync(communityDir, { recursive: true });
+      fs.cpSync(wsSkillDir, communitySkillDir, { recursive: true });
+      logger.info(
+        { skill: skillName, from: wsSkillDir, to: communitySkillDir },
+        'Promoted agent-created skill to managed skills directory',
+      );
+    }
+  } catch (err) {
+    logger.debug({ workspaceDir, err }, 'Failed to promote workspace skills');
+  }
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {
@@ -1718,10 +1823,22 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   return Array.from(byName.values());
 }
 
+function wasGuardSkippedAtImport(baseDir: string): boolean {
+  try {
+    const markerPath = path.join(baseDir, IMPORT_SOURCE_MARKER);
+    const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    return raw?.guardSkipped === true;
+  } catch {
+    return false;
+  }
+}
+
 function filterGuardedSkillCandidates(
   skills: SkillCandidate[],
 ): SkillCandidate[] {
   return skills.filter((skill) => {
+    if (wasGuardSkippedAtImport(skill.baseDir)) return true;
+
     const decision = guardSkillDirectory({
       skillName: skill.name,
       skillPath: skill.baseDir,

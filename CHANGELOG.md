@@ -1,6 +1,6 @@
 # Changelog
 
-## [Coming up]
+## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 
 ### Added
 
@@ -8,6 +8,28 @@
   channel with inbound webhook handling, outbound `hybridclaw gateway voice
   call <number>` support, admin-console setup, and a dedicated setup and
   troubleshooting guide.
+- **Salesforce skill**: New bundled skill for enterprise CRM integration with
+  OAuth token binding, a dedicated `secret` CLI surface for credential
+  management, and hardened field-level configuration.
+- **Local skill import**: `skill import` now accepts local filesystem
+  directories and `.zip` archives as sources, with persistent import-source
+  markers so locally-imported skills retain personal trust across restarts.
+- **Admin approvals policy console**: New `/admin/approvals` interface for
+  viewing and managing approval policies from the browser.
+- **Console chat UI**: Migrated the legacy standalone chat UI into the console
+  React app with unified channels selection and improved upstream error
+  handling.
+- **Doctor resource hygiene**: `hybridclaw doctor` now includes a resource
+  hygiene maintenance pass that detects and cleans stale gateway artifacts,
+  with cached DB snapshots and disk-state diffing for efficient checks.
+- **Fetch Email-Config button**: The admin email channel editor includes a
+  one-click button to fetch and validate HybridAI mailbox credentials.
+- **XLSX skill creation script**: Bundled creation script prevents silent
+  generation failures when the xlsx skill produces spreadsheet output.
+- **ToggleGroup component**: New `ToggleGroup` / `ToggleGroupItem` UI
+  primitive used across the admin console for binary-toggle controls.
+- **Provider health panel**: Inline login action and inactive-provider
+  collapse in the admin console for quicker provider triage.
 
 ### Changed
 
@@ -15,6 +37,19 @@
   lets operators edit transport-specific prompt guidance, and runtime config
   exposes the same values under `channelInstructions.*` so channels such as
   voice can enforce spoken-output rules without editing prompt files directly.
+- **OAuth token domain binding**: Bearer tokens are now bound to their OAuth
+  issuer domain to prevent cross-domain exfiltration, and the gateway proxy
+  auto-captures tokens using config constants instead of raw environment
+  variables.
+- **Secret CLI simplification**: Removed the `[--raw]` option from
+  `secret show` and `secret set`, streamlining the operator-facing surface.
+- **CI pipeline split**: Unit tests now run as parallel lint and test jobs
+  with a shared `setup-node-workspace` composite action and PR-level
+  concurrency groups that cancel stale runs.
+- **Security scanner hints**: Block messages now include actionable override
+  hints so operators understand how to respond to policy violations.
+- **DRY provider utilities**: Refactored model-matching and `agentId`
+  normalization into shared provider utilities with prefix-aware matching.
 
 ### Fixed
 
@@ -22,6 +57,23 @@
   reliably, voice turns skip the usual yellow implicit wait, and the Twilio
   relay path handles disconnect, interrupt, and runtime-unavailable cases more
   cleanly instead of dropping into noisier failure states.
+- **Memory-flush pool slot leak**: Host processes spawned during memory-flush
+  no longer leak worker pool slots, and empty sessions are cleaned up
+  automatically.
+- **Stream terminated retry**: Terminated stream errors are now retried
+  correctly, preserving PDF creation workflows across transport retries.
+- **Skill scanning and promotion**: Runtime-created skills in agent workspace
+  directories now appear in `/skill list` and are promoted to the managed
+  directory on save.
+- **Teams webhook resilience**: Missing Teams credentials on incoming webhook
+  requests are handled gracefully instead of crashing the handler.
+- **AuthProvider callback stability**: Stabilized React `AuthProvider`
+  callbacks with memoized context values to prevent unnecessary re-renders.
+- **Upstream error mapping**: Nested HybridAI error payloads are unwrapped
+  and mapped to `502` responses to avoid gateway auth confusion, with
+  `no-store` cache headers on error responses.
+- **Skip-skill-scan persistence**: The `--skip-skill-scan` CLI decision is
+  now persisted so the runtime guard honors it across restarts.
 
 ## [0.12.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.5)
 

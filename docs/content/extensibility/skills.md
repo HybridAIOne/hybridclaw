@@ -143,6 +143,8 @@ are:
 - `well-known:https://example.com/docs`
 - `<owner>/<repo>/<path>`
 - `https://github.com/<owner>/<repo>[/path]`
+- local directory path (e.g. `./my-skills/brand-voice`)
+- local `.zip` archive (e.g. `./exports/brand-voice.zip`)
 
 Examples:
 
@@ -153,6 +155,8 @@ Examples:
 - `hybridclaw skill import claude-marketplace/brand-guidelines@anthropic-agent-skills`
 - `hybridclaw skill import well-known:https://mintlify.com/docs`
 - `hybridclaw skill import anthropics/skills/skills/brand-guidelines`
+- `hybridclaw skill import ./my-local-skill`
+- `hybridclaw skill import ./exports/brand-voice.zip`
 - TUI or web slash surface: `/skill import official/himalaya`
 
 Guard behavior:

@@ -117,6 +117,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -277,7 +278,10 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { loadSkillCatalog } from '../skills/skills.js';
+import {
+  loadSkillCatalog,
+  resolveManagedCommunitySkillsDir,
+} from '../skills/skills.js';
 import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
@@ -5174,7 +5178,7 @@ export function createGatewayAdminSkill(input: {
   const category = normalizeCreatedSkillCategory(input.category);
   const shortDescription = String(input.shortDescription || '').trim();
 
-  const projectSkillsDir = path.join(process.cwd(), 'skills');
+  const projectSkillsDir = resolveManagedCommunitySkillsDir();
   const skillDir = path.join(projectSkillsDir, name);
 
   if (fs.existsSync(skillDir)) {
@@ -5253,7 +5257,7 @@ export function createGatewayAdminSkill(input: {
   // Stage outside skills/ so catalog scans never see partial skill directories.
   fs.mkdirSync(projectSkillsDir, { recursive: true });
   const stagedSkillDir = fs.mkdtempSync(
-    path.join(process.cwd(), `.${name}.create-`),
+    path.join(projectSkillsDir, `.${name}.create-`),
   );
   try {
     fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
@@ -5444,7 +5448,7 @@ export async function uploadGatewayAdminSkillZip(
     }
     assertGatewayAdminSkillAllowed(skillName, skillRoot);
 
-    const projectSkillsDir = path.join(process.cwd(), 'skills');
+    const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
     if (fs.existsSync(targetDir)) {
       throw new GatewayRequestError(
@@ -6213,14 +6217,12 @@ async function runDelegationTaskWithRetry(
   let lastError = 'Delegation failed with unknown error';
   let lastStatus: DelegationRunStatus = 'failed';
   let lastDuration = 0;
-  let lastSessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
   let lastToolsUsed: string[] = [];
   let lastArtifacts: ArtifactMetadata[] | undefined;
 
   while (attempt < maxAttempts) {
     attempt += 1;
-    const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
-    lastSessionId = sessionId;
     const startedAt = Date.now();
     try {
       const output = await runAgent({
@@ -6250,6 +6252,7 @@ async function runDelegationTaskWithRetry(
       lastArtifacts = output.artifacts;
 
       if (output.status === 'success' && output.result?.trim()) {
+        stopSessionHostProcess(sessionId);
         return {
           status: 'completed',
           sessionId,
@@ -6309,9 +6312,10 @@ async function runDelegationTaskWithRetry(
     }
   }
 
+  stopSessionHostProcess(sessionId);
   return {
     status: lastStatus,
-    sessionId: lastSessionId,
+    sessionId,
     model: task.model,
     durationMs: lastDuration,
     attempts: attempt,

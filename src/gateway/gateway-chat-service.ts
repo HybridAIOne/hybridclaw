@@ -29,6 +29,7 @@ import {
 import { preprocessContextReferences } from '../context-references/index.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { promoteWorkspaceSkills } from '../skills/skills.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
@@ -1024,16 +1025,19 @@ export async function handleGatewayMessage(
       },
     });
 
+    promoteWorkspaceSkills(workspacePath);
+
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
       const durationMs = Date.now() - startedAt;
-      logger.debug(
+      logger.warn(
         {
           ...debugMeta,
           durationMs,
           toolCallCount: toolExecutions.length,
           firstTextDeltaMs,
           artifactCount: output.artifacts?.length || 0,
+          agentError: errorMessage,
         },
         'Gateway chat completed with agent error',
       );
