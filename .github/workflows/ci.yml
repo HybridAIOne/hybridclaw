@@ -6,8 +6,12 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Build Docker images (no push) to catch Dockerfile regressions before merge.
@@ -46,14 +50,8 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-preflight
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-preflight
 
-      - name: Setup Node.js (e2e)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install test dependencies (e2e)
-        run: npm install
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Gateway e2e tests (local, no API key)
         if: matrix.name == 'gateway'
@@ -77,23 +75,14 @@ jobs:
           HYBRIDCLAW_E2E_AGENT_IMAGE: hybridclaw-agent:preflight
         run: npx vitest run --config vitest.e2e.config.ts tests/agent-container.e2e.test.ts
 
-  unit-tests:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install container dependencies
-        run: npm run setup
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Biome check (changed files)
         shell: bash
@@ -139,6 +128,17 @@ jobs:
       - name: TypeScript lint (console)
         run: npm --prefix console run typecheck
 
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+
       - name: Build release artifacts
         run: npm run build
 
@@ -183,20 +183,14 @@ jobs:
           keep_files: true
 
   npm-e2e:
-    needs: unit-tests
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Build release artifacts
         run: npm run build

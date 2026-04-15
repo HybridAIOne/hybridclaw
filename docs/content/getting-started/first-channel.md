@@ -28,6 +28,8 @@ Keep the first rollout narrow:
   into message threads
 - [WhatsApp](../channels/whatsapp.md) when you want phone-linked testing and a
   QR pairing flow
+- [Twilio Voice](../guides/twilio-voice.md) when you want phone calls and
+  already have a public HTTPS/WSS tunnel or host for Twilio callbacks
 - [iMessage](../channels/imessage.md) when HybridClaw runs on a Mac or can
   reach a BlueBubbles relay
 - [Microsoft Teams](../channels/msteams.md) when you already have Entra/Azure
@@ -43,6 +45,7 @@ jump directly to one transport:
 - [Telegram](../channels/telegram.md)
 - [Email](../channels/email.md)
 - [WhatsApp](../channels/whatsapp.md)
+- [Twilio Voice](../guides/twilio-voice.md)
 - [iMessage](../channels/imessage.md)
 - [Microsoft Teams](../channels/msteams.md)
 

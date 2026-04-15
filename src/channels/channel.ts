@@ -8,6 +8,7 @@ export type ChannelKind =
   | 'slack'
   | 'telegram'
   | 'tui'
+  | 'voice'
   | 'whatsapp';
 
 export const SKILL_CONFIG_CHANNEL_KINDS = [
@@ -16,6 +17,7 @@ export const SKILL_CONFIG_CHANNEL_KINDS = [
   'msteams',
   'slack',
   'telegram',
+  'voice',
   'whatsapp',
 ] as const satisfies readonly ChannelKind[];
 
@@ -59,6 +61,16 @@ export const DISCORD_CAPABILITIES: ChannelCapabilities = Object.freeze({
 });
 
 export const TUI_CAPABILITIES: ChannelCapabilities = SYSTEM_CAPABILITIES;
+
+export const VOICE_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: false,
+  attachments: false,
+  messageEditing: false,
+  maxMessageLength: 4_000,
+});
 
 export const WHATSAPP_CAPABILITIES: ChannelCapabilities = Object.freeze({
   typing: true,

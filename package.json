@@ -32,6 +32,7 @@
     "container/dist/",
     "skills/",
     "community-skills/",
+    "presets/",
     "templates/",
     "docs/",
     "container/Dockerfile",

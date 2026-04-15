@@ -321,6 +321,8 @@ export interface GatewayProviderHealthEntry {
   error?: string;
   modelCount?: number;
   detail?: string;
+  /** True when the provider requires explicit re-authentication (e.g. expired OAuth token). */
+  loginRequired?: boolean;
 }
 
 export interface GatewayPluginCommandSummary {
@@ -353,6 +355,10 @@ export interface GatewayStatus {
     accountId: string | null;
     expiresAt: number | null;
     reloginRequired: boolean;
+  };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
   };
   sandbox?: {
     mode: 'container' | 'host';
@@ -405,6 +411,15 @@ export interface GatewayStatus {
   imessage?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  voice?: {
+    enabled: boolean;
+    accountSidConfigured: boolean;
+    fromNumberConfigured: boolean;
+    authTokenConfigured: boolean;
+    authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    webhookPath: string;
+    maxConcurrentCalls: number;
   };
   whatsapp?: {
     linked: boolean;
@@ -867,6 +882,60 @@ export interface GatewayAdminAuditResponse {
   eventType: string;
   limit: number;
   entries: GatewayAdminAuditEntry[];
+}
+
+export interface GatewayAdminApprovalAgent {
+  id: string;
+  name: string | null;
+  workspacePath: string;
+}
+
+export interface GatewayAdminPendingApproval {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  createdAt: string;
+  expiresAt: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  allowAll: boolean;
+  actionKey: string | null;
+}
+
+export interface GatewayAdminPolicyRule {
+  index: number;
+  action: 'allow' | 'deny';
+  host: string;
+  port: number | '*';
+  methods: string[];
+  paths: string[];
+  agent: string;
+  comment?: string;
+  managedByPreset?: string;
+}
+
+export interface GatewayAdminPolicyState {
+  exists: boolean;
+  policyPath: string;
+  workspacePath: string;
+  defaultAction: 'allow' | 'deny';
+  presets: string[];
+  rules: GatewayAdminPolicyRule[];
+}
+
+export interface GatewayAdminPolicyPresetSummary {
+  name: string;
+  description: string;
+}
+
+export interface GatewayAdminApprovalsResponse {
+  selectedAgentId: string;
+  agents: GatewayAdminApprovalAgent[];
+  pending: GatewayAdminPendingApproval[];
+  policy: GatewayAdminPolicyState;
+  availablePresets: GatewayAdminPolicyPresetSummary[];
 }
 
 export interface GatewayAdminSkill {

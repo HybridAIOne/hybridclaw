@@ -1,0 +1,13 @@
+name: pypi
+description: Python package index and hosted package files
+rules:
+  - action: allow
+    host: pypi.org
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: files.pythonhosted.org
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

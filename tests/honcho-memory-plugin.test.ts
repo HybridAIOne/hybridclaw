@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import { createServer } from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
 const originalRuntimeHome = process.env.HYBRIDCLAW_DATA_DIR;
 
 interface StubMessage {
@@ -18,11 +17,7 @@ interface StubMessage {
   session_id?: string;
 }
 
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
@@ -733,18 +728,17 @@ function createHonchoStubServer() {
   };
 }
 
-afterEach(() => {
-  if (originalRuntimeHome === undefined) {
-    delete process.env.HYBRIDCLAW_DATA_DIR;
-  } else {
-    process.env.HYBRIDCLAW_DATA_DIR = originalRuntimeHome;
-  }
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.unstubAllGlobals();
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    if (originalRuntimeHome === undefined) {
+      delete process.env.HYBRIDCLAW_DATA_DIR;
+    } else {
+      process.env.HYBRIDCLAW_DATA_DIR = originalRuntimeHome;
+    }
+  },
+  resetModules: true,
+  unstubAllGlobals: true,
 });
 
 test('honcho-memory seeds workspace identity, mirrors turns once, and exposes Honcho commands and tools', async () => {

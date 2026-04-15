@@ -1,7 +1,7 @@
 ---
 title: Memory
 description: Built-in HybridClaw memory layers, prompt injection paths, compaction, and default limits.
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 # Memory

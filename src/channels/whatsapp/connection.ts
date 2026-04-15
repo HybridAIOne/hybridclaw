@@ -44,6 +44,17 @@ interface EventEmitterLike {
   on: (event: string, handler: (...args: unknown[]) => void) => unknown;
 }
 
+const WHATSAPP_ERROR_SINK_ATTACHED = Symbol(
+  'hybridclaw.whatsapp-error-sink-attached',
+);
+
+interface EventEmitterWithInternals extends EventEmitterLike {
+  socket?: unknown;
+  _socket?: unknown;
+  _req?: unknown;
+  [WHATSAPP_ERROR_SINK_ATTACHED]?: boolean;
+}
+
 function isEventEmitterLike(value: unknown): value is EventEmitterLike {
   return (
     typeof value === 'object' &&
@@ -58,7 +69,10 @@ function attachWhatsAppEmitterErrorSink(
   message: string,
 ): void {
   if (!isEventEmitterLike(emitter)) return;
-  emitter.on('error', (error: unknown) => {
+  const candidate = emitter as EventEmitterWithInternals;
+  if (candidate[WHATSAPP_ERROR_SINK_ATTACHED]) return;
+  candidate[WHATSAPP_ERROR_SINK_ATTACHED] = true;
+  candidate.on('error', (error: unknown) => {
     logWhatsAppMessage(target, 'warn', message, { error });
   });
 }
@@ -74,12 +88,30 @@ function attachWhatsAppTransportErrorSinks(
   // Baileys still exposes the underlying ws EventEmitter on `ws.socket` in
   // this runtime surface. Keep an explicit sink here so a raw transport error
   // cannot surface as an uncaught EventEmitter `error`.
-  const rawSocket = (transport as { socket?: unknown }).socket;
+  const rawSocket = (transport as EventEmitterWithInternals).socket;
 
   attachWhatsAppEmitterErrorSink(
     target,
     rawSocket,
     'WhatsApp raw websocket error',
+  );
+
+  const request = isEventEmitterLike(rawSocket)
+    ? (rawSocket as EventEmitterWithInternals)._req
+    : null;
+  attachWhatsAppEmitterErrorSink(
+    target,
+    request,
+    'WhatsApp websocket request error',
+  );
+
+  const tcpSocket = isEventEmitterLike(rawSocket)
+    ? (rawSocket as EventEmitterWithInternals)._socket
+    : null;
+  attachWhatsAppEmitterErrorSink(
+    target,
+    tcpSocket,
+    'WhatsApp websocket tcp error',
   );
 }
 
@@ -222,7 +254,7 @@ export function createWhatsAppConnectionManager(params?: {
     });
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void connect();
+      void connect().catch(() => undefined);
     }, delayMs);
   };
 

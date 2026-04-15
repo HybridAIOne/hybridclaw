@@ -11,6 +11,7 @@ coverage/
 # Runtime data
 data/
 .hybridclaw/
+.worktrees/
 
 # Environment / secrets
 .env

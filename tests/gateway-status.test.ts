@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -66,6 +67,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/local-health.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  process.chdir(ORIGINAL_CWD);
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
@@ -216,6 +218,10 @@ test('getGatewayStatus includes Codex auth state', async () => {
     );
   expect(codexRequest).toBeDefined();
   expect(codexRequest?.url.searchParams.get('client_version')).toBeTruthy();
+  expect(status.hybridai).toEqual({
+    apiKeyConfigured: true,
+    apiKeySource: 'env',
+  });
   expect(status.providerHealth?.hybridai).toMatchObject({
     kind: 'remote',
     reachable: true,
@@ -370,7 +376,7 @@ test('model list codex uses the current Codex models payload shape', async () =>
     config.local.backends.vllm.enabled = false;
   });
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&
@@ -648,6 +654,75 @@ test('getGatewayStatus includes Discord token status from runtime secrets', asyn
   expect(status.discord).toEqual({
     tokenConfigured: true,
     tokenSource: 'runtime-secrets',
+  });
+});
+
+test('getGatewayStatus includes voice Twilio credential status', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.TWILIO_AUTH_TOKEN;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  saveRuntimeSecrets({
+    TWILIO_AUTH_TOKEN: 'voice-auth-token',
+  });
+  updateRuntimeConfig((draft) => {
+    draft.voice.enabled = true;
+    draft.voice.twilio.accountSid = 'AC123';
+    draft.voice.twilio.fromNumber = '+14155550123';
+    draft.voice.twilio.authToken = '';
+    draft.voice.webhookPath = '/voice';
+    draft.voice.maxConcurrentCalls = 8;
+  });
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.voice).toEqual({
+    enabled: true,
+    accountSidConfigured: true,
+    fromNumberConfigured: true,
+    authTokenConfigured: true,
+    authTokenSource: 'runtime-secrets',
+    webhookPath: '/voice',
+    maxConcurrentCalls: 8,
+  });
+});
+
+test('getGatewayStatus reports missing HybridAI API keys separately from provider health', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.hybridai).toEqual({
+    apiKeyConfigured: false,
+    apiKeySource: null,
+  });
+  expect(status.providerHealth?.hybridai).toMatchObject({
+    kind: 'remote',
+    reachable: false,
   });
 });
 

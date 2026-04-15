@@ -1,0 +1,13 @@
+name: huggingface
+description: Hugging Face Hub and model content
+rules:
+  - action: allow
+    host: huggingface.co
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: cdn-lfs.huggingface.co
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

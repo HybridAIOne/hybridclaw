@@ -1,19 +1,13 @@
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
@@ -625,12 +619,6 @@ function writeJavaScriptCommandPluginWithHelper(
   );
   return entrypoint;
 }
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('loadPluginManifest trims optional strings and normalizes nested sections', async () => {
   const cwd = makeTempDir('hybridclaw-plugin-project-');
