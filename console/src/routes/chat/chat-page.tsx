@@ -219,6 +219,11 @@ export function ChatPage() {
     void queryClient.invalidateQueries({
       queryKey: ['chat-recent', auth.token, userId],
     });
+    // Also invalidate the current session's history cache so that
+    // switching away and back refetches with the streamed messages.
+    void queryClient.invalidateQueries({
+      queryKey: ['chat-history', auth.token, sessionIdRef.current],
+    });
   }, [queryClient, auth.token, userId]);
 
   const getSessionId = useCallback(() => sessionIdRef.current, []);
@@ -395,7 +400,9 @@ export function ChatPage() {
           content: newContent,
           media: msg.media ?? [],
         };
-        dispatch({ type: 'SESSION_SWITCH', sessionId: branch.sessionId });
+        startTransition(() => {
+          dispatch({ type: 'SESSION_SWITCH', sessionId: branch.sessionId });
+        });
       } catch (err) {
         dispatch({
           type: 'ERROR_SET',
