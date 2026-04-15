@@ -8508,12 +8508,6 @@ export async function handleGatewayCommand(
       }
 
       case 'dream': {
-        if (!isLocalSession(req)) {
-          return badCommand(
-            'Dream Restricted',
-            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
-          );
-        }
 
         const sub = (req.args[1] || '').trim().toLowerCase();
         const currentConfig = getRuntimeConfig();
