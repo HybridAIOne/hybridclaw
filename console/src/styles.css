@@ -234,10 +234,6 @@ code {
   flex: 0 0 auto;
 }
 
-.topbar-sidebar-trigger[aria-expanded="false"] {
-  display: inline-flex;
-}
-
 @media (max-width: 1080px) {
   .topbar-sidebar-trigger {
     display: inline-flex;

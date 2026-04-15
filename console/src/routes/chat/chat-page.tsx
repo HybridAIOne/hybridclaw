@@ -24,6 +24,7 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
+import { PanelLeft } from '../../components/icons';
 import { useSidebar } from '../../components/sidebar/index';
 import {
   type ApprovalAction,
@@ -560,10 +561,10 @@ export function ChatPage() {
       </div>
 
       <div className={css.chatMain}>
-        <div className={css.mobileHeader}>
+        <div className={css.chatHeader}>
           <button
             type="button"
-            className="ghost-button"
+            className={cx(css.headerButton, css.mobileOnly)}
             onClick={() =>
               dispatch({ type: 'MOBILE_SIDEBAR_TOGGLE', open: true })
             }
@@ -571,7 +572,15 @@ export function ChatPage() {
           >
             ☰
           </button>
-          <span style={{ fontWeight: 600 }}>HybridClaw</span>
+          <button
+            type="button"
+            className={cx(css.headerButton, css.desktopOnly)}
+            onClick={() => sidebar.toggleSidebar()}
+            aria-label={sidebar.open ? 'Collapse navigation' : 'Expand navigation'}
+            title={sidebar.open ? 'Collapse navigation' : 'Expand navigation'}
+          >
+            <PanelLeft />
+          </button>
         </div>
 
         {isEmpty ? (
