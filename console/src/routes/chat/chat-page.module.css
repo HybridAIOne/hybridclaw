@@ -131,6 +131,13 @@
   color: var(--muted-foreground);
 }
 
+.chatTopbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px 6px;
+  flex-shrink: 0;
+}
+
 /* ── Main Chat Area ───────────────────────────────────────── */
 
 .chatMain {

@@ -24,6 +24,7 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
+import { ViewSwitchNav } from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -521,6 +522,9 @@ export function ChatPage() {
       <ChatSidebarPanel {...sidebarProps} />
 
       <div className={css.chatMain}>
+        <div className={css.chatTopbar}>
+          <ViewSwitchNav />
+        </div>
         {isEmpty ? (
           <div className={css.emptyState}>
             <h1 className={css.greeting}>
