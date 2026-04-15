@@ -1,8 +1,8 @@
-import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
-  startContainer,
   removeContainer,
+  startContainer,
 } from './helpers/docker-test-setup.js';
 
 /**
@@ -31,97 +31,101 @@ function hasCommand(cmd: string): boolean {
   }
 }
 
-describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () => {
-  beforeAll(() => {
-    cleanupStaleContainers('agent');
-    const container = startContainer({
-      image: IMAGE,
-      name: CONTAINER_NAME,
-      entrypoint: ['sleep', 'infinity'],
+describe.skipIf(!DOCKER_E2E)(
+  'agent container image',
+  { timeout: 30_000 },
+  () => {
+    beforeAll(() => {
+      cleanupStaleContainers('agent');
+      const container = startContainer({
+        image: IMAGE,
+        name: CONTAINER_NAME,
+        entrypoint: ['sleep', 'infinity'],
+      });
+      exec = container.exec;
+    }, 30_000);
+
+    afterAll(() => {
+      removeContainer(CONTAINER_NAME);
     });
-    exec = container.exec;
-  }, 30_000);
 
-  afterAll(() => {
-    removeContainer(CONTAINER_NAME);
-  });
+    // ── Core runtime ────────────────────────────────────────────────────
 
-  // ── Core runtime ────────────────────────────────────────────────────
+    test('node is available', () => {
+      const version = exec('node --version');
+      expect(version).toMatch(/^v22\./);
+    });
 
-  test('node is available', () => {
-    const version = exec('node --version');
-    expect(version).toMatch(/^v22\./);
-  });
+    test('compiled agent entrypoint exists', () => {
+      const result = exec('test -f /app/dist/index.js && echo exists');
+      expect(result).toBe('exists');
+    });
 
-  test('compiled agent entrypoint exists', () => {
-    const result = exec('test -f /app/dist/index.js && echo exists');
-    expect(result).toBe('exists');
-  });
+    // ── CLI tools ───────────────────────────────────────────────────────
 
-  // ── CLI tools ───────────────────────────────────────────────────────
+    const requiredCommands = [
+      'git',
+      'curl',
+      'rg',
+      'python3',
+      'pip3',
+      'pandoc',
+      'pdftotext',
+      'qpdf',
+    ];
 
-  const requiredCommands = [
-    'git',
-    'curl',
-    'rg',
-    'python3',
-    'pip3',
-    'pandoc',
-    'pdftotext',
-    'qpdf',
-  ];
+    test.each(requiredCommands)('%s is installed', (cmd) => {
+      expect(hasCommand(cmd)).toBe(true);
+    });
 
-  test.each(requiredCommands)('%s is installed', (cmd) => {
-    expect(hasCommand(cmd)).toBe(true);
-  });
+    // ── Python packages ─────────────────────────────────────────────────
 
-  // ── Python packages ─────────────────────────────────────────────────
+    const pythonPackages = [
+      'pypdf',
+      'pdfplumber',
+      'pdf2image',
+      'reportlab',
+      'PIL',
+    ];
 
-  const pythonPackages = [
-    'pypdf',
-    'pdfplumber',
-    'pdf2image',
-    'reportlab',
-    'PIL',
-  ];
+    test.each(pythonPackages)('python package %s is importable', (pkg) => {
+      const result = exec(`python3 -c "import ${pkg}; print('ok')"`);
+      expect(result).toBe('ok');
+    });
 
-  test.each(pythonPackages)('python package %s is importable', (pkg) => {
-    const result = exec(`python3 -c "import ${pkg}; print('ok')"`)
-    expect(result).toBe('ok');
-  });
+    // ── Global npm packages ─────────────────────────────────────────────
 
-  // ── Global npm packages ─────────────────────────────────────────────
+    const npmPackages = [
+      'docx',
+      'pptxgenjs',
+      'csv-parse',
+      'iconv-lite',
+      'xlsx-populate',
+    ];
 
-  const npmPackages = [
-    'docx',
-    'pptxgenjs',
-    'csv-parse',
-    'iconv-lite',
-    'xlsx-populate',
-  ];
+    test.each(npmPackages)('npm package %s is requireable', (pkg) => {
+      const result = exec(`node -e "require('${pkg}'); console.log('ok')"`);
+      expect(result).toBe('ok');
+    });
 
-  test.each(npmPackages)('npm package %s is requireable', (pkg) => {
-    const result = exec(`node -e "require('${pkg}'); console.log('ok')"`)
-    expect(result).toBe('ok');
-  });
+    // ── Browser automation ──────────────────────────────────────────────
 
-  // ── Browser automation ──────────────────────────────────────────────
+    test('playwright chromium is installed', () => {
+      const moduleResult = exec(
+        'node -e "var p = require(\'playwright\'); console.log(typeof p.chromium.launch)"',
+      );
+      expect(moduleResult).toBe('function');
 
-  test('playwright chromium is installed', () => {
-    const moduleResult = exec(
-      'node -e "var p = require(\'playwright\'); console.log(typeof p.chromium.launch)"',
-    );
-    expect(moduleResult).toBe('function');
+      const binaryResult = exec(
+        'find /ms-playwright -name chrome-headless-shell -o -name chrome 2>/dev/null | head -1',
+      );
+      expect(binaryResult.length).toBeGreaterThan(0);
+    });
 
-    const binaryResult = exec(
-      'find /ms-playwright -name chrome-headless-shell -o -name chrome 2>/dev/null | head -1',
-    );
-    expect(binaryResult.length).toBeGreaterThan(0);
-  });
+    // ── LibreOffice (full runtime target) ───────────────────────────────
 
-  // ── LibreOffice (full runtime target) ───────────────────────────────
-
-  test('libreoffice is installed', () => {
-    expect(hasCommand('libreoffice')).toBe(true);
-  });
-});
+    test('libreoffice is installed', () => {
+      expect(hasCommand('libreoffice')).toBe(true);
+    });
+  },
+);
