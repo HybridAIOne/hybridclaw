@@ -1,4 +1,3 @@
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_OLLAMA_BASE_URL,
@@ -9,6 +8,7 @@ import {
   resolveOllamaApiBase,
 } from './local-discovery.js';
 import { stripProviderPrefix } from './model-names.js';
+import { normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -27,7 +27,7 @@ async function resolveOllamaRuntimeCredentials(
   const modelName = normalizeOllamaModelName(params.model);
   const modelInfo =
     getLocalModelInfo(params.model) || getLocalModelInfo(modelName);
-  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'ollama',
     apiKey: '',
