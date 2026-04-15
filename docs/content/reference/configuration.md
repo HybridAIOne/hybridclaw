@@ -207,7 +207,17 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
 `GATEWAY_API_TOKEN`.
 
-Local TUI and local web chat sessions manage this store through:
+Local TUI/web sessions and the local CLI manage this store through:
+
+```bash
+hybridclaw secret list
+hybridclaw secret set <NAME> <VALUE>
+hybridclaw secret show <NAME> [--raw]
+hybridclaw secret unset <NAME>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
 
 ```text
 /secret list
@@ -219,7 +229,6 @@ Local TUI and local web chat sessions manage this store through:
 /secret route remove <url-prefix> [header]
 ```
 
-- there is no top-level `hybridclaw secret ...` CLI yet
 - secret names must use uppercase letters, digits, and underscores
 - built-in runtime keys and arbitrary named secrets share the same encrypted
   store

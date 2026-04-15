@@ -28,7 +28,7 @@ Use this skill for read-only Salesforce exploration from an org you can access w
 - relationship discovery for lookup, master-detail, and child links
 - SOQL row queries
 - Tooling API metadata queries
-- credential setup guidance using HybridClaw-style env secret refs
+- credential setup guidance using HybridClaw stored secret refs
 
 ## Default Workflow
 
@@ -45,7 +45,7 @@ Use this skill for read-only Salesforce exploration from an org you can access w
 
 ## Secret Refs
 
-By default, the helper resolves these env secret refs internally:
+By default, the helper resolves these stored secret refs internally:
 
 - `SF_FULL_USERNAME`
 - `SF_FULL_PASSWORD`
@@ -53,24 +53,45 @@ By default, the helper resolves these env secret refs internally:
 - `SF_FULL_SECRET`
 - `SF_DOMAIN`
 
-No config file is required if those environment variables are present.
+Ask the user to set them once from a local HybridClaw session:
+
+```text
+/secret set SF_FULL_USERNAME you@example.com
+/secret set SF_FULL_PASSWORD <password-plus-token>
+/secret set SF_FULL_CLIENTID <connected-app-client-id>
+/secret set SF_FULL_SECRET <connected-app-client-secret>
+/secret set SF_DOMAIN login
+```
+
+Shell-side equivalent:
+
+```bash
+hybridclaw secret set SF_FULL_USERNAME you@example.com
+hybridclaw secret set SF_FULL_PASSWORD '<password-plus-token>'
+hybridclaw secret set SF_FULL_CLIENTID '<connected-app-client-id>'
+hybridclaw secret set SF_FULL_SECRET '<connected-app-client-secret>'
+hybridclaw secret set SF_DOMAIN login
+```
+
+No config file is required if those stored secrets are present.
 
 To override the default org or make the auth source explicit, create an untracked JSON file such as `/tmp/salesforce-profile.json`:
 
 ```json
 {
   "auth": {
-    "username": { "source": "env", "id": "SF_FULL_USERNAME" },
-    "password": { "source": "env", "id": "SF_FULL_PASSWORD" },
-    "client_id": { "source": "env", "id": "SF_FULL_CLIENTID" },
-    "client_secret": { "source": "env", "id": "SF_FULL_SECRET" },
-    "domain": { "source": "env", "id": "SF_DOMAIN" }
+    "username": { "source": "store", "id": "SF_FULL_USERNAME" },
+    "password": { "source": "store", "id": "SF_FULL_PASSWORD" },
+    "client_id": { "source": "store", "id": "SF_FULL_CLIENTID" },
+    "client_secret": { "source": "store", "id": "SF_FULL_SECRET" },
+    "domain": { "source": "store", "id": "SF_DOMAIN" }
   },
   "api_version": "latest"
 }
 ```
 
-The helper also accepts `${ENV_VAR}` shorthand in the same fields. Keep profile files out of git.
+The helper also accepts env refs such as `${SF_FULL_USERNAME}` or `{ "source": "env", "id": "SF_FULL_USERNAME" }`.
+Keep profile files out of git.
 
 ## Command Contract
 
@@ -114,6 +135,12 @@ Use a custom profile file:
 
 ```bash
 python3 skills/salesforce/scripts/salesforce_query.py --config /tmp/salesforce-profile.json query "SELECT Id FROM Contact LIMIT 5"
+```
+
+Override the secret lookup command when `hybridclaw` is not on `PATH`:
+
+```bash
+python3 skills/salesforce/scripts/salesforce_query.py --secret-command "hybridclaw" query "SELECT Id FROM Contact LIMIT 5"
 ```
 
 ## Working Rules

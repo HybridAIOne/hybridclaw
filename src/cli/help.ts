@@ -9,6 +9,7 @@ export function printMainUsage(): void {
   agent      Export, inspect, install, or uninstall portable agent archives
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
+  secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
@@ -646,6 +647,34 @@ Notes:
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
 
+export function printSecretUsage(): void {
+  console.log(`Usage: hybridclaw secret <command>
+
+Commands:
+  hybridclaw secret list
+  hybridclaw secret set <name> <value>
+  hybridclaw secret show <name> [--raw]
+  hybridclaw secret unset <name>
+  hybridclaw secret route list
+  hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+  hybridclaw secret route remove <url-prefix> [header]
+
+Examples:
+  hybridclaw secret list
+  hybridclaw secret set SF_FULL_USERNAME you@example.com
+  hybridclaw secret show SF_FULL_USERNAME
+  hybridclaw secret show SF_FULL_USERNAME --raw
+  hybridclaw secret unset SF_FULL_USERNAME
+  hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+
+Notes:
+  - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
+  - Secret names must use uppercase letters, digits, and underscores.
+  - \`show\` reports presence by default; use \`--raw\` only when another local script needs the decrypted value.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref.
+  - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
+}
+
 export function printAgentUsage(): void {
   console.log(`Usage: hybridclaw agent <command>
 
@@ -695,6 +724,7 @@ Topics:
   openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
+  secret      Help for encrypted secret-store commands
   policy      Help for workspace network policy commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
@@ -774,6 +804,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'config':
       printConfigUsage();
+      return true;
+    case 'secret':
+      printSecretUsage();
       return true;
     case 'policy':
       printPolicyUsage();

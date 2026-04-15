@@ -218,6 +218,82 @@ test('help local prints local command usage', async () => {
   );
 });
 
+test('help secret prints secret command usage', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main(['help', 'secret']);
+
+  expect(logSpy).toHaveBeenCalledWith(
+    expect.stringContaining('Usage: hybridclaw secret <command>'),
+  );
+});
+
+test('secret set, show --raw, and unset manage encrypted secrets', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+
+  await cli.main(['secret', 'set', 'SF_FULL_USERNAME', 'user@example.com']);
+
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBe(
+    'user@example.com',
+  );
+
+  logSpy.mockClear();
+  await cli.main(['secret', 'show', 'SF_FULL_USERNAME']);
+  expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
+    'Name: SF_FULL_USERNAME',
+    'Stored: yes',
+    `Path: ${runtimeSecrets.runtimeSecretsPath()}`,
+  ]);
+
+  logSpy.mockClear();
+  await cli.main(['secret', 'show', 'SF_FULL_USERNAME', '--raw']);
+  expect(logSpy).toHaveBeenCalledWith('user@example.com');
+
+  await cli.main(['secret', 'unset', 'SF_FULL_USERNAME']);
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBeNull();
+});
+
+test('secret route add and remove update store-backed auth rules', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+
+  let config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://api.example.com/v1/',
+      header: 'X-API-Key',
+      prefix: '',
+      secret: { source: 'store', id: 'SF_FULL_SECRET' },
+    },
+  ]);
+
+  await cli.main([
+    'secret',
+    'route',
+    'remove',
+    'https://api.example.com/v1',
+    'X-API-Key',
+  ]);
+
+  config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([]);
+});
+
 test('top-level help hides deprecated alias commands', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

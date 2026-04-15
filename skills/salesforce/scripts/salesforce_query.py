@@ -8,6 +8,9 @@ import argparse
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,13 +22,14 @@ DEFAULT_MAX_RECORDS = 200
 DEFAULT_FIELD_LIMIT = 80
 DEFAULT_OBJECT_LIMIT = 200
 SECRET_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+STORE_SECRET_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 
 DEFAULT_AUTH_PROFILE: dict[str, Any] = {
-    "username": {"source": "env", "id": "SF_FULL_USERNAME"},
-    "password": {"source": "env", "id": "SF_FULL_PASSWORD"},
-    "client_id": {"source": "env", "id": "SF_FULL_CLIENTID"},
-    "client_secret": {"source": "env", "id": "SF_FULL_SECRET"},
-    "domain": {"source": "env", "id": "SF_DOMAIN"},
+    "username": {"source": "store", "id": "SF_FULL_USERNAME"},
+    "password": {"source": "store", "id": "SF_FULL_PASSWORD"},
+    "client_id": {"source": "store", "id": "SF_FULL_CLIENTID"},
+    "client_secret": {"source": "store", "id": "SF_FULL_SECRET"},
+    "domain": {"source": "store", "id": "SF_DOMAIN"},
 }
 
 
@@ -73,7 +77,11 @@ def is_mapping(value: Any) -> bool:
     return isinstance(value, dict)
 
 
-def load_profile(config_path: Path | None) -> AuthConfig:
+def default_secret_command() -> str:
+    return os.environ.get("HYBRIDCLAW_SECRET_COMMAND", "").strip() or "hybridclaw"
+
+
+def load_profile(config_path: Path | None, secret_command: str) -> AuthConfig:
     raw_profile: dict[str, Any] = {}
     if config_path is not None:
         try:
@@ -98,19 +106,87 @@ def load_profile(config_path: Path | None) -> AuthConfig:
     api_version = str(raw_profile.get("api_version", "latest")).strip() or "latest"
 
     return AuthConfig(
-        username=resolve_secret_input(merged_auth.get("username"), "auth.username"),
-        password=resolve_secret_input(merged_auth.get("password"), "auth.password"),
-        client_id=resolve_secret_input(merged_auth.get("client_id"), "auth.client_id"),
+        username=resolve_secret_input(
+            merged_auth.get("username"),
+            "auth.username",
+            secret_command,
+        ),
+        password=resolve_secret_input(
+            merged_auth.get("password"),
+            "auth.password",
+            secret_command,
+        ),
+        client_id=resolve_secret_input(
+            merged_auth.get("client_id"),
+            "auth.client_id",
+            secret_command,
+        ),
         client_secret=resolve_secret_input(
             merged_auth.get("client_secret"),
             "auth.client_secret",
+            secret_command,
         ),
-        domain=resolve_secret_input(merged_auth.get("domain"), "auth.domain"),
+        domain=resolve_secret_input(
+            merged_auth.get("domain"),
+            "auth.domain",
+            secret_command,
+        ),
         api_version=normalize_api_version(api_version),
     )
 
 
-def resolve_secret_input(value: Any, field_name: str) -> str:
+def read_stored_secret(secret_name: str, secret_command: str) -> str:
+    if not STORE_SECRET_NAME_PATTERN.fullmatch(secret_name):
+        raise ConfigError(
+            f"{secret_name} is not a valid HybridClaw stored secret name"
+        )
+
+    command_text = secret_command.strip() or "hybridclaw"
+    command_parts = shlex.split(command_text)
+    if not command_parts:
+        raise ConfigError("HYBRIDCLAW_SECRET_COMMAND resolved to an empty command")
+    executable = command_parts[0]
+    if (
+        "/" not in executable
+        and "\\" not in executable
+        and shutil.which(executable) is None
+    ):
+        raise ConfigError(
+            f"Cannot resolve `{executable}` in PATH. Set HYBRIDCLAW_SECRET_COMMAND or pass --secret-command."
+        )
+
+    try:
+        completed = subprocess.run(
+            [*command_parts, "secret", "show", secret_name, "--raw"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except OSError as exc:
+        raise ConfigError(
+            f"Failed to run `{command_text} secret show {secret_name} --raw`: {exc}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ConfigError(
+            f"`{command_text} secret show {secret_name} --raw` timed out"
+        ) from exc
+
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if not detail:
+            detail = "unknown error"
+        raise ConfigError(
+            f"stored secret {secret_name} could not be read via `{command_text} secret show {secret_name} --raw`: {detail}"
+        )
+
+    resolved = completed.stdout.strip()
+    if not resolved:
+        raise ConfigError(f"stored secret {secret_name} is empty")
+    return resolved
+
+
+def resolve_secret_input(value: Any, field_name: str, secret_command: str) -> str:
     if isinstance(value, str):
         candidate = value.strip()
         if not candidate:
@@ -128,23 +204,41 @@ def resolve_secret_input(value: Any, field_name: str) -> str:
 
     if not is_mapping(value):
         raise ConfigError(
-            f'{field_name} must be a string, ${{ENV_VAR}}, or {{"source": "env", "id": "ENV_VAR"}}'
+            f'{field_name} must be a string, ${{ENV_VAR}}, or {{"source": "env"|"store", "id": "NAME"}}'
         )
 
     source = value.get("source")
     ref_id = value.get("id")
-    if source != "env" or not isinstance(ref_id, str) or not re.fullmatch(
-        r"[A-Za-z_][A-Za-z0-9_]*", ref_id
-    ):
+    if source == "env":
+        if not isinstance(ref_id, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", ref_id
+        ):
+            raise ConfigError(
+                f'{field_name} must use {{"source": "env", "id": "ENV_VAR"}}'
+            )
+        resolved = os.environ.get(ref_id, "").strip()
+        if not resolved:
+            raise ConfigError(
+                f"{field_name} references environment variable {ref_id}, but it is not set"
+            )
+        return resolved
+
+    if source == "store":
+        if not isinstance(ref_id, str) or not STORE_SECRET_NAME_PATTERN.fullmatch(
+            ref_id
+        ):
+            raise ConfigError(
+                f'{field_name} must use {{"source": "store", "id": "SECRET_NAME"}}'
+            )
+        return read_stored_secret(ref_id, secret_command)
+
+    if not isinstance(ref_id, str):
         raise ConfigError(
-            f'{field_name} must use {{"source": "env", "id": "ENV_VAR"}}'
+            f'{field_name} must use {{"source": "env"|"store", "id": "NAME"}}'
         )
-    resolved = os.environ.get(ref_id, "").strip()
-    if not resolved:
-        raise ConfigError(
-            f"{field_name} references environment variable {ref_id}, but it is not set"
-        )
-    return resolved
+    raise ConfigError(
+        f'{field_name} uses unsupported secret source "{source}"; expected "env" or "store"'
+    )
 
 
 def normalize_domain(raw_domain: str) -> str:
@@ -717,6 +811,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep Salesforce attributes blocks in query output",
     )
+    parser.add_argument(
+        "--secret-command",
+        default=default_secret_command(),
+        help="Command used to resolve HybridClaw store-backed secrets (default: HYBRIDCLAW_SECRET_COMMAND or 'hybridclaw')",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -776,7 +875,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        profile = load_profile(args.config)
+        profile = load_profile(args.config, args.secret_command)
         if args.api_version:
             profile.api_version = normalize_api_version(args.api_version)
         session = authenticate(profile, timeout=args.timeout)

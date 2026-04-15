@@ -8,13 +8,33 @@ python3 skills/salesforce/scripts/salesforce_query.py ...
 
 ## Auth Model
 
-The helper defaults to these env-backed secret refs:
+The helper defaults to these store-backed secret refs:
 
 - `SF_FULL_USERNAME`
 - `SF_FULL_PASSWORD`
 - `SF_FULL_CLIENTID`
 - `SF_FULL_SECRET`
 - `SF_DOMAIN`
+
+Primary setup flow:
+
+```text
+/secret set SF_FULL_USERNAME you@example.com
+/secret set SF_FULL_PASSWORD <password-plus-token>
+/secret set SF_FULL_CLIENTID <connected-app-client-id>
+/secret set SF_FULL_SECRET <connected-app-client-secret>
+/secret set SF_DOMAIN login
+```
+
+Shell-side equivalent:
+
+```bash
+hybridclaw secret set SF_FULL_USERNAME you@example.com
+hybridclaw secret set SF_FULL_PASSWORD '<password-plus-token>'
+hybridclaw secret set SF_FULL_CLIENTID '<connected-app-client-id>'
+hybridclaw secret set SF_FULL_SECRET '<connected-app-client-secret>'
+hybridclaw secret set SF_DOMAIN login
+```
 
 `SF_FULL_PASSWORD` should already include the Salesforce security token when the org requires one.
 
@@ -30,17 +50,17 @@ If you need an explicit profile file, keep it untracked:
 ```json
 {
   "auth": {
-    "username": { "source": "env", "id": "SF_FULL_USERNAME" },
-    "password": { "source": "env", "id": "SF_FULL_PASSWORD" },
-    "client_id": { "source": "env", "id": "SF_FULL_CLIENTID" },
-    "client_secret": { "source": "env", "id": "SF_FULL_SECRET" },
-    "domain": { "source": "env", "id": "SF_DOMAIN" }
+    "username": { "source": "store", "id": "SF_FULL_USERNAME" },
+    "password": { "source": "store", "id": "SF_FULL_PASSWORD" },
+    "client_id": { "source": "store", "id": "SF_FULL_CLIENTID" },
+    "client_secret": { "source": "store", "id": "SF_FULL_SECRET" },
+    "domain": { "source": "store", "id": "SF_DOMAIN" }
   },
   "api_version": "latest"
 }
 ```
 
-`${ENV_VAR}` shorthand is also accepted in those fields.
+`${ENV_VAR}` shorthand and `{ "source": "env", "id": "ENV_VAR" }` are also accepted in those fields.
 
 ## Which Command To Use
 
