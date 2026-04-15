@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Inspect, create, clean, analyze, and format `.xlsx` workbooks and tabular data with Node.js and XlsxPopulate.
+description: Create, edit, inspect, and analyze `.xlsx` spreadsheets and Excel workbooks. Use this skill whenever the user asks to make a spreadsheet, generate an Excel file, create a table as xlsx, import CSV/TSV to xlsx, or work with any `.xlsx` file.
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -9,11 +9,14 @@ requires:
 metadata:
   hybridclaw:
     category: office
-    short_description: "XLSX editing and analysis."
+    short_description: "Create and edit Excel spreadsheets (.xlsx)."
     tags:
       - office
       - spreadsheet
       - xlsx
+      - excel
+      - table
+      - csv
     related_skills:
       - docx
 ---
