@@ -203,13 +203,12 @@ def authenticate(gw: GatewayConfig, api_version: str) -> SalesforceSession:
     """Perform OAuth2 username-password flow via the gateway proxy.
 
     Credentials are sent as ``<secret:NAME>`` placeholders in the request body
-    so the gateway resolves them server-side.  The gateway auto-detects the
-    OAuth token response, stores ``access_token`` in the encrypted secret
-    store, and strips the entire response body — the token never enters this
-    process.
+    so the gateway resolves them server-side.  The gateway captures both
+    ``access_token`` and ``instance_url`` from the OAuth token response into
+    the encrypted secret store, and the token never enters this process.
 
-    ``instance_url`` is stored separately via a second proxy call so that
-    subsequent API calls can reference it via ``<secret:SF_INSTANCE_URL>``.
+    Subsequent API calls can reference ``instance_url`` via
+    ``<secret:SF_INSTANCE_URL>``.
     """
     oauth_body = (
         "grant_type=password"

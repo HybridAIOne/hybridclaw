@@ -92,6 +92,12 @@ import { serveDocs } from './docs.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
+  parsePositiveInteger,
+  readJsonBody,
+  readRequestBody,
+  sendJson,
+} from './gateway-http-utils.js';
+import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
   runGatewayPluginTool,
@@ -178,7 +184,6 @@ const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
-const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 
@@ -322,16 +327,7 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-export function parsePositiveInteger(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isInteger(value) && value > 0 ? value : null;
-  }
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
+// parsePositiveInteger moved to gateway-http-utils.ts
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -682,16 +678,7 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   return 'authenticated';
 }
 
-export function sendJson(
-  res: ServerResponse,
-  statusCode: number,
-  payload: unknown,
-): void {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8',
-  });
-  res.end(JSON.stringify(payload, null, 2));
-}
+// sendJson moved to gateway-http-utils.ts
 
 function dispatchWebhookRoute(
   res: ServerResponse,
@@ -1120,34 +1107,7 @@ function resolveStaticFileMimeType(
   return inlineMimeType || 'application/octet-stream';
 }
 
-async function readRequestBody(
-  req: IncomingMessage,
-  maxBytes: number,
-): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > maxBytes) {
-      throw new GatewayRequestError(413, 'Request body too large.');
-    }
-    chunks.push(buffer);
-  }
-  return chunks.length > 0 ? Buffer.concat(chunks) : Buffer.alloc(0);
-}
-
-export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const rawBuffer = await readRequestBody(req, MAX_REQUEST_BYTES);
-  if (rawBuffer.length === 0) return {};
-  const raw = rawBuffer.toString('utf-8');
-  if (!raw.trim()) return {};
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    throw new GatewayRequestError(400, 'Invalid JSON body');
-  }
-}
+// readRequestBody and readJsonBody moved to gateway-http-utils.ts
 
 function normalizeHeaderValue(
   value: string | string[] | undefined,

@@ -25,7 +25,7 @@ import {
   parsePositiveInteger,
   readJsonBody,
   sendJson,
-} from './gateway-http-server.js';
+} from './gateway-http-utils.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,11 +42,6 @@ const REDIRECT_RESPONSE_STATUS_MAX = 399;
 // ---------------------------------------------------------------------------
 
 type CaptureFieldRule = { jsonPath: string; secretName: string };
-
-const DEFAULT_CAPTURE_FIELDS: CaptureFieldRule[] = [
-  { jsonPath: 'access_token', secretName: 'OAUTH_ACCESS_TOKEN' },
-  { jsonPath: 'refresh_token', secretName: 'OAUTH_REFRESH_TOKEN' },
-];
 
 // ---------------------------------------------------------------------------
 // Request body type
@@ -345,14 +340,15 @@ function replaceSecretPlaceholders(value: unknown): unknown {
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
 
 /**
- * Extract a base domain from a hostname by taking the last two segments.
- * `login.salesforce.com` → `salesforce.com`
- * `na139.my.salesforce.com` → `salesforce.com`
+ * Return the exact lowercase hostname for domain binding.
+ *
+ * We bind to the exact hostname rather than a naive "last two labels"
+ * heuristic, because multi-tenant / public-suffix domains (e.g.
+ * `something.github.io`, `service.co.uk`) would allow exfiltration to
+ * attacker-controlled sibling subdomains under a broad suffix.
  */
 function extractBaseDomain(hostname: string): string {
-  const parts = hostname.toLowerCase().split('.');
-  if (parts.length <= 2) return hostname.toLowerCase();
-  return parts.slice(-2).join('.');
+  return hostname.toLowerCase();
 }
 
 /**
@@ -451,9 +447,11 @@ function captureOAuthResponse(
     }
   }
 
-  if (Object.keys(secrets).length > 0) {
-    saveNamedRuntimeSecrets(secrets);
+  if (Object.keys(secrets).length === 0) {
+    return null;
   }
+
+  saveNamedRuntimeSecrets(secrets);
   return captured;
 }
 
@@ -501,8 +499,9 @@ export async function handleApiHttpRequest(
   const body = (await readJsonBody(req)) as ApiHttpRequestBody;
   const replacePlaceholders = body.replaceSecretPlaceholders !== false;
   const captureFields =
-    normalizeCaptureResponseFields(body.captureResponseFields) ??
-    DEFAULT_CAPTURE_FIELDS;
+    body.captureResponseFields === undefined
+      ? []
+      : normalizeCaptureResponseFields(body.captureResponseFields) ?? [];
   const rawUrl = replacePlaceholders
     ? replaceSecretPlaceholdersInString(String(body.url || ''))
     : body.url;

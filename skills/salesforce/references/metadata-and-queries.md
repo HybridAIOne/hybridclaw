@@ -38,29 +38,15 @@ hybridclaw secret set SF_DOMAIN login
 
 `SF_FULL_PASSWORD` should already include the Salesforce security token when the org requires one.
 
-`SF_DOMAIN` can be:
+`SF_DOMAIN` should be the Salesforce login domain prefix used by the helper:
 
 - `login` for production login
 - `test` for sandbox login
-- a host like `mydomain.my.salesforce.com`
-- a full URL like `https://mydomain.my.salesforce.com`
 
-If you need an explicit profile file, keep it untracked:
+Do not include `https://` or `.salesforce.com` in `SF_DOMAIN`.
 
-```json
-{
-  "auth": {
-    "username": { "source": "store", "id": "SF_FULL_USERNAME" },
-    "password": { "source": "store", "id": "SF_FULL_PASSWORD" },
-    "client_id": { "source": "store", "id": "SF_FULL_CLIENTID" },
-    "client_secret": { "source": "store", "id": "SF_FULL_SECRET" },
-    "domain": { "source": "store", "id": "SF_DOMAIN" }
-  },
-  "api_version": "latest"
-}
-```
-
-`${ENV_VAR}` shorthand and `{ "source": "env", "id": "ENV_VAR" }` are also accepted in those fields.
+Configure the helper using the secret refs above. All secrets are resolved
+server-side by the gateway proxy at request time.
 
 ## Which Command To Use
 
