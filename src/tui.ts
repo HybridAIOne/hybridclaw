@@ -1195,7 +1195,7 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
 function printUsageFooter(
   tools: string[],
   plugins: string[],
-  skill: string | null,
+  skill: string | undefined,
 ): void {
   const parts: string[] = [];
   if (tools.length > 0) {
@@ -2233,9 +2233,9 @@ async function processMessage(
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
     const pluginNames = collectPluginNames(result);
-    const skillName = result.skillUsed || null;
+    const skillName = result.skillUsed;
     const hasUsageFooters =
-      toolNames.length > 0 || pluginNames.length > 0 || skillName !== null;
+      toolNames.length > 0 || pluginNames.length > 0 || !!skillName;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(
