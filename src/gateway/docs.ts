@@ -1131,7 +1131,7 @@ function renderInteractiveScript(): string {
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
       try {
-        await navigator.clipboard.writeText((codeEl.textContent || '').replace(/^\d+\.\s*/, ''));
+        await navigator.clipboard.writeText((codeEl.textContent || '').replace(new RegExp('^[0-9]+[.][ ]*'), ''));
         btn.innerHTML = ICON_CHECK;
         btn.classList.add('is-copied');
         window.setTimeout(() => {
