@@ -1138,7 +1138,7 @@ function renderInteractiveScript(): string {
         }, 1200);
       } catch {}
     });
-    codeEl.after(btn);
+    codeEl.appendChild(btn);
   });
 })();
 </script>`;
@@ -1839,29 +1839,38 @@ function renderPage(
       background: rgba(240, 192, 80, 0.08);
     }
 
+    .docs-article blockquote.docs-try-it code {
+      position: relative;
+    }
+
     .docs-copy-inline {
-      display: inline;
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       border: none;
       background: transparent;
-      padding: 0 0 0 6px;
+      padding: 2px;
       line-height: 1;
       cursor: pointer;
       opacity: 0;
       transition: opacity 0.15s ease;
-      vertical-align: middle;
       color: var(--muted, #6b7280);
     }
 
-    .docs-copy-inline svg {
-      vertical-align: middle;
+    .docs-article blockquote.docs-try-it code:hover .docs-copy-inline {
+      opacity: 0.6;
     }
 
-    .docs-article blockquote.docs-try-it p:hover .docs-copy-inline {
-      opacity: 1;
+    .docs-copy-inline:hover {
+      opacity: 1 !important;
     }
 
     .docs-copy-inline.is-copied {
-      opacity: 1;
+      opacity: 1 !important;
+      color: var(--success, #15803d);
     }
 
     .docs-article table {
