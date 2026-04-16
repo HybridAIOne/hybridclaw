@@ -1,8 +1,5 @@
 import { MINIMAX_BASE_URL } from '../config/config.js';
-import {
-  MINIMAX_MODEL_PREFIX,
-  readMiniMaxApiKey,
-} from './minimax-utils.js';
+import { MINIMAX_MODEL_PREFIX, readMiniMaxApiKey } from './minimax-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,

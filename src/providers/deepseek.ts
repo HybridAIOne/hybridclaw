@@ -1,8 +1,5 @@
 import { DEEPSEEK_BASE_URL } from '../config/config.js';
-import {
-  DEEPSEEK_MODEL_PREFIX,
-  readDeepSeekApiKey,
-} from './deepseek-utils.js';
+import { DEEPSEEK_MODEL_PREFIX, readDeepSeekApiKey } from './deepseek-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,

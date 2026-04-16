@@ -1,5 +1,4 @@
 import { ZAI_BASE_URL } from '../config/config.js';
-import { ZAI_MODEL_PREFIX, readZaiApiKey } from './zai-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -7,6 +6,7 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
+import { readZaiApiKey, ZAI_MODEL_PREFIX } from './zai-utils.js';
 
 export const isZaiModel = createModelMatcher(ZAI_MODEL_PREFIX);
 

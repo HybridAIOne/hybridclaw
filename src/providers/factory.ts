@@ -36,15 +36,15 @@ import { minimaxProvider } from './minimax.js';
 import { mistralProvider } from './mistral.js';
 import { openAIProvider } from './openai.js';
 import { openrouterProvider } from './openrouter.js';
-import { xaiProvider } from './xai.js';
-import { xiaomiProvider } from './xiaomi.js';
-import { zaiProvider } from './zai.js';
 import type {
   AIProvider,
   AIProviderId,
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
+import { xaiProvider } from './xai.js';
+import { xiaomiProvider } from './xiaomi.js';
+import { zaiProvider } from './zai.js';
 
 function getActiveProviders(): AIProvider[] {
   return [

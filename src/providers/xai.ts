@@ -1,5 +1,4 @@
 import { XAI_BASE_URL } from '../config/config.js';
-import { XAI_MODEL_PREFIX, readXaiApiKey } from './xai-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -7,6 +6,7 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
+import { readXaiApiKey, XAI_MODEL_PREFIX } from './xai-utils.js';
 
 export const isXaiModel = createModelMatcher(XAI_MODEL_PREFIX);
 

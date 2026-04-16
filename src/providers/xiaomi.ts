@@ -1,5 +1,4 @@
 import { XIAOMI_BASE_URL } from '../config/config.js';
-import { XIAOMI_MODEL_PREFIX, readXiaomiApiKey } from './xiaomi-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -7,6 +6,7 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
+import { readXiaomiApiKey, XIAOMI_MODEL_PREFIX } from './xiaomi-utils.js';
 
 export const isXiaomiModel = createModelMatcher(XIAOMI_MODEL_PREFIX);
 

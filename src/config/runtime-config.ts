@@ -858,13 +858,9 @@ const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
 const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5'] as const;
 const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
 const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2.5'] as const;
-const DEFAULT_DASHSCOPE_MODEL_LIST = [
-  'dashscope/qwen3-coder-plus',
-] as const;
+const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/mimo-v2-pro'] as const;
-const DEFAULT_KILO_MODEL_LIST = [
-  'kilo/anthropic/claude-sonnet-4.6',
-] as const;
+const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
