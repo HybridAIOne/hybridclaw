@@ -623,12 +623,36 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     if (quote) {
       flushParagraph();
       closeList();
-      const content = quote[1];
+      const quoteLines = [quote[1]];
+      while (index + 1 < lines.length) {
+        const nextLine = lines[index + 1] || '';
+        const nextQuote = nextLine.match(/^>\s?(.*)$/);
+        if (nextQuote) {
+          quoteLines.push(nextQuote[1]);
+          index += 1;
+        } else if (!nextLine.trim()) {
+          // blank line may continue blockquote if next non-blank is also >
+          let ahead = index + 2;
+          while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+          if (ahead < lines.length && /^>\s?/.test(lines[ahead] || '')) {
+            quoteLines.push('');
+            index += 1;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
       let bqClass = '';
-      if (content.includes('\u{1F3AF}')) bqClass = 'docs-try-it';
-      else if (content.includes('\u{1F4A1}')) bqClass = 'docs-tip';
+      const firstLine = quoteLines[0] || '';
+      if (firstLine.includes('\u{1F3AF}')) bqClass = 'docs-try-it';
+      else if (firstLine.includes('\u{1F4A1}')) bqClass = 'docs-tip';
+      const inner = quoteLines
+        .map((l) => (l.trim() ? `<p>${renderInlineMarkdown(l, context)}</p>` : ''))
+        .join('');
       html.push(
-        `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${renderInlineMarkdown(content, context)}</blockquote>`,
+        `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${inner}</blockquote>`,
       );
       continue;
     }
@@ -1133,7 +1157,9 @@ export async function mountDocsApp(options = {}) {
     }
   });
 
-  mount.querySelectorAll('blockquote.docs-try-it code').forEach((codeEl) => {
+  mount.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'docs-copy-inline';
@@ -1153,8 +1179,7 @@ export async function mountDocsApp(options = {}) {
         btn.textContent = 'Failed';
       }
     });
-    codeEl.parentElement.style.position = 'relative';
-    codeEl.parentElement.appendChild(btn);
+    pEl.appendChild(btn);
   });
 
   scrollToHash();
