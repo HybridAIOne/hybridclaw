@@ -44,6 +44,7 @@ Main docs landing pages:
 - [Extensibility](./extensibility/README.md)
 - [Adaptive Skills](./extensibility/adaptive-skills.md)
 - [Agent Packages](./extensibility/agent-packages.md)
+- [ByteRover Memory Plugin](./extensibility/byterover-memory-plugin.md)
 - [Honcho Memory Plugin](./extensibility/honcho-memory-plugin.md)
 - [MemPalace Memory Plugin](./extensibility/mempalace-memory-plugin.md)
 - [OTEL Plugin](./extensibility/otel-plugin.md)

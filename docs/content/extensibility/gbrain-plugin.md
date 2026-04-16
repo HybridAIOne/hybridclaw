@@ -219,16 +219,18 @@ local TUI or web sessions.
 
 ```text
 /plugin install ./plugins/gbrain
+/plugin enable gbrain
 /plugin config gbrain workingDirectory ~/brain
-/plugin reload
-/plugin check gbrain
+/gbrain status
 ```
+
+Both `/plugin install` and `/plugin enable` automatically reload the plugin
+runtime — no separate `/plugin reload` is needed.
 
 If you are updating the plugin from a local checkout:
 
 ```text
 /plugin reinstall ./plugins/gbrain
-/plugin reload
 /plugin check gbrain
 ```
 
@@ -578,6 +580,56 @@ For the upstream sync runbook, see
 For the upstream verification runbook, see
 [GBRAIN_VERIFY.md](https://github.com/garrytan/gbrain/blob/master/docs/GBRAIN_VERIFY.md).
 
+## Example Prompts and Use Cases
+
+### Recall knowledge about people or companies
+
+```text
+What do we know about Pedro Franceschi and his company?
+```
+
+The plugin queries GBrain before the turn and injects matching brain pages into
+prompt context. The model answers using both session history and GBrain recall.
+
+### Store durable facts back to the brain
+
+```text
+Use gbrain_put_page to save a new page about the partnership discussion
+with Acme Corp. Include the key terms we agreed on.
+```
+
+This writes directly to the GBrain knowledge base so the information is
+available in future sessions and across projects.
+
+### Research and follow-up
+
+```text
+Use GBrain to find the Acme company page, read the full page, then
+summarize the current state and open threads with citations.
+```
+
+This triggers a read flow: `gbrain_query` to find the page, then
+`gbrain_get_page` for the full content.
+
+### Track chronological events
+
+```text
+Use gbrain_add_timeline_entry to log that we signed the contract with
+Acme on 2026-04-15.
+```
+
+GBrain's timeline features let you track events and retrieve them
+chronologically.
+
+### Keep the brain current after external edits
+
+```text
+/gbrain sync --repo ~/brain
+/gbrain embed --stale
+```
+
+Run these after editing brain markdown files outside HybridClaw.
+
 ## Tips & Tricks
 
 - Prefer `query` for natural-language prompts. It is the default and lets
@@ -604,3 +656,37 @@ For the upstream verification runbook, see
   `gbrain embed --stale` and verify `OPENAI_API_KEY` is available.
 - If sync seems to run but results stay stale on Supabase, check for a
   Transaction mode pooler URL and switch to Session mode.
+
+## Troubleshooting
+
+- **Plugin loads but no `gbrain_*` tools appear:**
+  `gbrain --tools-json` likely failed during plugin registration. Check
+  `/gbrain status` and the gateway logs. Verify that `gbrain --version`
+  works from the shell the gateway process uses.
+
+- **No prompt recall appears:**
+  GBrain returned no matches. Check that the brain has indexed pages with
+  `gbrain stats` and that embeddings are built with `gbrain embed --stale`.
+
+- **Wrong brain is being queried:**
+  Set `workingDirectory` explicitly to your brain repo path. This is the
+  single most common source of "loaded plugin, wrong brain" confusion.
+
+- **Bun not found by gateway:**
+  If you installed GBrain through the Bun wrapper, `bun` must be on `PATH`
+  for the gateway process, not just your interactive shell. Alternatively,
+  point `command` at a compiled binary.
+
+- **Supabase sync shows success but page count is low:**
+  Check for a Transaction mode pooler URL in your connection string. GBrain
+  sync requires Session mode pooler or a direct connection string.
+
+- **Weak or purely lexical results from `gbrain query`:**
+  Embeddings may be missing or stale. Run `gbrain embed --stale` and verify
+  that `OPENAI_API_KEY` is available for the embedding model.
+
+- **Credential errors:**
+  Use `/secret set` for credentials rather than hardcoding in config. The
+  plugin reads `GBRAIN_DATABASE_URL`, `DATABASE_URL`, `OPENAI_API_KEY`, and
+  `ANTHROPIC_API_KEY` from HybridClaw secrets and injects them into the child
+  process.

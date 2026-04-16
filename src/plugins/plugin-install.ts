@@ -12,6 +12,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import {
+  allRequiredBinsAvailable,
   checkPluginDependencies,
   defaultPluginDependencyCheckCommand,
   getPluginLocalBinDirs,
@@ -50,12 +51,31 @@ type PluginSource =
 
 export type PluginInstallCommandRunner = (command: PluginCommand) => void;
 
+export function formatDependencyPlanDetails(plan: {
+  usesPackageJson: boolean;
+  nodePackages: string[];
+  pipPackages: string[];
+}): string {
+  const parts: string[] = [];
+  if (plan.usesPackageJson) {
+    parts.push('npm install from package.json');
+  }
+  if (plan.nodePackages.length > 0) {
+    parts.push(`npm packages: ${plan.nodePackages.join(', ')}`);
+  }
+  if (plan.pipPackages.length > 0) {
+    parts.push(`pip packages: ${plan.pipPackages.join(', ')}`);
+  }
+  return parts.join('; ');
+}
+
 export interface InstallPluginOptions {
   homeDir?: string;
   cwd?: string;
   runCommand?: PluginInstallCommandRunner;
   runCheckCommand?: PluginDependencyCommandChecker;
   approveDependencyInstall?: boolean;
+  onDependenciesAlreadySatisfied?: (plan: PluginDependencyPlan) => void;
   getRuntimeConfig?: PluginConfigGetter;
   updateRuntimeConfig?: PluginConfigUpdater;
 }
@@ -552,6 +572,7 @@ function installPreparedPlugin(
     runCommand: PluginInstallCommandRunner;
     runCheckCommand: PluginDependencyCommandChecker;
     approveDependencyInstall: boolean;
+    onDependenciesAlreadySatisfied?: (plan: PluginDependencyPlan) => void;
     getRuntimeConfig: PluginConfigGetter;
     updateRuntimeConfig: PluginConfigUpdater;
     replaceExisting: boolean;
@@ -564,11 +585,17 @@ function installPreparedPlugin(
   const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
   const pluginDir = path.join(installRoot, manifest.id);
   const dependencyPlan = planPluginDependencyInstall(sourceDir, manifest);
+  let skipDependencyInstall = false;
   if (
     hasInstallablePluginDependencies(dependencyPlan) &&
     !options.approveDependencyInstall
   ) {
-    throw new PluginDependencyApprovalRequiredError(dependencyPlan);
+    if (allRequiredBinsAvailable(manifest, options.cwd)) {
+      skipDependencyInstall = true;
+      options.onDependenciesAlreadySatisfied?.(dependencyPlan);
+    } else {
+      throw new PluginDependencyApprovalRequiredError(dependencyPlan);
+    }
   }
   const cleanupDirs: string[] = [];
   let backupDir: string | null = null;
@@ -595,16 +622,16 @@ function installPreparedPlugin(
           pluginDir,
           manifest,
         );
-        const dependencySummary = hasInstallablePluginDependencies(
-          pluginDependencyPlan,
-        )
-          ? installPluginDependencyPlan(
-              pluginDir,
-              pluginDependencyPlan,
-              options.runCommand,
-              options.runCheckCommand,
-            )
-          : emptyDependencyInstallSummary();
+        const dependencySummary =
+          !skipDependencyInstall &&
+          hasInstallablePluginDependencies(pluginDependencyPlan)
+            ? installPluginDependencyPlan(
+                pluginDir,
+                pluginDependencyPlan,
+                options.runCommand,
+                options.runCheckCommand,
+              )
+            : emptyDependencyInstallSummary();
         const configuredRequiredBins = autoConfigurePluginLocalBinaries({
           pluginId: manifest.id,
           pluginDir,
@@ -617,6 +644,7 @@ function installPreparedPlugin(
           pluginDir,
           manifest,
           options.runCheckCommand,
+          { cwd: options.cwd },
         );
         const missingRequiredBins = collectMissingRequiredBins(
           manifest.id,
@@ -656,16 +684,16 @@ function installPreparedPlugin(
       pluginDir,
       manifest,
     );
-    const dependencySummary = hasInstallablePluginDependencies(
-      pluginDependencyPlan,
-    )
-      ? installPluginDependencyPlan(
-          pluginDir,
-          pluginDependencyPlan,
-          options.runCommand,
-          options.runCheckCommand,
-        )
-      : emptyDependencyInstallSummary();
+    const dependencySummary =
+      !skipDependencyInstall &&
+      hasInstallablePluginDependencies(pluginDependencyPlan)
+        ? installPluginDependencyPlan(
+            pluginDir,
+            pluginDependencyPlan,
+            options.runCommand,
+            options.runCheckCommand,
+          )
+        : emptyDependencyInstallSummary();
     const configuredRequiredBins = autoConfigurePluginLocalBinaries({
       pluginId: manifest.id,
       pluginDir,
@@ -678,6 +706,7 @@ function installPreparedPlugin(
       pluginDir,
       manifest,
       options.runCheckCommand,
+      { cwd: options.cwd },
     );
     const missingRequiredBins = collectMissingRequiredBins(
       manifest.id,
@@ -750,6 +779,7 @@ export async function installPlugin(
       runCommand,
       runCheckCommand,
       approveDependencyInstall: options.approveDependencyInstall === true,
+      onDependenciesAlreadySatisfied: options.onDependenciesAlreadySatisfied,
       getRuntimeConfig: getConfig,
       updateRuntimeConfig: updateConfig,
       replaceExisting: false,
@@ -798,6 +828,7 @@ export async function reinstallPlugin(
         runCommand,
         runCheckCommand,
         approveDependencyInstall: options.approveDependencyInstall === true,
+        onDependenciesAlreadySatisfied: options.onDependenciesAlreadySatisfied,
         getRuntimeConfig: getConfig,
         updateRuntimeConfig: updateConfig,
         replaceExisting: true,
@@ -852,6 +883,7 @@ export async function checkPlugin(
     candidate.dir,
     candidate.manifest,
     runCheckCommand,
+    { cwd },
   );
   const configuredRequiredBins = (candidate.manifest.requires?.bins ?? [])
     .map((requirement) => {
