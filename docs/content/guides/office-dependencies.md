@@ -1,7 +1,7 @@
 ---
 title: Optional Office Dependencies
 description: Host-side installs for LibreOffice, Poppler, and Pandoc when you want richer office workflows outside the default container image.
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # Optional Office Dependencies
