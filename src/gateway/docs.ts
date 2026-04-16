@@ -1116,6 +1116,30 @@ function renderInteractiveScript(): string {
       observer.observe(section.target);
     }
   }
+
+  // Copy buttons for try-it prompts
+  document.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(codeEl.textContent || '');
+        btn.textContent = 'Copied!';
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {}
+    });
+    pEl.appendChild(btn);
+  });
 })();
 </script>`;
 }
@@ -1813,6 +1837,40 @@ function renderPage(
     [data-theme="dark"] .docs-article blockquote.docs-tip {
       border-left-color: #f0c050;
       background: rgba(240, 192, 80, 0.08);
+    }
+
+    .docs-article blockquote.docs-try-it p {
+      position: relative;
+    }
+
+    .docs-copy-inline {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel-bg, #fff);
+      color: var(--muted, #6b7280);
+      border-radius: 8px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .docs-article blockquote.docs-try-it p:hover .docs-copy-inline {
+      opacity: 1;
+    }
+
+    .docs-copy-inline:hover {
+      border-color: var(--brand-blue, #4a6cf7);
+      color: var(--brand-blue, #4a6cf7);
+    }
+
+    .docs-copy-inline.is-copied {
+      opacity: 1;
+      border-color: var(--success, #15803d);
+      color: var(--success, #15803d);
     }
 
     .docs-article table {
