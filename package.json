@@ -13,7 +13,8 @@
   },
   "workspaces": [
     "console",
-    "container"
+    "container",
+    "website"
   ],
   "engines": {
     "node": "22.x"
@@ -34,7 +35,9 @@
     "community-skills/",
     "presets/",
     "templates/",
-    "docs/",
+    "docs/content/",
+    "docs/development/",
+    "website/build/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",
@@ -78,7 +81,9 @@
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",
     "publish:dry": "npm publish --access public --dry-run",
-    "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
+    "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true",
+    "docs:build": "npm --workspace website run build",
+    "docs:start": "npm --workspace website run start"
   },
   "dependencies": {
     "@slack/bolt": "4.7.0",

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "docs/**"
+      - "website/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,13 +29,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a  # v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Build Docusaurus
+        working-directory: website
+        run: npm run build
+
       - name: Setup Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b  # v5
 
       - name: Upload docs artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3
         with:
-          path: docs
+          path: website/build
 
       - name: Deploy to GitHub Pages
         id: deployment
