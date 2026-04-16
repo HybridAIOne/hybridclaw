@@ -30,17 +30,23 @@ Both are optional — the skill degrades gracefully without them.
 
 > 🎯 **Try it yourself**
 >
-> `Extract the text from invoice.pdf and list all line items with totals`
+> `Create a one-page PDF invoice for "Acme Corp" with 3 line items (Widget A $120, Widget B $250, Consulting $500), a subtotal, 8% tax, and grand total`
 >
-> `Fill the "Name" and "Date" fields in application-form.pdf with "Jane Doe" and "2026-04-16", then save as filled-form.pdf`
+> `Create a PDF form with fields "Name", "Email", and "Date", then fill them with "Jane Doe", "jane@example.com", and "2026-04-16", and save as filled-form.pdf`
 >
-> `Merge report-q1.pdf and report-q2.pdf into combined-report.pdf`
+> `Create two single-page PDFs — one titled "Q1 Report" and one titled "Q2 Report" — then merge them into combined-report.pdf`
 >
-> `Render page 3 of blueprint.pdf as a PNG so I can inspect the diagram`
+> `Render page 1 of the merged combined-report.pdf as a PNG so I can inspect the layout`
 >
-> `Check if contract.pdf has fillable form fields`
+> `Create a PDF with 3 pages of placeholder text and check if it has any fillable form fields`
 >
-> `Extract all tables from quarterly-report.pdf, find every table with financial data, and save each table as a separate CSV file in ./extracted/`
+> `Create a multi-page PDF containing three financial tables (Revenue by Quarter, Expenses by Department, Profit Margins by Product Line) with sample data, then extract each table and save them as separate CSV files in ./extracted/`
+>
+> **Conversation flow:**
+>
+> `1. Create a 5-page PDF report titled "Annual Review 2025" with a cover page, executive summary, revenue breakdown table, expense analysis, and closing remarks`
+> `2. Add page numbers in the footer and a confidential watermark on every page`
+> `3. Split the report into individual page PDFs and merge just the cover and revenue pages into a standalone highlights.pdf`
 
 **Troubleshooting**
 
@@ -79,13 +85,19 @@ using bundled Node scripts and `xlsx-populate`.
 >
 > `Create a spreadsheet with headers "Name", "Revenue", "Quarter" and these rows: Alice 48000 Q1, Bob 52000 Q1, Alice 51000 Q2, Bob 49000 Q2`
 >
-> `Add a SUM formula to column D in sales.xlsx and recalculate`
+> `Create a sales spreadsheet with columns "Product", "Units", "Price", "Total" and 10 rows of sample data, then add a SUM formula at the bottom of the Total column and recalculate`
 >
-> `Import transactions.csv into an xlsx with proper column formatting`
+> `Create a CSV file with 20 rows of transaction data (Date, Description, Amount, Category), then import it into an xlsx with proper column formatting and date parsing`
 >
 > `Build a financial model spreadsheet for a SaaS product at $29/mo with 5% monthly growth over 12 months`
 >
-> `Read the raw data in survey-results.xlsx, add a pivot summary sheet grouping responses by department, insert a SUM row at the bottom, and recalculate all formulas`
+> `Create a spreadsheet with 50 rows of employee survey responses (Name, Department, Rating 1-5, Comment), add a pivot summary sheet grouping responses by department with average ratings, insert a COUNT row at the bottom, and recalculate all formulas`
+>
+> **Conversation flow:**
+>
+> `1. Create a spreadsheet with monthly revenue data for 3 product lines (Pro, Team, Enterprise) across Jan-Dec 2025`
+> `2. Add a "Trends" sheet with month-over-month growth formulas and conditional formatting that highlights months with negative growth in red`
+> `3. Create a "Forecast" sheet that projects Q1 2026 using a 3-month moving average from the existing data`
 
 **Troubleshooting**
 
@@ -123,13 +135,19 @@ OOXML-preserving changes.
 >
 > `Create a project proposal document with sections: Executive Summary, Problem Statement, Proposed Solution, Timeline (3 milestones), and Budget ($50k total)`
 >
-> `Add a comment to paragraph 3 of report.docx saying "Needs updated figures"`
+> `Create a short report document about Q1 sales performance with 3 paragraphs, then add a comment to paragraph 2 saying "Needs updated figures"`
 >
-> `Convert my notes.md into a formatted Word document with a table of contents`
+> `Create a markdown file with meeting notes (Attendees, Agenda, Action Items, Decisions) from a fictional product launch meeting, then convert it into a formatted Word document with a table of contents`
 >
-> `Update the header in template.docx to say "Q2 2026 Report"`
+> `Create a Word document with header "Q1 2026 Report", 2 pages of placeholder content, then update the header to say "Q2 2026 Report" and save as updated-report.docx`
 >
-> `Open proposal-template.docx, replace the Executive Summary placeholder with a 200-word overview of our cloud migration, update the header date to today, and save as cloud-migration-proposal.docx`
+> `Create a proposal template document with placeholder sections (Executive Summary, Technical Approach, Timeline, Budget), then replace the Executive Summary placeholder with a 200-word overview of a cloud migration project, update the header date to today, and save as cloud-migration-proposal.docx`
+>
+> **Conversation flow:**
+>
+> `1. Create a Word document with a project charter for "Platform Modernization" including sections for Scope, Objectives, Stakeholders, and Success Criteria`
+> `2. Add a comment on the Scope section saying "Needs sign-off from VP Engineering" and insert a revision table at the top`
+> `3. Convert the final document to PDF and create a one-page executive summary version as a separate docx`
 
 **Troubleshooting**
 
@@ -166,13 +184,19 @@ polished decks with pptxgenjs plus OOXML editing.
 >
 > `Create a 10-slide pitch deck for an AI-powered customer support tool: problem, solution, market size ($8B), product demo flow, pricing (3 tiers), team, traction (500 beta users), roadmap, and ask ($2M seed)`
 >
-> `Update the title slide in template.pptx with company name "Acme Corp" and tagline "Ship faster, break nothing"`
+> `Create a 5-slide presentation titled "Acme Corp — Ship faster, break nothing" with slides for Mission, Product, Team, Traction, and Contact`
 >
-> `Add speaker notes to every slide in workshop.pptx`
+> `Create an 8-slide workshop presentation on "Intro to Kubernetes" with one concept per slide, then add speaker notes to every slide explaining the key talking points`
 >
-> `Export all slides as PNG thumbnails so I can review the layout`
+> `Create a 4-slide deck and export all slides as PNG thumbnails so I can review the layout`
 >
-> `Read the key findings from analysis.xlsx, create a 6-slide presentation with one chart per finding, add speaker notes explaining each chart, and export slide thumbnails for review`
+> `Create a spreadsheet with key findings from a fictional product analytics review (6 metrics: DAU, retention, churn, NPS, conversion, ARPU — each with a trend), then create a 6-slide presentation with one chart per finding, add speaker notes explaining each chart, and export slide thumbnails for review`
+>
+> **Conversation flow:**
+>
+> `1. Create a 6-slide investor update deck with slides for Vision, Problem, Solution, Market Size ($12B TAM), Business Model, and Ask ($5M Series A)`
+> `2. Add speaker notes to every slide with 3 key talking points each, and insert a "Team" slide after Business Model with 4 fictional co-founders`
+> `3. Export all slides as PNG thumbnails and create a companion one-page PDF leave-behind summarizing the pitch`
 
 **Troubleshooting**
 
@@ -200,8 +224,14 @@ deliverables. This skill orchestrates the other office skills.
 
 > 🎯 **Try it yourself**
 >
-> `Import sales.csv into xlsx, add a summary sheet with totals per region, then create a 5-slide pptx deck from the highlights`
+> `Create a CSV with 30 rows of sales data (Region, Product, Units, Revenue) across 4 regions, import it into xlsx, add a summary sheet with totals per region, then create a 5-slide pptx deck from the highlights`
 >
-> `Analyze the data in report.xlsx and write a one-page executive memo as docx`
+> `Create a spreadsheet with quarterly performance data (Revenue, Costs, Headcount, NPS) for Q1-Q4 2025, then analyze the trends and write a one-page executive memo as docx`
 >
-> `Merge north.csv, south.csv, and west.csv into one xlsx with a sheet per region, then generate a presentation comparing revenue across regions`
+> `Create three CSV files — north.csv, south.csv, and west.csv — each with 10 rows of regional sales data (Product, Units, Revenue), merge them into one xlsx with a sheet per region, then generate a presentation comparing revenue across regions`
+>
+> **Conversation flow:**
+>
+> `1. Create a CSV with 40 rows of employee data (Name, Department, Title, Start Date, Salary) across Engineering, Marketing, Sales, and Design`
+> `2. Import it into an xlsx, add a summary sheet with headcount and average salary per department, and create a Word doc with an HR overview narrative`
+> `3. Build a 4-slide presentation with one department spotlight per slide showing key stats, and export it alongside the xlsx and docx as a complete reporting package`

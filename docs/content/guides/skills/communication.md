@@ -35,6 +35,12 @@ built-in `message` tool.
 > `Pin the announcement about the maintenance window in #ops`
 >
 > `Read the last 30 messages in #support, find any unanswered questions, draft replies for each, and post them as thread responses`
+>
+> **Conversation flow:**
+>
+> `1. Read the last 50 messages in #engineering and summarize the key discussions`
+> `2. Create a thread on the deployment message titled "Post-deploy checklist" and post the first item: "Verify health endpoint returns 200"`
+> `3. Add two more checklist items to that thread: "Confirm no error spike in monitoring" and "Update the status page"`
 
 **Troubleshooting**
 
@@ -68,3 +74,9 @@ TUI channels.
 > `Summarize today's email threads`
 >
 > `Catch me up on all channels from the last 48 hours, highlight anything that needs my response, and draft reply suggestions for the urgent items`
+>
+> **Conversation flow:**
+>
+> `1. Catch me up on everything from the last 24 hours across all channels`
+> `2. That incident in #ops you mentioned — show me the full timeline of messages around it`
+> `3. Draft a summary of the incident and post it as a thread reply in #ops`

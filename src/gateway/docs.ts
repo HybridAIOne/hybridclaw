@@ -1124,21 +1124,21 @@ function renderInteractiveScript(): string {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'docs-copy-inline';
-    btn.textContent = 'Copy';
+    btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
     btn.setAttribute('aria-label', 'Copy prompt');
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
       try {
         await navigator.clipboard.writeText(codeEl.textContent || '');
-        btn.textContent = 'Copied!';
+        btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
         btn.classList.add('is-copied');
         window.setTimeout(() => {
-          btn.textContent = 'Copy';
+          btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
           btn.classList.remove('is-copied');
         }, 1200);
       } catch {}
     });
-    pEl.appendChild(btn);
+    codeEl.after(btn);
   });
 })();
 </script>`;
@@ -1839,38 +1839,29 @@ function renderPage(
       background: rgba(240, 192, 80, 0.08);
     }
 
-    .docs-article blockquote.docs-try-it p {
-      position: relative;
-    }
-
     .docs-copy-inline {
-      position: absolute;
-      top: 4px;
-      right: 6px;
-      border: 1px solid var(--line);
-      background: var(--panel-bg, #fff);
-      color: var(--muted, #6b7280);
-      border-radius: 8px;
-      padding: 2px 8px;
-      font-size: 0.75rem;
+      display: inline;
+      border: none;
+      background: transparent;
+      padding: 0 0 0 6px;
+      line-height: 1;
       cursor: pointer;
       opacity: 0;
-      transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      transition: opacity 0.15s ease;
+      vertical-align: middle;
+      color: var(--muted, #6b7280);
+    }
+
+    .docs-copy-inline svg {
+      vertical-align: middle;
     }
 
     .docs-article blockquote.docs-try-it p:hover .docs-copy-inline {
       opacity: 1;
     }
 
-    .docs-copy-inline:hover {
-      border-color: var(--brand-blue, #4a6cf7);
-      color: var(--brand-blue, #4a6cf7);
-    }
-
     .docs-copy-inline.is-copied {
       opacity: 1;
-      border-color: var(--success, #15803d);
-      color: var(--success, #15803d);
     }
 
     .docs-article table {

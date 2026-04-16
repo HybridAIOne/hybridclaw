@@ -38,6 +38,12 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 > `Render a visual walkthrough of Dijkstra's algorithm on a sample graph with 6 nodes`
 >
 > `Plan a 3-minute explainer on how hash tables work, write the Manim script with scenes for insertion, collision handling, and resizing, render a draft at low quality, and stitch the clips together`
+>
+> **Conversation flow:**
+>
+> `1. Plan a 2-minute Manim video explaining how a linked list works — cover node creation, insertion, traversal, and deletion`
+> `2. Write the Manim script and render a low-quality draft of the first two scenes`
+> `3. The insertion animation is too fast — slow it down to 2 seconds and re-render just that scene`
 
 **Troubleshooting**
 
@@ -80,6 +86,12 @@ WP-CLI needs access to a WordPress installation (local or SSH).
 > `Create a new page "Privacy Policy" as a draft covering data collection, cookie usage, third-party services, and GDPR contact info`
 >
 > `Check which plugins need updates, list them with current and available versions, draft a maintenance blog post announcing the updates, and save it as a draft scheduled for tomorrow at 9am`
+>
+> **Conversation flow:**
+>
+> `1. Draft a blog post titled "Announcing Dark Mode" covering what changed, why we built it, and how to enable it`
+> `2. Add a "Before & After" section with placeholder image tags and a callout block for the keyboard shortcut`
+> `3. Create a companion "What's New in April" page listing Dark Mode alongside two other fictional features, and save both as drafts`
 
 **Troubleshooting**
 
@@ -116,3 +128,9 @@ voice.
 > `Write a 600-word thought-leadership piece arguing that AI-assisted code review catches more logic bugs than linting but creates a false sense of security around architecture decisions`
 >
 > `Research our last 3 product releases from the changelog, draft a year-in-review blog post highlighting the biggest improvements, include a section on what's coming next, and produce both the full post and a 280-character social media teaser`
+>
+> **Conversation flow:**
+>
+> `1. Draft an outline for a technical blog post about "How We Cut API Latency by 40%" targeting backend engineers`
+> `2. Write the full post from the outline — include a problem section, the three optimizations we tried, benchmarks, and lessons learned`
+> `3. Create a 280-character social media teaser and a 100-word newsletter blurb for the same post`

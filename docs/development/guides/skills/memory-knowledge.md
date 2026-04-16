@@ -25,13 +25,19 @@ incremental ingest, indexed pages, and append-only logging.
 >
 > `Initialize a wiki in ./research-wiki for my thesis on distributed consensus algorithms`
 >
-> `Ingest ./papers/raft-2014.pdf into the wiki and create entity pages for the key authors and concepts mentioned`
+> `Create a markdown file summarizing the Raft consensus algorithm (leader election, log replication, safety), then ingest it into the wiki and create entity pages for the key concepts`
 >
 > `What does the wiki say about "transformer architecture"?`
 >
 > `Run a lint pass on the wiki and fix any broken cross-references`
 >
-> `Ingest the three PDFs in ./papers/, create entity pages for key authors, cross-reference overlapping concepts between the papers, and update the wiki index`
+> `Create three markdown summaries — one on Raft consensus, one on Paxos, one on Byzantine fault tolerance — ingest all three into the wiki, create entity pages for key authors and concepts, cross-reference overlapping ideas between them, and update the wiki index`
+>
+> **Conversation flow:**
+>
+> `1. Initialize a wiki in ./engineering-wiki for our team's architecture decisions`
+> `2. Create pages for "Event Sourcing", "CQRS", and "Saga Pattern" with definitions, tradeoffs, and when to use each`
+> `3. Cross-reference all three pages where concepts overlap and update the wiki index`
 
 ---
 
@@ -66,6 +72,12 @@ Share target pages/databases with the integration in Notion's UI.
 > `Add a row to my project tracker database with title "Auth refactor", status "In Progress", and priority "High"`
 >
 > `Search for all pages tagged "Q1 review", read their contents, and create a new summary page in the "Quarterly Reports" database combining the key takeaways`
+>
+> **Conversation flow:**
+>
+> `1. Search my Notion workspace for all pages in the "Engineering" database`
+> `2. Create a new page called "Architecture Decision: Switch to gRPC" with sections for Context, Decision, Consequences, and Status`
+> `3. Add a row to the project tracker linking to this decision page with status "Under Review" and owner "Platform Team"`
 
 **Troubleshooting**
 
@@ -100,6 +112,12 @@ Optionally `obsidian-cli` for richer queries.
 > `Search the vault for mentions of "API rate limiting"`
 >
 > `Search my vault for all notes mentioning "API design", create a new MOC (Map of Content) note linking them together, and add backlinks from each source note to the new MOC`
+>
+> **Conversation flow:**
+>
+> `1. Find all notes in my vault tagged with #architecture`
+> `2. Create a new note called "Architecture Patterns Overview" linking to each of those notes with a one-line summary of each`
+> `3. Add a "Related Patterns" section to each source note with backlinks to the other notes in this group`
 
 ---
 
@@ -128,6 +146,12 @@ Switch persona modes and persist the active mode in `SOUL.md`.
 > `/personality reset`
 >
 > `Switch to the "mentor" personality, then explain what a Zettelkasten is in that style`
+>
+> **Conversation flow:**
+>
+> `1. /personality list`
+> `2. /personality noir`
+> `3. Now describe the current state of our codebase in that style`
 
 ---
 
@@ -157,3 +181,9 @@ cross-references, and structure notes.
 > `Create a structure note synthesizing everything I've collected on "API design patterns"`
 >
 > `Process all fleeting notes in my inbox, promote the ones about distributed systems to permanent seeds, find cross-strand connections between them, and update the INDEX`
+>
+> **Conversation flow:**
+>
+> `1. Capture this fleeting note: "Circuit breakers in microservices are analogous to backpressure in stream processing — both protect downstream systems"`
+> `2. Promote it to a permanent note and find any existing notes it connects to`
+> `3. Create a structure note called "System Resilience Patterns" that synthesizes this note with its connections`

@@ -33,6 +33,12 @@ calendar actions on macOS.
 > `Show me all meetings this week with "Design" in the title`
 >
 > `Check my calendar for next week, find all meetings longer than 1 hour, and create an ICS file with 15-minute prep blocks before each one`
+>
+> **Conversation flow:**
+>
+> `1. Show me my schedule for this Friday`
+> `2. I need a 90-minute focus block — find the longest free gap on Friday and create an ICS event called "Deep Work" for it`
+> `3. Also create a recurring ICS for "Weekly Reflection" every Friday at 4pm for the next 8 weeks`
 
 **Troubleshooting**
 
@@ -65,6 +71,12 @@ the macOS Music app.
 > `Play my "Focus" playlist`
 >
 > `Search Apple Music for "Beethoven Symphony No. 9", play the top result, and tell me the performer and album name`
+>
+> **Conversation flow:**
+>
+> `1. What song is playing right now?`
+> `2. Search Apple Music for more songs by this artist and list the top 5 results`
+> `3. Play the third result from that list`
 
 ---
 
@@ -92,3 +104,9 @@ credentials safely.
 > `What accounts do I have stored in Keychain for "aws"?`
 >
 > `Find all saved logins for AWS services, list the account names and usernames without passwords, and flag any that were last updated more than a year ago`
+>
+> **Conversation flow:**
+>
+> `1. How many saved logins do I have in Keychain?`
+> `2. Find all entries for "github.com" and list the usernames`
+> `3. Which of those GitHub logins was most recently updated?`

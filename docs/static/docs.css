@@ -569,41 +569,28 @@ pre {
 }
 
 .docs-copy-inline {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  border: 1px solid var(--line);
-  background: var(--panel-bg);
-  color: var(--muted);
-  border-radius: 8px;
-  padding: 2px 8px;
-  font-size: 0.75rem;
-  font-family: var(--sans);
+  display: inline;
+  border: none;
+  background: transparent;
+  padding: 0 0 0 6px;
+  line-height: 1;
   cursor: pointer;
   opacity: 0;
-  transition:
-    opacity 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+  transition: opacity 0.15s ease;
+  vertical-align: middle;
+  color: var(--muted);
 }
 
-.docs-content blockquote.docs-try-it p {
-  position: relative;
+.docs-copy-inline svg {
+  vertical-align: middle;
 }
 
 .docs-content blockquote.docs-try-it p:hover .docs-copy-inline {
   opacity: 1;
 }
 
-.docs-copy-inline:hover {
-  border-color: var(--brand-blue);
-  color: var(--brand-blue);
-}
-
 .docs-copy-inline.is-copied {
   opacity: 1;
-  border-color: var(--success);
-  color: var(--success);
 }
 
 .docs-content table {

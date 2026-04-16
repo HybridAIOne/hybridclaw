@@ -38,6 +38,12 @@ You must also have a 1Password account and be signed in (`op signin`).
 > `Show me the login details for the "staging-db" item (without the password)`
 >
 > `List all items in the "Infrastructure" vault, find any that haven't been rotated in 90+ days, and create a summary of credentials that need rotation`
+>
+> **Conversation flow:**
+>
+> `1. List all items in my "Development" vault`
+> `2. Show me the fields on the "Staging Database" item without revealing the password`
+> `3. Inject the database URL from that item into: psql "<connection_string>" -c "SELECT version()"`
 
 **Troubleshooting**
 
@@ -75,6 +81,12 @@ keys as environment variables.
 > `Debug why webhooks aren't reaching our endpoint — check delivery logs`
 >
 > `Look up customer "acme-corp@example.com", list their active subscriptions, check the last 5 invoices for failed payments, and summarize the account health`
+>
+> **Conversation flow:**
+>
+> `1. List the last 10 failed payment attempts in test mode`
+> `2. Pick the most recent failure and show me the full event details — error code, customer email, and amount`
+> `3. Check if that customer has any active subscriptions and whether their payment method is still valid`
 
 **Troubleshooting**
 
@@ -116,6 +128,12 @@ Set `SOKOSUMI_API_KEY` as an environment variable or provide when prompted.
 > `Show me the results from the last completed agent job`
 >
 > `Create a coworker task to research the top 5 competitors in our space, monitor the job until complete, and summarize the findings with a comparison table`
+>
+> **Conversation flow:**
+>
+> `1. Hire a Sokosumi agent to research the latest trends in AI-powered developer tools`
+> `2. Check the status of that job — is it still running?`
+> `3. Show me the results and create a one-page summary with the top 5 takeaways`
 
 ---
 
@@ -146,6 +164,12 @@ APIs.
 > `Create a Google Sheet with columns "Employee", "Department", "Salary" and 5 sample rows, formatted as a table with bold headers`
 >
 > `Search Gmail for all emails from the legal team this month, summarize the key action items, and create a Google Doc with a checklist of things to follow up on`
+>
+> **Conversation flow:**
+>
+> `1. Check my Google Calendar for tomorrow and list all meetings`
+> `2. Search Gmail for any threads with attendees from my 10am meeting`
+> `3. Create a Google Doc with prep notes for that meeting — include the agenda items from the calendar event and key points from the email threads`
 
 ---
 
@@ -162,6 +186,12 @@ Return the current system time and timezone.
 > `What timezone am I in?`
 >
 > `What's the current date and time in UTC, PST, and JST?`
+>
+> **Conversation flow:**
+>
+> `1. What time is it right now?`
+> `2. What time is that in Tokyo?`
+> `3. How many hours until midnight UTC?`
 
 ---
 
@@ -189,6 +219,12 @@ commands, runtime behavior, and release notes.
 > `What changed in the latest release?`
 >
 > `Check what changed in the last 3 releases, find any breaking changes that affect Discord channel config, and show me the exact config keys I need to update`
+>
+> **Conversation flow:**
+>
+> `1. How do I set up a custom skill with dependencies?`
+> `2. What config key controls whether skills auto-install their dependencies?`
+> `3. What changed in the latest release — did anything affect skill installation?`
 
 ---
 
@@ -205,3 +241,9 @@ Fetch the current ISS latitude and longitude from the WhereTheISS API.
 > `Get the current ISS position as JSON`
 >
 > `Where is the ISS right now, and what country or ocean is it currently flying over?`
+>
+> **Conversation flow:**
+>
+> `1. Where is the ISS right now?`
+> `2. What country or ocean is that over?`
+> `3. Check again — has it moved significantly since the last check?`

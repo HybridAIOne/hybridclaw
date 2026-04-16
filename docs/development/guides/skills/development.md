@@ -29,6 +29,12 @@ Review diffs and change sets for bugs, regressions, risks, and missing tests.
 > `Look at the changes in src/auth/ and flag anything risky`
 >
 > `Review the diff on my current branch, run the test suite to check for regressions, and create a summary of all findings sorted by severity with file and line references`
+>
+> **Conversation flow:**
+>
+> `1. Review the diff on my current branch and list all findings by severity`
+> `2. The auth token validation issue you flagged — show me the exact code path and suggest a fix`
+> `3. Apply the fix, re-run the tests, and confirm the issue is resolved`
 
 **Troubleshooting**
 
@@ -55,7 +61,7 @@ handle CI, and merge safely.
 
 > 🎯 **Try it yourself**
 >
-> `Create a branch called "fix/null-check-user", add a null guard in src/auth/session.ts, and open a PR against main`
+> `Create a branch called "fix/null-check-user", find any functions that access user properties without null checks, add guards, and open a PR against main`
 >
 > `Push my current changes and open a draft PR with a summary`
 >
@@ -63,7 +69,13 @@ handle CI, and merge safely.
 >
 > `Address the review comments on PR #55 and push an update`
 >
-> `Create a branch called "feat/user-avatars", implement an avatar upload component in src/components/Avatar.tsx, run tests, commit with a descriptive message, push, and open a PR against main with a full summary`
+> `Create a branch called "feat/add-healthcheck", add a /healthz endpoint that returns status and uptime, write a test for it, commit with a descriptive message, push, and open a PR against main with a full summary`
+>
+> **Conversation flow:**
+>
+> `1. Create a branch called "feat/rate-limiter" and add a middleware that limits requests to 100/min per IP`
+> `2. Write unit tests for the rate limiter covering normal traffic, burst traffic, and IP reset after the window expires`
+> `3. Push everything, open a PR against main, and watch CI until it passes`
 
 **Troubleshooting**
 
@@ -106,6 +118,12 @@ SOQL rows with a bundled Python helper. Read-only by default.
 > `Show me the relationships between Case and Account`
 >
 > `Describe the Contact object, find all required fields, then query the 5 most recently created Contacts and show which required fields are empty`
+>
+> **Conversation flow:**
+>
+> `1. List all custom objects in our Salesforce org that were created in the last 6 months`
+> `2. Describe the fields on the newest custom object and show its relationships to Account and Contact`
+> `3. Query the 10 most recent records from that object and flag any with missing required fields`
 
 **Troubleshooting**
 
@@ -135,9 +153,15 @@ docs, and reliable init/validate/package/publish workflows.
 >
 > `Create a new skill called "brand-voice" that enforces our writing style guide with rules: active voice, no jargon, sentences under 25 words`
 >
-> `Validate the frontmatter and structure of my custom skill in ./my-skills/seo-audit`
+> `Scaffold a new skill called "seo-audit" that triggers on SEO review requests, then validate its frontmatter and structure`
 >
 > `Scaffold a new skill called "changelog-writer", add a brew dependency for git, write the SKILL.md with trigger rules for changelog generation requests, and validate the result`
+>
+> **Conversation flow:**
+>
+> `1. Create a new skill called "deploy-checklist" that triggers on deploy or release requests`
+> `2. Add a pre-deploy validation script that checks for uncommitted changes, passing tests, and a valid changelog entry`
+> `3. Validate the skill structure and run a dry-run to make sure the trigger rules match correctly`
 
 ---
 

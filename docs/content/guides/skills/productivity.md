@@ -29,7 +29,13 @@ tasks.
 >
 > `What's the safest sequence to refactor the auth middleware?`
 >
-> `Analyze the current auth module in src/auth/, identify what needs to change for OAuth2 support, break it into sequenced tasks with acceptance criteria, and flag any risky dependencies`
+> `Analyze the current authentication flow in this project, identify what needs to change to add OAuth2 support, break it into sequenced tasks with acceptance criteria, and flag any risky dependencies`
+>
+> **Conversation flow:**
+>
+> `1. Plan the implementation of a webhook delivery system with retry logic and dead-letter queue`
+> `2. The retry backoff strategy — break that subtask down further with exact acceptance criteria and edge cases`
+> `3. What's the riskiest part of this plan and what should we prototype first?`
 
 ---
 
@@ -57,6 +63,12 @@ updates for team delivery.
 > `Map the dependencies between the auth, billing, and notification workstreams`
 >
 > `Review the current sprint board, identify items at risk of slipping, build an updated risk register, and draft a stakeholder update email summarizing progress and blockers`
+>
+> **Conversation flow:**
+>
+> `1. Create a 6-week roadmap for launching a new billing system with milestones for design, implementation, testing, and rollout`
+> `2. Add a risk register for the top 5 risks, each with impact, probability, and mitigation plan`
+> `3. Draft a stakeholder update email summarizing the roadmap and calling out the two highest risks`
 
 ---
 
@@ -91,6 +103,12 @@ Export as `TRELLO_API_KEY` and `TRELLO_TOKEN` environment variables.
 > `Add a comment to the "API redesign" card with today's progress update`
 >
 > `List all cards on the "Sprint 14" board, move any cards in "Done" to "Archive", and create a summary card in "To Do" listing unfinished items carried over to the next sprint`
+>
+> **Conversation flow:**
+>
+> `1. Show me all cards on the Engineering board grouped by list`
+> `2. Create 3 new cards in "To Do": "Set up CI pipeline", "Write API integration tests", and "Update deployment docs"`
+> `3. Move "Set up CI pipeline" to "In Progress" and add a comment saying "Started — targeting end of week"`
 
 **Troubleshooting**
 
