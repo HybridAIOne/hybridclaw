@@ -39,6 +39,7 @@ import {
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
+import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
@@ -203,15 +204,13 @@ export function getAvailableModelListWithOptions(
     ...getDiscoveredLocalModelNames(),
     ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
-    ...(config.gemini.enabled ? config.gemini.models : []),
-    ...(config.deepseek.enabled ? config.deepseek.models : []),
-    ...(config.xai.enabled ? config.xai.models : []),
-    ...(config.zai.enabled ? config.zai.models : []),
-    ...(config.kimi.enabled ? config.kimi.models : []),
-    ...(config.minimax.enabled ? config.minimax.models : []),
-    ...(config.dashscope.enabled ? config.dashscope.models : []),
-    ...(config.xiaomi.enabled ? config.xiaomi.models : []),
-    ...(config.kilo.enabled ? config.kilo.models : []),
+    // Include configured model lists for enabled OpenAI-compat remote providers.
+    ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
+      const section = (config as unknown as Record<string, unknown>)[def.id] as
+        | { enabled: boolean; models: string[] }
+        | undefined;
+      return section?.enabled ? section.models : [];
+    }),
   ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
   if (!provider) {

@@ -246,51 +246,15 @@
     "baseUrl": "https://router.huggingface.co/v1",
     "models": ["huggingface/meta-llama/Llama-3.1-8B-Instruct"]
   },
-  "gemini": {
-    "enabled": false,
-    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "models": ["gemini/gemini-2.5-pro", "gemini/gemini-2.5-flash"]
-  },
-  "deepseek": {
-    "enabled": false,
-    "baseUrl": "https://api.deepseek.com/v1",
-    "models": ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"]
-  },
-  "xai": {
-    "enabled": false,
-    "baseUrl": "https://api.x.ai/v1",
-    "models": ["xai/grok-3"]
-  },
-  "zai": {
-    "enabled": false,
-    "baseUrl": "https://api.z.ai/api/paas/v4",
-    "models": ["zai/glm-5"]
-  },
-  "kimi": {
-    "enabled": false,
-    "baseUrl": "https://api.kimi.com/coding/v1",
-    "models": ["kimi/kimi-k2.5"]
-  },
-  "minimax": {
-    "enabled": false,
-    "baseUrl": "https://api.minimax.io/v1",
-    "models": ["minimax/MiniMax-M2.5"]
-  },
-  "dashscope": {
-    "enabled": false,
-    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "models": ["dashscope/qwen3-coder-plus"]
-  },
-  "xiaomi": {
-    "enabled": false,
-    "baseUrl": "https://api.xiaomimimo.com/v1",
-    "models": ["xiaomi/mimo-v2-pro"]
-  },
-  "kilo": {
-    "enabled": false,
-    "baseUrl": "https://api.kilocode.ai/v1",
-    "models": ["kilo/anthropic/claude-sonnet-4.6"]
-  },
+  "gemini": { "enabled": false, "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai", "models": ["gemini/gemini-2.5-pro"] },
+  "deepseek": { "enabled": false, "baseUrl": "https://api.deepseek.com/v1", "models": ["deepseek/deepseek-chat"] },
+  "xai": { "enabled": false, "baseUrl": "https://api.x.ai/v1", "models": ["xai/grok-3"] },
+  "zai": { "enabled": false, "baseUrl": "https://api.z.ai/api/paas/v4", "models": ["zai/glm-5"] },
+  "kimi": { "enabled": false, "baseUrl": "https://api.kimi.com/coding/v1", "models": ["kimi/kimi-k2.5"] },
+  "minimax": { "enabled": false, "baseUrl": "https://api.minimax.io/v1", "models": ["minimax/MiniMax-M2.5"] },
+  "dashscope": { "enabled": false, "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1", "models": ["dashscope/qwen3-coder-plus"] },
+  "xiaomi": { "enabled": false, "baseUrl": "https://api.xiaomimimo.com/v1", "models": ["xiaomi/mimo-v2-pro"] },
+  "kilo": { "enabled": false, "baseUrl": "https://api.kilocode.ai/v1", "models": ["kilo/anthropic/claude-sonnet-4.6"] },
   "local": {
     "backends": {
       "ollama": {

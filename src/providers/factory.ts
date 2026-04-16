@@ -19,22 +19,27 @@ import {
   ZAI_ENABLED,
 } from '../config/config.js';
 import { anthropicProvider } from './anthropic.js';
-import { dashscopeProvider } from './dashscope.js';
-import { deepseekProvider } from './deepseek.js';
-import { geminiProvider } from './gemini.js';
 import { huggingfaceProvider } from './huggingface.js';
 import { hybridAIProvider } from './hybridai.js';
-import { kiloProvider } from './kilo.js';
-import { kimiProvider } from './kimi.js';
 import { ollamaProvider } from './local-ollama.js';
 import {
   llamacppProvider,
   lmstudioProvider,
   vllmProvider,
 } from './local-openai-compat.js';
-import { minimaxProvider } from './minimax.js';
 import { mistralProvider } from './mistral.js';
 import { openAIProvider } from './openai.js';
+import {
+  dashscopeProvider,
+  deepseekProvider,
+  geminiProvider,
+  kiloProvider,
+  kimiProvider,
+  minimaxProvider,
+  xaiProvider,
+  xiaomiProvider,
+  zaiProvider,
+} from './openai-compat-remote.js';
 import { openrouterProvider } from './openrouter.js';
 import type {
   AIProvider,
@@ -42,9 +47,6 @@ import type {
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
-import { xaiProvider } from './xai.js';
-import { xiaomiProvider } from './xiaomi.js';
-import { zaiProvider } from './zai.js';
 
 function getActiveProviders(): AIProvider[] {
   return [

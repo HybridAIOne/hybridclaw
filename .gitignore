@@ -40,3 +40,4 @@ docs/development/workplan-*.md
 
 # Temporary files
 *.tmp*
+skills/salesforce/scripts/__pycache__/

@@ -363,45 +363,92 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
 });
 
 test.each([
-  { providerId: 'gemini', model: 'gemini/gemini-2.5-pro', envVar: 'GEMINI_API_KEY', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
-  { providerId: 'deepseek', model: 'deepseek/deepseek-chat', envVar: 'DEEPSEEK_API_KEY', baseUrl: 'https://api.deepseek.com/v1' },
-  { providerId: 'xai', model: 'xai/grok-3', envVar: 'XAI_API_KEY', baseUrl: 'https://api.x.ai/v1' },
-  { providerId: 'zai', model: 'zai/glm-5', envVar: 'ZAI_API_KEY', baseUrl: 'https://api.z.ai/api/paas/v4' },
-  { providerId: 'kimi', model: 'kimi/kimi-k2.5', envVar: 'KIMI_API_KEY', baseUrl: 'https://api.kimi.com/coding/v1' },
-  { providerId: 'minimax', model: 'minimax/MiniMax-M2.5', envVar: 'MINIMAX_API_KEY', baseUrl: 'https://api.minimax.io/v1' },
-  { providerId: 'dashscope', model: 'dashscope/qwen3-coder-plus', envVar: 'DASHSCOPE_API_KEY', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { providerId: 'xiaomi', model: 'xiaomi/mimo-v2-pro', envVar: 'XIAOMI_API_KEY', baseUrl: 'https://api.xiaomimimo.com/v1' },
-  { providerId: 'kilo', model: 'kilo/anthropic/claude-sonnet-4.6', envVar: 'KILO_API_KEY', baseUrl: 'https://api.kilocode.ai/v1' },
-] as const)(
-  'provider factory resolves $providerId runtime credentials',
-  async ({ providerId, model, envVar, baseUrl }) => {
-    const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir, (config) => {
-      (config as Record<string, unknown>)[providerId] = {
-        enabled: true,
-        baseUrl,
-        models: [model],
-      };
-    });
-    process.env[envVar] = `${providerId}-test-key`;
-    const factory = await importFreshFactory(homeDir);
-
-    const credentials = await factory.resolveModelRuntimeCredentials({
-      model,
-      agentId: 'main',
-    });
-
-    expect(credentials).toMatchObject({
-      provider: providerId,
-      apiKey: `${providerId}-test-key`,
-      baseUrl,
-      chatbotId: '',
-      enableRag: false,
-      agentId: 'main',
-      isLocal: false,
-    });
+  {
+    providerId: 'gemini',
+    model: 'gemini/gemini-2.5-pro',
+    envVar: 'GEMINI_API_KEY',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
   },
-);
+  {
+    providerId: 'deepseek',
+    model: 'deepseek/deepseek-chat',
+    envVar: 'DEEPSEEK_API_KEY',
+    baseUrl: 'https://api.deepseek.com/v1',
+  },
+  {
+    providerId: 'xai',
+    model: 'xai/grok-3',
+    envVar: 'XAI_API_KEY',
+    baseUrl: 'https://api.x.ai/v1',
+  },
+  {
+    providerId: 'zai',
+    model: 'zai/glm-5',
+    envVar: 'ZAI_API_KEY',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+  },
+  {
+    providerId: 'kimi',
+    model: 'kimi/kimi-k2.5',
+    envVar: 'KIMI_API_KEY',
+    baseUrl: 'https://api.kimi.com/coding/v1',
+  },
+  {
+    providerId: 'minimax',
+    model: 'minimax/MiniMax-M2.5',
+    envVar: 'MINIMAX_API_KEY',
+    baseUrl: 'https://api.minimax.io/v1',
+  },
+  {
+    providerId: 'dashscope',
+    model: 'dashscope/qwen3-coder-plus',
+    envVar: 'DASHSCOPE_API_KEY',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  },
+  {
+    providerId: 'xiaomi',
+    model: 'xiaomi/mimo-v2-pro',
+    envVar: 'XIAOMI_API_KEY',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+  },
+  {
+    providerId: 'kilo',
+    model: 'kilo/anthropic/claude-sonnet-4.6',
+    envVar: 'KILO_API_KEY',
+    baseUrl: 'https://api.kilocode.ai/v1',
+  },
+] as const)('provider factory resolves $providerId runtime credentials', async ({
+  providerId,
+  model,
+  envVar,
+  baseUrl,
+}) => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    (config as Record<string, unknown>)[providerId] = {
+      enabled: true,
+      baseUrl,
+      models: [model],
+    };
+  });
+  process.env[envVar] = `${providerId}-test-key`;
+  const factory = await importFreshFactory(homeDir);
+
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model,
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: providerId,
+    apiKey: `${providerId}-test-key`,
+    baseUrl,
+    chatbotId: '',
+    enableRag: false,
+    agentId: 'main',
+    isLocal: false,
+  });
+});
 
 test('provider factory fails early for unsupported anthropic runtime execution', async () => {
   const homeDir = makeTempHome();
