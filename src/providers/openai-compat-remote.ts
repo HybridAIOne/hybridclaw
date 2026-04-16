@@ -1,22 +1,22 @@
 import {
-  GEMINI_API_KEY,
-  GEMINI_BASE_URL,
+  DASHSCOPE_API_KEY,
+  DASHSCOPE_BASE_URL,
   DEEPSEEK_API_KEY,
   DEEPSEEK_BASE_URL,
-  XAI_API_KEY,
-  XAI_BASE_URL,
-  ZAI_API_KEY,
-  ZAI_BASE_URL,
+  GEMINI_API_KEY,
+  GEMINI_BASE_URL,
+  KILO_API_KEY,
+  KILO_BASE_URL,
   KIMI_API_KEY,
   KIMI_BASE_URL,
   MINIMAX_API_KEY,
   MINIMAX_BASE_URL,
-  DASHSCOPE_API_KEY,
-  DASHSCOPE_BASE_URL,
+  XAI_API_KEY,
+  XAI_BASE_URL,
   XIAOMI_API_KEY,
   XIAOMI_BASE_URL,
-  KILO_API_KEY,
-  KILO_BASE_URL,
+  ZAI_API_KEY,
+  ZAI_BASE_URL,
 } from '../config/config.js';
 import { readProviderApiKey } from './provider-api-key-utils.js';
 import type { RuntimeProviderId } from './provider-ids.js';
@@ -90,7 +90,11 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
       readBaseUrl: () => GEMINI_BASE_URL,
       readApiKey: (opts) =>
         readProviderApiKey(
-          () => [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY, GEMINI_API_KEY],
+          () => [
+            process.env.GOOGLE_API_KEY,
+            process.env.GEMINI_API_KEY,
+            GEMINI_API_KEY,
+          ],
           'GEMINI_API_KEY',
           opts,
         ),

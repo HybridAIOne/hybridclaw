@@ -531,7 +531,16 @@ async function configureHuggingFace(args: string[]): Promise<void> {
 
 interface GenericProviderAuthDef {
   /** Provider ID used in CLI and config. */
-  id: 'gemini' | 'deepseek' | 'xai' | 'zai' | 'kimi' | 'minimax' | 'dashscope' | 'xiaomi' | 'kilo';
+  id:
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo';
   /** Human-readable label shown in status/error output. */
   label: string;
   /** Default model used when none is specified. */
@@ -551,15 +560,105 @@ interface GenericProviderAuthDef {
 }
 
 const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
-  { id: 'gemini', label: 'Google Gemini', defaultModel: 'gemini/gemini-2.5-pro', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', baseUrlSuffixPattern: /\/openai$/i, baseUrlSuffix: '/openai', secretKey: 'GEMINI_API_KEY', envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'], aliases: ['google', 'google-gemini'] },
-  { id: 'deepseek', label: 'DeepSeek', defaultModel: 'deepseek/deepseek-chat', defaultBaseUrl: 'https://api.deepseek.com/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'DEEPSEEK_API_KEY', envVarNames: ['DEEPSEEK_API_KEY'], aliases: ['deep-seek'] },
-  { id: 'xai', label: 'xAI', defaultModel: 'xai/grok-3', defaultBaseUrl: 'https://api.x.ai/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'XAI_API_KEY', envVarNames: ['XAI_API_KEY'], aliases: ['grok', 'x-ai'] },
-  { id: 'zai', label: 'Z.AI / GLM', defaultModel: 'zai/glm-5', defaultBaseUrl: 'https://api.z.ai/api/paas/v4', baseUrlSuffixPattern: /\/v4$/i, baseUrlSuffix: '/v4', secretKey: 'ZAI_API_KEY', envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'], aliases: ['z-ai', 'glm', 'zhipu'] },
-  { id: 'kimi', label: 'Kimi / Moonshot', defaultModel: 'kimi/kimi-k2.5', defaultBaseUrl: 'https://api.kimi.com/coding/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'KIMI_API_KEY', envVarNames: ['KIMI_API_KEY'], aliases: ['moonshot', 'kimi-coding'] },
-  { id: 'minimax', label: 'MiniMax', defaultModel: 'minimax/MiniMax-M2.5', defaultBaseUrl: 'https://api.minimax.io/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'MINIMAX_API_KEY', envVarNames: ['MINIMAX_API_KEY'], aliases: ['mini-max'] },
-  { id: 'dashscope', label: 'DashScope / Qwen', defaultModel: 'dashscope/qwen3-coder-plus', defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'DASHSCOPE_API_KEY', envVarNames: ['DASHSCOPE_API_KEY'], aliases: ['qwen', 'alibaba'] },
-  { id: 'xiaomi', label: 'Xiaomi MiMo', defaultModel: 'xiaomi/mimo-v2-pro', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'XIAOMI_API_KEY', envVarNames: ['XIAOMI_API_KEY'], aliases: ['mimo'] },
-  { id: 'kilo', label: 'Kilo Code', defaultModel: 'kilo/anthropic/claude-sonnet-4.6', defaultBaseUrl: 'https://api.kilocode.ai/v1', baseUrlSuffixPattern: /\/v1$/i, baseUrlSuffix: '/v1', secretKey: 'KILO_API_KEY', envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'], aliases: ['kilocode', 'kilo-code'] },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    defaultModel: 'gemini/gemini-2.5-pro',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    baseUrlSuffixPattern: /\/openai$/i,
+    baseUrlSuffix: '/openai',
+    secretKey: 'GEMINI_API_KEY',
+    envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+    aliases: ['google', 'google-gemini'],
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    defaultModel: 'deepseek/deepseek-chat',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'DEEPSEEK_API_KEY',
+    envVarNames: ['DEEPSEEK_API_KEY'],
+    aliases: ['deep-seek'],
+  },
+  {
+    id: 'xai',
+    label: 'xAI',
+    defaultModel: 'xai/grok-3',
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'XAI_API_KEY',
+    envVarNames: ['XAI_API_KEY'],
+    aliases: ['grok', 'x-ai'],
+  },
+  {
+    id: 'zai',
+    label: 'Z.AI / GLM',
+    defaultModel: 'zai/glm-5',
+    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
+    baseUrlSuffixPattern: /\/v4$/i,
+    baseUrlSuffix: '/v4',
+    secretKey: 'ZAI_API_KEY',
+    envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
+    aliases: ['z-ai', 'glm', 'zhipu'],
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi / Moonshot',
+    defaultModel: 'kimi/kimi-k2.5',
+    defaultBaseUrl: 'https://api.kimi.com/coding/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'KIMI_API_KEY',
+    envVarNames: ['KIMI_API_KEY'],
+    aliases: ['moonshot', 'kimi-coding'],
+  },
+  {
+    id: 'minimax',
+    label: 'MiniMax',
+    defaultModel: 'minimax/MiniMax-M2.5',
+    defaultBaseUrl: 'https://api.minimax.io/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'MINIMAX_API_KEY',
+    envVarNames: ['MINIMAX_API_KEY'],
+    aliases: ['mini-max'],
+  },
+  {
+    id: 'dashscope',
+    label: 'DashScope / Qwen',
+    defaultModel: 'dashscope/qwen3-coder-plus',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'DASHSCOPE_API_KEY',
+    envVarNames: ['DASHSCOPE_API_KEY'],
+    aliases: ['qwen', 'alibaba'],
+  },
+  {
+    id: 'xiaomi',
+    label: 'Xiaomi MiMo',
+    defaultModel: 'xiaomi/mimo-v2-pro',
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'XIAOMI_API_KEY',
+    envVarNames: ['XIAOMI_API_KEY'],
+    aliases: ['mimo'],
+  },
+  {
+    id: 'kilo',
+    label: 'Kilo Code',
+    defaultModel: 'kilo/anthropic/claude-sonnet-4.6',
+    defaultBaseUrl: 'https://api.kilocode.ai/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'KILO_API_KEY',
+    envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
+    aliases: ['kilocode', 'kilo-code'],
+  },
 ] as const;
 
 const GENERIC_PROVIDER_BY_ID = new Map(
@@ -569,9 +668,7 @@ const GENERIC_PROVIDER_BY_ID = new Map(
 function findGenericProviderDef(
   id: string,
 ): GenericProviderAuthDef | undefined {
-  return GENERIC_PROVIDER_BY_ID.get(
-    id as GenericProviderAuthDef['id'],
-  );
+  return GENERIC_PROVIDER_BY_ID.get(id as GenericProviderAuthDef['id']);
 }
 
 async function configureGenericProvider(
@@ -666,10 +763,7 @@ function normalizeUnifiedProvider(
   }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
-    if (
-      normalized === def.id ||
-      def.aliases.includes(normalized)
-    ) {
+    if (normalized === def.id || def.aliases.includes(normalized)) {
       return def.id;
     }
   }

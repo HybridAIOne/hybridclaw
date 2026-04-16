@@ -32,6 +32,7 @@ import {
   formatModelForDisplay,
 } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
+import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelNames,
@@ -39,7 +40,6 @@ import {
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
-import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
