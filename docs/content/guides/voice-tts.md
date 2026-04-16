@@ -1,7 +1,7 @@
 ---
 title: Voice And TTS
 description: Voice-reply setup, speech backend expectations, and the current audio delivery path for HybridClaw.
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Voice And TTS
