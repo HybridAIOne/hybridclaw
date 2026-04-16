@@ -374,9 +374,7 @@ async function resolveGenericProviderApiKey(
 ): Promise<string> {
   const configuredApiKey =
     explicitApiKey?.trim() ||
-    envVarNames
-      .map((name) => process.env[name]?.trim())
-      .find((v) => v) ||
+    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) ||
     '';
   if (configuredApiKey) return configuredApiKey;
 
@@ -557,7 +555,11 @@ async function configureGemini(args: string[]): Promise<void> {
         url,
       ),
     resolveApiKey: (key) =>
-      resolveGenericProviderApiKey('Google Gemini', ['GOOGLE_API_KEY', 'GEMINI_API_KEY'], key),
+      resolveGenericProviderApiKey(
+        'Google Gemini',
+        ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+        key,
+      ),
     saveSecrets: (apiKey) => saveRuntimeSecrets({ GEMINI_API_KEY: apiKey }),
     applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
@@ -633,9 +635,18 @@ async function configureZai(args: string[]): Promise<void> {
     defaultModel: 'zai/glm-5',
     normalizeModelId: (id) => normalizeGenericProviderModelId('zai/', id),
     normalizeBaseUrl: (url) =>
-      normalizeProviderBaseUrl('https://api.z.ai/api/paas/v4', /\/v4$/i, '/v4', url),
+      normalizeProviderBaseUrl(
+        'https://api.z.ai/api/paas/v4',
+        /\/v4$/i,
+        '/v4',
+        url,
+      ),
     resolveApiKey: (key) =>
-      resolveGenericProviderApiKey('Z.AI / GLM', ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'], key),
+      resolveGenericProviderApiKey(
+        'Z.AI / GLM',
+        ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
+        key,
+      ),
     saveSecrets: (apiKey) => saveRuntimeSecrets({ ZAI_API_KEY: apiKey }),
     applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
@@ -768,7 +779,11 @@ async function configureKilo(args: string[]): Promise<void> {
     normalizeBaseUrl: (url) =>
       normalizeGenericProviderBaseUrl('https://api.kilocode.ai/v1', url),
     resolveApiKey: (key) =>
-      resolveGenericProviderApiKey('Kilo Code', ['KILOCODE_API_KEY', 'KILO_API_KEY'], key),
+      resolveGenericProviderApiKey(
+        'Kilo Code',
+        ['KILOCODE_API_KEY', 'KILO_API_KEY'],
+        key,
+      ),
     saveSecrets: (apiKey) => saveRuntimeSecrets({ KILO_API_KEY: apiKey }),
     applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
@@ -1071,17 +1086,25 @@ function clearHuggingFaceCredentials(): void {
 }
 
 function printGenericProviderStatus(
-  providerLabel: string,
-  configKey: 'gemini' | 'deepseek' | 'xai' | 'zai' | 'kimi' | 'minimax' | 'dashscope' | 'xiaomi' | 'kilo',
+  _providerLabel: string,
+  configKey:
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo',
   secretKey: string,
   envVarNames: string[],
 ): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
   const storedApiKey = readStoredRuntimeSecret(secretKey);
-  const envApiKey = envVarNames
-    .map((name) => process.env[name]?.trim())
-    .find((v) => v) || '';
+  const envApiKey =
+    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) || '';
   const source = envApiKey
     ? storedApiKey && envApiKey === storedApiKey
       ? 'runtime-secrets'
@@ -1352,7 +1375,9 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
     provider === 'xiaomi' ||
     provider === 'kilo'
   ) {
-    console.log(`Usage: hybridclaw auth login ${provider} [--api-key <key>] [--base-url <url>] [--model <model>] [--no-default]`);
+    console.log(
+      `Usage: hybridclaw auth login ${provider} [--api-key <key>] [--base-url <url>] [--model <model>] [--no-default]`,
+    );
     return;
   }
   if (provider === 'msteams') {
@@ -1800,18 +1825,31 @@ async function dispatchProviderAction(
   }
   if (provider === 'gemini') {
     if (action === 'status') {
-      printGenericProviderStatus('Google Gemini', 'gemini', 'GEMINI_API_KEY', ['GOOGLE_API_KEY', 'GEMINI_API_KEY']);
+      printGenericProviderStatus('Google Gemini', 'gemini', 'GEMINI_API_KEY', [
+        'GOOGLE_API_KEY',
+        'GEMINI_API_KEY',
+      ]);
       return;
     }
-    clearGenericProviderCredentials('Google Gemini', 'GEMINI_API_KEY', 'GEMINI_API_KEY');
+    clearGenericProviderCredentials(
+      'Google Gemini',
+      'GEMINI_API_KEY',
+      'GEMINI_API_KEY',
+    );
     return;
   }
   if (provider === 'deepseek') {
     if (action === 'status') {
-      printGenericProviderStatus('DeepSeek', 'deepseek', 'DEEPSEEK_API_KEY', ['DEEPSEEK_API_KEY']);
+      printGenericProviderStatus('DeepSeek', 'deepseek', 'DEEPSEEK_API_KEY', [
+        'DEEPSEEK_API_KEY',
+      ]);
       return;
     }
-    clearGenericProviderCredentials('DeepSeek', 'DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY');
+    clearGenericProviderCredentials(
+      'DeepSeek',
+      'DEEPSEEK_API_KEY',
+      'DEEPSEEK_API_KEY',
+    );
     return;
   }
   if (provider === 'xai') {
@@ -1824,7 +1862,11 @@ async function dispatchProviderAction(
   }
   if (provider === 'zai') {
     if (action === 'status') {
-      printGenericProviderStatus('Z.AI / GLM', 'zai', 'ZAI_API_KEY', ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY']);
+      printGenericProviderStatus('Z.AI / GLM', 'zai', 'ZAI_API_KEY', [
+        'GLM_API_KEY',
+        'ZAI_API_KEY',
+        'Z_AI_API_KEY',
+      ]);
       return;
     }
     clearGenericProviderCredentials('Z.AI / GLM', 'ZAI_API_KEY', 'ZAI_API_KEY');
@@ -1832,7 +1874,9 @@ async function dispatchProviderAction(
   }
   if (provider === 'kimi') {
     if (action === 'status') {
-      printGenericProviderStatus('Kimi / Moonshot', 'kimi', 'KIMI_API_KEY', ['KIMI_API_KEY']);
+      printGenericProviderStatus('Kimi / Moonshot', 'kimi', 'KIMI_API_KEY', [
+        'KIMI_API_KEY',
+      ]);
       return;
     }
     clearGenericProviderCredentials('Kimi', 'KIMI_API_KEY', 'KIMI_API_KEY');
@@ -1840,34 +1884,62 @@ async function dispatchProviderAction(
   }
   if (provider === 'minimax') {
     if (action === 'status') {
-      printGenericProviderStatus('MiniMax', 'minimax', 'MINIMAX_API_KEY', ['MINIMAX_API_KEY']);
+      printGenericProviderStatus('MiniMax', 'minimax', 'MINIMAX_API_KEY', [
+        'MINIMAX_API_KEY',
+      ]);
       return;
     }
-    clearGenericProviderCredentials('MiniMax', 'MINIMAX_API_KEY', 'MINIMAX_API_KEY');
+    clearGenericProviderCredentials(
+      'MiniMax',
+      'MINIMAX_API_KEY',
+      'MINIMAX_API_KEY',
+    );
     return;
   }
   if (provider === 'dashscope') {
     if (action === 'status') {
-      printGenericProviderStatus('DashScope / Qwen', 'dashscope', 'DASHSCOPE_API_KEY', ['DASHSCOPE_API_KEY']);
+      printGenericProviderStatus(
+        'DashScope / Qwen',
+        'dashscope',
+        'DASHSCOPE_API_KEY',
+        ['DASHSCOPE_API_KEY'],
+      );
       return;
     }
-    clearGenericProviderCredentials('DashScope', 'DASHSCOPE_API_KEY', 'DASHSCOPE_API_KEY');
+    clearGenericProviderCredentials(
+      'DashScope',
+      'DASHSCOPE_API_KEY',
+      'DASHSCOPE_API_KEY',
+    );
     return;
   }
   if (provider === 'xiaomi') {
     if (action === 'status') {
-      printGenericProviderStatus('Xiaomi MiMo', 'xiaomi', 'XIAOMI_API_KEY', ['XIAOMI_API_KEY']);
+      printGenericProviderStatus('Xiaomi MiMo', 'xiaomi', 'XIAOMI_API_KEY', [
+        'XIAOMI_API_KEY',
+      ]);
       return;
     }
-    clearGenericProviderCredentials('Xiaomi', 'XIAOMI_API_KEY', 'XIAOMI_API_KEY');
+    clearGenericProviderCredentials(
+      'Xiaomi',
+      'XIAOMI_API_KEY',
+      'XIAOMI_API_KEY',
+    );
     return;
   }
   if (provider === 'kilo') {
     if (action === 'status') {
-      printGenericProviderStatus('Kilo Code', 'kilo', 'KILO_API_KEY', ['KILOCODE_API_KEY', 'KILO_API_KEY']);
+      printGenericProviderStatus('Kilo Code', 'kilo', 'KILO_API_KEY', [
+        'KILOCODE_API_KEY',
+        'KILO_API_KEY',
+      ]);
       return;
     }
-    clearGenericProviderCredentials('Kilo Code', 'KILO_API_KEY', 'KILO_API_KEY');
+    clearGenericProviderCredentials(
+      'Kilo Code',
+      'KILO_API_KEY',
+      'KILO_API_KEY',
+    );
     return;
   }
   if (provider === 'msteams') {
