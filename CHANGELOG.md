@@ -11,6 +11,34 @@
   `auth login`, `auth status`, and `auth logout` with `--api-key`,
   `--base-url`, `--model`, and `--no-default` flags, plus full runtime config
   enablement and model-prefix routing.
+- **ByteRover memory plugin**: New bundled `byterover-memory` external memory
+  provider that injects prompt-time recall through `brv query`, exposes
+  `brv_query` / `brv_curate` / `brv_status` model tools, and curates
+  completed turns, native memory writes, and pre-compaction summaries into
+  ByteRover's Context Tree. Works offline by default with optional cloud sync.
+- **Memory plugins overview page**: New comparison page at
+  `/docs/extensibility/memory-plugins` covering all five memory plugins and
+  built-in memory with a feature matrix, local vs cloud modes, and guidance
+  for choosing a plugin.
+- **Nested sidebar navigation**: The docs sidebar now supports `children`
+  arrays, used to group memory plugin pages under the overview entry.
+
+### Changed
+
+- **Memory plugin docs standardized**: All five plugin doc pages now follow
+  the same structure: Prerequisites, HybridClaw Setup, Config, Commands,
+  Example Prompts & Use Cases, Tips & Tricks, and Troubleshooting. Added
+  external links, local vs cloud options, and researched tips for each.
+
+### Fixed
+
+- **Plugin install skips redundant deps**: When a plugin declares
+  `nodeDependencies` or `pipDependencies` but the required binary is already
+  on PATH, `plugin install` now skips both the approval prompt and the npm/pip
+  install, printing a green `[check]` status instead.
+- **Plugin check reports global binaries**: `plugin check` now correctly
+  reports dependencies as installed when the corresponding binary is available
+  globally, instead of only checking the plugin's local `node_modules`.
 
 ## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 

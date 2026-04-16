@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-byterover-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory plugin for ByteRover CLI recall and curation",
+  "engines": {
+    "node": "22.x"
+  }
+}

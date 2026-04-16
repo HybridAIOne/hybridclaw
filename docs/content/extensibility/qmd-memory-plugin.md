@@ -11,10 +11,38 @@ HybridClaw ships an installable QMD memory plugin source at
 The plugin complements the built-in SQLite session memory with external QMD
 search over markdown notes, docs, and optional exported session transcripts.
 
+## Prerequisites
+
+### Install the QMD CLI
+
+[QMD](https://github.com/tobi/qmd) is a local CLI search engine for markdown
+documents, knowledge bases, and notes. It combines BM25 keyword search, vector
+semantic search, and LLM reranking — all executed locally on your machine.
+
+The plugin shells out to the `qmd` CLI and does not embed QMD as a library.
+Install QMD separately before enabling the plugin. QMD runs entirely locally
+and has no cloud mode — all indexing and search happens on your machine.
+
+See the [QMD repository](https://github.com/tobi/qmd) for installation
+instructions.
+
+After installing, index your markdown files and build embeddings:
+
+```bash
+qmd collection add ~/docs
+qmd embed
+qmd status
+```
+
+Verify that QMD can answer a query:
+
+```bash
+qmd query "a topic you know is in your docs"
+```
+
 ## Install
 
-1. Install QMD separately. The plugin shells out to the `qmd` CLI and does not
-   embed QMD as a library.
+1. The `qmd` CLI must be installed and on `PATH` (see Prerequisites above).
 2. Install the plugin from this repo:
 
    ```bash
@@ -25,11 +53,15 @@ search over markdown notes, docs, and optional exported session transcripts.
    configured `command` override is available, HybridClaw leaves the plugin
    disabled and reports the missing binary in `/plugin list`.
 
-3. Reload plugins in an active session:
+3. Enable the plugin and verify:
 
    ```text
-   /plugin reload
+   /plugin enable qmd-memory
+   /qmd status
    ```
+
+   Both `/plugin install` and `/plugin enable` automatically reload the plugin
+   runtime — no separate `/plugin reload` is needed.
 
    To switch the QMD retrieval mode from the TUI without editing JSON
    directly, you can also run:
@@ -135,6 +167,44 @@ or vector retrieval. Depending on your local QMD setup, the first `embed` or
 The installed plugin lives under `~/.hybridclaw/plugins/qmd-memory`, so reload
 alone does not pick up repo edits.
 
+## Example Prompts and Use Cases
+
+### Search project documentation
+
+```text
+How does the authentication middleware work?
+```
+
+If your project docs are indexed in QMD, the plugin surfaces matching snippets
+before the model answers, combining QMD knowledge with session context.
+
+### Index a new repository
+
+```text
+/qmd collection add .
+/qmd embed
+/qmd status
+```
+
+This indexes all markdown files in the current directory and builds embeddings
+for hybrid retrieval.
+
+### Debug retrieval quality
+
+```text
+/qmd search "auth middleware"
+/qmd query "how does authentication work?"
+```
+
+Compare `search` (lexical) vs `query` (hybrid) results to understand what QMD
+is finding.
+
+### Export sessions for future search
+
+Enable `sessionExport: true` in config so QMD can index past HybridClaw
+conversations as a normal markdown collection. This lets future sessions
+benefit from discussions in earlier ones.
+
 ## Tips & Tricks
 
 - Prefer `query` for natural-language prompts. It is the default and uses QMD's
@@ -176,3 +246,27 @@ To verify that the plugin is both loaded and actively contributing context:
 If `/plugin list` shows the plugin as enabled but the prompt dump lacks the
 retrieval section, the plugin loaded but QMD returned no usable matches for
 that turn.
+
+## Troubleshooting
+
+- **Plugin loads but stays disabled:**
+  The `qmd` binary is not on `PATH`. Either install QMD or set `command` in
+  plugin config to the full path.
+
+- **No retrieval context appears:**
+  QMD returned no matches for the user message. Try `/qmd status` to confirm
+  the collection has indexed pages, then `/qmd query <term>` to test
+  retrieval directly.
+
+- **Embeddings not built:**
+  Vector and hybrid search modes require embeddings. Run `/qmd embed` or
+  `qmd embed` from the shell. The first run may download models.
+
+- **Results are stale after adding docs:**
+  Run `/qmd collection add .` and `/qmd embed` again to re-index and rebuild
+  embeddings for new files.
+
+- **Prompt dump shows no QMD section:**
+  The plugin loaded but QMD returned no matches. This is normal when the user
+  message does not match any indexed content. Check the indexed collection
+  with `/qmd status`.

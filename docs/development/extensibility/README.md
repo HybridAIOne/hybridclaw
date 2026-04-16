@@ -20,7 +20,7 @@ operate at different layers, and are designed to complement each other.
 | **Install** | Ship with the codebase | Drop a `SKILL.md` file | `hybridclaw plugin install` or drop a directory |
 | **Hot reload** | Requires rebuild | Immediate (loaded per turn) | `/plugin reload` in session |
 | **Config needed** | Code change | None | `hybridclaw.plugin.yaml` manifest |
-| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `gbrain`, `honcho-memory` |
+| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `byterover-memory`, `gbrain`, `honcho-memory` |
 
 ## Tools (Container Runtime)
 

@@ -82,19 +82,33 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
       { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
       {
-        title: 'Honcho Memory Plugin',
-        path: 'extensibility/honcho-memory-plugin.md',
-      },
-      {
-        title: 'MemPalace Memory Plugin',
-        path: 'extensibility/mempalace-memory-plugin.md',
+        title: 'Memory Plugins',
+        path: 'extensibility/memory-plugins.md',
+        children: [
+          {
+            title: 'ByteRover Memory Plugin',
+            path: 'extensibility/byterover-memory-plugin.md',
+          },
+          {
+            title: 'GBrain Plugin',
+            path: 'extensibility/gbrain-plugin.md',
+          },
+          {
+            title: 'Honcho Memory Plugin',
+            path: 'extensibility/honcho-memory-plugin.md',
+          },
+          {
+            title: 'MemPalace Memory Plugin',
+            path: 'extensibility/mempalace-memory-plugin.md',
+          },
+          {
+            title: 'QMD Memory Plugin',
+            path: 'extensibility/qmd-memory-plugin.md',
+          },
+        ],
       },
       { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
       { title: 'Plugins', path: 'extensibility/plugins.md' },
-      {
-        title: 'QMD Memory Plugin',
-        path: 'extensibility/qmd-memory-plugin.md',
-      },
       { title: 'Skills', path: 'extensibility/skills.md' },
     ],
   },
@@ -716,14 +730,27 @@ function renderBreadcrumbs(docPath, basePath) {
     .join('');
 }
 
+function renderNavLink(page, currentDocPath, basePath, isChild) {
+  const activeClass = page.path === currentDocPath ? ' is-active' : '';
+  const childClass = isChild ? ' docs-nav-link-child' : '';
+  return `<a class="docs-nav-link${activeClass}${childClass}" href="${escapeHtml(
+    buildDocHtmlHref(page.path, basePath),
+  )}">${escapeHtml(page.title)}</a>`;
+}
+
 function renderSidebar(currentDocPath, basePath) {
   return DEVELOPMENT_DOCS_SECTIONS.map((section) => {
     const links = section.pages
       .map((page) => {
-        const activeClass = page.path === currentDocPath ? ' is-active' : '';
-        return `<a class="docs-nav-link${activeClass}" href="${escapeHtml(
-          buildDocHtmlHref(page.path, basePath),
-        )}">${escapeHtml(page.title)}</a>`;
+        let html = renderNavLink(page, currentDocPath, basePath, false);
+        if (page.children) {
+          html += page.children
+            .map((child) =>
+              renderNavLink(child, currentDocPath, basePath, true),
+            )
+            .join('');
+        }
+        return html;
       })
       .join('');
     return `<section class="docs-nav-group"><h2>${escapeHtml(
