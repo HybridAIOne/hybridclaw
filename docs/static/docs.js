@@ -76,6 +76,26 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
+    title: 'Skills Catalog',
+    pages: [
+      { title: 'Overview', path: 'guides/skills/README.md' },
+      { title: 'Office', path: 'guides/skills/office.md' },
+      { title: 'Development', path: 'guides/skills/development.md' },
+      { title: 'Communication', path: 'guides/skills/communication.md' },
+      { title: 'Apple', path: 'guides/skills/apple.md' },
+      { title: 'Productivity', path: 'guides/skills/productivity.md' },
+      {
+        title: 'Memory & Knowledge',
+        path: 'guides/skills/memory-knowledge.md',
+      },
+      { title: 'Publishing', path: 'guides/skills/publishing.md' },
+      {
+        title: 'Integrations & Utilities',
+        path: 'guides/skills/integrations.md',
+      },
+    ],
+  },
+  {
     title: 'Extensibility',
     pages: [
       { title: 'Extensibility', path: 'extensibility/README.md' },
@@ -603,8 +623,12 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     if (quote) {
       flushParagraph();
       closeList();
+      const content = quote[1];
+      let bqClass = '';
+      if (content.includes('\u{1F3AF}')) bqClass = 'docs-try-it';
+      else if (content.includes('\u{1F4A1}')) bqClass = 'docs-tip';
       html.push(
-        `<blockquote>${renderInlineMarkdown(quote[1], context)}</blockquote>`,
+        `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${renderInlineMarkdown(content, context)}</blockquote>`,
       );
       continue;
     }
@@ -1107,6 +1131,30 @@ export async function mountDocsApp(options = {}) {
     ) {
       searchInput.blur();
     }
+  });
+
+  mount.querySelectorAll('blockquote.docs-try-it code').forEach((codeEl) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await copyText(codeEl.textContent || '');
+        btn.textContent = 'Copied!';
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {
+        btn.textContent = 'Failed';
+      }
+    });
+    codeEl.parentElement.style.position = 'relative';
+    codeEl.parentElement.appendChild(btn);
   });
 
   scrollToHash();

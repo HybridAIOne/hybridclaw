@@ -523,6 +523,67 @@ pre {
   color: var(--muted-strong);
 }
 
+.docs-content blockquote.docs-try-it {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+  padding: 10px 16px;
+  border-radius: 0 12px 12px 0;
+}
+
+.docs-content blockquote.docs-try-it code {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(21, 128, 61, 0.2);
+}
+
+:root[data-theme="dark"] .docs-content blockquote.docs-try-it code {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(126, 227, 165, 0.2);
+}
+
+.docs-content blockquote.docs-tip {
+  border-left-color: #e8a317;
+  background: rgba(232, 163, 23, 0.1);
+  padding: 10px 16px;
+  border-radius: 0 12px 12px 0;
+}
+
+:root[data-theme="dark"] .docs-content blockquote.docs-tip {
+  border-left-color: #f0c050;
+  background: rgba(240, 192, 80, 0.1);
+}
+
+.docs-copy-inline {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--line);
+  background: var(--panel-bg);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-family: var(--sans);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+blockquote:hover .docs-copy-inline {
+  opacity: 1;
+}
+
+.docs-copy-inline:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.docs-copy-inline.is-copied {
+  opacity: 1;
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .docs-content table {
   width: 100%;
   border-collapse: collapse;

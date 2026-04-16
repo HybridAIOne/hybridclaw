@@ -40,7 +40,7 @@ TUI `/skill config` screen. The admin `Skills` page uses the same category
 metadata for filtering, review, and local skill authoring.
 
 For per-skill descriptions, prerequisites, example prompts, and
-troubleshooting, see the [Skills Catalog](./skills-catalog.md).
+troubleshooting, see the [Skills Catalog](./skills/README.md).
 
 For the underlying resolution rules and runtime behavior, see
 [Skills Internals](../extensibility/skills.md).
