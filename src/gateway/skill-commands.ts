@@ -1,3 +1,4 @@
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { SKILL_CONFIG_CHANNEL_KINDS } from '../channels/channel.js';
 import {
@@ -201,48 +202,66 @@ export async function handleSkillCommand(
 
   if (sub === 'enable' || sub === 'disable') {
     const rest = context.args.slice(2);
+    const usageMessage = `Usage: \`skill ${sub} <name> [--channel <kind>]\``;
     let skillName: string | undefined;
     let channelKind: SkillConfigChannelKind | undefined;
+    const resolveChannelKind = (
+      raw: string,
+    ): SkillConfigChannelKind | undefined | 'invalid' => {
+      const trimmed = String(raw || '').trim();
+      if (!trimmed || trimmed.toLowerCase() === 'global') {
+        return undefined;
+      }
+      const normalized = normalizeSkillConfigChannelKind(trimmed);
+      if (!normalized) {
+        return 'invalid';
+      }
+      return normalized;
+    };
+
     for (let i = 0; i < rest.length; i += 1) {
       const arg = String(rest[i] || '').trim();
       if (arg === '--channel') {
         const next = String(rest[i + 1] || '').trim();
-        if (
-          !next ||
-          !(SKILL_CONFIG_CHANNEL_KINDS as readonly string[]).includes(next)
-        ) {
+        if (!next) {
           return context.badCommand(
             'Usage',
-            `Invalid or missing channel kind. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}`,
+            `Missing value for \`--channel\`. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
           );
         }
-        channelKind = next as SkillConfigChannelKind;
+        const resolved = resolveChannelKind(next);
+        if (resolved === 'invalid') {
+          return context.badCommand(
+            'Usage',
+            `Invalid channel kind: ${next}. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
+          );
+        }
+        channelKind = resolved;
         i += 1;
         continue;
       }
       if (arg.startsWith('--channel=')) {
         const value = arg.slice('--channel='.length);
-        if (
-          !(SKILL_CONFIG_CHANNEL_KINDS as readonly string[]).includes(value)
-        ) {
+        const resolved = resolveChannelKind(value);
+        if (resolved === 'invalid') {
           return context.badCommand(
             'Usage',
-            `Invalid channel kind: ${value}. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}`,
+            `Invalid channel kind: ${value}. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
           );
         }
-        channelKind = value as SkillConfigChannelKind;
+        channelKind = resolved;
         continue;
       }
       if (arg.startsWith('-')) {
         return context.badCommand('Usage', `Unknown flag: ${arg}`);
       }
+      if (skillName !== undefined) {
+        return context.badCommand('Usage', usageMessage);
+      }
       skillName = arg;
     }
     if (!skillName) {
-      return context.badCommand(
-        'Usage',
-        `Usage: \`skill ${sub} <name> [--channel <kind>]\``,
-      );
+      return context.badCommand('Usage', usageMessage);
     }
 
     const { loadSkillCatalog } = await import('../skills/skills.js');

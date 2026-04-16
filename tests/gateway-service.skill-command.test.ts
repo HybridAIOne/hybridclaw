@@ -460,6 +460,78 @@ test('skill enable with unknown skill name returns error', async () => {
   expect(result.text).toContain('Unknown skill');
 });
 
+test('skill enable rejects extra positional arguments', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable-extra',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable', 'foo', 'bar'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('skill enable <name>');
+});
+
+test('skill enable treats --channel global as the global scope', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.skills.disabled = ['demo-skill'];
+  });
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'demo-skill',
+        description: 'Demo skill',
+        category: 'test',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Demo skill',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/demo-skill/SKILL.md',
+        baseDir: '/tmp/demo-skill',
+        source: 'bundled',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable-global',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable', 'demo-skill', '--channel', 'global'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(result.text).toContain('global');
+
+  const config = context.runtimeConfigModule.getRuntimeConfig();
+  expect(config.skills.disabled).not.toContain('demo-skill');
+});
+
 test('skill enable with missing name returns usage error', async () => {
   context = await createAdaptiveSkillsTestContext();
 
