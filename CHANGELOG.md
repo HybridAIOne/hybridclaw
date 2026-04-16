@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Nine new external API providers**: Google Gemini (`gemini/`), DeepSeek
+  (`deepseek/`), xAI / Grok (`xai/`), Z.AI / GLM (`zai/`), Kimi / Moonshot
+  (`kimi/`), MiniMax (`minimax/`), DashScope / Qwen (`dashscope/`), Xiaomi
+  MiMo (`xiaomi/`), and Kilo Code (`kilo/`). Each provider supports
+  `auth login`, `auth status`, and `auth logout` with `--api-key`,
+  `--base-url`, `--model`, and `--no-default` flags, plus full runtime config
+  enablement and model-prefix routing.
+
 ## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 
 ### Added

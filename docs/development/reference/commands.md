@@ -154,10 +154,20 @@ hybridclaw help auth
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 

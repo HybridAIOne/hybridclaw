@@ -46,24 +46,33 @@ const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
 const VLLM_MODEL_PREFIX = 'vllm/';
+const GEMINI_MODEL_PREFIX = 'gemini/';
+const DEEPSEEK_MODEL_PREFIX = 'deepseek/';
+const XAI_MODEL_PREFIX = 'xai/';
+const ZAI_MODEL_PREFIX = 'zai/';
+const KIMI_MODEL_PREFIX = 'kimi/';
+const MINIMAX_MODEL_PREFIX = 'minimax/';
+const DASHSCOPE_MODEL_PREFIX = 'dashscope/';
+const XIAOMI_MODEL_PREFIX = 'xiaomi/';
+const KILO_MODEL_PREFIX = 'kilo/';
+
 const PREFIX_BY_PROVIDER: Record<
-  Extract<
-    ModelCatalogProviderFilter,
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-  >,
+  Exclude<ModelCatalogProviderFilter, 'hybridai' | 'local'>,
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
   mistral: MISTRAL_MODEL_PREFIX,
   huggingface: HUGGINGFACE_MODEL_PREFIX,
+  gemini: GEMINI_MODEL_PREFIX,
+  deepseek: DEEPSEEK_MODEL_PREFIX,
+  xai: XAI_MODEL_PREFIX,
+  zai: ZAI_MODEL_PREFIX,
+  kimi: KIMI_MODEL_PREFIX,
+  minimax: MINIMAX_MODEL_PREFIX,
+  dashscope: DASHSCOPE_MODEL_PREFIX,
+  xiaomi: XIAOMI_MODEL_PREFIX,
+  kilo: KILO_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   llamacpp: LLAMACPP_MODEL_PREFIX,
