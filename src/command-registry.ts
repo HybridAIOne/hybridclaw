@@ -255,7 +255,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
@@ -2168,6 +2168,56 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'list',
           description: 'List available skills and their current availability',
+        },
+        {
+          kind: 'subcommand',
+          name: 'enable',
+          description:
+            'Enable a skill globally or for a specific channel kind',
+          tuiMenu: {
+            label: '/skill enable <name> [--channel <kind>]',
+            insertText: '/skill enable ',
+            aliases: ['/skill enable <name> [--channel <kind>]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name to enable',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'channel',
+              description:
+                'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'disable',
+          description:
+            'Disable a skill globally or for a specific channel kind',
+          tuiMenu: {
+            label: '/skill disable <name> [--channel <kind>]',
+            insertText: '/skill disable ',
+            aliases: ['/skill disable <name> [--channel <kind>]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name to disable',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'channel',
+              description:
+                'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
         },
         {
           kind: 'subcommand',

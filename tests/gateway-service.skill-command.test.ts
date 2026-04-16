@@ -280,6 +280,206 @@ test('skill install is rejected outside local TUI/web sessions', async () => {
   expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
+test('skill enable enables a disabled skill', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.skills.disabled = ['demo-skill'];
+  });
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'demo-skill',
+        description: 'Demo skill',
+        category: 'test',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Demo skill',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/demo-skill/SKILL.md',
+        baseDir: '/tmp/demo-skill',
+        source: 'bundled',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable', 'demo-skill'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(result.text).toContain('Enabled');
+  expect(result.text).toContain('demo-skill');
+  expect(result.text).toContain('global');
+
+  const config = context.runtimeConfigModule.getRuntimeConfig();
+  expect(config.skills.disabled).not.toContain('demo-skill');
+});
+
+test('skill disable disables an enabled skill', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'demo-skill',
+        description: 'Demo skill',
+        category: 'test',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Demo skill',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/demo-skill/SKILL.md',
+        baseDir: '/tmp/demo-skill',
+        source: 'bundled',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-disable',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'disable', 'demo-skill'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(result.text).toContain('Disabled');
+  expect(result.text).toContain('demo-skill');
+  expect(result.text).toContain('global');
+
+  const config = context.runtimeConfigModule.getRuntimeConfig();
+  expect(config.skills.disabled).toContain('demo-skill');
+});
+
+test('skill enable with --channel flag scopes to a channel kind', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.skills.disabled = ['demo-skill'];
+    draft.skills.channelDisabled = { discord: ['demo-skill'] };
+  });
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'demo-skill',
+        description: 'Demo skill',
+        category: 'test',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Demo skill',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/demo-skill/SKILL.md',
+        baseDir: '/tmp/demo-skill',
+        source: 'bundled',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
+    ],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable-channel',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable', 'demo-skill', '--channel', 'discord'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(result.text).toContain('Enabled');
+  expect(result.text).toContain('discord');
+  expect(result.text).toContain('remains globally disabled');
+});
+
+test('skill enable with unknown skill name returns error', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable-unknown',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable', 'nonexistent-skill'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Unknown skill');
+});
+
+test('skill enable with missing name returns usage error', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-enable-missing',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'enable'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('skill enable <name>');
+});
+
 test('skill learn and history commands stage and show amendments', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
@@ -417,7 +617,7 @@ test('skill amend is rejected after the rename to learn', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Usage');
-  expect(result.text).toContain('skill list|inspect');
+  expect(result.text).toContain('skill list|enable');
   expect(result.text).not.toContain('skill amend');
 });
 
