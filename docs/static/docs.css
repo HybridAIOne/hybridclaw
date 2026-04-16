@@ -340,6 +340,11 @@ pre {
   font-size: 0.95rem;
 }
 
+.docs-nav-link-child {
+  padding-left: 28px;
+  font-size: 0.9rem;
+}
+
 .docs-nav-link:hover,
 .docs-toc-link:hover {
   background: var(--brand-blue-soft);
