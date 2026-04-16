@@ -593,12 +593,12 @@ pre {
   opacity: 0.6;
 }
 
-.docs-copy-inline:hover {
-  opacity: 1 !important;
+.docs-content blockquote.docs-try-it code .docs-copy-inline:hover {
+  opacity: 1;
 }
 
-.docs-copy-inline.is-copied {
-  opacity: 1 !important;
+.docs-content blockquote.docs-try-it code .docs-copy-inline.is-copied {
+  opacity: 1;
   color: var(--success);
 }
 
