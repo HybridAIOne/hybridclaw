@@ -194,6 +194,18 @@ test('maps Discord-style slash commands to gateway command args', () => {
       'clawhub/brand-voice',
     ]),
   ).toEqual(['skill', 'import', '--force', 'clawhub/brand-voice']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'enable', 'zettelkasten']),
+  ).toEqual(['skill', 'enable', 'zettelkasten']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'disable',
+      'zettelkasten',
+      '--channel',
+      'discord',
+    ]),
+  ).toEqual(['skill', 'disable', 'zettelkasten', '--channel', 'discord']);
   expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'list'])).toEqual([
     'plugin',
     'list',
