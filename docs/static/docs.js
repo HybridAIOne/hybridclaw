@@ -632,9 +632,17 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
           index += 1;
         } else if (!nextLine.trim()) {
           // blank line may continue blockquote if next non-blank is also >
+          // BUT stop if the next > line starts a new callout type
           let ahead = index + 2;
           while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
-          if (ahead < lines.length && /^>\s?/.test(lines[ahead] || '')) {
+          const aheadLine = ahead < lines.length ? lines[ahead] || '' : '';
+          const aheadQuote = aheadLine.match(/^>\s?(.*)$/);
+          if (aheadQuote) {
+            const aheadContent = aheadQuote[1];
+            const isNewCallout = aheadContent.includes('🎯') || aheadContent.includes('💡');
+            if (isNewCallout) {
+              break;
+            }
             quoteLines.push('');
             index += 1;
           } else {
