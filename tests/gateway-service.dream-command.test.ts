@@ -100,7 +100,7 @@ test('dream command reports consolidation failures', async () => {
   expect(result.text).toContain('disk busy');
 });
 
-test('dream command is restricted to local TUI/web sessions', async () => {
+test('dream command works for remote sessions', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -111,10 +111,16 @@ test('dream command is restricted to local TUI/web sessions', async () => {
 
   initDatabase({ quiet: true });
 
-  const consolidateSpy = vi.spyOn(
-    memoryService,
-    'consolidateMemoriesWithCleanup',
-  );
+  const consolidateSpy = vi
+    .spyOn(memoryService, 'consolidateMemoriesWithCleanup')
+    .mockResolvedValue({
+      memoriesDecayed: 0,
+      dailyFilesCompiled: 0,
+      workspacesUpdated: 0,
+      modelCleanups: 0,
+      fallbacksUsed: 0,
+      durationMs: 10,
+    });
 
   const result = await handleGatewayCommand({
     sessionId: 'session-dream-remote',
@@ -123,10 +129,9 @@ test('dream command is restricted to local TUI/web sessions', async () => {
     args: ['dream', 'now'],
   });
 
-  expect(consolidateSpy).not.toHaveBeenCalled();
-  expect(result.kind).toBe('error');
-  expect(result.title).toBe('Dream Restricted');
-  expect(result.text).toContain('only available from local TUI/web sessions');
+  expect(consolidateSpy).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('Memory Consolidated');
 });
 
 test('dream command reports scheduler status by default', async () => {
