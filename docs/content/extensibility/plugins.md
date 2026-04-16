@@ -68,6 +68,9 @@ or change one top-level `plugins.list[].config` key without editing
 
 ## Repo-Shipped Examples
 
+- `byterover-memory` mirrors turns into ByteRover, injects prompt-time recall
+  through `brv query`, and exposes `brv_query`, `brv_curate`, and `brv_status`
+  tools. Works offline with optional cloud sync.
 - `gbrain` shells out to the GBrain CLI, injects search results into prompt
   context, and mirrors the discovered GBrain operations as `gbrain_*` plugin
   tools
