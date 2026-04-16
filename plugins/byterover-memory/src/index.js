@@ -261,31 +261,35 @@ function createByteRoverRuntime(api, config) {
   }
 
   return {
-    async start() {
-      try {
-        const output = await runByteRoverCommandText(['status'], config, {
-          apiKey: getApiKey(),
-          timeoutMs: Math.min(config.queryTimeoutMs, 15_000),
-          maxChars: 2000,
-        });
-        api.logger.debug(
-          {
-            command: config.command,
-            workingDirectory: config.workingDirectory,
-            output: truncateByteRoverText(output, 240),
-          },
-          'ByteRover startup health-check passed',
-        );
-      } catch (error) {
-        api.logger.warn(
-          {
-            error,
-            command: config.command,
-            workingDirectory: config.workingDirectory,
-          },
-          'ByteRover startup health-check failed',
-        );
-      }
+    start() {
+      // Fire-and-forget: don't block gateway startup for the health check.
+      // ByteRover queries involve LLM calls and can take 10-30s.
+      void runByteRoverCommandText(['status'], config, {
+        apiKey: getApiKey(),
+        timeoutMs: Math.min(config.queryTimeoutMs, 15_000),
+        maxChars: 2000,
+      }).then(
+        (output) => {
+          api.logger.debug(
+            {
+              command: config.command,
+              workingDirectory: config.workingDirectory,
+              output: truncateByteRoverText(output, 240),
+            },
+            'ByteRover startup health-check passed',
+          );
+        },
+        (error) => {
+          api.logger.warn(
+            {
+              error,
+              command: config.command,
+              workingDirectory: config.workingDirectory,
+            },
+            'ByteRover startup health-check failed',
+          );
+        },
+      );
     },
     async stop() {
       await queue.catch(() => undefined);
