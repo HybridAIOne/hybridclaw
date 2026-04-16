@@ -51,6 +51,7 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  skillUsed?: string;
   agentId?: string;
   model?: string;
   provider?: string;

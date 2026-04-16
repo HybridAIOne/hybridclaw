@@ -1,7 +1,7 @@
 ---
 title: Remote Access
 description: Reach HybridClaw from another machine with SSH tunnels or host-managed Tailscale while keeping the gateway bound to loopback.
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # Remote Access

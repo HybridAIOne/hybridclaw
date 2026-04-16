@@ -1192,20 +1192,24 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   console.log();
 }
 
-function printToolUsage(tools: string[]): void {
-  if (tools.length === 0) return;
+function printUsageFooter(
+  tools: string[],
+  plugins: string[],
+  skill: string | undefined,
+): void {
+  const parts: string[] = [];
+  if (tools.length > 0) {
+    parts.push(`🔧 ${GREEN}${tools.join(', ')}${RESET}`);
+  }
+  if (plugins.length > 0) {
+    parts.push(`🔌 ${GREEN}${plugins.join(', ')}${RESET}`);
+  }
+  if (skill) {
+    parts.push(`⚡ ${GREEN}${skill}${RESET}`);
+  }
+  if (parts.length === 0) return;
   clearTuiSlashMenu();
-  console.log(
-    `  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`,
-  );
-}
-
-function printPluginUsage(plugins: string[]): void {
-  if (plugins.length === 0) return;
-  clearTuiSlashMenu();
-  console.log(
-    `  ${MUTED}${JELLYFISH} plugins:${RESET} ${GREEN}${plugins.join(', ')}${RESET}`,
-  );
+  console.log(`  ${MUTED}${JELLYFISH}${RESET} ${parts.join(`  `)}`);
 }
 
 function terminalColumns(): number {
@@ -2229,7 +2233,9 @@ async function processMessage(
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
     const pluginNames = collectPluginNames(result);
-    const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
+    const skillName = result.skillUsed;
+    const hasUsageFooters =
+      toolNames.length > 0 || pluginNames.length > 0 || !!skillName;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(
@@ -2250,8 +2256,7 @@ async function processMessage(
       } else {
         process.stdout.write(streamedResponseTrailingNewlines);
       }
-      printToolUsage(toolNames);
-      printPluginUsage(pluginNames);
+      printUsageFooter(toolNames, pluginNames, skillName);
     }
 
     if (isInterruptedResult(result)) {
