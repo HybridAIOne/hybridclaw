@@ -126,6 +126,8 @@ Switch persona modes and persist the active mode in `SOUL.md`.
 > `/personality concise`
 >
 > `/personality reset`
+>
+> `Switch to the "mentor" personality, then explain what a Zettelkasten is in that style`
 
 ---
 

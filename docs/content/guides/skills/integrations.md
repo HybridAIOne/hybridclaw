@@ -161,7 +161,7 @@ Return the current system time and timezone.
 >
 > `What timezone am I in?`
 >
-> `What's the current date and time in UTC?`
+> `What's the current date and time in UTC, PST, and JST?`
 
 ---
 
@@ -203,3 +203,5 @@ Fetch the current ISS latitude and longitude from the WhereTheISS API.
 > `Where is the ISS right now?`
 >
 > `Get the current ISS position as JSON`
+>
+> `Where is the ISS right now, and what country or ocean is it currently flying over?`
