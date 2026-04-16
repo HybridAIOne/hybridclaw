@@ -3,6 +3,10 @@ const LEGACY_DOCS_BASE_PATH = '/development';
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
+const ICON_COPY =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+const ICON_CHECK =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
 const LEGACY_DOC_PATH_REWRITES = new Map([
   ['getting-started/channels', 'channels/overview'],
   ['getting-started/channels.md', 'channels/overview.md'],
@@ -73,6 +77,26 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
       { title: 'Twilio Voice', path: 'guides/twilio-voice.md' },
       { title: 'Voice TTS', path: 'guides/voice-tts.md' },
+    ],
+  },
+  {
+    title: 'Skills Catalog',
+    pages: [
+      { title: 'Overview', path: 'guides/skills/README.md' },
+      { title: 'Office', path: 'guides/skills/office.md' },
+      { title: 'Development', path: 'guides/skills/development.md' },
+      { title: 'Communication', path: 'guides/skills/communication.md' },
+      { title: 'Apple', path: 'guides/skills/apple.md' },
+      { title: 'Productivity', path: 'guides/skills/productivity.md' },
+      {
+        title: 'Memory & Knowledge',
+        path: 'guides/skills/memory-knowledge.md',
+      },
+      { title: 'Publishing', path: 'guides/skills/publishing.md' },
+      {
+        title: 'Integrations & Utilities',
+        path: 'guides/skills/integrations.md',
+      },
     ],
   },
   {
@@ -613,12 +637,54 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
       continue;
     }
 
+    // Callout detection: mirrors src/gateway/docs.ts blockquote renderer.
+    // Gateway uses marked's native grouping; here we group manually and
+    // break on new callout types. Both detect 🎯 (try-it) and 💡 (tip).
     const quote = line.match(/^>\s?(.*)$/);
     if (quote) {
       flushParagraph();
       closeList();
+      const quoteLines = [quote[1]];
+      while (index + 1 < lines.length) {
+        const nextLine = lines[index + 1] || '';
+        const nextQuote = nextLine.match(/^>\s?(.*)$/);
+        if (nextQuote) {
+          quoteLines.push(nextQuote[1]);
+          index += 1;
+        } else if (!nextLine.trim()) {
+          // blank line may continue blockquote if next non-blank is also >
+          // BUT stop if the next > line starts a new callout type
+          let ahead = index + 2;
+          while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+          const aheadLine = ahead < lines.length ? lines[ahead] || '' : '';
+          const aheadQuote = aheadLine.match(/^>\s?(.*)$/);
+          if (aheadQuote) {
+            const aheadContent = aheadQuote[1];
+            const isNewCallout =
+              aheadContent.includes('🎯') || aheadContent.includes('💡');
+            if (isNewCallout) {
+              break;
+            }
+            quoteLines.push('');
+            index += 1;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+      let bqClass = '';
+      const firstLine = quoteLines[0] || '';
+      if (firstLine.includes('🎯')) bqClass = 'docs-try-it';
+      else if (firstLine.includes('💡')) bqClass = 'docs-tip';
+      const inner = quoteLines
+        .map((l) =>
+          l.trim() ? `<p>${renderInlineMarkdown(l, context)}</p>` : '',
+        )
+        .join('');
       html.push(
-        `<blockquote>${renderInlineMarkdown(quote[1], context)}</blockquote>`,
+        `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${inner}</blockquote>`,
       );
       continue;
     }
@@ -1134,6 +1200,29 @@ export async function mountDocsApp(options = {}) {
     ) {
       searchInput.blur();
     }
+  });
+
+  mount.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.innerHTML = ICON_COPY;
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await copyText((codeEl.textContent || '').replace(/^\d+\.\s*/, ''));
+        btn.innerHTML = ICON_CHECK;
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.innerHTML = ICON_COPY;
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {}
+    });
+    codeEl.appendChild(btn);
   });
 
   scrollToHash();
