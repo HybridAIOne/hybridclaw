@@ -120,6 +120,7 @@ export async function runByteRover(subcommandArgs, config, options = {}) {
     let settled = false;
     let timedOut = false;
     let killTimer = null;
+    let timer = null;
 
     const finish = (result) => {
       if (settled) return;
@@ -135,7 +136,7 @@ export async function runByteRover(subcommandArgs, config, options = {}) {
       });
     };
 
-    const timer =
+    timer =
       typeof timeoutMs === 'number' &&
       Number.isFinite(timeoutMs) &&
       timeoutMs > 0

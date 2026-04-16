@@ -165,7 +165,7 @@ function normalizeManualCommandArgs(args) {
     const payload = stripMatchingQuotes(normalizedArgs.slice(1).join(' '));
     return payload ? [command, '--', payload] : [command];
   }
-  return normalizedArgs;
+  return [command, ...normalizedArgs.slice(1)];
 }
 
 function timeoutForCommand(command, config) {
