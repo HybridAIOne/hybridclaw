@@ -2172,8 +2172,7 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'enable',
-          description:
-            'Enable a skill globally or for a specific channel kind',
+          description: 'Enable a skill globally or for a specific channel kind',
           tuiMenu: {
             label: '/skill enable <name> [--channel <kind>]',
             insertText: '/skill enable ',
