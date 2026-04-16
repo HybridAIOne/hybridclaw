@@ -135,8 +135,8 @@ Admin console:
 Important:
 
 - setting the secret updates the stored credential immediately
-- there is no top-level `hybridclaw secret ...` CLI yet; use `/secret set ...`,
-  `/admin/channels`, or a SecretRef-backed `voice.twilio.authToken` value
+- use `/secret set ...`, `hybridclaw secret set ...`, `/admin/channels`, or a
+  SecretRef-backed `voice.twilio.authToken` value
 - the voice runtime itself is safest after a gateway restart
 - if voice was previously disabled because the token was missing, do not assume
   it became active until the gateway has restarted and logged successful voice

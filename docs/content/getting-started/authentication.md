@@ -96,6 +96,16 @@ hybridclaw auth whatsapp reset
 The encrypted runtime store also supports arbitrary named secrets and
 gateway-side auth routing from local TUI and local web chat sessions:
 
+```bash
+hybridclaw secret list
+hybridclaw secret set <NAME> <VALUE>
+hybridclaw secret show <NAME>
+hybridclaw secret unset <NAME>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
+
 ```text
 /secret list
 /secret set <NAME> <VALUE>
@@ -106,8 +116,8 @@ gateway-side auth routing from local TUI and local web chat sessions:
 /secret route remove <url-prefix> [header]
 ```
 
-- there is no top-level `hybridclaw secret ...` CLI yet; this surface is
-  currently local-session-only
+- `/secret ...` remains local-session-only; use `hybridclaw secret ...` from a
+  shell when you want the same secret-store workflow outside the chat surface
 - secret names must use uppercase letters, digits, and underscores only
 - built-in runtime keys such as `HYBRIDAI_API_KEY` and arbitrary names such as
   `STAGING_API_KEY` share the same encrypted store

@@ -929,6 +929,24 @@ th {
   opacity: 0.65;
 }
 
+/* ToggleGroup data-state selectors — mirrors .active.is-on / .active.is-off
+   and provides a data-attribute hook for CSS transitions going forward. */
+.binary-toggle-button[data-state="on"].is-on {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.binary-toggle-button[data-state="on"].is-off {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+/* ToggleGroup sm size variant — compact padding for dense table rows. */
+.toggle-group--sm .binary-toggle-button {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
 .config-section {
   padding: 16px;
   border-radius: var(--radius-md);
