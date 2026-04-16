@@ -35,9 +35,9 @@ describe('model name helpers', () => {
 
   test('formatModelForDisplay leaves provider-prefixed models untouched', () => {
     // Existing providers that used to be whitelisted.
-    expect(formatModelForDisplay('openrouter/anthropic/claude-sonnet-4.6')).toBe(
-      'openrouter/anthropic/claude-sonnet-4.6',
-    );
+    expect(
+      formatModelForDisplay('openrouter/anthropic/claude-sonnet-4.6'),
+    ).toBe('openrouter/anthropic/claude-sonnet-4.6');
     expect(formatModelForDisplay('mistral/mistral-large-latest')).toBe(
       'mistral/mistral-large-latest',
     );
@@ -53,10 +53,18 @@ describe('model name helpers', () => {
     );
   });
 
-  test('formatModelForDisplay prepends hybridai/ only to bare model names', () => {
+  test('formatModelForDisplay wraps bare and unknown-prefix models as hybridai/', () => {
+    // Bare upstream name — treated as a HybridAI-wrapped model.
     expect(formatModelForDisplay('gpt-5-nano')).toBe('hybridai/gpt-5-nano');
+    // Already-prefixed hybridai/ — left alone.
     expect(formatModelForDisplay('hybridai/gpt-5-nano')).toBe(
       'hybridai/gpt-5-nano',
+    );
+    // Unknown (non-whitelisted) prefix — treated as HybridAI-wrapped upstream.
+    // Guards the `/agents create` warning path when a user passes a garbage
+    // model id through the config normalizer.
+    expect(formatModelForDisplay('garbage/model')).toBe(
+      'hybridai/garbage/model',
     );
     expect(formatModelForDisplay('')).toBe('');
   });

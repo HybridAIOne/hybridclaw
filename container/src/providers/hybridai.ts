@@ -2,9 +2,9 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
-  ProviderRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 

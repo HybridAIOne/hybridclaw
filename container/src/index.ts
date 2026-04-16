@@ -28,8 +28,8 @@ import {
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
-  ProviderRequestError,
   isHybridAIEmptyVisibleCompletion,
+  ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from './providers/shared.js';
 import {

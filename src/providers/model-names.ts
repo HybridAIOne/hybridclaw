@@ -1,6 +1,7 @@
 import {
   formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
+  hasKnownNonHybridProviderPrefix,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -20,11 +21,12 @@ export function formatModelForDisplay(model: string): string {
   if (normalized.toLowerCase().startsWith(HYBRIDAI_MODEL_PREFIX)) {
     return normalized;
   }
-  // Any model that already carries a provider prefix (e.g. `kilo/...`,
-  // `mistral/...`, `openrouter/...`) is non-hybridai by construction — don't
-  // prepend `hybridai/`. Only bare names (no slash) are hybridai upstream
-  // models that need the display prefix prepended.
-  if (normalized.includes('/')) {
+  // If the model carries a known non-hybridai provider prefix (e.g.
+  // `kilo/...`, `mistral/...`, `gemini/...`), leave it untouched. Everything
+  // else — including bare names and unknown-prefix ids — is treated as a
+  // hybridai upstream model and gets the `hybridai/` display prefix prepended
+  // so downstream UI rendering is consistent.
+  if (hasKnownNonHybridProviderPrefix(normalized)) {
     return normalized;
   }
   return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;

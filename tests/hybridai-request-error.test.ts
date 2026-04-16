@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
-  ProviderRequestError,
   isHybridAIEmptyVisibleCompletion,
+  ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from '../container/src/providers/shared.js';
 

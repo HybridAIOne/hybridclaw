@@ -5,9 +5,9 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
-  ProviderRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
 import {
   createThinkingStreamEmitter,

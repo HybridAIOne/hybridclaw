@@ -1,7 +1,7 @@
 import type { RuntimeProvider } from './providers/shared.js';
 import {
-  ProviderRequestError,
   isPremiumModelPermissionError,
+  ProviderRequestError,
 } from './providers/shared.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =

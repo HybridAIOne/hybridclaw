@@ -137,7 +137,18 @@ function readRuntimeSecretValue(
     const value = String(process.env[envKey] || '').trim();
     if (value) return value;
   }
-  return storedSecrets[storedKey]?.trim() || '';
+  // Prefer the canonical `storedKey`, then fall back to any alias env-var name
+  // the user may have persisted (e.g. `GOOGLE_API_KEY` for Gemini,
+  // `GLM_API_KEY` / `Z_AI_API_KEY` for Z.AI, `KILOCODE_API_KEY` for Kilo).
+  // Without this, stored alias values would be orphaned — readable from disk
+  // but never surfaced because only the canonical key was consulted.
+  const canonical = storedSecrets[storedKey]?.trim();
+  if (canonical) return canonical;
+  for (const envKey of envKeys) {
+    const stored = storedSecrets[envKey]?.trim();
+    if (stored) return stored;
+  }
+  return '';
 }
 
 function syncRuntimeSecretExports(): void {

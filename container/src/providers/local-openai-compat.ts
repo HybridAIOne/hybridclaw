@@ -6,10 +6,10 @@ import type {
   ToolCall,
 } from '../types.js';
 import {
-  ProviderRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
+  ProviderRequestError,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 import {

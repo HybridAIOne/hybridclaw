@@ -168,9 +168,7 @@ describe('openai-compat discovery — per-provider store', () => {
 
     const discovery = await importDiscovery();
     const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
-    const kiloDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find(
-      (d) => d.id === 'kilo',
-    );
+    const kiloDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'kilo');
     if (!kiloDef) throw new Error('kilo provider def missing');
     const store = discovery.createOpenAICompatDiscoveryStore(
       kiloDef,
@@ -316,9 +314,7 @@ describe('openai-compat discovery — per-provider store', () => {
 
     const discovery = await importDiscovery();
     const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
-    const kimiDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find(
-      (d) => d.id === 'kimi',
-    );
+    const kimiDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'kimi');
     if (!kimiDef) throw new Error('kimi provider def missing');
     const store = discovery.createOpenAICompatDiscoveryStore(
       kimiDef,
@@ -383,9 +379,7 @@ describe('openai-compat discovery — per-provider store', () => {
     const discovery = await importDiscovery();
     const { logger } = await import(LOGGER_MOCK_PATH);
     const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
-    const kiloDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find(
-      (d) => d.id === 'kilo',
-    );
+    const kiloDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'kilo');
     if (!kiloDef) throw new Error('kilo provider def missing');
     const store = discovery.createOpenAICompatDiscoveryStore(
       kiloDef,
@@ -510,8 +504,9 @@ describe('openai-compat discovery — module-level registry', () => {
 
     // Only the gemini endpoint should have been hit; kilo is off.
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((u) => u.includes('generativelanguage.googleapis.com')))
-      .toBe(true);
+    expect(
+      urls.some((u) => u.includes('generativelanguage.googleapis.com')),
+    ).toBe(true);
     expect(urls.some((u) => u.includes('api.kilo.ai'))).toBe(false);
   });
 });

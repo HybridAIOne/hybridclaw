@@ -160,9 +160,7 @@ export function createOpenAICompatDiscoveryStore(
     return [...discovered];
   }
 
-  async function discoverModels(opts?: {
-    force?: boolean;
-  }): Promise<string[]> {
+  async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!readEnabled()) {
       replaceCache([], { cacheResult: false });
       return [];
