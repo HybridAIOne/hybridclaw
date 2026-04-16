@@ -5,7 +5,7 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
-  HybridAIRequestError,
+  ProviderRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
@@ -232,7 +232,7 @@ export async function callOllamaProvider(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const payload = (await response.json()) as OllamaStreamPayload;
@@ -258,7 +258,7 @@ export async function callOllamaProviderStream(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const contentType = (

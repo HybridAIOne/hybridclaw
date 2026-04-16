@@ -11,7 +11,7 @@ import type {
 } from '../types.js';
 import {
   buildRequestHeaders,
-  HybridAIRequestError,
+  ProviderRequestError,
   isRecord,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
@@ -761,7 +761,7 @@ export async function callOpenAICodexProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   const contentType = (

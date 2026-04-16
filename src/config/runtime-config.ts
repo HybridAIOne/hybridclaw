@@ -854,12 +854,17 @@ const DEFAULT_DEEPSEEK_MODEL_LIST = [
   'deepseek/deepseek-chat',
   'deepseek/deepseek-reasoner',
 ] as const;
+// Default model IDs for each provider. These are used as the seed / fallback
+// list when the provider's /v1/models discovery endpoint is unreachable.
+// Runtime discovery (see `openai-compat-discovery.ts`) augments this list
+// with whatever the provider currently publishes, so stale entries here only
+// affect users without network access or a valid API key.
 const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
-const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5'] as const;
+const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5.1'] as const;
 const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
-const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2.5'] as const;
+const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
 const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
-const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/mimo-v2-pro'] as const;
+const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
@@ -1135,7 +1140,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   kimi: {
     enabled: false,
-    baseUrl: 'https://api.kimi.com/coding/v1',
+    baseUrl: 'https://api.moonshot.ai/v1',
     models: [...DEFAULT_KIMI_MODEL_LIST],
   },
   minimax: {
@@ -1155,7 +1160,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   kilo: {
     enabled: false,
-    baseUrl: 'https://api.kilocode.ai/v1',
+    baseUrl: 'https://api.kilo.ai/api/gateway',
     models: [...DEFAULT_KILO_MODEL_LIST],
   },
   local: {
@@ -3308,6 +3313,48 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+/**
+ * Legacy Kilo Code base URLs that pointed at the retired `api.kilocode.ai`
+ * host. The new canonical host is `api.kilo.ai/api/gateway` (see
+ * https://kilo.ai/docs/gateway/api-reference). Self-heal stored configs that
+ * still hold the old URL so discovery + chat resume working transparently.
+ */
+const RETIRED_KILO_BASE_URLS = new Set<string>([
+  'https://api.kilocode.ai/v1',
+  'https://api.kilocode.ai',
+  'http://api.kilocode.ai/v1',
+  'http://api.kilocode.ai',
+]);
+
+function migrateKiloBaseUrl(baseUrl: string): string {
+  if (RETIRED_KILO_BASE_URLS.has(baseUrl)) {
+    return DEFAULT_RUNTIME_CONFIG.kilo.baseUrl;
+  }
+  return baseUrl;
+}
+
+/**
+ * Legacy Kimi base URLs. The previous default was a speculative
+ * `api.kimi.com/coding/v1`, but the real Moonshot / Kimi OpenAI-compat
+ * endpoint is `api.moonshot.ai/v1` (see https://platform.kimi.ai/docs/api/overview).
+ * Migrate old configs transparently so existing installs point at the
+ * working host without manual intervention.
+ */
+const RETIRED_KIMI_BASE_URLS = new Set<string>([
+  'https://api.kimi.com/coding/v1',
+  'https://api.kimi.com/coding',
+  'https://api.kimi.com/v1',
+  'https://api.kimi.com',
+  'http://api.kimi.com/coding/v1',
+]);
+
+function migrateKimiBaseUrl(baseUrl: string): string {
+  if (RETIRED_KIMI_BASE_URLS.has(baseUrl)) {
+    return DEFAULT_RUNTIME_CONFIG.kimi.baseUrl;
+  }
+  return baseUrl;
+}
+
 function normalizeApiPath(value: unknown, fallback: string): string {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
@@ -4455,9 +4502,10 @@ function normalizeRuntimeConfig(
         rawKimi.enabled,
         DEFAULT_RUNTIME_CONFIG.kimi.enabled,
       ),
-      baseUrl: normalizeBaseUrl(
-        rawKimi.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.kimi.baseUrl,
+      // Self-heal old `api.kimi.com/coding/v1` URLs → Moonshot's real
+      // OpenAI-compat host `api.moonshot.ai/v1`.
+      baseUrl: migrateKimiBaseUrl(
+        normalizeBaseUrl(rawKimi.baseUrl, DEFAULT_RUNTIME_CONFIG.kimi.baseUrl),
       ),
       models: kimiModelList,
     },
@@ -4499,9 +4547,11 @@ function normalizeRuntimeConfig(
         rawKilo.enabled,
         DEFAULT_RUNTIME_CONFIG.kilo.enabled,
       ),
-      baseUrl: normalizeBaseUrl(
-        rawKilo.baseUrl,
-        DEFAULT_RUNTIME_CONFIG.kilo.baseUrl,
+      // Kilo Code migrated from `api.kilocode.ai/v1` to the `api.kilo.ai`
+      // gateway host. Self-heal old configs so users aren't stuck with a
+      // dead base URL that returns HTML from the kilocode.ai marketing site.
+      baseUrl: migrateKiloBaseUrl(
+        normalizeBaseUrl(rawKilo.baseUrl, DEFAULT_RUNTIME_CONFIG.kilo.baseUrl),
       ),
       models: kiloModelList,
     },

@@ -98,7 +98,7 @@ function summarizeParsedErrorBody(
   return message;
 }
 
-export class HybridAIRequestError extends Error {
+export class ProviderRequestError extends Error {
   status: number;
   body: string;
   readonly parsedBody: ParsedProviderErrorBody | null;
@@ -106,17 +106,26 @@ export class HybridAIRequestError extends Error {
   constructor(status: number, body: string) {
     const parsedBody = parseProviderErrorBody(body);
     super(
-      `HybridAI API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
+      `Provider API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
     );
-    this.name = 'HybridAIRequestError';
+    this.name = 'ProviderRequestError';
     this.status = status;
     this.body = body;
     this.parsedBody = parsedBody;
   }
 }
 
+/**
+ * Back-compat alias. The class historically lived as `HybridAIRequestError`
+ * but is used by every OpenAI-compat provider (HybridAI, OpenRouter, Mistral,
+ * Kilo Code, etc.) and was never HybridAI-specific. New code should reference
+ * `ProviderRequestError` directly.
+ * @deprecated Use {@link ProviderRequestError}.
+ */
+export const HybridAIRequestError = ProviderRequestError;
+
 export function isPremiumModelPermissionError(error: unknown): boolean {
-  if (!(error instanceof HybridAIRequestError) || error.status !== 403) {
+  if (!(error instanceof ProviderRequestError) || error.status !== 403) {
     return false;
   }
   const parsed = error.parsedBody;

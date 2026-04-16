@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import {
-  HybridAIRequestError,
+  ProviderRequestError,
   isHybridAIEmptyVisibleCompletion,
   summarizeHybridAICompletionForDebug,
 } from '../container/src/providers/shared.js';
 
-describe('HybridAIRequestError', () => {
+describe('ProviderRequestError', () => {
   test('rewrites premium-model permission errors into an actionable message', () => {
-    const error = new HybridAIRequestError(
+    const error = new ProviderRequestError(
       403,
       JSON.stringify({
         error: {
@@ -20,12 +20,12 @@ describe('HybridAIRequestError', () => {
     );
 
     expect(error.message).toBe(
-      'HybridAI API error 403: Premium model access requires a paid plan or token-credit balance. The non-premium HybridAI model is `gpt-4.1-mini`; use `/model set gpt-4.1-mini`, add credits, or switch to a configured `huggingface/...`, `openrouter/...`, or `openai-codex/...` model.',
+      'Provider API error 403: Premium model access requires a paid plan or token-credit balance. The non-premium HybridAI model is `gpt-4.1-mini`; use `/model set gpt-4.1-mini`, add credits, or switch to a configured `huggingface/...`, `openrouter/...`, or `openai-codex/...` model.',
     );
   });
 
   test('formats nested JSON error bodies with only the extracted message', () => {
-    const error = new HybridAIRequestError(
+    const error = new ProviderRequestError(
       500,
       JSON.stringify({
         error: {
@@ -37,12 +37,12 @@ describe('HybridAIRequestError', () => {
     );
 
     expect(error.message).toBe(
-      'HybridAI API error 500: An error occurred while processing your request',
+      'Provider API error 500: An error occurred while processing your request',
     );
   });
 
   test('surfaces top-level detail fields from provider error bodies', () => {
-    const error = new HybridAIRequestError(
+    const error = new ProviderRequestError(
       400,
       JSON.stringify({
         detail: 'Stream must be set to true',
@@ -50,7 +50,7 @@ describe('HybridAIRequestError', () => {
     );
 
     expect(error.message).toBe(
-      'HybridAI API error 400: Stream must be set to true',
+      'Provider API error 400: Stream must be set to true',
     );
     expect(error.parsedBody).toEqual({
       message: 'Stream must be set to true',
@@ -66,13 +66,13 @@ describe('HybridAIRequestError', () => {
         type: 'server_error',
       },
     });
-    const error = new HybridAIRequestError(500, body);
+    const error = new ProviderRequestError(500, body);
 
     expect(error.body).toBe(body);
   });
 
   test('caches the parsed provider error body on the request error', () => {
-    const error = new HybridAIRequestError(
+    const error = new ProviderRequestError(
       403,
       JSON.stringify({
         error: {

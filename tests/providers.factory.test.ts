@@ -391,7 +391,7 @@ test.each([
     providerId: 'kimi',
     model: 'kimi/kimi-k2.5',
     envVar: 'KIMI_API_KEY',
-    baseUrl: 'https://api.kimi.com/coding/v1',
+    baseUrl: 'https://api.moonshot.ai/v1',
   },
   {
     providerId: 'minimax',
@@ -415,7 +415,7 @@ test.each([
     providerId: 'kilo',
     model: 'kilo/anthropic/claude-sonnet-4.6',
     envVar: 'KILO_API_KEY',
-    baseUrl: 'https://api.kilocode.ai/v1',
+    baseUrl: 'https://api.kilo.ai/api/gateway',
   },
 ] as const)('provider factory resolves $providerId runtime credentials', async ({
   providerId,

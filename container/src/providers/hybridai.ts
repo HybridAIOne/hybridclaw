@@ -2,7 +2,7 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
-  HybridAIRequestError,
+  ProviderRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
@@ -121,7 +121,7 @@ export async function callHybridAIProvider(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   return (await response.json()) as ChatCompletionResponse;
@@ -149,7 +149,7 @@ export async function callHybridAIProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   const contentType = (

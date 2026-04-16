@@ -147,7 +147,13 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
       readBaseUrl: () => KIMI_BASE_URL,
       readApiKey: (opts) =>
         readProviderApiKey(
-          () => [process.env.KIMI_API_KEY, KIMI_API_KEY],
+          // Moonshot AI (which runs the Kimi API) documents `MOONSHOT_API_KEY`
+          // as the conventional env var. Accept both.
+          () => [
+            process.env.MOONSHOT_API_KEY,
+            process.env.KIMI_API_KEY,
+            KIMI_API_KEY,
+          ],
           'KIMI_API_KEY',
           opts,
         ),

@@ -11,6 +11,13 @@
   `auth login`, `auth status`, and `auth logout` with `--api-key`,
   `--base-url`, `--model`, and `--no-default` flags, plus full runtime config
   enablement and model-prefix routing.
+- **Runtime model discovery for OpenAI-compat remote providers**: The nine
+  providers above now auto-discover their current model lineups at runtime
+  via `GET <baseUrl>/models` and surface them through `/model list <provider>`
+  alongside any user-pinned entries in `<provider>.models`. Discovered models
+  are cached for one hour, deduplicated with pinned entries, and silently
+  fall back to the configured list if the provider's `/v1/models` endpoint is
+  unreachable, absent (404), or otherwise errors.
 - **ByteRover memory plugin**: New bundled `byterover-memory` external memory
   provider that injects prompt-time recall through `brv query`, exposes
   `brv_query` / `brv_curate` / `brv_status` model tools, and curates
@@ -25,6 +32,25 @@
 
 ### Changed
 
+- **Kilo Code base URL migrated to `https://api.kilo.ai/api/gateway`**: The
+  retired `api.kilocode.ai` host now serves a marketing site, so the default
+  Kilo Code base URL has been updated across `config.ts`, the runtime config
+  defaults, the `auth login kilo` normalizer (suffix `/api/gateway`), and
+  `config.example.json`. Persisted runtime configs still pointing at
+  `https://api.kilocode.ai/v1` are silently migrated to the new URL on load
+  so existing installations self-heal.
+- **Renamed `HybridAIRequestError` → `ProviderRequestError`**: The error class
+  wraps failures from every OpenAI-compat provider (HybridAI, OpenRouter,
+  Mistral, Kilo Code, local Ollama, etc.), so the HybridAI-specific name was
+  misleading. The error-message prefix now reads `Provider API error <status>`
+  instead of `HybridAI API error <status>`. `HybridAIRequestError` is kept as
+  a deprecated alias for backward compatibility; new code should import
+  `ProviderRequestError` directly.
+- **Simpler `formatModelForDisplay` rule**: Models that already carry a
+  provider prefix (`kilo/...`, `gemini/...`, etc.) no longer incorrectly pick
+  up a leading `hybridai/`. The function now treats any slash-containing
+  non-`hybridai/` model as already-namespaced, removing the fragile
+  `NON_HYBRID_PROVIDER_PREFIXES` whitelist dependency for this path.
 - **Memory plugin docs standardized**: All five plugin doc pages now follow
   the same structure: Prerequisites, HybridClaw Setup, Config, Commands,
   Example Prompts & Use Cases, Tips & Tricks, and Troubleshooting. Added

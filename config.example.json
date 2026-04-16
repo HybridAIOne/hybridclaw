@@ -264,17 +264,17 @@
   "zai": {
     "enabled": false,
     "baseUrl": "https://api.z.ai/api/paas/v4",
-    "models": ["zai/glm-5"]
+    "models": ["zai/glm-5.1"]
   },
   "kimi": {
     "enabled": false,
-    "baseUrl": "https://api.kimi.com/coding/v1",
+    "baseUrl": "https://api.moonshot.ai/v1",
     "models": ["kimi/kimi-k2.5"]
   },
   "minimax": {
     "enabled": false,
     "baseUrl": "https://api.minimax.io/v1",
-    "models": ["minimax/MiniMax-M2.5"]
+    "models": ["minimax/MiniMax-M2"]
   },
   "dashscope": {
     "enabled": false,
@@ -284,11 +284,11 @@
   "xiaomi": {
     "enabled": false,
     "baseUrl": "https://api.xiaomimimo.com/v1",
-    "models": ["xiaomi/mimo-v2-pro"]
+    "models": ["xiaomi/MiMo-7B-RL"]
   },
   "kilo": {
     "enabled": false,
-    "baseUrl": "https://api.kilocode.ai/v1",
+    "baseUrl": "https://api.kilo.ai/api/gateway",
     "models": ["kilo/anthropic/claude-sonnet-4.6"]
   },
   "local": {

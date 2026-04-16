@@ -81,11 +81,20 @@ Examples:
   selectors and status output
 - `gemini.models`, `deepseek.models`, `xai.models`, `zai.models`,
   `kimi.models`, `minimax.models`, `dashscope.models`, `xiaomi.models`, and
-  `kilo.models` control the allowed model lists for their respective providers
+  `kilo.models` act as user-pinned model lists for their respective providers.
+  Pinned entries are merged with the models discovered at runtime (see below),
+  so they survive when a provider drops or renames a model upstream
 - HybridAI model lists are refreshed from the configured HybridAI base URL
   (`/models`, then `/v1/models` as a compatibility fallback), and discovered
   `context_length` values feed status and model-info output when the API
   exposes them
+- Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi, and Kilo Code
+  model lists are also discovered at runtime via `GET <baseUrl>/models` (Kilo
+  Code uses the marketplace endpoint `https://api.kilo.ai/api/gateway/models`).
+  Discovery requires the provider to be enabled in config and its API key to
+  be available. Responses are cached for one hour and gracefully fall back to
+  the pinned `<provider>.models` list if the provider returns an error or
+  doesn't implement a discovery endpoint
 
 ## Provider Routing
 

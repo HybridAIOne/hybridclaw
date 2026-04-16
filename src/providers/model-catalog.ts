@@ -32,6 +32,10 @@ import {
   formatModelForDisplay,
 } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
+import {
+  discoverOpenAICompatRemoteModels,
+  getDiscoveredOpenAICompatRemoteModelNames,
+} from './openai-compat-discovery.js';
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
@@ -204,7 +208,11 @@ export function getAvailableModelListWithOptions(
     ...getDiscoveredLocalModelNames(),
     ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
-    // Include configured model lists for enabled OpenAI-compat remote providers.
+    // Runtime-discovered models for OpenAI-compat remote providers.
+    ...getDiscoveredOpenAICompatRemoteModelNames(),
+    // User-pinned model lists for enabled OpenAI-compat remote providers.
+    // Kept as a pin so entries survive when the provider API drops them or
+    // discovery is offline.
     ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
       const section = (config as unknown as Record<string, unknown>)[def.id] as
         | { enabled: boolean; models: string[] }
@@ -234,6 +242,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
     discoverHuggingFaceModels(),
     discoverMistralModels(),
     discoverOpenRouterModels(),
+    discoverOpenAICompatRemoteModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
 }
