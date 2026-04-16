@@ -69,6 +69,7 @@ const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   ],
   allowedAttributes: {
     a: ['aria-hidden', 'class', 'href', 'rel', 'target', 'title'],
+    blockquote: ['class'],
     code: ['class'],
     h1: ['id'],
     h2: ['id'],
@@ -1159,6 +1160,14 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     )}"${titleAttr}${externalAttrs}>${text}</a>`;
   };
 
+  renderer.blockquote = function ({ tokens }) {
+    const body = this.parser.parse(tokens);
+    let bqClass = '';
+    if (body.includes('🎯')) bqClass = ' class="docs-try-it"';
+    else if (body.includes('💡')) bqClass = ' class="docs-tip"';
+    return `<blockquote${bqClass}>${body}</blockquote>\n`;
+  };
+
   renderer.image = ({ href, title, text }) => {
     const resolvedHref = rewriteRelativeHref(href || '', page.relativePath);
     if (!isAllowedDevelopmentImageSrc(resolvedHref)) {
@@ -1765,6 +1774,45 @@ function renderPage(
       padding: 0 0 0 16px;
       border-left: 3px solid var(--brand-blue);
       color: var(--muted-strong);
+    }
+
+    .docs-article blockquote p {
+      margin: 0 0 6px;
+    }
+
+    .docs-article blockquote p:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-article blockquote.docs-try-it,
+    .docs-article blockquote.docs-tip {
+      padding: 14px 18px;
+      border-radius: 0 12px 12px 0;
+    }
+
+    .docs-article blockquote.docs-try-it > p:first-child,
+    .docs-article blockquote.docs-tip > p:first-child {
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .docs-article blockquote.docs-try-it {
+      border-left-color: var(--success, #15803d);
+      background: rgba(21, 128, 61, 0.08);
+    }
+
+    .docs-article blockquote.docs-tip {
+      border-left-color: #e8a317;
+      background: rgba(232, 163, 23, 0.08);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-try-it {
+      background: rgba(126, 227, 165, 0.1);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-tip {
+      border-left-color: #f0c050;
+      background: rgba(240, 192, 80, 0.08);
     }
 
     .docs-article table {
