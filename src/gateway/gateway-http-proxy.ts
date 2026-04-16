@@ -359,10 +359,7 @@ function extractBaseDomain(hostname: string): string {
  * hostname must match (exact or subdomain).  If no binding exists, any URL
  * is allowed (backward-compatible).
  */
-function assertBearerDomainBinding(
-  secretName: string,
-  targetUrl: URL,
-): void {
+function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
   const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
   const boundDomain = readStoredRuntimeSecret(bindingKey);
   if (!boundDomain) return; // no binding → unrestricted
@@ -501,7 +498,7 @@ export async function handleApiHttpRequest(
   const captureFields =
     body.captureResponseFields === undefined
       ? []
-      : normalizeCaptureResponseFields(body.captureResponseFields) ?? [];
+      : (normalizeCaptureResponseFields(body.captureResponseFields) ?? []);
   const rawUrl = replacePlaceholders
     ? replaceSecretPlaceholdersInString(String(body.url || ''))
     : body.url;

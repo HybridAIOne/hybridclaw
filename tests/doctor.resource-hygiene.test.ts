@@ -100,8 +100,14 @@ test('stale workspace check separates safe orphaned workspaces from git-backed o
   fs.mkdirSync(path.join(riskyWorkspaceRoot, 'workspace', '.git'), {
     recursive: true,
   });
-  setOldMtime(path.join(safeWorkspaceRoot, 'workspace', 'note.txt'), 8 * 24 * 60 * 60 * 1000);
-  setOldMtime(path.join(riskyWorkspaceRoot, 'workspace', '.git'), 8 * 24 * 60 * 60 * 1000);
+  setOldMtime(
+    path.join(safeWorkspaceRoot, 'workspace', 'note.txt'),
+    8 * 24 * 60 * 60 * 1000,
+  );
+  setOldMtime(
+    path.join(riskyWorkspaceRoot, 'workspace', '.git'),
+    8 * 24 * 60 * 60 * 1000,
+  );
   setOldMtime(safeWorkspaceRoot, 8 * 24 * 60 * 60 * 1000);
   setOldMtime(riskyWorkspaceRoot, 8 * 24 * 60 * 60 * 1000);
 
@@ -143,7 +149,9 @@ test('session compaction backlog fix compacts oversized idle sessions and report
   process.env.HOME = homeDir;
   vi.resetModules();
 
-  const { initDatabase, getOrCreateSession } = await import('../src/memory/db.ts');
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
   const { DB_PATH } = await import('../src/config/config.ts');
 
   initDatabase({ quiet: true });

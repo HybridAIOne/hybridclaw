@@ -1,16 +1,12 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-const {
-  infoMock,
-  recordAuditEventMock,
-  safeApplyMock,
-  riskyApplyMock,
-} = vi.hoisted(() => ({
-  infoMock: vi.fn(),
-  recordAuditEventMock: vi.fn(),
-  safeApplyMock: vi.fn(async () => {}),
-  riskyApplyMock: vi.fn(async () => {}),
-}));
+const { infoMock, recordAuditEventMock, safeApplyMock, riskyApplyMock } =
+  vi.hoisted(() => ({
+    infoMock: vi.fn(),
+    recordAuditEventMock: vi.fn(),
+    safeApplyMock: vi.fn(async () => {}),
+    riskyApplyMock: vi.fn(async () => {}),
+  }));
 
 afterEach(() => {
   vi.restoreAllMocks();

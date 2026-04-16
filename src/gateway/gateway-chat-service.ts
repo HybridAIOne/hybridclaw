@@ -29,7 +29,6 @@ import {
 import { preprocessContextReferences } from '../context-references/index.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { promoteWorkspaceSkills } from '../skills/skills.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
@@ -51,6 +50,7 @@ import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
+  promoteWorkspaceSkills,
   resolveObservedSkillName,
 } from '../skills/skills.js';
 import {
