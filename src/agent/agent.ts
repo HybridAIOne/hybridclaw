@@ -5,6 +5,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { DATA_DIR, HYBRIDAI_MODEL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
+import { withSpan } from '../observability/otel.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import { getExecutor } from './executor.js';
@@ -40,6 +41,20 @@ function dumpPrompt(
 }
 
 export async function runAgent(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.agent.run',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runAgentInner(params),
+  );
+}
+
+async function runAgentInner(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
   const sessionId = params.sessionId;
