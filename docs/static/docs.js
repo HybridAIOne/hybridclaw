@@ -646,10 +646,12 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
       }
       let bqClass = '';
       const firstLine = quoteLines[0] || '';
-      if (firstLine.includes('\u{1F3AF}')) bqClass = 'docs-try-it';
-      else if (firstLine.includes('\u{1F4A1}')) bqClass = 'docs-tip';
+      if (firstLine.includes('🎯')) bqClass = 'docs-try-it';
+      else if (firstLine.includes('💡')) bqClass = 'docs-tip';
       const inner = quoteLines
-        .map((l) => (l.trim() ? `<p>${renderInlineMarkdown(l, context)}</p>` : ''))
+        .map((l) =>
+          l.trim() ? `<p>${renderInlineMarkdown(l, context)}</p>` : '',
+        )
         .join('');
       html.push(
         `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${inner}</blockquote>`,
