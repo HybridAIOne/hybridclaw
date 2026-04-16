@@ -1086,7 +1086,7 @@ function clearHuggingFaceCredentials(): void {
 }
 
 function printGenericProviderStatus(
-  _providerLabel: string,
+  providerLabel: string,
   configKey:
     | 'gemini'
     | 'deepseek'
@@ -1114,6 +1114,7 @@ function printGenericProviderStatus(
       : null;
   const apiKey = envApiKey || storedApiKey || '';
 
+  console.log(`Provider: ${providerLabel}`);
   console.log(`Path: ${runtimeSecretsPath()}`);
   console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
   if (source) {
@@ -1133,12 +1134,13 @@ function printGenericProviderStatus(
 function clearGenericProviderCredentials(
   providerLabel: string,
   secretKey: string,
-  envVarName: string,
+  envVarNames: string[],
 ): void {
   const filePath = saveRuntimeSecrets({ [secretKey]: null });
   console.log(`Cleared ${providerLabel} credentials in ${filePath}.`);
+  const hint = envVarNames.join('`, `');
   console.log(
-    `If ${envVarName} is still exported in your shell, unset it separately.`,
+    `If \`${hint}\` is still exported in your shell, unset it separately.`,
   );
 }
 
@@ -1831,25 +1833,15 @@ async function dispatchProviderAction(
       ]);
       return;
     }
-    clearGenericProviderCredentials(
-      'Google Gemini',
-      'GEMINI_API_KEY',
-      'GEMINI_API_KEY',
-    );
+    clearGenericProviderCredentials('Google Gemini', 'GEMINI_API_KEY', ['GOOGLE_API_KEY', 'GEMINI_API_KEY']);
     return;
   }
   if (provider === 'deepseek') {
     if (action === 'status') {
-      printGenericProviderStatus('DeepSeek', 'deepseek', 'DEEPSEEK_API_KEY', [
-        'DEEPSEEK_API_KEY',
-      ]);
+      printGenericProviderStatus('DeepSeek', 'deepseek', 'DEEPSEEK_API_KEY', ['DEEPSEEK_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials(
-      'DeepSeek',
-      'DEEPSEEK_API_KEY',
-      'DEEPSEEK_API_KEY',
-    );
+    clearGenericProviderCredentials('DeepSeek', 'DEEPSEEK_API_KEY', ['DEEPSEEK_API_KEY']);
     return;
   }
   if (provider === 'xai') {
@@ -1857,89 +1849,55 @@ async function dispatchProviderAction(
       printGenericProviderStatus('xAI', 'xai', 'XAI_API_KEY', ['XAI_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials('xAI', 'XAI_API_KEY', 'XAI_API_KEY');
+    clearGenericProviderCredentials('xAI', 'XAI_API_KEY', ['XAI_API_KEY']);
     return;
   }
   if (provider === 'zai') {
     if (action === 'status') {
-      printGenericProviderStatus('Z.AI / GLM', 'zai', 'ZAI_API_KEY', [
-        'GLM_API_KEY',
-        'ZAI_API_KEY',
-        'Z_AI_API_KEY',
-      ]);
+      printGenericProviderStatus('Z.AI / GLM', 'zai', 'ZAI_API_KEY', ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials('Z.AI / GLM', 'ZAI_API_KEY', 'ZAI_API_KEY');
+    clearGenericProviderCredentials('Z.AI / GLM', 'ZAI_API_KEY', ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY']);
     return;
   }
   if (provider === 'kimi') {
     if (action === 'status') {
-      printGenericProviderStatus('Kimi / Moonshot', 'kimi', 'KIMI_API_KEY', [
-        'KIMI_API_KEY',
-      ]);
+      printGenericProviderStatus('Kimi / Moonshot', 'kimi', 'KIMI_API_KEY', ['KIMI_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials('Kimi', 'KIMI_API_KEY', 'KIMI_API_KEY');
+    clearGenericProviderCredentials('Kimi', 'KIMI_API_KEY', ['KIMI_API_KEY']);
     return;
   }
   if (provider === 'minimax') {
     if (action === 'status') {
-      printGenericProviderStatus('MiniMax', 'minimax', 'MINIMAX_API_KEY', [
-        'MINIMAX_API_KEY',
-      ]);
+      printGenericProviderStatus('MiniMax', 'minimax', 'MINIMAX_API_KEY', ['MINIMAX_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials(
-      'MiniMax',
-      'MINIMAX_API_KEY',
-      'MINIMAX_API_KEY',
-    );
+    clearGenericProviderCredentials('MiniMax', 'MINIMAX_API_KEY', ['MINIMAX_API_KEY']);
     return;
   }
   if (provider === 'dashscope') {
     if (action === 'status') {
-      printGenericProviderStatus(
-        'DashScope / Qwen',
-        'dashscope',
-        'DASHSCOPE_API_KEY',
-        ['DASHSCOPE_API_KEY'],
-      );
+      printGenericProviderStatus('DashScope / Qwen', 'dashscope', 'DASHSCOPE_API_KEY', ['DASHSCOPE_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials(
-      'DashScope',
-      'DASHSCOPE_API_KEY',
-      'DASHSCOPE_API_KEY',
-    );
+    clearGenericProviderCredentials('DashScope', 'DASHSCOPE_API_KEY', ['DASHSCOPE_API_KEY']);
     return;
   }
   if (provider === 'xiaomi') {
     if (action === 'status') {
-      printGenericProviderStatus('Xiaomi MiMo', 'xiaomi', 'XIAOMI_API_KEY', [
-        'XIAOMI_API_KEY',
-      ]);
+      printGenericProviderStatus('Xiaomi MiMo', 'xiaomi', 'XIAOMI_API_KEY', ['XIAOMI_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials(
-      'Xiaomi',
-      'XIAOMI_API_KEY',
-      'XIAOMI_API_KEY',
-    );
+    clearGenericProviderCredentials('Xiaomi', 'XIAOMI_API_KEY', ['XIAOMI_API_KEY']);
     return;
   }
   if (provider === 'kilo') {
     if (action === 'status') {
-      printGenericProviderStatus('Kilo Code', 'kilo', 'KILO_API_KEY', [
-        'KILOCODE_API_KEY',
-        'KILO_API_KEY',
-      ]);
+      printGenericProviderStatus('Kilo Code', 'kilo', 'KILO_API_KEY', ['KILOCODE_API_KEY', 'KILO_API_KEY']);
       return;
     }
-    clearGenericProviderCredentials(
-      'Kilo Code',
-      'KILO_API_KEY',
-      'KILO_API_KEY',
-    );
+    clearGenericProviderCredentials('Kilo Code', 'KILO_API_KEY', ['KILOCODE_API_KEY', 'KILO_API_KEY']);
     return;
   }
   if (provider === 'msteams') {

@@ -1,4 +1,5 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   discoverCodexModels,
   getDiscoveredCodexModelNames,
@@ -193,6 +194,7 @@ export function getAvailableModelListWithOptions(
   provider?: string,
   _opts?: { expanded?: boolean },
 ): string[] {
+  const config = getRuntimeConfig();
   const models = dedupeModelList([
     HYBRIDAI_MODEL,
     ...getDiscoveredCodexModelNames(),
@@ -201,6 +203,15 @@ export function getAvailableModelListWithOptions(
     ...getDiscoveredLocalModelNames(),
     ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
+    ...(config.gemini.enabled ? config.gemini.models : []),
+    ...(config.deepseek.enabled ? config.deepseek.models : []),
+    ...(config.xai.enabled ? config.xai.models : []),
+    ...(config.zai.enabled ? config.zai.models : []),
+    ...(config.kimi.enabled ? config.kimi.models : []),
+    ...(config.minimax.enabled ? config.minimax.models : []),
+    ...(config.dashscope.enabled ? config.dashscope.models : []),
+    ...(config.xiaomi.enabled ? config.xiaomi.models : []),
+    ...(config.kilo.enabled ? config.kilo.models : []),
   ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
   if (!provider) {

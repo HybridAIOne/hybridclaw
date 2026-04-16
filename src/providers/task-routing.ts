@@ -130,14 +130,11 @@ export function detectRuntimeProviderPrefix(
 ): RuntimeProvider | undefined {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return undefined;
-  if (normalized.startsWith('openai-codex/')) return 'openai-codex';
-  if (normalized.startsWith('openrouter/')) return 'openrouter';
-  if (normalized.startsWith('mistral/')) return 'mistral';
-  if (normalized.startsWith('huggingface/')) return 'huggingface';
-  if (normalized.startsWith('ollama/')) return 'ollama';
-  if (normalized.startsWith('lmstudio/')) return 'lmstudio';
-  if (normalized.startsWith('llamacpp/')) return 'llamacpp';
-  if (normalized.startsWith('vllm/')) return 'vllm';
+  for (const [provider, prefix] of Object.entries(
+    RUNTIME_PROVIDER_PREFIXES,
+  ) as Array<[RuntimeProvider, string]>) {
+    if (prefix && normalized.startsWith(prefix)) return provider;
+  }
   return undefined;
 }
 
