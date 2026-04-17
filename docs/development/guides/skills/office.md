@@ -38,7 +38,7 @@ with HybridClaw. No external CLI tools are required.
 >
 > `Create a one-page PDF invoice for "Acme Corp" with 3 line items (Widget A 120, Widget B 250, Consulting 500), a subtotal, 8% tax, and grand total, then extract the text back as JSON so I can see exactly what was written`
 >
-> `Render page 1 of ~/Downloads/some-report.pdf as a PNG so I can inspect the layout`
+> `Create a 2-page PDF titled "Board Brief" with any placeholder text, then render both pages as PNGs so I can inspect the layout`
 >
 > Fillable forms:
 >
@@ -48,9 +48,9 @@ with HybridClaw. No external CLI tools are required.
 >
 > Non-fillable overlays:
 >
-> `Check whether ~/Downloads/tax-form.pdf has native fillable fields; if it doesn't, render its pages to PNG and extract the best-effort structure so I can plan coordinate boxes`
+> `Create a plain one-page PDF titled "Tax Form 2025" with three label lines ("Name:", "Date:", "Signature:"), confirm it has no fillable fields, then render the page to PNG and extract its best-effort label structure so I can plan coordinate boxes`
 >
-> `Given a fields.json for a non-fillable PDF, validate the bounding boxes, draw a validation overlay onto the rendered page image, then write the filled PDF with the text annotations in place`
+> `Using the tax form from the previous step, write a fields.json with label/entry boxes for Name and Signature, validate the bounding boxes, draw a validation overlay onto the rendered page image, then write the filled PDF with the text annotations in place`
 >
 > Multi-step flow:
 >

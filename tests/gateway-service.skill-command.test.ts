@@ -205,8 +205,8 @@ test('skill install installs one declared dependency from a local TUI/web sessio
 
   const installSkillDependencyMock = vi.fn().mockResolvedValue({
     ok: true,
-    message: 'Installed pdf via brew-poppler',
-    stdout: 'brew installed poppler',
+    message: 'Installed 1password via brew',
+    stdout: 'brew installed 1password-cli',
     stderr: '',
     code: 0,
   });
@@ -221,21 +221,21 @@ test('skill install installs one declared dependency from a local TUI/web sessio
     sessionId: 'session-skill-install',
     guildId: null,
     channelId: 'tui',
-    args: ['skill', 'install', 'pdf', 'brew-poppler'],
+    args: ['skill', 'install', '1password', 'brew'],
   });
 
   expect(installSkillDependencyMock).toHaveBeenCalledWith({
-    skillName: 'pdf',
-    installId: 'brew-poppler',
+    skillName: '1password',
+    installId: 'brew',
   });
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Skill Installed');
-  expect(result.text).toContain('Installed pdf via brew-poppler');
+  expect(result.text).toContain('Installed 1password via brew');
   expect(result.text).toContain('stdout:');
-  expect(result.text).toContain('brew installed poppler');
+  expect(result.text).toContain('brew installed 1password-cli');
 });
 
 test('skill install requires both a skill and dependency id', async () => {
