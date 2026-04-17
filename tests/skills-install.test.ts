@@ -72,26 +72,19 @@ describe('skill install metadata', () => {
     }
   });
 
-  test('loads install metadata declared by the pdf skill', async () => {
+  test('loads install metadata declared by the 1password skill', async () => {
     const { findSkillCatalogEntry } = await import(
       '../src/skills/skills-install.ts'
     );
-    const skill = findSkillCatalogEntry('pdf');
+    const skill = findSkillCatalogEntry('1password');
     expect(skill).not.toBeNull();
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
-        id: 'brew-poppler',
+        id: 'brew',
         kind: 'brew',
-        formula: 'poppler',
-        bins: ['pdftotext', 'pdftoppm', 'pdfinfo', 'pdfimages'],
-        label: 'Install Poppler CLI tools (brew)',
-      },
-      {
-        id: 'brew-qpdf',
-        kind: 'brew',
-        formula: 'qpdf',
-        bins: ['qpdf'],
-        label: 'Install qpdf (brew)',
+        formula: '1password-cli',
+        bins: ['op'],
+        label: 'Install 1Password CLI (brew)',
       },
     ]);
   });
@@ -101,17 +94,17 @@ describe('skill install metadata', () => {
       '../src/skills/skills-install.ts'
     );
     const selection = resolveSkillInstallSelection({
-      skillName: 'pdf',
-      installId: 'brew-poppler',
+      skillName: '1password',
+      installId: 'brew',
     });
 
     if ('error' in selection) {
       throw new Error(selection.error);
     }
 
-    expect(selection.installId).toBe('brew-poppler');
+    expect(selection.installId).toBe('brew');
     expect(selection.spec.kind).toBe('brew');
-    expect(selection.spec.formula).toBe('poppler');
+    expect(selection.spec.formula).toBe('1password-cli');
   });
 
   test('reads install metadata and requires from metadata.openclaw', async () => {
