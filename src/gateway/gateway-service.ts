@@ -222,7 +222,6 @@ import {
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
-  getAvailableModelListWithOptions,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
@@ -4543,6 +4542,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
       { ...value },
     ]),
   ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
+  const REMOTE_OPENAI_COMPAT_KEYS = [
+    'openrouter',
+    'mistral',
+    'huggingface',
+    'gemini',
+    'deepseek',
+    'xai',
+    'zai',
+    'kimi',
+    'minimax',
+    'dashscope',
+    'xiaomi',
+    'kilo',
+  ] as const;
+  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
+    if (providerStatus[key]) continue;
+    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
+    providerStatus[key] = {
+      kind: 'remote',
+      reachable: diagnostic === null,
+      ...(diagnostic
+        ? {
+            error: diagnostic.message,
+            loginRequired: diagnostic.kind === 'unauthorized',
+          }
+        : {}),
+    };
+  }
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -4552,25 +4579,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     const normalized = modelId.trim().toLowerCase();
     if (!normalized) continue;
 
-    let providerKey: keyof NonNullable<
+    type ProviderKey = keyof NonNullable<
       GatewayAdminModelsResponse['providerStatus']
-    > = 'hybridai';
-    if (normalized.startsWith('openai-codex/')) {
-      providerKey = 'codex';
-    } else if (normalized.startsWith('openrouter/')) {
-      providerKey = 'openrouter';
-    } else if (normalized.startsWith('mistral/')) {
-      providerKey = 'mistral';
-    } else if (normalized.startsWith('huggingface/')) {
-      providerKey = 'huggingface';
-    } else if (normalized.startsWith('ollama/')) {
-      providerKey = 'ollama';
-    } else if (normalized.startsWith('lmstudio/')) {
-      providerKey = 'lmstudio';
-    } else if (normalized.startsWith('llamacpp/')) {
-      providerKey = 'llamacpp';
-    } else if (normalized.startsWith('vllm/')) {
-      providerKey = 'vllm';
+    >;
+    const PROVIDER_KEY_BY_PREFIX: Array<[string, ProviderKey]> = [
+      ['openai-codex/', 'codex'],
+      ['openrouter/', 'openrouter'],
+      ['mistral/', 'mistral'],
+      ['huggingface/', 'huggingface'],
+      ['gemini/', 'gemini'],
+      ['deepseek/', 'deepseek'],
+      ['xai/', 'xai'],
+      ['zai/', 'zai'],
+      ['kimi/', 'kimi'],
+      ['minimax/', 'minimax'],
+      ['dashscope/', 'dashscope'],
+      ['xiaomi/', 'xiaomi'],
+      ['kilo/', 'kilo'],
+      ['ollama/', 'ollama'],
+      ['lmstudio/', 'lmstudio'],
+      ['llamacpp/', 'llamacpp'],
+      ['vllm/', 'vllm'],
+    ];
+    let providerKey: ProviderKey = 'hybridai';
+    for (const [prefix, key] of PROVIDER_KEY_BY_PREFIX) {
+      if (normalized.startsWith(prefix)) {
+        providerKey = key;
+        break;
+      }
     }
 
     modelCountByProvider.set(
@@ -7170,11 +7206,7 @@ export async function handleGatewayCommand(
             }
           }
           const listedModels =
-            gatewayStatus == null
-              ? []
-              : getAvailableModelListWithOptions(providerFilterArg, {
-                  expanded: expandedModelList,
-                });
+            gatewayStatus == null ? [] : getAvailableModelList(providerFilterArg);
           const current = resolveRequestedCatalogModelName(
             runtime.model,
             listedModels,

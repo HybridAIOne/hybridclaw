@@ -2,6 +2,7 @@ import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
+import { getOpenAICompatProviderLastError } from '../providers/openai-compat-discovery.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import type { GatewayStatus } from './gateway-types.js';
 
@@ -146,13 +147,25 @@ export function diagnoseProviderForModels(
     case 'xiaomi':
     case 'kilo': {
       const section = (config as unknown as Record<string, unknown>)[filter] as
-        | { enabled: boolean }
+        | { enabled: boolean; baseUrl?: string }
         | undefined;
       if (!section?.enabled) {
         return disabled(filter, buildProviderEnableCommand(filter));
       }
       if (!readApiKeyForOpenAICompatProvider(filter, { required: false })) {
         return unauthorized(filter);
+      }
+      const lastError = getOpenAICompatProviderLastError(filter);
+      if (lastError) {
+        const status = lastError.httpStatus;
+        if (
+          status !== 404 &&
+          status !== 405 &&
+          status !== 401 &&
+          status !== 403
+        ) {
+          return unreachable(filter, section.baseUrl ?? null);
+        }
       }
       return null;
     }

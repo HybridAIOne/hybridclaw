@@ -72,9 +72,15 @@ function prefixModelId(prefix: string, id: string): string {
   return `${prefix}${id}`;
 }
 
+export interface DiscoveryError {
+  httpStatus?: number;
+  message: string;
+}
+
 export interface OpenAICompatDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
+  getLastError: () => DiscoveryError | null;
 }
 
 export function createOpenAICompatDiscoveryStore(
@@ -84,6 +90,7 @@ export function createOpenAICompatDiscoveryStore(
   let discoveredModelNames: string[] = [];
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<string[]> | null = null;
+  let lastError: DiscoveryError | null = null;
 
   function replaceCache(
     modelNames: string[],
@@ -161,9 +168,12 @@ export function createOpenAICompatDiscoveryStore(
     discoveryInFlight = (async () => {
       try {
         await fetchModels(apiKey);
+        lastError = null;
         return [...discoveredModelNames];
       } catch (err) {
         const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
+        const message = err instanceof Error ? err.message : String(err);
+        lastError = { httpStatus, message };
         if (httpStatus === 404 || httpStatus === 405) {
           logger.debug(
             { err, provider: def.id, httpStatus },
@@ -187,6 +197,7 @@ export function createOpenAICompatDiscoveryStore(
   return {
     discoverModels,
     getModelNames: () => [...discoveredModelNames],
+    getLastError: () => (lastError ? { ...lastError } : null),
   };
 }
 
@@ -224,4 +235,10 @@ export function getDiscoveredOpenAICompatRemoteModelNames(): string[] {
   all.push(...getDiscoveredMistralModelNames());
   all.push(...getDiscoveredHuggingFaceModelNames());
   return all;
+}
+
+export function getOpenAICompatProviderLastError(
+  id: RuntimeProviderId,
+): DiscoveryError | null {
+  return defaultStoreRegistry.get(id)?.getLastError() ?? null;
 }

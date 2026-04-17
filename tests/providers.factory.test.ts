@@ -403,7 +403,7 @@ test.each([
     providerId: 'dashscope',
     model: 'dashscope/qwen3-coder-plus',
     envVar: 'DASHSCOPE_API_KEY',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
   },
   {
     providerId: 'xiaomi',

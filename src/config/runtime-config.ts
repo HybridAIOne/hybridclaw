@@ -1145,7 +1145,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   dashscope: {
     enabled: false,
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     models: [...DEFAULT_DASHSCOPE_MODEL_LIST],
   },
   xiaomi: {
@@ -3308,12 +3308,21 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
-/**
- * Legacy Kilo Code base URLs that pointed at the retired `api.kilocode.ai`
- * host. The new canonical host is `api.kilo.ai/api/gateway` (see
- * https://kilo.ai/docs/gateway/api-reference). Self-heal stored configs that
- * still hold the old URL so discovery + chat resume working transparently.
- */
+function migrateProviderBaseUrl(params: {
+  provider: string;
+  baseUrl: string;
+  retired: ReadonlySet<string>;
+  nextDefault: string;
+}): string {
+  if (params.retired.has(params.baseUrl)) {
+    console.warn(
+      `[runtime-config] migrating ${params.provider} baseUrl ${params.baseUrl} -> ${params.nextDefault}`,
+    );
+    return params.nextDefault;
+  }
+  return params.baseUrl;
+}
+
 const RETIRED_KILO_BASE_URLS = new Set<string>([
   'https://api.kilocode.ai/v1',
   'https://api.kilocode.ai',
@@ -3322,19 +3331,14 @@ const RETIRED_KILO_BASE_URLS = new Set<string>([
 ]);
 
 function migrateKiloBaseUrl(baseUrl: string): string {
-  if (RETIRED_KILO_BASE_URLS.has(baseUrl)) {
-    return DEFAULT_RUNTIME_CONFIG.kilo.baseUrl;
-  }
-  return baseUrl;
+  return migrateProviderBaseUrl({
+    provider: 'kilo',
+    baseUrl,
+    retired: RETIRED_KILO_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kilo.baseUrl,
+  });
 }
 
-/**
- * Legacy Kimi base URLs. The previous default was a speculative
- * `api.kimi.com/coding/v1`, but the real Moonshot / Kimi OpenAI-compat
- * endpoint is `api.moonshot.ai/v1` (see https://platform.kimi.ai/docs/api/overview).
- * Migrate old configs transparently so existing installs point at the
- * working host without manual intervention.
- */
 const RETIRED_KIMI_BASE_URLS = new Set<string>([
   'https://api.kimi.com/coding/v1',
   'https://api.kimi.com/coding',
@@ -3344,11 +3348,14 @@ const RETIRED_KIMI_BASE_URLS = new Set<string>([
 ]);
 
 function migrateKimiBaseUrl(baseUrl: string): string {
-  if (RETIRED_KIMI_BASE_URLS.has(baseUrl)) {
-    return DEFAULT_RUNTIME_CONFIG.kimi.baseUrl;
-  }
-  return baseUrl;
+  return migrateProviderBaseUrl({
+    provider: 'kimi',
+    baseUrl,
+    retired: RETIRED_KIMI_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kimi.baseUrl,
+  });
 }
+
 
 function normalizeApiPath(value: unknown, fallback: string): string {
   const normalized = normalizeString(value, fallback, {

@@ -460,8 +460,7 @@ export let KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
 export let MINIMAX_ENABLED = false;
 export let MINIMAX_BASE_URL = 'https://api.minimax.io/v1';
 export let DASHSCOPE_ENABLED = false;
-export let DASHSCOPE_BASE_URL =
-  'https://dashscope.aliyuncs.com/compatible-mode/v1';
+export let DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 export let XIAOMI_ENABLED = false;
 export let XIAOMI_BASE_URL = 'https://api.xiaomimimo.com/v1';
 export let KILO_ENABLED = false;

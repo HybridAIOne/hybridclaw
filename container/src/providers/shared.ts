@@ -115,15 +115,6 @@ export class ProviderRequestError extends Error {
   }
 }
 
-/**
- * Back-compat alias. The class historically lived as `HybridAIRequestError`
- * but is used by every OpenAI-compat provider (HybridAI, OpenRouter, Mistral,
- * Kilo Code, etc.) and was never HybridAI-specific. New code should reference
- * `ProviderRequestError` directly.
- * @deprecated Use {@link ProviderRequestError}.
- */
-export const HybridAIRequestError = ProviderRequestError;
-
 export function isPremiumModelPermissionError(error: unknown): boolean {
   if (!(error instanceof ProviderRequestError) || error.status !== 403) {
     return false;

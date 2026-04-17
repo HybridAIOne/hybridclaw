@@ -39,6 +39,7 @@ import {
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
+import { PROVIDER_ALIASES } from './provider-aliases.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
@@ -122,26 +123,6 @@ function isLocalPrefixedModel(model: string): boolean {
   );
 }
 
-const PROVIDER_FILTER_ALIASES: Record<string, ModelCatalogProviderFilter> = {
-  codex: 'openai-codex',
-  google: 'gemini',
-  'google-gemini': 'gemini',
-  'deep-seek': 'deepseek',
-  grok: 'xai',
-  'x-ai': 'xai',
-  'z-ai': 'zai',
-  glm: 'zai',
-  zhipu: 'zai',
-  moonshot: 'kimi',
-  'kimi-coding': 'kimi',
-  'mini-max': 'minimax',
-  qwen: 'dashscope',
-  alibaba: 'dashscope',
-  mimo: 'xiaomi',
-  kilocode: 'kilo',
-  'kilo-code': 'kilo',
-};
-
 export function normalizeModelCatalogProviderFilter(
   value: string | undefined,
 ): ModelCatalogProviderFilter | null {
@@ -149,7 +130,7 @@ export function normalizeModelCatalogProviderFilter(
     .trim()
     .toLowerCase();
   if (!normalized) return null;
-  const alias = PROVIDER_FILTER_ALIASES[normalized];
+  const alias = PROVIDER_ALIASES[normalized];
   if (alias) return alias;
   if (normalized === 'local' || isRuntimeProviderId(normalized)) {
     return normalized;
@@ -207,13 +188,8 @@ function dedupeModelList(models: string[]): string[] {
   return deduped;
 }
 
-export function getAvailableModelList(provider?: string): string[] {
-  return getAvailableModelListWithOptions(provider);
-}
-
 function collectModelsForProvider(
   filter: ModelCatalogProviderFilter,
-  config: ReturnType<typeof getRuntimeConfig>,
 ): string[] {
   switch (filter) {
     case 'hybridai':
@@ -239,9 +215,9 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (config as unknown as Record<string, unknown>)[filter] as
-        | { enabled: boolean; models: string[] }
-        | undefined;
+      const section = (getRuntimeConfig() as unknown as Record<string, unknown>)[
+        filter
+      ] as { enabled: boolean; models: string[] } | undefined;
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
         ...(section?.enabled ? section.models : []),
@@ -250,17 +226,14 @@ function collectModelsForProvider(
   }
 }
 
-export function getAvailableModelListWithOptions(
-  provider?: string,
-  _opts?: { expanded?: boolean },
-): string[] {
+export function getAvailableModelList(provider?: string): string[] {
   const config = getRuntimeConfig();
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
 
   if (provider && normalizedProvider === null) return [];
 
   const rawModels = normalizedProvider
-    ? collectModelsForProvider(normalizedProvider, config)
+    ? collectModelsForProvider(normalizedProvider)
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),

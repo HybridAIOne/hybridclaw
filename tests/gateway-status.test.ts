@@ -2118,6 +2118,44 @@ test('model list openrouter asks to enable the provider when credentials exist b
   expect(result.text).not.toContain('No models available for provider');
 });
 
+test('model list kilo returns the disabled diagnostic instead of a silent empty list', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.KILO_API_KEY = 'kilo-gateway-status-integration';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.kilo.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-kilo-disabled',
+    guildId: null,
+    channelId: 'channel-model-list-kilo-disabled',
+    args: ['model', 'list', 'kilo'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (kilo)');
+  expect(result.text).toContain('Kilo Code is disabled.');
+  expect(result.text).toContain('config set kilo.enabled true');
+  expect(result.text).toContain('Then rerun `model list kilo`.');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
 test('model list includes discovered HybridAI models', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

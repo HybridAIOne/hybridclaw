@@ -34,8 +34,22 @@ import type {
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
 
+export type OpenAICompatRemoteProviderId =
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'gemini'
+  | 'deepseek'
+  | 'xai'
+  | 'zai'
+  | 'kimi'
+  | 'minimax'
+  | 'dashscope'
+  | 'xiaomi'
+  | 'kilo';
+
 export interface OpenAICompatRemoteProviderDef {
-  id: RuntimeProviderId;
+  id: OpenAICompatRemoteProviderId;
   prefix: string;
   readBaseUrl: () => string;
   readApiKey: (opts?: { required?: boolean }) => string;
@@ -240,19 +254,16 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
     },
   ] as const;
 
-const LEGACY_CUSTOM_PROVIDERS: ReadonlySet<RuntimeProviderId> = new Set([
-  'openrouter',
-  'mistral',
-  'huggingface',
-]);
+const LEGACY_CUSTOM_PROVIDERS: ReadonlySet<OpenAICompatRemoteProviderId> =
+  new Set(['openrouter', 'mistral', 'huggingface'] as const);
 
 const PROVIDER_DEF_BY_ID: ReadonlyMap<
-  RuntimeProviderId,
+  OpenAICompatRemoteProviderId,
   OpenAICompatRemoteProviderDef
 > = new Map(OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def]));
 
 export function getOpenAICompatRemoteProviderDef(
-  id: RuntimeProviderId,
+  id: OpenAICompatRemoteProviderId,
 ): OpenAICompatRemoteProviderDef {
   const def = PROVIDER_DEF_BY_ID.get(id);
   if (!def) throw new Error(`No OpenAI-compat remote provider: ${id}`);
@@ -260,14 +271,17 @@ export function getOpenAICompatRemoteProviderDef(
 }
 
 export function readApiKeyForOpenAICompatProvider(
-  id: RuntimeProviderId,
+  id: OpenAICompatRemoteProviderId,
   opts?: { required?: boolean },
 ): string {
   return getOpenAICompatRemoteProviderDef(id).readApiKey(opts);
 }
 
-function buildProviderMap(): ReadonlyMap<RuntimeProviderId, AIProvider> {
-  const map = new Map<RuntimeProviderId, AIProvider>();
+function buildProviderMap(): ReadonlyMap<
+  OpenAICompatRemoteProviderId,
+  AIProvider
+> {
+  const map = new Map<OpenAICompatRemoteProviderId, AIProvider>();
   for (const def of OPENAI_COMPAT_REMOTE_PROVIDERS) {
     if (LEGACY_CUSTOM_PROVIDERS.has(def.id)) continue;
     map.set(def.id, createOpenAICompatRemoteProvider(def));
@@ -277,7 +291,7 @@ function buildProviderMap(): ReadonlyMap<RuntimeProviderId, AIProvider> {
 
 const _providerMap = buildProviderMap();
 
-function getProvider(id: RuntimeProviderId): AIProvider {
+function getProvider(id: OpenAICompatRemoteProviderId): AIProvider {
   const p = _providerMap.get(id);
   if (!p) {
     throw new Error(`Unknown OpenAI-compat remote provider: ${id}`);

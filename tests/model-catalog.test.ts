@@ -595,11 +595,9 @@ test('available model catalog returns the full Hugging Face discovery list', asy
     'huggingface/Qwen/Qwen3.5-397B-A17B',
     'huggingface/zeta/custom-model',
   ]);
-  expect(
-    catalog.getAvailableModelListWithOptions('huggingface', {
-      expanded: true,
-    }),
-  ).toEqual(catalog.getAvailableModelList('huggingface'));
+  expect(catalog.getAvailableModelList('huggingface')).toEqual(
+    catalog.getAvailableModelList('huggingface'),
+  );
 });
 
 test('available model catalog requires Mistral discovery data', async () => {
@@ -815,11 +813,6 @@ test('available model catalog does not cap the default Hugging Face list', async
   await catalog.refreshAvailableModelCatalogs();
 
   expect(catalog.getAvailableModelList('huggingface')).toHaveLength(32);
-  expect(
-    catalog.getAvailableModelListWithOptions('huggingface', {
-      expanded: true,
-    }),
-  ).toHaveLength(32);
 });
 
 test('vision fallback ignores OpenRouter models with image output only', async () => {

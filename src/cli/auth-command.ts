@@ -9,6 +9,7 @@ import {
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
+import { getProviderAliasesFor } from '../providers/provider-aliases.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   isLocalBackendType,
@@ -569,7 +570,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/openai',
     secretKey: 'GEMINI_API_KEY',
     envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-    aliases: ['google', 'google-gemini'],
+    aliases: getProviderAliasesFor('gemini'),
   },
   {
     id: 'deepseek',
@@ -580,7 +581,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'DEEPSEEK_API_KEY',
     envVarNames: ['DEEPSEEK_API_KEY'],
-    aliases: ['deep-seek'],
+    aliases: getProviderAliasesFor('deepseek'),
   },
   {
     id: 'xai',
@@ -591,7 +592,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'XAI_API_KEY',
     envVarNames: ['XAI_API_KEY'],
-    aliases: ['grok', 'x-ai'],
+    aliases: getProviderAliasesFor('xai'),
   },
   {
     id: 'zai',
@@ -602,7 +603,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v4',
     secretKey: 'ZAI_API_KEY',
     envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
-    aliases: ['z-ai', 'glm', 'zhipu'],
+    aliases: getProviderAliasesFor('zai'),
   },
   {
     id: 'kimi',
@@ -613,7 +614,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'KIMI_API_KEY',
     envVarNames: ['KIMI_API_KEY'],
-    aliases: ['moonshot', 'kimi-coding'],
+    aliases: getProviderAliasesFor('kimi'),
   },
   {
     id: 'minimax',
@@ -624,18 +625,18 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'MINIMAX_API_KEY',
     envVarNames: ['MINIMAX_API_KEY'],
-    aliases: ['mini-max'],
+    aliases: getProviderAliasesFor('minimax'),
   },
   {
     id: 'dashscope',
     label: 'DashScope / Qwen',
     defaultModel: 'dashscope/qwen3-coder-plus',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     baseUrlSuffixPattern: /\/v1$/i,
     baseUrlSuffix: '/v1',
     secretKey: 'DASHSCOPE_API_KEY',
     envVarNames: ['DASHSCOPE_API_KEY'],
-    aliases: ['qwen', 'alibaba'],
+    aliases: getProviderAliasesFor('dashscope'),
   },
   {
     id: 'xiaomi',
@@ -646,7 +647,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'XIAOMI_API_KEY',
     envVarNames: ['XIAOMI_API_KEY'],
-    aliases: ['mimo'],
+    aliases: getProviderAliasesFor('xiaomi'),
   },
   {
     id: 'kilo',
@@ -657,7 +658,7 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/api/gateway',
     secretKey: 'KILO_API_KEY',
     envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
-    aliases: ['kilocode', 'kilo-code'],
+    aliases: getProviderAliasesFor('kilo'),
   },
 ] as const;
 
