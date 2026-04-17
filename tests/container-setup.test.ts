@@ -297,6 +297,42 @@ describe('container image metadata resolution', () => {
     ).resolves.toBe('0.4.1');
   });
 
+  test('keeps the abbreviated image id when no version is detectable', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              Id: 'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+              RepoTags: ['hybridclaw-agent:latest'],
+              Config: {
+                Labels: {},
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageStatus('hybridclaw-agent'),
+    ).resolves.toEqual({
+      version: null,
+      shortId: 'abcdef123456',
+    });
+  });
+
   test('falls back to a version-like repo tag when labels are missing', async () => {
     const spawnMock = vi.fn((command: string, args: string[]) => {
       if (

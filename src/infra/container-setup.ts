@@ -45,17 +45,22 @@ function runCommand(
   command: string,
   args: string[],
   cwd?: string,
-  env?: NodeJS.ProcessEnv,
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    captureStdout?: boolean;
+  },
 ): Promise<{ code: number | null; out?: string; err?: string }> {
   return new Promise((resolve) => {
+    const captureStdout = options?.captureStdout === true;
     const proc = spawn(command, args, {
       cwd,
-      env,
+      env: options?.env,
       stdio: 'pipe',
     });
-    let out = '';
+    let out = captureStdout ? '' : undefined;
     let err = '';
     proc.stdout.on('data', (chunk) => {
+      if (!captureStdout) return;
       out += chunk.toString('utf-8');
     });
     proc.stderr.on('data', (chunk) => {
@@ -210,6 +215,7 @@ function parseContainerImageStatus(
     version: extractVersionFromImageRef(imageName),
     shortId: null,
   };
+  let shortId: string | null = null;
   try {
     const parsed: unknown = JSON.parse(String(inspectOutput || '[]'));
     if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -220,7 +226,7 @@ function parseContainerImageStatus(
       return fallback;
     }
 
-    const shortId =
+    shortId =
       typeof imageRecord.Id === 'string'
         ? normalizeContainerImageShortId(imageRecord.Id)
         : null;
@@ -246,7 +252,7 @@ function parseContainerImageStatus(
   } catch {
     return fallback;
   }
-  return { version: null, shortId: null };
+  return { version: null, shortId };
 }
 
 export async function resolveContainerImageStatus(
@@ -256,7 +262,14 @@ export async function resolveContainerImageStatus(
     version: extractVersionFromImageRef(imageName),
     shortId: null,
   };
-  const result = await runCommand('docker', ['image', 'inspect', imageName]);
+  const result = await runCommand(
+    'docker',
+    ['image', 'inspect', imageName],
+    undefined,
+    {
+      captureStdout: true,
+    },
+  );
   if (result.code !== 0) return fallback;
   return parseContainerImageStatus(result.out, imageName);
 }
@@ -297,8 +310,10 @@ async function buildContainerImage(
   imageName: string,
 ): Promise<void> {
   const result = await runCommand('npm', ['run', 'build:container'], cwd, {
-    ...process.env,
-    HYBRIDCLAW_CONTAINER_IMAGE: imageName,
+    env: {
+      ...process.env,
+      HYBRIDCLAW_CONTAINER_IMAGE: imageName,
+    },
   });
   if (result.code !== 0) {
     throw new Error(
