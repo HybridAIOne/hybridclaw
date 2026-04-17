@@ -5433,17 +5433,9 @@ describe('gateway HTTP server', () => {
           }),
       ),
     );
-    expect(body.commands).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'demo_status',
-          label: '/demo_status',
-          insertText: '/demo_status',
-          description: 'Run the demo plugin status command',
-          depth: 1,
-        }),
-      ]),
-    );
+    // Plugin command inclusion is verified by the query-based test below;
+    // with an empty query the ranked result is capped at MAX_RESULTS, so a
+    // specific plugin entry may be truncated as the built-in catalog grows.
     for (const cmd of body.commands) {
       expect(cmd).toEqual(
         expect.objectContaining({
