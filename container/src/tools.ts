@@ -3201,7 +3201,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'bash',
-      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
+      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
       parameters: {
         type: 'object',
         properties: {

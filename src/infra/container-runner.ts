@@ -61,6 +61,7 @@ import type {
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
+import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -121,6 +122,7 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
+const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
@@ -483,6 +485,11 @@ function getOrSpawnContainer(
     sessionId,
     agentId,
     workspacePathOverride: params.workspacePathOverride,
+  });
+  fs.mkdirSync(workspacePath, { recursive: true });
+  ensureWorkspaceNodeModulesLink(workspacePath, CONTAINER_APP_NODE_MODULES, {
+    allowMissingSource: true,
+    replaceExistingSymlink: true,
   });
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });

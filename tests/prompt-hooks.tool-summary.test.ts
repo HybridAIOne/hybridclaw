@@ -148,6 +148,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
   );
   expect(prompt).toContain(
+    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
+  );
+  expect(prompt).toContain(
     'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',
   );
   expect(prompt).toContain(
