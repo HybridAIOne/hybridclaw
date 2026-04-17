@@ -194,7 +194,6 @@ import {
   getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -221,7 +220,6 @@ import {
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
-import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
   getAvailableModelListWithOptions,
@@ -236,13 +234,13 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
+import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
-import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -1508,19 +1506,25 @@ function buildGatewayProviderHealth(params: {
     {
       key: 'openrouter',
       enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(readOpenRouterApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
     },
     {
       key: 'mistral',
       enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(readMistralApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
     },
     {
       key: 'huggingface',
       enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(readHuggingFaceApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
     },
   ] as const;

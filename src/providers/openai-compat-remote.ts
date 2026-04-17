@@ -5,12 +5,18 @@ import {
   DEEPSEEK_BASE_URL,
   GEMINI_API_KEY,
   GEMINI_BASE_URL,
+  HUGGINGFACE_API_KEY,
+  HUGGINGFACE_BASE_URL,
   KILO_API_KEY,
   KILO_BASE_URL,
   KIMI_API_KEY,
   KIMI_BASE_URL,
   MINIMAX_API_KEY,
   MINIMAX_BASE_URL,
+  MISTRAL_API_KEY,
+  MISTRAL_BASE_URL,
+  OPENROUTER_API_KEY,
+  OPENROUTER_BASE_URL,
   XAI_API_KEY,
   XAI_BASE_URL,
   XIAOMI_API_KEY,
@@ -84,6 +90,46 @@ export function createOpenAICompatRemoteProvider(
 
 export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProviderDef[] =
   [
+    {
+      id: 'openrouter',
+      prefix: 'openrouter/',
+      readBaseUrl: () => OPENROUTER_BASE_URL,
+      readApiKey: (opts) =>
+        readProviderApiKey(
+          () => [process.env.OPENROUTER_API_KEY, OPENROUTER_API_KEY],
+          'OPENROUTER_API_KEY',
+          opts,
+        ),
+      missingEnvVar: 'OPENROUTER_API_KEY',
+    },
+    {
+      id: 'mistral',
+      prefix: 'mistral/',
+      readBaseUrl: () => MISTRAL_BASE_URL,
+      readApiKey: (opts) =>
+        readProviderApiKey(
+          () => [process.env.MISTRAL_API_KEY, MISTRAL_API_KEY],
+          'MISTRAL_API_KEY',
+          opts,
+        ),
+      missingEnvVar: 'MISTRAL_API_KEY',
+    },
+    {
+      id: 'huggingface',
+      prefix: 'huggingface/',
+      readBaseUrl: () => HUGGINGFACE_BASE_URL,
+      readApiKey: (opts) =>
+        readProviderApiKey(
+          () => [
+            process.env.HF_TOKEN,
+            process.env.HUGGINGFACE_API_KEY,
+            HUGGINGFACE_API_KEY,
+          ],
+          'HF_TOKEN',
+          opts,
+        ),
+      missingEnvVar: 'HF_TOKEN',
+    },
     {
       id: 'gemini',
       prefix: 'gemini/',
@@ -217,9 +263,37 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
 // Individual provider instances (backward compatibility with factory.ts)
 // ---------------------------------------------------------------------------
 
+// openrouter / mistral / huggingface live in the registry for shared API-key
+// and base-URL resolution, but keep their custom AIProvider implementations in
+// their own modules (attribution headers, alias normalization, etc.).
+const LEGACY_CUSTOM_PROVIDERS: ReadonlySet<RuntimeProviderId> = new Set([
+  'openrouter',
+  'mistral',
+  'huggingface',
+]);
+
+const PROVIDER_DEF_BY_ID: ReadonlyMap<RuntimeProviderId, OpenAICompatRemoteProviderDef> =
+  new Map(OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def]));
+
+export function getOpenAICompatRemoteProviderDef(
+  id: RuntimeProviderId,
+): OpenAICompatRemoteProviderDef {
+  const def = PROVIDER_DEF_BY_ID.get(id);
+  if (!def) throw new Error(`No OpenAI-compat remote provider: ${id}`);
+  return def;
+}
+
+export function readApiKeyForOpenAICompatProvider(
+  id: RuntimeProviderId,
+  opts?: { required?: boolean },
+): string {
+  return getOpenAICompatRemoteProviderDef(id).readApiKey(opts);
+}
+
 function buildProviderMap(): ReadonlyMap<RuntimeProviderId, AIProvider> {
   const map = new Map<RuntimeProviderId, AIProvider>();
   for (const def of OPENAI_COMPAT_REMOTE_PROVIDERS) {
+    if (LEGACY_CUSTOM_PROVIDERS.has(def.id)) continue;
     map.set(def.id, createOpenAICompatRemoteProvider(def));
   }
   return map;

@@ -4,10 +4,10 @@ import {
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
 } from './openrouter-discovery.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
-  readOpenRouterApiKey,
 } from './openrouter-utils.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
@@ -26,7 +26,7 @@ async function resolveOpenRouterRuntimeCredentials(
   await discoverOpenRouterModels();
   return {
     provider: 'openrouter',
-    apiKey: readOpenRouterApiKey({ required: true }),
+    apiKey: readApiKeyForOpenAICompatProvider('openrouter', { required: true }),
     baseUrl: normalizeBaseUrl(OPENROUTER_BASE_URL),
     chatbotId: '',
     enableRag: false,

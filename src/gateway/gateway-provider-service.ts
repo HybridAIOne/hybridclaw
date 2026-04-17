@@ -1,37 +1,9 @@
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
-import { readMistralApiKey } from '../providers/mistral-utils.js';
 import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
-import { OPENAI_COMPAT_REMOTE_PROVIDERS } from '../providers/openai-compat-remote.js';
-import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
+import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import type { GatewayStatus } from './gateway-types.js';
-
-type ApiKeyedProvider = Exclude<
-  ModelCatalogProviderFilter,
-  | 'local'
-  | 'hybridai'
-  | 'openai-codex'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm'
->;
-const READ_API_KEY: Record<
-  ApiKeyedProvider,
-  (opts?: { required?: boolean }) => string
-> = {
-  openrouter: readOpenRouterApiKey,
-  mistral: readMistralApiKey,
-  huggingface: readHuggingFaceApiKey,
-  ...(Object.fromEntries(
-    OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def.readApiKey]),
-  ) as Record<
-    Exclude<ApiKeyedProvider, 'openrouter' | 'mistral' | 'huggingface'>,
-    (opts?: { required?: boolean }) => string
-  >),
-};
 
 export type ProviderDiagnosticKind =
   | 'disabled'
@@ -179,7 +151,7 @@ export function diagnoseProviderForModels(
       if (!section?.enabled) {
         return disabled(filter, buildProviderEnableCommand(filter));
       }
-      if (!READ_API_KEY[filter]({ required: false })) {
+      if (!readApiKeyForOpenAICompatProvider(filter, { required: false })) {
         return unauthorized(filter);
       }
       return null;
@@ -204,4 +176,3 @@ export function diagnoseProviderForModels(
     }
   }
 }
-

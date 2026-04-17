@@ -1,9 +1,7 @@
 import { HUGGINGFACE_BASE_URL } from '../config/config.js';
 import { getDiscoveredHuggingFaceModelContextWindow } from './huggingface-discovery.js';
-import {
-  HUGGINGFACE_MODEL_PREFIX,
-  readHuggingFaceApiKey,
-} from './huggingface-utils.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -20,7 +18,7 @@ async function resolveHuggingFaceRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'huggingface',
-    apiKey: readHuggingFaceApiKey({ required: true }),
+    apiKey: readApiKeyForOpenAICompatProvider('huggingface', { required: true }),
     baseUrl: normalizeBaseUrl(HUGGINGFACE_BASE_URL),
     chatbotId: '',
     enableRag: false,
