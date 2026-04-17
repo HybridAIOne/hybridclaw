@@ -206,7 +206,7 @@ Notes:
 | Surface | Can answer approvals? | UX | Local-only commands available? | Notes |
 | --- | --- | --- | --- | --- |
 | TUI (`hybridclaw tui`) | Yes | Interactive picker, numeric shortcuts, exact text replies, `/approve ...` | Yes | Best surface when many approvals may stack up |
-| Web chat (`/chat`) | Yes | Buttons plus typed replies | Yes | Pending approval ids are cached in the UI |
+| Web chat (`/admin/chat`) | Yes | Buttons plus typed replies | Yes | Pending approval ids are cached in the UI |
 | Remote text channels | Yes | Plain text replies | No | Best to use exact approval phrases and include the approval id when needed |
 | Voice (`voice:*`) | Yes | Spoken reply is transcribed and treated as plain text | No | Use exact phrases such as `yes`, `yes for session`, `yes for agent`, `yes for all`, or `no` |
 
@@ -254,4 +254,4 @@ air on a phone call is worse than the pause window used on text surfaces.
 | `src/commands/policy-command.ts` | Shared CLI and slash-command policy command runner |
 | `src/gateway/pending-approvals.ts` | Gateway-side pending approval cache for button and reply helpers |
 | `src/tui.ts` | TUI picker, numeric shortcuts, and `/approve` replay handling |
-| `docs/chat.html` | Embedded web chat approval buttons and cached approval handling |
+| `console/src/routes/chat/` | Embedded web chat approval buttons and cached approval handling |

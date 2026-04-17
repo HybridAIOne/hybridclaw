@@ -56,7 +56,7 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   [Commands](./reference/commands.md) and
   [Diagnostics](./reference/diagnostics.md).
 - Need setup answers before deploying? Go to [FAQ](./reference/faq.md).
-- Need to reach `/chat`, `/agents`, or `/admin` from another machine? Go to
+- Need to reach `/admin/chat`, `/agents`, or `/admin` from another machine? Go to
   [Remote Access](./guides/remote-access.md).
 - Need one markdown page that links the whole docs tree? Go to
   [For Agents](./agents.md).

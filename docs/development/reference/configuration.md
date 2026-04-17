@@ -129,7 +129,7 @@ leak into the saved revision metadata.
   the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
-- `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
+- `ops.webApiToken` or `WEB_API_TOKEN` for `/admin/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
   the local TUI, eval workflows, and client-side gateway commands that should

@@ -7,7 +7,7 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   icon: ComponentType;
   active?: true;
 }> = [
-  { href: '/chat', label: 'Chat', icon: Chat },
+  { href: '/admin/chat', label: 'Chat', icon: Chat },
   { href: '/agents', label: 'Agents', icon: Agents },
   { href: '/admin', label: 'Admin', icon: Admin, active: true },
   {

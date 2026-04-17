@@ -62,7 +62,7 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file
 - you want to inspect pending approvals and compare them with the declarative
-  network policy without switching to `/chat` or opening the workspace files
+  network policy without switching to `/admin/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser
 - you want explicit browser confirmation before destructive operator actions
 - you want to restart a running gateway from `/admin/gateway` without

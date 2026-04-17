@@ -12,7 +12,7 @@ shortest path is:
 1. install the CLI
 2. run onboarding and provider login
 3. start the gateway
-4. open `/chat`, `/agents`, `/admin`, or the TUI
+4. open `/admin/chat`, `/agents`, `/admin`, or the TUI
 
 ## In This Section
 
