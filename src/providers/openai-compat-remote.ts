@@ -25,7 +25,6 @@ import {
   ZAI_BASE_URL,
 } from '../config/config.js';
 import { readProviderApiKey } from './provider-api-key-utils.js';
-import type { RuntimeProviderId } from './provider-ids.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
