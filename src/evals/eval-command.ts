@@ -4520,15 +4520,6 @@ export async function handleEvalCommand(
     });
   }
 
-  if (isHybridaiSkillsAlias(action)) {
-    return await handleHybridaiSkillsCommand({
-      dataDir: params.dataDir,
-      env,
-      subcommand: 'help',
-      args: [],
-    });
-  }
-
   if (action === 'run') {
     if (isTau2Alias(parsed.commandArgs[0] || '')) {
       return await handleTau2Command({

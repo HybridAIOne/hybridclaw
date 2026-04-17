@@ -7,16 +7,6 @@ import { logger } from '../logger.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
 
-type HybridaiSkillsSubcommand = 'help' | 'setup' | 'list' | 'run' | 'results';
-
-const SUBCOMMANDS: ReadonlySet<string> = new Set<HybridaiSkillsSubcommand>([
-  'help',
-  'setup',
-  'list',
-  'run',
-  'results',
-]);
-
 export type HybridaiSkillFixtureMode = 'implicit' | 'explicit';
 export type HybridaiSkillFixtureKind = 'try-it' | 'conversation';
 
@@ -388,12 +378,7 @@ export async function handleHybridaiSkillsCommand(params: {
     .toLowerCase();
   const sub = rawSub || 'help';
   const args = params.args ?? [];
-  if (
-    !SUBCOMMANDS.has(sub) ||
-    sub === 'help' ||
-    sub === '--help' ||
-    sub === '-h'
-  ) {
+  if (sub === 'help' || sub === '--help' || sub === '-h') {
     return infoResult(
       'hybridai-skills',
       renderHybridaiSkillsUsage(params.env, params.dataDir),
@@ -758,10 +743,14 @@ async function runFixtureLive(
   }
   const payload = (await response.json()) as unknown;
   const parsed = parseChatCompletion(payload);
+  // Always grade from the tool trace. `resolveObservedSkillName` short-circuits
+  // on `explicitSkillName`, so passing `fixture.skill` here for explicit-mode
+  // fixtures would make them trivially pass without verifying the model ever
+  // invoked the skill's tools. The fixture's `mode` field remains useful as a
+  // filter and for reporting, but must not influence observation.
   const observedSkill = resolveObservedSkillName({
     skills,
     toolExecutions: parsed.toolExecutions,
-    explicitSkillName: fixture.mode === 'explicit' ? fixture.skill : undefined,
   });
   const toolNames = parsed.toolExecutions.map((exec) => exec.name);
   const expected = fixture.skill;

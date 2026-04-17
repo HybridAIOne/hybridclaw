@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   type HybridaiSkillFixture,
+  handleHybridaiSkillsCommand,
   harvestHybridaiSkillsFixtures,
   readHybridaiSkillsFixtures,
   writeHybridaiSkillsFixtures,
@@ -157,5 +158,96 @@ describe('fixture store round-trip', () => {
   test('returns null when no fixtures are on disk', () => {
     const dataDir = makeTempDir();
     expect(readHybridaiSkillsFixtures(dataDir)).toBeNull();
+  });
+});
+
+describe('handleHybridaiSkillsCommand dispatch', () => {
+  const env = {
+    baseUrl: 'http://127.0.0.1:9090/v1',
+    apiKey: 'hybridclaw-local',
+    model: 'hybridai/gpt-4.1-mini',
+  };
+
+  test('returns an error (not help) for an unknown subcommand', async () => {
+    const dataDir = makeTempDir();
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env,
+      subcommand: 'bogus',
+    });
+    expect(result.kind).toBe('error');
+    expect(result.text).toMatch(/Unknown hybridai-skills command/);
+  });
+
+  test('shows help for bare invocation and for explicit help flags', async () => {
+    const dataDir = makeTempDir();
+    const bare = await handleHybridaiSkillsCommand({ dataDir, env });
+    expect(bare.kind).toBe('info');
+    expect(bare.text).toMatch(/Usage:/);
+    const withHelp = await handleHybridaiSkillsCommand({
+      dataDir,
+      env,
+      subcommand: 'help',
+    });
+    expect(withHelp.kind).toBe('info');
+  });
+});
+
+describe('live runner grading', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('does not short-circuit on explicit-mode fixtures; empty tool trace fails', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:code-review:try-it:1',
+      docFile: 'synthetic.md',
+      skill: 'code-review',
+      prompt: '/code-review review current branch',
+      mode: 'explicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+
+    const mockFetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Sure, I can help with that.',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: {
+        baseUrl: 'http://127.0.0.1:9090/v1',
+        apiKey: 'hybridclaw-local',
+        model: 'hybridai/gpt-4.1-mini',
+      },
+      subcommand: 'run',
+      args: ['--live', '--max', '1'],
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed:\s+0/);
+    expect(result.text).toMatch(/Failed:\s+1/);
+    expect(result.text).toMatch(/FAIL\s+synthetic:code-review:try-it:1/);
+    expect(result.text).toMatch(/no skill observed in tool trace/);
   });
 });
