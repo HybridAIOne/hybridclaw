@@ -4632,12 +4632,14 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     };
   }
   const sortedProviderStatus = Object.fromEntries(
-    Object.entries(providerStatus).sort(([leftKey, left], [rightKey, right]) => {
-      const leftEnabled = left.reachable === true;
-      const rightEnabled = right.reachable === true;
-      if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
-      return leftKey.localeCompare(rightKey);
-    }),
+    Object.entries(providerStatus).sort(
+      ([leftKey, left], [rightKey, right]) => {
+        const leftEnabled = left.reachable === true;
+        const rightEnabled = right.reachable === true;
+        if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+        return leftKey.localeCompare(rightKey);
+      },
+    ),
   ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
 
   return {
