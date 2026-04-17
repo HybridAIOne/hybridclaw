@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { buildDefaultEvalProfile } from '../src/evals/eval-profile.js';
 import {
   type HybridaiSkillFixture,
   handleHybridaiSkillsCommand,
@@ -17,6 +18,39 @@ const makeTempDir = useTempDir('hybridclaw-hybridai-skills-');
 function writeDoc(dir: string, filename: string, body: string): string {
   const target = path.join(dir, filename);
   fs.writeFileSync(target, body, 'utf8');
+  return target;
+}
+
+function writeAuditWire(
+  dataDir: string,
+  sessionId: string,
+  events: Array<Record<string, unknown>>,
+): string {
+  const safeSessionDir =
+    sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
+  const target = path.join(dataDir, 'audit', safeSessionDir, 'wire.jsonl');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const lines = [
+    JSON.stringify({
+      type: 'metadata',
+      protocolVersion: '2.0',
+      sessionId,
+      createdAt: '2026-04-17T00:00:00.000Z',
+    }),
+    ...events.map((event, index) =>
+      JSON.stringify({
+        version: '2.0',
+        seq: index + 1,
+        timestamp: `2026-04-17T00:00:00.${String(index).padStart(3, '0')}Z`,
+        runId: 'run_test',
+        sessionId,
+        event,
+        _prevHash: `prev_${index}`,
+        _hash: `hash_${index}`,
+      }),
+    ),
+  ];
+  fs.writeFileSync(target, `${lines.join('\n')}\n`, 'utf8');
   return target;
 }
 
@@ -166,6 +200,8 @@ describe('handleHybridaiSkillsCommand dispatch', () => {
     baseUrl: 'http://127.0.0.1:9090/v1',
     apiKey: 'hybridclaw-local',
     model: 'hybridai/gpt-4.1-mini',
+    baseModel: 'hybridai/gpt-4.1-mini',
+    profile: buildDefaultEvalProfile(),
   };
 
   test('returns an error (not help) for an unknown subcommand', async () => {
@@ -197,6 +233,16 @@ describe('live runner grading', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  function makeEnv() {
+    return {
+      baseUrl: 'http://127.0.0.1:9090/v1',
+      apiKey: 'hybridclaw-local',
+      model: 'hybridai/gpt-4.1-mini',
+      baseModel: 'hybridai/gpt-4.1-mini',
+      profile: buildDefaultEvalProfile(),
+    };
+  }
 
   test('does not short-circuit on explicit-mode fixtures; empty tool trace fails', async () => {
     const dataDir = makeTempDir();
@@ -235,11 +281,7 @@ describe('live runner grading', () => {
 
     const result = await handleHybridaiSkillsCommand({
       dataDir,
-      env: {
-        baseUrl: 'http://127.0.0.1:9090/v1',
-        apiKey: 'hybridclaw-local',
-        model: 'hybridai/gpt-4.1-mini',
-      },
+      env: makeEnv(),
       subcommand: 'run',
       args: ['--live', '--max', '1'],
     });
@@ -250,5 +292,235 @@ describe('live runner grading', () => {
     expect(result.text).toMatch(/Failed\s+1/);
     expect(result.text).toMatch(/synthetic:code-review:try-it:1/);
     expect(result.text).toMatch(/no skill observed in tool trace/);
+  });
+
+  test('defaults to fresh-agent per fixture and grades from the audit trace', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:1',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    const sessionId = 'sess_pdf_eval_1';
+    const auditPath = writeAuditWire(dataDir, sessionId, [
+      {
+        type: 'session.start',
+        cwd: '/tmp/eval-agent/workspace',
+      },
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-1',
+        toolName: 'read',
+        arguments: { path: 'skills/pdf/SKILL.md' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-1',
+        toolName: 'read',
+        resultSummary: 'pdf skill',
+        durationMs: 1,
+        isError: false,
+        blocked: false,
+      },
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { model?: string };
+      expect(body.model).toContain('__hc_eval=fresh-agent');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Done.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': sessionId,
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1'],
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed\s+1\/1/);
+    expect(result.text).toContain('Profile');
+
+    const latestRun = JSON.parse(
+      fs.readFileSync(
+        path.join(dataDir, 'evals', 'hybridai-skills', 'latest-run.json'),
+        'utf8',
+      ),
+    ) as {
+      profile: { workspaceMode: string };
+      runs: Array<{
+        results: Array<{ sessionId?: string; auditPath?: string }>;
+      }>;
+    };
+    expect(latestRun.profile.workspaceMode).toBe('fresh-agent');
+    expect(latestRun.runs[0]?.results[0]?.sessionId).toBe(sessionId);
+    expect(latestRun.runs[0]?.results[0]?.auditPath).toBe(auditPath);
+  });
+
+  test('supports suite-local current-agent override after run', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:2',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    const sessionId = 'sess_pdf_eval_2';
+    writeAuditWire(dataDir, sessionId, [
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-1',
+        toolName: 'read',
+        arguments: { path: 'skills/pdf/SKILL.md' },
+      },
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { model?: string };
+      expect(body.model).toBe('hybridai/gpt-4.1-mini');
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'Done.' } }],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': sessionId,
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1', '--current-agent'],
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed\s+1\/1/);
+  });
+
+  test('runs multiple models and renders a comparison section', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:3',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    writeAuditWire(dataDir, 'sess_model_a', [
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+    writeAuditWire(dataDir, 'sess_model_b', [
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+
+    const responses = ['sess_model_a', 'sess_model_b'].map(
+      (sessionId) =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { role: 'assistant', content: 'Done.' } }],
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+              'x-hybridclaw-session-id': sessionId,
+            },
+          },
+        ),
+    );
+    const mockFetch = vi.fn(async () => responses.shift() as Response);
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1', '--model', 'model-a,model-b'],
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.kind).toBe('info');
+    expect(result.text).toContain('Comparison');
+    expect(result.text).toContain('model-a');
+    expect(result.text).toContain('model-b');
+
+    const latestRun = JSON.parse(
+      fs.readFileSync(
+        path.join(dataDir, 'evals', 'hybridai-skills', 'latest-run.json'),
+        'utf8',
+      ),
+    ) as { runs: Array<{ model: string }> };
+    expect(latestRun.runs.map((run) => run.model)).toEqual([
+      'model-a',
+      'model-b',
+    ]);
   });
 });

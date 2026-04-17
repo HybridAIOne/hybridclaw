@@ -4539,6 +4539,7 @@ export async function handleEvalCommand(
       return await handleHybridaiSkillsCommand({
         dataDir: params.dataDir,
         env,
+        workspaceModeExplicit: parsed.workspaceModeExplicit,
         subcommand: parsed.commandArgs[1],
         args: parsed.commandArgs.slice(2),
       });

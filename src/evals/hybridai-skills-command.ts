@@ -10,6 +10,13 @@ import {
   renderKeyValueSection,
   resolveHarnessVersion,
 } from './eval-command.js';
+import {
+  buildDefaultEvalProfile,
+  describeEvalProfile,
+  type EvalProfile,
+  encodeEvalProfileModel,
+  isKnownEvalPromptPart,
+} from './eval-profile.js';
 
 export type HybridaiSkillFixtureMode = 'implicit' | 'explicit';
 export type HybridaiSkillFixtureKind = 'try-it' | 'conversation';
@@ -37,33 +44,52 @@ interface FixtureGradeResult {
   status: 'passed' | 'failed' | 'skipped';
   observedSkill: string | null;
   toolNames: string[];
+  sessionId?: string;
+  auditPath?: string;
+  observationSource?: 'audit.skill.execution' | 'audit.tool.trace' | 'response';
   reason?: string;
   durationMs: number;
   assistantPreview?: string;
+}
+
+interface HybridaiSkillsModelRunSummary {
+  model: string;
+  profiledModel: string;
+  startedAt: string;
+  finishedAt: string;
+  executedFixtures: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  results: FixtureGradeResult[];
 }
 
 interface HybridaiSkillsRunSummary {
   startedAt: string;
   finishedAt: string;
   baseUrl: string;
-  model: string;
   mode: 'dry-run' | 'live';
   totalFixtures: number;
-  executedFixtures: number;
-  passed: number;
-  failed: number;
-  skipped: number;
+  profile?: EvalProfile;
+  model?: string;
+  executedFixtures?: number;
+  passed?: number;
+  failed?: number;
+  skipped?: number;
   filterSkill?: string;
   filterMode?: HybridaiSkillFixtureMode;
   maxFixtures?: number;
   forceExplicit?: boolean;
-  results: FixtureGradeResult[];
+  results?: FixtureGradeResult[];
+  runs?: HybridaiSkillsModelRunSummary[];
 }
 
-interface EvalEnvironmentLike {
+interface HybridaiSkillsEvalEnvironment {
   baseUrl: string;
   apiKey: string;
   model: string;
+  baseModel: string;
+  profile: EvalProfile;
 }
 
 export function isHybridaiSkillsAlias(value: string): boolean {
@@ -374,7 +400,8 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
 
 export async function handleHybridaiSkillsCommand(params: {
   dataDir: string;
-  env: EvalEnvironmentLike;
+  env: HybridaiSkillsEvalEnvironment;
+  workspaceModeExplicit?: boolean;
   subcommand?: string;
   args?: string[];
 }): Promise<GatewayCommandResult> {
@@ -398,6 +425,7 @@ export async function handleHybridaiSkillsCommand(params: {
       return await handleRun({
         dataDir: params.dataDir,
         env: params.env,
+        workspaceModeExplicit: params.workspaceModeExplicit,
         args,
       });
     case 'results':
@@ -498,7 +526,8 @@ function renderFixtureLine(fixture: HybridaiSkillFixture): string {
 
 async function handleRun(params: {
   dataDir: string;
-  env: EvalEnvironmentLike;
+  env: HybridaiSkillsEvalEnvironment;
+  workspaceModeExplicit?: boolean;
   args: string[];
 }): Promise<GatewayCommandResult> {
   const set = readHybridaiSkillsFixtures(params.dataDir);
@@ -522,47 +551,83 @@ async function handleRun(params: {
   const capped = parsed.max ? filtered.slice(0, parsed.max) : filtered;
   const installRoot = resolveInstallRootSafe();
   const skills = loadBundledSkillCatalogForGrader(installRoot);
+  const profile = resolveHybridaiSkillsRunProfile({
+    baseProfile: params.env.profile,
+    workspaceModeExplicit: params.workspaceModeExplicit,
+    runFlags: parsed,
+  });
+  const models = resolveRequestedModels(params.env.baseModel, parsed.models);
   const startedAt = new Date().toISOString();
-  const results: FixtureGradeResult[] = [];
-  for (const fixture of capped) {
-    if (parsed.dryRun) {
-      results.push(evaluateFixtureStatic(fixture, skills));
-      continue;
+  const runs: HybridaiSkillsModelRunSummary[] = [];
+  for (const model of models) {
+    const profiledModel = encodeEvalProfileModel(model, profile);
+    const modelStartedAt = new Date().toISOString();
+    const results: FixtureGradeResult[] = [];
+    for (const fixture of capped) {
+      if (parsed.dryRun) {
+        results.push(evaluateFixtureStatic(fixture, skills));
+        continue;
+      }
+      try {
+        results.push(
+          await runFixtureLive(
+            fixture,
+            {
+              baseUrl: params.env.baseUrl,
+              apiKey: params.env.apiKey,
+              model: profiledModel,
+            },
+            skills,
+            params.dataDir,
+            {
+              forceExplicit: parsed.forceExplicit,
+            },
+          ),
+        );
+      } catch (error) {
+        results.push({
+          fixture,
+          status: 'failed',
+          observedSkill: null,
+          toolNames: [],
+          reason: `Error: ${(error as Error).message}`,
+          durationMs: 0,
+        });
+      }
     }
-    try {
-      results.push(
-        await runFixtureLive(fixture, params.env, skills, {
-          forceExplicit: parsed.forceExplicit,
-        }),
-      );
-    } catch (error) {
-      results.push({
-        fixture,
-        status: 'failed',
-        observedSkill: null,
-        toolNames: [],
-        reason: `Error: ${(error as Error).message}`,
-        durationMs: 0,
-      });
-    }
+    const modelFinishedAt = new Date().toISOString();
+    runs.push({
+      model,
+      profiledModel,
+      startedAt: modelStartedAt,
+      finishedAt: modelFinishedAt,
+      executedFixtures: results.length,
+      passed: results.filter((result) => result.status === 'passed').length,
+      failed: results.filter((result) => result.status === 'failed').length,
+      skipped: results.filter((result) => result.status === 'skipped').length,
+      results,
+    });
   }
   const finishedAt = new Date().toISOString();
+  const totals = summarizeHybridaiSkillsRuns(runs);
   const summary: HybridaiSkillsRunSummary = {
     startedAt,
     finishedAt,
     baseUrl: params.env.baseUrl,
-    model: params.env.model,
     mode: parsed.dryRun ? 'dry-run' : 'live',
     totalFixtures: set.fixtures.length,
-    executedFixtures: results.length,
-    passed: results.filter((r) => r.status === 'passed').length,
-    failed: results.filter((r) => r.status === 'failed').length,
-    skipped: results.filter((r) => r.status === 'skipped').length,
+    profile,
+    model: runs[0]?.model,
+    executedFixtures: totals.executedFixtures,
+    passed: totals.passed,
+    failed: totals.failed,
+    skipped: totals.skipped,
     filterSkill: parsed.skill,
     filterMode: parsed.mode,
     maxFixtures: parsed.max,
     forceExplicit: parsed.forceExplicit ? true : undefined,
-    results,
+    results: runs[0]?.results ?? [],
+    runs,
   };
   writeLatestRun(params.dataDir, summary);
   return infoResult(
@@ -595,11 +660,19 @@ interface ParsedRunFlags {
   mode?: HybridaiSkillFixtureMode;
   kind?: HybridaiSkillFixtureKind;
   forceExplicit?: boolean;
+  models: string[];
+  profile: EvalProfile;
+  workspaceModeExplicit: boolean;
   error?: string;
 }
 
 function parseRunFlags(args: string[]): ParsedRunFlags {
-  const parsed: ParsedRunFlags = { dryRun: false };
+  const parsed: ParsedRunFlags = {
+    dryRun: false,
+    models: [],
+    profile: buildDefaultEvalProfile(),
+    workspaceModeExplicit: false,
+  };
   for (let index = 0; index < args.length; index += 1) {
     const raw = String(args[index] || '').trim();
     if (!raw) continue;
@@ -617,6 +690,21 @@ function parseRunFlags(args: string[]): ParsedRunFlags {
     }
     const [flagRaw, inlineValue] = splitFlag(raw);
     const flag = flagRaw.toLowerCase();
+    if (flag === '--current-agent') {
+      parsed.profile.workspaceMode = 'current-agent';
+      parsed.workspaceModeExplicit = true;
+      continue;
+    }
+    if (flag === '--fresh-agent') {
+      parsed.profile.workspaceMode = 'fresh-agent';
+      delete parsed.profile.agentId;
+      parsed.workspaceModeExplicit = true;
+      continue;
+    }
+    if (flag === '--ablate-system') {
+      parsed.profile.ablateSystemPrompt = true;
+      continue;
+    }
     const value =
       inlineValue !== undefined ? inlineValue : (args[index + 1] ?? '');
     switch (flag) {
@@ -662,10 +750,71 @@ function parseRunFlags(args: string[]): ParsedRunFlags {
         if (inlineValue === undefined) index += 1;
         break;
       }
+      case '--model': {
+        const models = String(value)
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+        if (models.length === 0) {
+          return { ...parsed, error: 'Expected a model name after --model.' };
+        }
+        parsed.models.push(...models);
+        if (inlineValue === undefined) index += 1;
+        break;
+      }
+      case '--include-prompt': {
+        const parts = String(value)
+          .split(',')
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean);
+        if (parts.length === 0) {
+          return {
+            ...parsed,
+            error: 'Expected at least one prompt part after --include-prompt.',
+          };
+        }
+        const unknown = parts.find((part) => !isKnownEvalPromptPart(part));
+        if (unknown) {
+          return { ...parsed, error: `Unknown prompt part: \`${unknown}\`.` };
+        }
+        parsed.profile.includePromptParts.push(
+          ...parts.filter((part) => isKnownEvalPromptPart(part)),
+        );
+        if (inlineValue === undefined) index += 1;
+        break;
+      }
+      case '--omit-prompt': {
+        const parts = String(value)
+          .split(',')
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean);
+        if (parts.length === 0) {
+          return {
+            ...parsed,
+            error: 'Expected at least one prompt part after --omit-prompt.',
+          };
+        }
+        const unknown = parts.find((part) => !isKnownEvalPromptPart(part));
+        if (unknown) {
+          return { ...parsed, error: `Unknown prompt part: \`${unknown}\`.` };
+        }
+        parsed.profile.omitPromptParts.push(
+          ...parts.filter((part) => isKnownEvalPromptPart(part)),
+        );
+        if (inlineValue === undefined) index += 1;
+        break;
+      }
       default:
         return { ...parsed, error: `Unknown flag: \`${raw}\`.` };
     }
   }
+  parsed.profile.includePromptParts = Array.from(
+    new Set(parsed.profile.includePromptParts),
+  );
+  parsed.profile.omitPromptParts = Array.from(
+    new Set(parsed.profile.omitPromptParts),
+  );
+  parsed.models = Array.from(new Set(parsed.models));
   return parsed;
 }
 
@@ -725,8 +874,9 @@ function evaluateFixtureStatic(
 
 async function runFixtureLive(
   fixture: HybridaiSkillFixture,
-  env: EvalEnvironmentLike,
+  env: Pick<HybridaiSkillsEvalEnvironment, 'baseUrl' | 'apiKey' | 'model'>,
   skills: Skill[],
+  dataDir: string,
   options: { forceExplicit?: boolean } = {},
 ): Promise<FixtureGradeResult> {
   const start = Date.now();
@@ -748,6 +898,11 @@ async function runFixtureLive(
     body: JSON.stringify(body),
   });
   const durationMs = Date.now() - start;
+  const sessionId =
+    response.headers.get('x-hybridclaw-session-id') || undefined;
+  const auditPath = sessionId
+    ? resolveAuditWirePath(dataDir, sessionId)
+    : undefined;
   if (!response.ok) {
     const errorText = await safeReadText(response);
     return {
@@ -755,22 +910,26 @@ async function runFixtureLive(
       status: 'failed',
       observedSkill: null,
       toolNames: [],
+      sessionId,
+      auditPath,
       reason: `HTTP ${response.status}: ${errorText.slice(0, 200)}`,
       durationMs,
     };
   }
   const payload = (await response.json()) as unknown;
   const parsed = parseChatCompletion(payload);
-  // Always grade from the tool trace. `resolveObservedSkillName` short-circuits
-  // on `explicitSkillName`, so passing `fixture.skill` here for explicit-mode
-  // fixtures would make them trivially pass without verifying the model ever
-  // invoked the skill's tools. The fixture's `mode` field remains useful as a
-  // filter and for reporting, but must not influence observation.
-  const observedSkill = resolveObservedSkillName({
-    skills,
-    toolExecutions: parsed.toolExecutions,
-  });
-  const toolNames = parsed.toolExecutions.map((exec) => exec.name);
+  const auditTrace =
+    sessionId && auditPath ? readAuditTrace(auditPath, skills) : null;
+  // Grade from the executed trace whenever it exists. The audit log is the
+  // authoritative source for real gateway tool execution and skill observation.
+  const toolExecutions = auditTrace?.toolExecutions ?? parsed.toolExecutions;
+  const observedSkill =
+    auditTrace?.observedSkill ??
+    resolveObservedSkillName({
+      skills,
+      toolExecutions,
+    });
+  const toolNames = toolExecutions.map((exec) => exec.name);
   const expected = fixture.skill;
   if (observedSkill === expected) {
     return {
@@ -778,6 +937,9 @@ async function runFixtureLive(
       status: 'passed',
       observedSkill,
       toolNames,
+      sessionId,
+      auditPath,
+      observationSource: auditTrace?.observationSource ?? 'response',
       durationMs,
       assistantPreview: parsed.assistantPreview,
     };
@@ -787,6 +949,9 @@ async function runFixtureLive(
     status: 'failed',
     observedSkill,
     toolNames,
+    sessionId,
+    auditPath,
+    observationSource: auditTrace?.observationSource ?? 'response',
     reason: observedSkill
       ? `observed skill \`${observedSkill}\`, expected \`${expected}\``
       : 'no skill observed in tool trace',
@@ -798,6 +963,12 @@ async function runFixtureLive(
 interface ParsedChatCompletion {
   toolExecutions: ToolExecution[];
   assistantPreview?: string;
+}
+
+interface ParsedAuditTrace {
+  observedSkill: string | null;
+  toolExecutions: ToolExecution[];
+  observationSource: 'audit.skill.execution' | 'audit.tool.trace';
 }
 
 function parseChatCompletion(payload: unknown): ParsedChatCompletion {
@@ -845,6 +1016,178 @@ async function safeReadText(response: Response): Promise<string> {
   }
 }
 
+function resolveHybridaiSkillsRunProfile(params: {
+  baseProfile: EvalProfile;
+  workspaceModeExplicit?: boolean;
+  runFlags: ParsedRunFlags;
+}): EvalProfile {
+  const profile: EvalProfile = {
+    ...params.baseProfile,
+    includePromptParts: [...params.baseProfile.includePromptParts],
+    omitPromptParts: [...params.baseProfile.omitPromptParts],
+  };
+
+  if (!params.workspaceModeExplicit && !params.runFlags.workspaceModeExplicit) {
+    profile.workspaceMode = 'fresh-agent';
+    delete profile.agentId;
+  }
+
+  if (params.runFlags.workspaceModeExplicit) {
+    profile.workspaceMode = params.runFlags.profile.workspaceMode;
+    if (profile.workspaceMode === 'fresh-agent') {
+      delete profile.agentId;
+    }
+  }
+
+  if (params.runFlags.profile.ablateSystemPrompt) {
+    profile.ablateSystemPrompt = true;
+  }
+
+  profile.includePromptParts = Array.from(
+    new Set([
+      ...profile.includePromptParts,
+      ...params.runFlags.profile.includePromptParts,
+    ]),
+  );
+  profile.omitPromptParts = Array.from(
+    new Set([
+      ...profile.omitPromptParts,
+      ...params.runFlags.profile.omitPromptParts,
+    ]),
+  );
+
+  return profile;
+}
+
+function resolveRequestedModels(
+  baseModel: string,
+  requestedModels: string[],
+): string[] {
+  const models = requestedModels.length > 0 ? requestedModels : [baseModel];
+  return Array.from(
+    new Set(models.map((entry) => entry.trim()).filter(Boolean)),
+  );
+}
+
+function summarizeHybridaiSkillsRuns(runs: HybridaiSkillsModelRunSummary[]): {
+  executedFixtures: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+} {
+  return runs.reduce(
+    (totals, run) => ({
+      executedFixtures: totals.executedFixtures + run.executedFixtures,
+      passed: totals.passed + run.passed,
+      failed: totals.failed + run.failed,
+      skipped: totals.skipped + run.skipped,
+    }),
+    { executedFixtures: 0, passed: 0, failed: 0, skipped: 0 },
+  );
+}
+
+function resolveAuditWirePath(dataDir: string, sessionId: string): string {
+  const safeSessionDir =
+    sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
+  return path.join(dataDir, 'audit', safeSessionDir, 'wire.jsonl');
+}
+
+function readAuditTrace(
+  filePath: string,
+  skills: Skill[],
+): ParsedAuditTrace | null {
+  if (!fs.existsSync(filePath)) return null;
+  const lines = fs
+    .readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+
+  const toolExecutions = new Map<string, ToolExecution>();
+  const toolOrder: string[] = [];
+  let observedSkill: string | null = null;
+
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed) || !isRecord(parsed.event)) continue;
+    const event = parsed.event;
+    const eventType =
+      typeof event.type === 'string' ? event.type.trim().toLowerCase() : '';
+    if (eventType === 'tool.call') {
+      const toolCallId =
+        typeof event.toolCallId === 'string' ? event.toolCallId : '';
+      if (!toolCallId) continue;
+      toolOrder.push(toolCallId);
+      toolExecutions.set(toolCallId, {
+        name: typeof event.toolName === 'string' ? event.toolName : 'tool',
+        arguments: JSON.stringify(event.arguments ?? {}),
+        result: '',
+        durationMs: 0,
+      });
+      continue;
+    }
+    if (eventType === 'tool.result') {
+      const toolCallId =
+        typeof event.toolCallId === 'string' ? event.toolCallId : '';
+      const execution = (toolCallId && toolExecutions.get(toolCallId)) || {
+        name: typeof event.toolName === 'string' ? event.toolName : 'tool',
+        arguments: '{}',
+        result: '',
+        durationMs: 0,
+      };
+      execution.name =
+        typeof event.toolName === 'string' ? event.toolName : execution.name;
+      execution.result =
+        typeof event.resultSummary === 'string' ? event.resultSummary : '';
+      execution.durationMs =
+        typeof event.durationMs === 'number' &&
+        Number.isFinite(event.durationMs)
+          ? event.durationMs
+          : 0;
+      execution.isError = event.isError === true;
+      execution.blocked = event.blocked === true;
+      if (toolCallId) {
+        if (!toolExecutions.has(toolCallId)) toolOrder.push(toolCallId);
+        toolExecutions.set(toolCallId, execution);
+      }
+      continue;
+    }
+    if (eventType === 'skill.execution') {
+      observedSkill =
+        typeof event.skillName === 'string'
+          ? event.skillName.trim()
+          : observedSkill;
+    }
+  }
+
+  const orderedExecutions = toolOrder
+    .map((toolCallId) => toolExecutions.get(toolCallId))
+    .filter((execution): execution is ToolExecution => execution != null);
+
+  if (orderedExecutions.length === 0 && !observedSkill) {
+    return null;
+  }
+
+  return {
+    observedSkill:
+      observedSkill ||
+      resolveObservedSkillName({
+        skills,
+        toolExecutions: orderedExecutions,
+      }),
+    toolExecutions: orderedExecutions,
+    observationSource: observedSkill
+      ? 'audit.skill.execution'
+      : 'audit.tool.trace',
+  };
+}
+
 function writeLatestRun(
   dataDir: string,
   summary: HybridaiSkillsRunSummary,
@@ -862,14 +1205,18 @@ function renderRunSummary(
   summary: HybridaiSkillsRunSummary,
   runPath?: string,
 ): string {
+  const runs = normalizeModelRuns(summary);
+  const profile = summary.profile ?? buildDefaultEvalProfile();
   const filterLines: string[] = [];
   if (summary.filterSkill) filterLines.push(`skill=${summary.filterSkill}`);
   if (summary.filterMode) filterLines.push(`mode=${summary.filterMode}`);
   if (summary.maxFixtures) filterLines.push(`max=${summary.maxFixtures}`);
   if (summary.forceExplicit) filterLines.push('explicit');
-  const executed = summary.executedFixtures;
-  const gradable = summary.passed + summary.failed;
-  const score = gradable > 0 ? summary.passed / gradable : null;
+  const totals = summarizeHybridaiSkillsRuns(runs);
+  const executed = totals.executedFixtures;
+  const totalExecutionSlots = summary.totalFixtures * Math.max(1, runs.length);
+  const gradable = totals.passed + totals.failed;
+  const score = gradable > 0 ? totals.passed / gradable : null;
   const startedMs = Date.parse(summary.startedAt);
   const finishedMs = Date.parse(summary.finishedAt);
   const durationMs =
@@ -878,23 +1225,35 @@ function renderRunSummary(
       : null;
 
   const overviewSection = renderKeyValueSection('Overview', [
-    ['Evaluated model', summary.model],
+    [
+      'Evaluated model',
+      runs.length <= 1
+        ? (runs[0]?.model ?? summary.model ?? '?')
+        : `${runs.length} models`,
+    ],
     ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
     ['Status', summary.mode === 'dry-run' ? 'dry-run' : 'completed'],
     ['Base URL', summary.baseUrl],
     ['Filters', filterLines.length ? filterLines.join(', ') : 'none'],
   ]);
+  const profileSection = renderKeyValueSection(
+    'Profile',
+    describeEvalProfile(profile).map((entry) => {
+      const [label, value] = entry.split(':', 2);
+      return [label, value?.trim() || null] as const;
+    }),
+  );
   const resultsSection = renderKeyValueSection('Results', [
     ['Score', score != null ? score.toFixed(3) : 'n/a'],
     [
       'Passed',
       gradable > 0
-        ? `${summary.passed}/${gradable} (${Math.round((score ?? 0) * 100)}%)`
-        : `${summary.passed}`,
+        ? `${totals.passed}/${gradable} (${Math.round((score ?? 0) * 100)}%)`
+        : `${totals.passed}`,
     ],
-    ['Failed', summary.failed],
-    ['Skipped', summary.skipped],
-    ['Executed', `${executed}/${summary.totalFixtures}`],
+    ['Failed', totals.failed],
+    ['Skipped', totals.skipped],
+    ['Executed', `${executed}/${totalExecutionSlots}`],
   ]);
   const runSection = renderKeyValueSection('Run', [
     ['Mode', summary.mode],
@@ -906,26 +1265,72 @@ function renderRunSummary(
     ['Latest run', runPath || null],
   ]);
 
-  const failures = summary.results.filter((r) => r.status === 'failed');
+  const comparisonSection =
+    runs.length > 1
+      ? renderKeyValueSection(
+          'Comparison',
+          runs.map((run) => {
+            const runGradable = run.passed + run.failed;
+            const runScore =
+              runGradable > 0 ? (run.passed / runGradable).toFixed(3) : 'n/a';
+            const runStartedMs = Date.parse(run.startedAt);
+            const runFinishedMs = Date.parse(run.finishedAt);
+            const runDuration =
+              Number.isFinite(runStartedMs) && Number.isFinite(runFinishedMs)
+                ? formatDuration(Math.max(0, runFinishedMs - runStartedMs))
+                : null;
+            return [
+              run.model,
+              [
+                `score ${runScore}`,
+                `passed ${run.passed}/${runGradable || run.executedFixtures}`,
+                `failed ${run.failed}`,
+                `skipped ${run.skipped}`,
+                runDuration ? `duration ${runDuration}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ] as const;
+          }),
+        )
+      : '';
+
+  const failures = runs.flatMap((run) =>
+    run.results
+      .filter((result) => result.status === 'failed')
+      .map((result) => ({ run, result })),
+  );
   const failuresSection =
     failures.length > 0
       ? renderKeyValueSection(
           'Failures',
           failures.map(
-            (result) => [result.fixture.id, describeFailure(result)] as const,
+            ({ run, result }) =>
+              [
+                runs.length > 1
+                  ? `${run.model} · ${result.fixture.id}`
+                  : result.fixture.id,
+                describeFailure(result),
+              ] as const,
           ),
         )
       : '';
 
-  const passes = summary.results.filter((r) => r.status === 'passed');
+  const passes = runs.flatMap((run) =>
+    run.results
+      .filter((result) => result.status === 'passed')
+      .map((result) => ({ run, result })),
+  );
   const passesSection =
     passes.length > 0
       ? renderKeyValueSection(
           'Passes',
           passes.map(
-            (result) =>
+            ({ run, result }) =>
               [
-                result.fixture.id,
+                runs.length > 1
+                  ? `${run.model} · ${result.fixture.id}`
+                  : result.fixture.id,
                 result.toolNames.length > 0
                   ? result.toolNames.join(',')
                   : (result.observedSkill ?? 'ok'),
@@ -936,7 +1341,9 @@ function renderRunSummary(
 
   return joinSections([
     overviewSection,
+    profileSection,
     resultsSection,
+    comparisonSection,
     runSection,
     pathsSection,
     failuresSection,
@@ -957,7 +1364,32 @@ function describeFailure(result: FixtureGradeResult): string {
   if (result.toolNames.length > 0) {
     parts.push(`tools=${result.toolNames.join(',')}`);
   }
+  if (result.sessionId) {
+    parts.push(`session=${result.sessionId}`);
+  }
   return parts.length > 0 ? parts.join(' · ') : 'failed';
+}
+
+function normalizeModelRuns(
+  summary: HybridaiSkillsRunSummary,
+): HybridaiSkillsModelRunSummary[] {
+  if (Array.isArray(summary.runs) && summary.runs.length > 0) {
+    return summary.runs;
+  }
+  return [
+    {
+      model: summary.model || '?',
+      profiledModel: summary.model || '?',
+      startedAt: summary.startedAt,
+      finishedAt: summary.finishedAt,
+      executedFixtures:
+        summary.executedFixtures ?? summary.results?.length ?? 0,
+      passed: summary.passed ?? 0,
+      failed: summary.failed ?? 0,
+      skipped: summary.skipped ?? 0,
+      results: summary.results ?? [],
+    },
+  ];
 }
 
 function formatDuration(ms: number): string {
@@ -970,7 +1402,7 @@ function formatDuration(ms: number): string {
 }
 
 function renderHybridaiSkillsUsage(
-  env: EvalEnvironmentLike,
+  env: HybridaiSkillsEvalEnvironment,
   dataDir: string,
 ): string {
   const fixturesPath = getFixturesPath(dataDir);
@@ -981,17 +1413,20 @@ function renderHybridaiSkillsUsage(
     'Usage:',
     '- `/eval hybridai-skills setup`',
     '- `/eval hybridai-skills list [--skill <name>] [--mode implicit|explicit] [--kind try-it|conversation] [--max N]`',
-    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--mode ...] [--kind ...] [--max N] [--explicit]`',
+    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--mode ...] [--kind ...] [--max N] [--explicit] [--model <name>[,<name>]] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval hybridai-skills results`',
     '',
     'What it does:',
     '- `setup` harvests the "Try it yourself" prompts from `docs/development/guides/skills/*.md` into a JSONL fixture set.',
     '- `run --dry-run` validates fixtures without calling the model (checks explicit-name references and skill existence).',
-    '- `run` (default `--live`, runs all matching fixtures unless `--max N` is set) posts each fixture to the local HybridClaw OpenAI endpoint and grades the tool trace with `resolveObservedSkillName`.',
+    '- `run` (default `--live`, runs all matching fixtures unless `--max N` is set) posts each fixture to the local HybridClaw OpenAI endpoint and grades from the session audit trace when available.',
     '- `run --explicit` prefixes each prompt with `/<skill>` so the model is forced to invoke the named skill (useful for isolating skill-execution failures from skill-trigger failures).',
+    '- `run` defaults to a fresh temporary agent workspace per fixture unless you pass `--current-agent` or already selected a workspace mode explicitly at the `/eval` level.',
+    '- Repeat `--model` or use a comma-separated list to compare multiple models in one run.',
     '',
     `Fixtures path: ${fixturesPath}${installed ? ' (present)' : ' (missing — run setup)'}`,
     `Base URL:      ${env.baseUrl}`,
+    `Base model:    ${env.baseModel}`,
     `Eval model:    ${env.model}`,
   ].join('\n');
 }

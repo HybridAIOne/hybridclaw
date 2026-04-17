@@ -2054,6 +2054,11 @@ describe('gateway HTTP server', () => {
 
     const payload = JSON.parse(res.body);
     expect(payload.model).toBe('gpt-5__hc_eval=agent=charly,ablate-system');
+    expect(res.getHeader('x-hybridclaw-session-id')).toMatch(
+      OPENAI_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-agent-id')).toBe('charly');
+    expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('current-agent');
   });
 
   test('routes OpenAI requests with HybridClaw eval-profile header using the plain model name', async () => {
@@ -2123,6 +2128,13 @@ describe('gateway HTTP server', () => {
     expect(state.stopSessionExecution).toHaveBeenCalledWith(
       expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
     );
+    expect(res.getHeader('x-hybridclaw-session-id')).toMatch(
+      OPENAI_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-agent-id')).toMatch(
+      /^eval-[a-f0-9]{16}$/,
+    );
+    expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('fresh-agent');
   });
 
   test('streams OpenAI-compatible chat completion chunks with usage', async () => {
