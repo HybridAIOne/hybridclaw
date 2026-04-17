@@ -250,7 +250,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # npm trusted publishing requires npm 11+, which GitHub-hosted Node 24
+          # provides out of the box on the release runner image.
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
