@@ -8,10 +8,6 @@
  * - No config system — sensible hardcoded defaults
  */
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const DEFAULT_MAX_CHARS = 50_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
@@ -43,10 +39,6 @@ const BROWSER_USER_AGENT =
 export const BOT_USER_AGENT =
   'hybridclaw/1.0 (+https://github.com/hybridaione/hybridclaw; AI assistant bot)';
 
-// ---------------------------------------------------------------------------
-// Cache
-// ---------------------------------------------------------------------------
-
 interface CacheEntry {
   value: WebFetchResult;
   expiresAt: number;
@@ -71,10 +63,6 @@ function writeCache(key: string, value: WebFetchResult): void {
   }
   cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
-
-// ---------------------------------------------------------------------------
-// HTML helpers (inlined from OpenClaw's web-fetch-utils)
-// ---------------------------------------------------------------------------
 
 function decodeEntities(value: string): string {
   return value
@@ -165,10 +153,6 @@ function markdownToText(markdown: string): string {
   return normalizeWhitespace(text);
 }
 
-// ---------------------------------------------------------------------------
-// Readability extraction (lazy-loaded)
-// ---------------------------------------------------------------------------
-
 let readabilityDeps:
   | Promise<{
       Readability: typeof import('@mozilla/readability').Readability;
@@ -232,10 +216,6 @@ async function extractReadableContent(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Streaming response reader with size limit
-// ---------------------------------------------------------------------------
-
 async function readResponseText(
   res: Response,
   maxBytes: number,
@@ -291,10 +271,6 @@ async function readResponseText(
   const text = await res.text();
   return { text, truncated: false };
 }
-
-// ---------------------------------------------------------------------------
-// Manual redirect following (to track finalUrl)
-// ---------------------------------------------------------------------------
 
 async function fetchWithRedirects(
   url: string,
@@ -394,10 +370,6 @@ function detectEscalationHint(params: {
 
   return undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 export type WebFetchEscalationHint =
   | 'javascript_required'

@@ -471,7 +471,6 @@ function getOrSpawnContainer(
     return existing;
   }
 
-  // Clean up stale entry
   if (existing) {
     pool.delete(sessionId);
   }
@@ -767,7 +766,6 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
-  // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',
@@ -779,7 +777,6 @@ async function runContainerInner(
 
   const startTime = Date.now();
 
-  // Clean any stale output from previous request
   cleanupIpc(sessionId);
   ensureSessionDirs(sessionId);
 
@@ -923,7 +920,6 @@ async function runContainerInner(
       writeInput(sessionId, input, { omitApiKey: true });
     }
 
-    // Wait for the container to produce output
     const output = await readOutput(
       sessionId,
       inactivityTimeoutMs === undefined
