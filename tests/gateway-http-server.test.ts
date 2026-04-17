@@ -2973,19 +2973,20 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('/chat 301-redirects to /admin/chat outside Docker', async () => {
+  test('returns 404 for legacy /chat and /chat.html paths', async () => {
     const state = await importFreshHealth();
 
-    const req = makeRequest({ url: '/chat' });
-    const res = makeResponse();
+    for (const pathname of ['/chat', '/chat.html']) {
+      const req = makeRequest({ url: pathname });
+      const res = makeResponse();
 
-    state.handler(req as never, res as never);
+      state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(301);
-    expect(res.headers.Location).toBe('/admin/chat');
+      expect(res.statusCode).toBe(404);
+    }
   });
 
-  test('redirects /chat, /agents, and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+  test('redirects /agents and /admin to HybridAI login in Docker when no session cookie is present', async () => {
     const state = await importFreshHealth({ runningInsideContainer: true });
 
     for (const pathname of ['/agents', '/admin']) {

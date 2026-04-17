@@ -185,13 +185,12 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     );
   });
 
-  test('/chat redirects to /admin/chat', async () => {
+  test('legacy /chat returns 404 (chat lives under /admin/chat)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
     });
-    expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('/admin/chat');
+    expect(res.status).toBe(404);
   });
 
   test('/admin/chat serves the console SPA', async () => {

@@ -3645,11 +3645,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (pathname === '/chat' || pathname === '/chat.html') {
-      sendRedirect(res, 301, '/admin/chat');
-      return;
-    }
-
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }

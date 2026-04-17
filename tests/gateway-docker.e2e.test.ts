@@ -164,13 +164,12 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     );
   });
 
-  test('/chat 301-redirects to /admin/chat (before auth)', async () => {
+  test('legacy /chat returns 404 (chat lives under /admin/chat)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       redirect: 'manual',
     });
-    expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('/admin/chat');
+    expect(res.status).toBe(404);
   });
 
   test('/agents redirects to login (auth enforced in container)', async () => {
