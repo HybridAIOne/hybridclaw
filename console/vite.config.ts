@@ -12,7 +12,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('react-dom') || id.includes('/react/')) return 'vendor';
+          if (id.includes('react-dom') || id.includes('/react/'))
+            return 'vendor';
           if (id.includes('@tanstack/react-router')) return 'router';
           if (id.includes('@tanstack/react-query')) return 'query';
           if (id.includes('xterm') || id.includes('@xterm/')) return 'terminal';

@@ -1,6 +1,11 @@
 import styles from './provider-health.module.css';
 
-const LOCAL_PROVIDER_NAMES = new Set(['ollama', 'lmstudio', 'llamacpp', 'vllm']);
+const LOCAL_PROVIDER_NAMES = new Set([
+  'ollama',
+  'lmstudio',
+  'llamacpp',
+  'vllm',
+]);
 
 type HealthStatus = 'healthy' | 'warning' | 'inactive' | 'down';
 
@@ -28,9 +33,9 @@ function isLocalProvider(name: string, provider: ProviderEntry): boolean {
 }
 
 const DOT_CLASS: Record<HealthStatus, string> = {
-  healthy:  styles.dotHealthy,
-  warning:  styles.dotWarning,
-  down:     styles.dotDown,
+  healthy: styles.dotHealthy,
+  warning: styles.dotWarning,
+  down: styles.dotDown,
   inactive: styles.dotInactive,
 };
 
@@ -55,7 +60,9 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
     styles.row,
     status === 'warning' ? styles.rowWarning : '',
     status === 'down' ? styles.rowDown : '',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div className={rowClass}>
@@ -63,7 +70,9 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
         <div className={styles.nameGroup}>
           <span className={`${styles.dot} ${DOT_CLASS[status]}`} />
           <span className={styles.name}>{name}</span>
-          <span className={`${styles.badge} ${isLocal ? styles.badgeLocal : styles.badgeRemote}`}>
+          <span
+            className={`${styles.badge} ${isLocal ? styles.badgeLocal : styles.badgeRemote}`}
+          >
             {isLocal ? 'local' : 'remote'}
           </span>
         </div>
@@ -89,7 +98,11 @@ interface ProviderHealthPanelProps {
   onLogin: () => void;
 }
 
-export function ProviderHealthPanel({ title, entries, onLogin }: ProviderHealthPanelProps) {
+export function ProviderHealthPanel({
+  title,
+  entries,
+  onLogin,
+}: ProviderHealthPanelProps) {
   // Split into active (visible rows) and inactive (collapsed footer)
   const activeEntries = entries.filter(([name, p]) => {
     const status = resolveStatus(name, p);
@@ -125,8 +138,8 @@ export function ProviderHealthPanel({ title, entries, onLogin }: ProviderHealthP
               <span>
                 <span className={styles.inactiveNames}>
                   {inactiveEntries.map(([n]) => n).join(' · ')}
-                </span>
-                {' '}not running locally
+                </span>{' '}
+                not running locally
               </span>
             </div>
           )}

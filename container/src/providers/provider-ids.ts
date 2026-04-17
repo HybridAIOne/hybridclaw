@@ -4,6 +4,15 @@ export const RUNTIME_PROVIDER_IDS = [
   'openrouter',
   'mistral',
   'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
   'ollama',
   'lmstudio',
   'llamacpp',
@@ -14,12 +23,23 @@ export const OPENAI_COMPAT_RUNTIME_PROVIDER_IDS = [
   'openrouter',
   'mistral',
   'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
   'lmstudio',
   'llamacpp',
   'vllm',
 ] as const;
 
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER_IDS)[number];
+export type OpenAICompatRuntimeProvider =
+  (typeof OPENAI_COMPAT_RUNTIME_PROVIDER_IDS)[number];
 
 const RUNTIME_PROVIDER_ID_SET = new Set<string>(RUNTIME_PROVIDER_IDS);
 const OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET = new Set<string>(
@@ -32,10 +52,7 @@ export function isRuntimeProvider(value: unknown): value is RuntimeProvider {
 
 export function isOpenAICompatRuntimeProvider(
   value: unknown,
-): value is Extract<
-  RuntimeProvider,
-  'openrouter' | 'mistral' | 'huggingface' | 'lmstudio' | 'llamacpp' | 'vllm'
-> {
+): value is OpenAICompatRuntimeProvider {
   return (
     typeof value === 'string' &&
     OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET.has(value)

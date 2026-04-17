@@ -194,7 +194,6 @@ import {
   getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -221,27 +220,26 @@ import {
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
-import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
-  getAvailableModelListWithOptions,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
+  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
+import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
-import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -344,6 +342,7 @@ import {
   reloadPluginRuntime,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
+import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
@@ -1506,19 +1505,25 @@ function buildGatewayProviderHealth(params: {
     {
       key: 'openrouter',
       enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(readOpenRouterApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
     },
     {
       key: 'mistral',
       enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(readMistralApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
     },
     {
       key: 'huggingface',
       enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(readHuggingFaceApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
     },
   ] as const;
@@ -1550,67 +1555,6 @@ function buildGatewayProviderHealth(params: {
   }
 
   return providerHealth;
-}
-
-function isOpenRouterAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.openrouter.enabled &&
-    Boolean(readOpenRouterApiKey({ required: false }))
-  );
-}
-
-function isHuggingFaceAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.huggingface.enabled &&
-    Boolean(readHuggingFaceApiKey({ required: false }))
-  );
-}
-
-function isMistralAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.mistral.enabled &&
-    Boolean(readMistralApiKey({ required: false }))
-  );
-}
-
-function isModelAvailableForCurrentGatewayState(
-  model: string,
-  providerHealth: GatewayStatus['providerHealth'],
-): boolean {
-  switch (resolveModelProvider(model)) {
-    case 'hybridai':
-      return providerHealth?.hybridai?.reachable === true;
-    case 'openai-codex':
-      return providerHealth?.codex?.reachable === true;
-    case 'openrouter':
-      return isOpenRouterAvailableForModelCommands();
-    case 'mistral':
-      return isMistralAvailableForModelCommands();
-    case 'huggingface':
-      return isHuggingFaceAvailableForModelCommands();
-    case 'ollama':
-      return providerHealth?.ollama?.reachable === true;
-    case 'lmstudio':
-      return providerHealth?.lmstudio?.reachable === true;
-    case 'llamacpp':
-      return providerHealth?.llamacpp?.reachable === true;
-    case 'vllm':
-      return providerHealth?.vllm?.reachable === true;
-    default:
-      return true;
-  }
-}
-
-function filterModelsForCurrentGatewayState(
-  models: string[],
-  providerHealth: GatewayStatus['providerHealth'],
-): string[] {
-  return models.filter((model) =>
-    isModelAvailableForCurrentGatewayState(model, providerHealth),
-  );
 }
 
 async function getGatewayStatusForModelSubcommand(
@@ -2876,99 +2820,6 @@ function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
         title: 'Microsoft Teams Auth Status',
         lines: buildMSTeamsAuthStatusLines(),
       };
-  }
-}
-
-function buildProviderEnableCommand(
-  provider: 'openrouter' | 'mistral' | 'huggingface',
-): string {
-  return `config set ${provider}.enabled true`;
-}
-
-function buildModelListProviderSetupMessage(
-  providerArg: string,
-): string | null {
-  const provider = normalizeModelCatalogProviderFilter(providerArg);
-  const config = getRuntimeConfig();
-  switch (provider) {
-    case 'hybridai': {
-      if (getHybridAIAuthStatus().authenticated) return null;
-      return [
-        'HybridAI is not authorized.',
-        'Authorize it first from a terminal:',
-        '  hybridclaw auth login hybridai',
-        'Then rerun `model list hybridai`.',
-      ].join('\n');
-    }
-    case 'openai-codex': {
-      const status = getCodexAuthStatus();
-      if (status.authenticated && !status.reloginRequired) return null;
-      return [
-        status.reloginRequired
-          ? 'Codex authorization expired.'
-          : 'Codex is not authorized.',
-        'Authorize it first from a terminal:',
-        '  hybridclaw auth login codex',
-        'Then rerun `model list codex`.',
-      ].join('\n');
-    }
-    case 'openrouter': {
-      const authorized = Boolean(readOpenRouterApiKey({ required: false }));
-      if (authorized && config.openrouter.enabled) return null;
-      return [
-        !authorized
-          ? 'OpenRouter is not authorized.'
-          : 'OpenRouter is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login openrouter',
-            ]
-          : []),
-        ...(config.openrouter.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('openrouter')}`]),
-        'Then rerun `model list openrouter`.',
-      ].join('\n');
-    }
-    case 'mistral': {
-      const authorized = Boolean(readMistralApiKey({ required: false }));
-      if (authorized && config.mistral.enabled) return null;
-      return [
-        !authorized ? 'Mistral is not authorized.' : 'Mistral is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login mistral',
-            ]
-          : []),
-        ...(config.mistral.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('mistral')}`]),
-        'Then rerun `model list mistral`.',
-      ].join('\n');
-    }
-    case 'huggingface': {
-      const authorized = Boolean(readHuggingFaceApiKey({ required: false }));
-      if (authorized && config.huggingface.enabled) return null;
-      return [
-        !authorized
-          ? 'Hugging Face is not authorized.'
-          : 'Hugging Face is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login huggingface',
-            ]
-          : []),
-        ...(config.huggingface.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('huggingface')}`]),
-        'Then rerun `model list huggingface`.',
-      ].join('\n');
-    }
-    default:
-      return null;
   }
 }
 
@@ -4691,6 +4542,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
       { ...value },
     ]),
   ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
+  const REMOTE_OPENAI_COMPAT_KEYS = [
+    'openrouter',
+    'mistral',
+    'huggingface',
+    'gemini',
+    'deepseek',
+    'xai',
+    'zai',
+    'kimi',
+    'minimax',
+    'dashscope',
+    'xiaomi',
+    'kilo',
+  ] as const;
+  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
+    if (providerStatus[key]) continue;
+    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
+    providerStatus[key] = {
+      kind: 'remote',
+      reachable: diagnostic === null,
+      ...(diagnostic
+        ? {
+            error: diagnostic.message,
+            loginRequired: diagnostic.kind === 'unauthorized',
+          }
+        : {}),
+    };
+  }
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -4700,25 +4579,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     const normalized = modelId.trim().toLowerCase();
     if (!normalized) continue;
 
-    let providerKey: keyof NonNullable<
+    type ProviderKey = keyof NonNullable<
       GatewayAdminModelsResponse['providerStatus']
-    > = 'hybridai';
-    if (normalized.startsWith('openai-codex/')) {
-      providerKey = 'codex';
-    } else if (normalized.startsWith('openrouter/')) {
-      providerKey = 'openrouter';
-    } else if (normalized.startsWith('mistral/')) {
-      providerKey = 'mistral';
-    } else if (normalized.startsWith('huggingface/')) {
-      providerKey = 'huggingface';
-    } else if (normalized.startsWith('ollama/')) {
-      providerKey = 'ollama';
-    } else if (normalized.startsWith('lmstudio/')) {
-      providerKey = 'lmstudio';
-    } else if (normalized.startsWith('llamacpp/')) {
-      providerKey = 'llamacpp';
-    } else if (normalized.startsWith('vllm/')) {
-      providerKey = 'vllm';
+    >;
+    const PROVIDER_KEY_BY_PREFIX: Array<[string, ProviderKey]> = [
+      ['openai-codex/', 'codex'],
+      ['openrouter/', 'openrouter'],
+      ['mistral/', 'mistral'],
+      ['huggingface/', 'huggingface'],
+      ['gemini/', 'gemini'],
+      ['deepseek/', 'deepseek'],
+      ['xai/', 'xai'],
+      ['zai/', 'zai'],
+      ['kimi/', 'kimi'],
+      ['minimax/', 'minimax'],
+      ['dashscope/', 'dashscope'],
+      ['xiaomi/', 'xiaomi'],
+      ['kilo/', 'kilo'],
+      ['ollama/', 'ollama'],
+      ['lmstudio/', 'lmstudio'],
+      ['llamacpp/', 'llamacpp'],
+      ['vllm/', 'vllm'],
+    ];
+    let providerKey: ProviderKey = 'hybridai';
+    for (const [prefix, key] of PROVIDER_KEY_BY_PREFIX) {
+      if (normalized.startsWith(prefix)) {
+        providerKey = key;
+        break;
+      }
     }
 
     modelCountByProvider.set(
@@ -4742,10 +4630,18 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         ) || 0,
     };
   }
+  const sortedProviderStatus = Object.fromEntries(
+    Object.entries(providerStatus).sort(([leftKey, left], [rightKey, right]) => {
+      const leftEnabled = left.reachable === true;
+      const rightEnabled = right.reachable === true;
+      if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+      return leftKey.localeCompare(rightKey);
+    }),
+  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
 
   return {
     defaultModel,
-    providerStatus,
+    providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
         const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
@@ -6772,23 +6668,6 @@ export async function handleGatewayCommand(
         ),
       };
     }
-    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
-    const availableModels = filterModelsForCurrentGatewayState(
-      catalogModels,
-      gatewayStatus.providerHealth,
-    );
-    if (
-      availableModels.length > 0 &&
-      !availableModels.includes(resolvedModelName)
-    ) {
-      return {
-        ok: false,
-        result: badCommand(
-          'Unknown Model',
-          `\`${rawModelName}\` is not in the available models list.`,
-        ),
-      };
-    }
     return { ok: true, model: resolvedModelName };
   }
 
@@ -7302,12 +7181,7 @@ export async function handleGatewayCommand(
           ? await getGatewayStatusForModelSubcommand(sub)
           : null;
         const availableModels =
-          gatewayStatus == null
-            ? []
-            : filterModelsForCurrentGatewayState(
-                getAvailableModelList(),
-                gatewayStatus.providerHealth,
-              );
+          gatewayStatus == null ? [] : getAvailableModelList();
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
@@ -7327,15 +7201,22 @@ export async function handleGatewayCommand(
               'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
+          if (providerFilter && gatewayStatus) {
+            const diagnostic = diagnoseProviderForModels(
+              providerFilter,
+              gatewayStatus.providerHealth,
+            );
+            if (diagnostic) {
+              return infoCommand(
+                `Available Models (${providerFilterArg})`,
+                diagnostic.message,
+              );
+            }
+          }
           const listedModels =
             gatewayStatus == null
               ? []
-              : filterModelsForCurrentGatewayState(
-                  getAvailableModelListWithOptions(providerFilterArg, {
-                    expanded: expandedModelList,
-                  }),
-                  gatewayStatus.providerHealth,
-                );
+              : getAvailableModelList(providerFilterArg);
           const current = resolveRequestedCatalogModelName(
             runtime.model,
             listedModels,
@@ -7354,8 +7235,7 @@ export async function handleGatewayCommand(
             return infoCommand(
               'Available Models',
               providerFilterArg
-                ? (buildModelListProviderSetupMessage(providerFilterArg) ??
-                    `No models available for provider \`${providerFilterArg}\`.`)
+                ? `No models available for provider \`${providerFilterArg}\`.`
                 : 'No models available.',
             );
           }
@@ -7363,7 +7243,7 @@ export async function handleGatewayCommand(
             providerFilterArg
               ? `Available Models (${providerFilterArg})`
               : 'Available Models',
-            list,
+            `${list}\n\n${formatModelCountSuffix(modelCatalog.length)}`,
             undefined,
             { modelCatalog },
           );
@@ -7417,15 +7297,6 @@ export async function handleGatewayCommand(
             modelName,
             availableModels,
           );
-          if (
-            availableModels.length > 0 &&
-            !availableModels.includes(normalizedModelName)
-          ) {
-            return badCommand(
-              'Unknown Model',
-              `\`${modelName}\` is not in the available models list.`,
-            );
-          }
           const modelContextWindowTokens =
             resolveKnownModelContextWindow(normalizedModelName);
           updateSessionModel(session.id, normalizedModelName);
@@ -8512,13 +8383,6 @@ export async function handleGatewayCommand(
       }
 
       case 'dream': {
-        if (!isLocalSession(req)) {
-          return badCommand(
-            'Dream Restricted',
-            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
-          );
-        }
-
         const sub = (req.args[1] || '').trim().toLowerCase();
         const currentConfig = getRuntimeConfig();
         const currentIntervalHours = Math.max(

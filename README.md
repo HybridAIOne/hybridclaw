@@ -211,7 +211,9 @@ Browse the full manual at
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
   [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [ByteRover Memory Plugin](https://www.hybridclaw.io/docs/extensibility/byterover-memory-plugin),
   [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
+  [Mem0 Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mem0-memory-plugin),
   [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
   [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
 - Configuration:

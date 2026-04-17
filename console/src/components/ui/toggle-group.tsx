@@ -34,7 +34,11 @@ export function ToggleGroup(props: {
 }) {
   const disabled = props.disabled ?? false;
   const ctx = useMemo(
-    () => ({ value: props.value, onValueChange: props.onValueChange, disabled }),
+    () => ({
+      value: props.value,
+      onValueChange: props.onValueChange,
+      disabled,
+    }),
     [props.value, props.onValueChange, disabled],
   );
 

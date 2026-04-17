@@ -29,7 +29,6 @@ import {
 import { preprocessContextReferences } from '../context-references/index.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { promoteWorkspaceSkills } from '../skills/skills.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
@@ -42,6 +41,7 @@ import {
   type BuildMemoryPromptResult,
   memoryService,
 } from '../memory/memory-service.js';
+import { withSpan } from '../observability/otel.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -51,6 +51,7 @@ import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
+  promoteWorkspaceSkills,
   resolveObservedSkillName,
 } from '../skills/skills.js';
 import {
@@ -114,6 +115,21 @@ import {
 const MAX_HISTORY_MESSAGES = 40;
 
 export async function handleGatewayMessage(
+  req: GatewayChatRequest,
+): Promise<GatewayChatResult> {
+  return withSpan(
+    'hybridclaw.gateway.handle_message',
+    {
+      'hybridclaw.session_id': req.sessionId,
+      'hybridclaw.agent_id': req.agentId || '',
+      'hybridclaw.channel_id': req.channelId || '',
+      'hybridclaw.model': req.model || '',
+    },
+    async () => handleGatewayMessageInner(req),
+  );
+}
+
+async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
@@ -1093,6 +1109,7 @@ export async function handleGatewayMessage(
         result: null,
         toolsUsed: output.toolsUsed || [],
         pluginsUsed,
+        skillUsed: observedSkillName ?? undefined,
         agentId,
         model,
         provider,
@@ -1211,6 +1228,7 @@ export async function handleGatewayMessage(
       result: resultText,
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
+      skillUsed: observedSkillName ?? undefined,
       agentId,
       model,
       provider,

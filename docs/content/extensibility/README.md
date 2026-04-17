@@ -20,7 +20,7 @@ operate at different layers, and are designed to complement each other.
 | **Install** | Ship with the codebase | Drop a `SKILL.md` file | `hybridclaw plugin install` or drop a directory |
 | **Hot reload** | Requires rebuild | Immediate (loaded per turn) | `/plugin reload` in session |
 | **Config needed** | Code change | None | `hybridclaw.plugin.yaml` manifest |
-| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `gbrain`, `honcho-memory` |
+| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `byterover-memory`, `gbrain`, `honcho-memory` |
 
 ## Tools (Container Runtime)
 
@@ -150,8 +150,8 @@ Another example:
 | Tools | `container/src/tools.ts` |
 | Skills | `skills/<name>/SKILL.md`, agent workspace, `config.skills.extraDirs` |
 | Plugins | `~/.hybridclaw/plugins/<id>/`, `.hybridclaw/plugins/<id>/` |
-| Plugin docs | `docs/content/extensibility/plugins.md` |
-| Skill docs | `docs/content/extensibility/skills.md` |
+| Plugin docs | `docs/development/extensibility/plugins.md` |
+| Skill docs | `docs/development/extensibility/skills.md` |
 
 ## CLI and Session Commands
 

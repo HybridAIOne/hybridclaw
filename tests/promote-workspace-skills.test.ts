@@ -56,20 +56,25 @@ test('promoteWorkspaceSkills skips skills already in managed dir', async () => {
 
   // Pre-populate managed dir with an existing skill.
   const existingDir = path.join(managedDir, 'existing-skill');
-  writeSkillMd(existingDir, 'existing-skill', '---\nname: existing-skill\n---\nOld.\n');
+  writeSkillMd(
+    existingDir,
+    'existing-skill',
+    '---\nname: existing-skill\n---\nOld.\n',
+  );
 
   const workspaceDir = path.join(homeDir, 'workspace');
   const wsSkillDir = path.join(workspaceDir, 'skills', 'existing-skill');
-  writeSkillMd(wsSkillDir, 'existing-skill', '---\nname: existing-skill\n---\nNew.\n');
+  writeSkillMd(
+    wsSkillDir,
+    'existing-skill',
+    '---\nname: existing-skill\n---\nNew.\n',
+  );
 
   const { promoteWorkspaceSkills } = await import('../src/skills/skills.ts');
   promoteWorkspaceSkills(workspaceDir);
 
   // The original content should be preserved, not overwritten.
-  const content = fs.readFileSync(
-    path.join(existingDir, 'SKILL.md'),
-    'utf-8',
-  );
+  const content = fs.readFileSync(path.join(existingDir, 'SKILL.md'), 'utf-8');
   expect(content).toContain('Old.');
 });
 

@@ -53,8 +53,10 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/eval tau2');
   expect(labels).toContain('/eval swebench-verified');
   expect(labels).not.toContain('/eval tau2-bench');
-  expect(labels).toContain('/skill <config|list|inspect|…>');
+  expect(labels).toContain('/skill <config|list|enable|…>');
   expect(labels).toContain('/skill config');
+  expect(labels).toContain('/skill enable <name> [--channel <kind>]');
+  expect(labels).toContain('/skill disable <name> [--channel <kind>]');
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');

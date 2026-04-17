@@ -148,6 +148,15 @@ hybridclaw auth login codex [--device-code|--browser|--import]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
+hybridclaw auth login gemini [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login deepseek [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login zai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kimi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login minimax [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login dashscope [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xiaomi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kilo [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
@@ -161,6 +170,15 @@ hybridclaw help codex
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 hybridclaw help msteams
 hybridclaw help slack
 hybridclaw help local
@@ -168,7 +186,8 @@ hybridclaw help auth
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
