@@ -106,6 +106,7 @@ export function resolveMem0PluginConfig(params) {
     prefetchRerank: pluginConfig.prefetchRerank !== false,
     includeProfile: pluginConfig.includeProfile !== false,
     includeSearch: pluginConfig.includeSearch !== false,
+    readAgentScope: pluginConfig.readAgentScope === true,
     syncTurns: pluginConfig.syncTurns !== false,
     mirrorNativeMemoryWrites: pluginConfig.mirrorNativeMemoryWrites !== false,
     prefetchOnSessionStart: pluginConfig.prefetchOnSessionStart !== false,

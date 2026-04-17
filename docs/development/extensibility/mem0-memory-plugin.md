@@ -69,6 +69,8 @@ Useful optional keys:
 - `userId`: override HybridClaw's per-session user id
 - `agentId`: override HybridClaw's active agent id
 - `prefetchRerank`: rerank prompt-time Mem0 searches
+- `readAgentScope`: expand read-side recall to the active agent scope as well as
+  the active user scope
 - `syncTurns`: disable automatic turn mirroring when set to `false`
 - `mirrorNativeMemoryWrites`: disable explicit native-memory mirroring when set
   to `false`
@@ -126,14 +128,18 @@ When enabled with a configured `MEM0_API_KEY`:
    explicit write into Mem0 as a durable conclusion.
 
 Read-side Mem0 recall is scoped to the current HybridClaw user id by default.
-Write-side sync uses the current HybridClaw user id plus the active agent id so
-Mem0 keeps attribution data.
+If `readAgentScope` is enabled, the plugin performs a dual-scope read across
+the active user id or the active agent id. Write-side sync uses the current
+HybridClaw user id plus the active agent id so Mem0 keeps attribution data.
 
 ## Peer Identity
 
-Mem0 recall is scoped to a single HybridClaw user id. Unlike `honcho-memory`,
-the plugin does not model separate user-peer and AI-peer representations. If
-you need distinct peer identities, prefer `honcho-memory`.
+Mem0 recall is user-scoped by default. If you enable `readAgentScope`, Mem0
+uses a dual-scope OR query across the active user id and active agent id,
+because Mem0 stores entity scopes separately. Unlike `honcho-memory`, the
+plugin does not model separate user-peer and AI-peer representations. If you
+need strict peer separation or intersection-style scoping, prefer
+`honcho-memory`.
 
 ## Verification
 
@@ -151,6 +157,8 @@ search results.
 
 - Leave `userId` and `agentId` unset unless you have a deliberate cross-session
   routing plan. The defaults follow HybridClaw's active user and agent scope.
+- Leave `readAgentScope` disabled unless you intentionally want prompt-time
+  recall to include memories addressable through the active agent id.
 - Keep `apiVersion: v2` unless you have a concrete compatibility reason to use
   `v1`; the plugin is tuned around Mem0's newer filtered read path.
 - Use `mem0_profile` first when you want a broad snapshot, and `mem0_search`

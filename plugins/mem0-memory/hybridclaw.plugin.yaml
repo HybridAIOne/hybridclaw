@@ -60,6 +60,9 @@ configSchema:
     includeSearch:
       type: boolean
       default: true
+    readAgentScope:
+      type: boolean
+      default: false
     syncTurns:
       type: boolean
       default: true

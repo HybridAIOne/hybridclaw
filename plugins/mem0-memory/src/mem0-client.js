@@ -2,6 +2,26 @@ function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function buildPlatformEntityFilters(config, userId, agentId) {
+  const normalizedUserId = normalizeString(userId);
+  const normalizedAgentId = normalizeString(agentId);
+
+  if (config.readAgentScope && normalizedUserId && normalizedAgentId) {
+    // Mem0 stores entity scopes separately, so dual-scope reads use OR rather
+    // than combining user_id and agent_id in a single AND clause.
+    return {
+      OR: [{ user_id: normalizedUserId }, { agent_id: normalizedAgentId }],
+    };
+  }
+  if (normalizedUserId) {
+    return { AND: [{ user_id: normalizedUserId }] };
+  }
+  if (config.readAgentScope && normalizedAgentId) {
+    return { AND: [{ agent_id: normalizedAgentId }] };
+  }
+  return null;
+}
+
 function buildMissingDependencyError(error) {
   const message =
     error instanceof Error ? error.message : String(error || 'Unknown error');
@@ -32,11 +52,12 @@ async function loadMem0Module() {
   return await mem0ModulePromise;
 }
 
-function buildReadOptions(config, userId, extra = {}) {
+function buildReadOptions(config, userId, agentId, extra = {}) {
   if (config.apiVersion === 'v2') {
+    const filters = buildPlatformEntityFilters(config, userId, agentId);
     return {
       api_version: 'v2',
-      filters: { user_id: userId },
+      ...(filters ? { filters } : {}),
       ...extra,
     };
   }
@@ -118,10 +139,10 @@ export class Mem0PluginClient {
     return await client.ping();
   }
 
-  async getProfile(userId, config = {}) {
+  async getProfile(userId, agentId = '', config = {}) {
     const client = await this.getClient();
     const response = await client.getAll(
-      buildReadOptions(this.config, userId, {
+      buildReadOptions(this.config, userId, agentId, {
         page: 1,
         page_size: config.pageSize || this.config.profileLimit,
       }),
@@ -129,11 +150,11 @@ export class Mem0PluginClient {
     return normalizeMem0Results(response);
   }
 
-  async search(userId, query, config = {}) {
+  async search(userId, agentId, query, config = {}) {
     const client = await this.getClient();
     const response = await client.search(
       query,
-      buildReadOptions(this.config, userId, {
+      buildReadOptions(this.config, userId, agentId, {
         top_k: config.topK || this.config.searchLimit,
         rerank:
           typeof config.rerank === 'boolean'

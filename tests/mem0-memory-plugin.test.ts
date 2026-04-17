@@ -75,18 +75,30 @@ function installMem0Stub(
       '  }',
       '  async ping() {',
       '    append({ method: "ping" });',
+      '    if (typeof readResponses().pingError === "string") {',
+      '      throw new Error(readResponses().pingError);',
+      '    }',
       '    return { status: "ok", org_id: "org-test", project_id: "proj-test" };',
       '  }',
       '  async getAll(options = {}) {',
       '    append({ method: "getAll", options });',
+      '    if (typeof readResponses().getAllError === "string") {',
+      '      throw new Error(readResponses().getAllError);',
+      '    }',
       '    return readResponses().getAll ?? [];',
       '  }',
       '  async search(query, options = {}) {',
       '    append({ method: "search", query, options });',
+      '    if (typeof readResponses().searchError === "string") {',
+      '      throw new Error(readResponses().searchError);',
+      '    }',
       '    return readResponses().search ?? [];',
       '  }',
       '  async add(messages, options = {}) {',
       '    append({ method: "add", messages, options });',
+      '    if (typeof readResponses().addError === "string") {',
+      '      throw new Error(readResponses().addError);',
+      '    }',
       '    return readResponses().add ?? [];',
       '  }',
       '}',
@@ -126,11 +138,7 @@ test('resolveMem0PluginConfig only accepts MEM0_API_KEY from credentials', async
       apiKey: 'plaintext-config-key',
       host: 'https://api.mem0.ai',
     },
-    runtime: {
-      cwd: '/tmp/hybridclaw',
-    },
     credentialApiKey: 'secret-store-key',
-    processEnvApiKey: 'env-key-should-be-ignored',
   });
 
   expect(config.apiKey).toBe('secret-store-key');
@@ -140,10 +148,6 @@ test('resolveMem0PluginConfig only accepts MEM0_API_KEY from credentials', async
       apiKey: 'plaintext-config-key',
       host: 'https://api.mem0.ai',
     },
-    runtime: {
-      cwd: '/tmp/hybridclaw',
-    },
-    processEnvApiKey: 'env-key-should-be-ignored',
   });
 
   expect(withoutCredential.apiKey).toBe('');
@@ -158,9 +162,6 @@ test('resolveMem0PluginConfig rejects invalid host values', async () => {
     resolveMem0PluginConfig({
       pluginConfig: {
         host: 'not-a-url',
-      },
-      runtime: {
-        cwd: '/tmp/hybridclaw',
       },
     }),
   ).toThrow('mem0-memory plugin config.host must be a valid absolute URL.');
@@ -307,7 +308,7 @@ test('mem0-memory injects prompt context, registers tools, and exposes command h
       method: 'getAll',
       options: expect.objectContaining({
         api_version: 'v2',
-        filters: { user_id: 'user-1' },
+        filters: { AND: [{ user_id: 'user-1' }] },
         page: 1,
         page_size: 2,
       }),
@@ -319,7 +320,7 @@ test('mem0-memory injects prompt context, registers tools, and exposes command h
       query: 'SQLite',
       options: expect.objectContaining({
         api_version: 'v2',
-        filters: { user_id: 'user-1' },
+        filters: { AND: [{ user_id: 'user-1' }] },
         top_k: 2,
         rerank: false,
       }),
@@ -392,6 +393,246 @@ test('mem0_search tool ignores invalid top_k values and clamps oversized request
       }),
     }),
   );
+});
+
+test('mem0 tools reject non-string query and conclusion arguments', async () => {
+  const homeDir = makeTempDir('hybridclaw-mem0-home-');
+  const cwd = makeTempDir('hybridclaw-mem0-project-');
+  const pluginDir = installBundledPlugin(cwd);
+  const logPath = installMem0Stub(pluginDir, {
+    getAll: { results: [] },
+    search: { results: [{ id: 'mem-search-1', memory: 'stored' }] },
+    add: [{ id: 'mem-added-1', memory: 'stored' }],
+  });
+
+  process.env.MEM0_API_KEY = 'mem0-test-key';
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mem0-memory',
+      enabled: true,
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  const searchResult = await manager.executeTool({
+    toolName: 'mem0_search',
+    args: { query: { text: 'bad' } },
+    sessionId: 'session-1',
+    channelId: 'web',
+  });
+  expect(JSON.parse(searchResult)).toEqual({
+    ok: false,
+    error: 'mem0_search.query must be a string.',
+  });
+
+  const concludeResult = await manager.executeTool({
+    toolName: 'mem0_conclude',
+    args: { conclusion: 42 },
+    sessionId: 'session-1',
+    channelId: 'web',
+  });
+  expect(JSON.parse(concludeResult)).toEqual({
+    ok: false,
+    error: 'mem0_conclude.conclusion must be a string.',
+  });
+
+  const calls = readStubLog(logPath).filter(
+    (entry) => entry.method === 'search' || entry.method === 'add',
+  );
+  expect(calls).toEqual([]);
+});
+
+test('mem0-memory can read across user and agent scopes when readAgentScope is enabled', async () => {
+  const homeDir = makeTempDir('hybridclaw-mem0-home-');
+  const cwd = makeTempDir('hybridclaw-mem0-project-');
+  const pluginDir = installBundledPlugin(cwd);
+  const logPath = installMem0Stub(pluginDir, {
+    getAll: {
+      results: [{ id: 'mem-profile-1', memory: 'Agent-specific preference.' }],
+    },
+    search: {
+      results: [{ id: 'mem-search-1', memory: 'Agent-specific recall.' }],
+    },
+    add: [],
+  });
+
+  process.env.MEM0_API_KEY = 'mem0-test-key';
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mem0-memory',
+      enabled: true,
+      config: {
+        readAgentScope: true,
+        searchLimit: 2,
+        profileLimit: 2,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  const promptContext = await manager.collectPromptContext({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-1',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'What do you remember?',
+        created_at: '2026-04-11T10:00:00.000Z',
+      },
+    ],
+  });
+
+  expect(
+    promptContext.some((section) => section.includes('Agent-specific recall.')),
+  ).toBe(true);
+
+  const calls = readStubLog(logPath);
+  expect(calls).toContainEqual(
+    expect.objectContaining({
+      method: 'getAll',
+      options: expect.objectContaining({
+        api_version: 'v2',
+        filters: {
+          OR: [{ user_id: 'user-1' }, { agent_id: 'main' }],
+        },
+        page: 1,
+        page_size: 2,
+      }),
+    }),
+  );
+  expect(calls).toContainEqual(
+    expect.objectContaining({
+      method: 'search',
+      query: 'What do you remember?',
+      options: expect.objectContaining({
+        api_version: 'v2',
+        filters: {
+          OR: [{ user_id: 'user-1' }, { agent_id: 'main' }],
+        },
+        top_k: 2,
+        rerank: true,
+      }),
+    }),
+  );
+});
+
+test('mem0-memory skips empty compaction snapshots and swallows client errors', async () => {
+  const homeDir = makeTempDir('hybridclaw-mem0-home-');
+  const cwd = makeTempDir('hybridclaw-mem0-project-');
+  const pluginDir = installBundledPlugin(cwd);
+  const logPath = installMem0Stub(pluginDir, {
+    getAllError: 'profile unavailable',
+    searchError: 'search unavailable',
+    addError: 'write unavailable',
+  });
+
+  process.env.MEM0_API_KEY = 'mem0-test-key';
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mem0-memory',
+      enabled: true,
+      config: {
+        searchLimit: 2,
+        profileLimit: 2,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  const promptContext = await manager.collectPromptContext({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-1',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'What database does this project use?',
+        created_at: '2026-04-11T10:00:00.000Z',
+      },
+    ],
+  });
+  expect(
+    promptContext.some((section) => section.includes('Mem0 memory guide:')),
+  ).toBe(true);
+  expect(
+    promptContext.some((section) => section.includes('Mem0 memory context:')),
+  ).toBe(false);
+
+  await expect(
+    manager.notifyTurnComplete({
+      sessionId: 'session-1',
+      userId: 'user-1',
+      agentId: 'main',
+      workspacePath: cwd,
+      messages: [
+        {
+          id: 1,
+          session_id: 'session-1',
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'Remember this.',
+          created_at: '2026-04-11T10:00:00.000Z',
+        },
+      ],
+    }),
+  ).resolves.toBeUndefined();
+
+  await expect(
+    manager.notifyBeforeCompaction({
+      sessionId: 'session-1',
+      agentId: 'main',
+      channelId: 'web',
+      summary: '',
+      olderMessages: [],
+    }),
+  ).resolves.toBeUndefined();
+
+  const addCalls = readStubLog(logPath).filter(
+    (entry) => entry.method === 'add',
+  );
+  expect(addCalls).toHaveLength(1);
 });
 
 test('mem0-memory syncs turns and mirrors native memory writes', async () => {
