@@ -7,6 +7,7 @@ in fitness/ instead.
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,7 +97,12 @@ def check_growth_cap(
 def run_test_suite(
     command: str, cwd: Path, *, timeout_s: int = 600
 ) -> ConstraintResult:
-    parts = [p for p in command.split() if p]
+    try:
+        parts = shlex.split(command or "")
+    except ValueError as err:
+        return ConstraintResult(
+            "test_suite", False, f"could not parse test command: {err}"
+        )
     if not parts:
         return ConstraintResult("test_suite", True, "test command empty — skipped")
     try:

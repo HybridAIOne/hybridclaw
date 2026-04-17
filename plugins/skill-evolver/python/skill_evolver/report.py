@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import difflib
 
-from skill_evolver.skill_module import ParsedSkill
+from skill_evolver.skill_module import ParsedSkill, load_skill_from_string
 
 
 def _diff(before: str, after: str, label_before: str, label_after: str) -> str:
@@ -63,24 +63,14 @@ def render_report_markdown(skill: ParsedSkill, result: dict) -> str:
     lines.append("## Changes")
     best_raw = result.get("bestVariantRaw")
     if best_raw:
-        from skill_evolver.skill_module import load_skill
-        from io import StringIO  # noqa: F401 - kept for parity with SKILL parser imports
-
-        new_description = best_raw.split("\n---\n", 1)[0]
-        if "description:" in new_description:
-            new_desc_line = (
-                new_description.split("description:", 1)[1].split("\n", 1)[0].strip()
-            )
-        else:
-            new_desc_line = skill.description
+        parsed = load_skill_from_string(best_raw, fallback_name=skill.name)
         lines.append("### Description")
-        lines.append(_diff(skill.description, new_desc_line, "before", "after"))
+        lines.append(_diff(skill.description, parsed.description, "before", "after"))
         lines.append("")
 
-        new_body = best_raw.split("\n---\n", 1)[1] if "\n---\n" in best_raw else ""
-        if new_body:
+        if parsed.body:
             lines.append("### Body")
-            lines.append(_diff(skill.body, new_body.lstrip("\n"), "before", "after"))
+            lines.append(_diff(skill.body, parsed.body, "before", "after"))
             lines.append("")
 
     lines.append("## Sample feedback")

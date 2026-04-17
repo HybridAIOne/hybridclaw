@@ -53,6 +53,18 @@ def dedupe_tasks(examples: list[TaskExample]) -> list[TaskExample]:
     return deduped
 
 
+def _val_slice_size(total: int, val_fraction: float) -> int:
+    """Pick a val slice that never consumes the entire pool.
+
+    GEPA consumes the train split as its optimizer trainset; leaving it
+    empty is a no-op evolution. So we cap val at ``total - 1`` whenever
+    there are at least two examples.
+    """
+    if total <= 1:
+        return 0
+    return min(total - 1, max(1, int(total * val_fraction)))
+
+
 def split_triggers(
     examples: list[TriggerExample], *, val_fraction: float = 0.25, seed: int = 42
 ) -> TriggerSplit:
@@ -61,8 +73,8 @@ def split_triggers(
     rng.shuffle(shuffled)
     positives = [ex for ex in shuffled if ex.should_trigger]
     negatives = [ex for ex in shuffled if not ex.should_trigger]
-    pos_val = max(1, int(len(positives) * val_fraction)) if positives else 0
-    neg_val = max(1, int(len(negatives) * val_fraction)) if negatives else 0
+    pos_val = _val_slice_size(len(positives), val_fraction)
+    neg_val = _val_slice_size(len(negatives), val_fraction)
     val = positives[:pos_val] + negatives[:neg_val]
     train = positives[pos_val:] + negatives[neg_val:]
     rng.shuffle(val)
@@ -76,5 +88,5 @@ def split_tasks(
     rng = random.Random(seed)
     shuffled = examples[:]
     rng.shuffle(shuffled)
-    val_size = max(1, int(len(shuffled) * val_fraction)) if shuffled else 0
+    val_size = _val_slice_size(len(shuffled), val_fraction)
     return TaskSplit(train=shuffled[val_size:], val=shuffled[:val_size])

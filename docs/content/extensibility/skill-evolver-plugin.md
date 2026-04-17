@@ -110,8 +110,21 @@ branch and runs `gh pr create` with the evolution report as the body.
 
 The plugin declares its Python deps (`dspy`, `gepa`, `click`, `rich`,
 `pyyaml`, `pydantic`) in `hybridclaw.plugin.yaml`. HybridClaw's plugin
-loader provisions a per-plugin `.venv` on first use — preferring `uv` if
-available, otherwise `python3 -m venv`. No global install required.
+install flow provisions the per-plugin `.venv` and installs the declared
+pip deps — preferring `uv` if available, otherwise `python3 -m venv`.
+
+Before the first `skill-evolver` command, run the install flow once so the
+venv exists and its dependencies are resolved:
+
+```bash
+hybridclaw plugin install ./plugins/skill-evolver --yes
+```
+
+(You can also use `hybridclaw plugin check` + `hybridclaw plugin install
+--yes` to see the approval prompts first.) If the venv is missing at run
+time the TS bridge throws an actionable error pointing you at this command
+rather than silently falling back to the system `python3` and failing on
+the first `import dspy`.
 
 All LLM traffic goes through the DSPy-configured models, which inherit
 whichever provider keys are set in the HybridClaw environment

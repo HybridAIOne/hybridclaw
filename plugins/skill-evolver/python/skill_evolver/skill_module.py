@@ -80,31 +80,43 @@ def _extract_name(frontmatter: str) -> str:
     return ""
 
 
-def load_skill(path: Path) -> ParsedSkill:
-    raw = path.read_text(encoding="utf-8")
-    match = _FRONTMATTER_RE.match(raw)
+def _parse_skill_raw(raw: str, *, path: Path, fallback_name: str) -> ParsedSkill:
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+    match = _FRONTMATTER_RE.match(normalized)
     if not match:
         return ParsedSkill(
             path=path,
-            raw=raw,
+            raw=normalized,
             frontmatter="",
-            body=raw,
-            name=path.parent.name,
+            body=normalized,
+            name=fallback_name,
             description="",
         )
     frontmatter = match.group("front")
     body = match.group("body")
-    name = _extract_name(frontmatter) or path.parent.name
+    name = _extract_name(frontmatter) or fallback_name
     description, extra_frontmatter = _split_description_line(frontmatter)
     return ParsedSkill(
         path=path,
-        raw=raw,
+        raw=normalized,
         frontmatter=frontmatter,
         body=body,
         name=name,
         description=description,
         extra_frontmatter=extra_frontmatter,
     )
+
+
+def load_skill(path: Path) -> ParsedSkill:
+    return _parse_skill_raw(
+        path.read_text(encoding="utf-8"),
+        path=path,
+        fallback_name=path.parent.name,
+    )
+
+
+def load_skill_from_string(raw: str, *, fallback_name: str = "") -> ParsedSkill:
+    return _parse_skill_raw(raw, path=Path("<memory>"), fallback_name=fallback_name)
 
 
 def _escape_yaml_string(value: str) -> str:
@@ -139,4 +151,4 @@ def reassemble(skill: ParsedSkill, *, description: Optional[str] = None, body: O
     return f"---\n{frontmatter_block}\n---\n{new_body}"
 
 
-__all__ = ["ParsedSkill", "load_skill", "reassemble"]
+__all__ = ["ParsedSkill", "load_skill", "load_skill_from_string", "reassemble"]

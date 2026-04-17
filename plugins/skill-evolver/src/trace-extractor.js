@@ -1,16 +1,21 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
 function resolveDataDir() {
   const envDir = (process.env.HYBRIDCLAW_DATA_DIR || '').trim();
-  if (envDir && path.isAbsolute(envDir)) {
-    return path.join(envDir, 'data');
+  if (!envDir) {
+    return path.join(os.homedir(), '.hybridclaw', 'data');
   }
-  return path.join(os.homedir(), '.hybridclaw', 'data');
+  if (!path.isAbsolute(envDir)) {
+    throw new Error(
+      `HYBRIDCLAW_DATA_DIR must be an absolute path, got: ${envDir}`,
+    );
+  }
+  return path.join(envDir, 'data');
 }
 
 function resolveDbPath() {
@@ -19,7 +24,9 @@ function resolveDbPath() {
 }
 
 function safeSessionFilename(sessionId) {
-  const normalized = String(sessionId).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+  const normalized = String(sessionId)
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_');
   return normalized || 'session';
 }
 
@@ -29,7 +36,13 @@ function findTranscriptFiles(dataDir, sessionId) {
   const safeName = `${safeSessionFilename(sessionId)}.jsonl`;
   const results = [];
   for (const agent of fs.readdirSync(agentsDir)) {
-    const candidate = path.join(agentsDir, agent, '.session-transcripts', safeName);
+    const candidate = path.join(
+      agentsDir,
+      agent,
+      'workspace',
+      '.session-transcripts',
+      safeName,
+    );
     if (fs.existsSync(candidate)) results.push(candidate);
   }
   return results;
@@ -47,9 +60,7 @@ function readTranscript(filePath) {
     if (!line.trim()) continue;
     try {
       entries.push(JSON.parse(line));
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return entries;
 }
@@ -103,6 +114,7 @@ export function extractTraces(options) {
     limit = 500,
     includeOtherSkills = true,
     otherSkillSampleCap = 200,
+    includeTranscripts = true,
   } = options;
   if (!skillName) {
     throw new Error('extractTraces requires a skillName');
@@ -118,7 +130,6 @@ export function extractTraces(options) {
       skillName,
       observations: [],
       otherSkillObservations: [],
-      transcripts: {},
       warning: 'HybridClaw database not found at expected path.',
     };
   }
@@ -155,15 +166,17 @@ export function extractTraces(options) {
         .all(skillName, otherSkillSampleCap);
     }
 
-    const sessionIds = new Set(observations.map((o) => o.session_id));
-    for (const otherObs of otherSkillObservations) {
-      sessionIds.add(otherObs.session_id);
-    }
+    if (includeTranscripts) {
+      const sessionIds = new Set(observations.map((o) => o.session_id));
+      for (const otherObs of otherSkillObservations) {
+        sessionIds.add(otherObs.session_id);
+      }
 
-    for (const sessionId of sessionIds) {
-      const transcript = loadTranscriptForSession(dataDir, sessionId);
-      if (transcript.length === 0) continue;
-      transcripts[sessionId] = transcript;
+      for (const sessionId of sessionIds) {
+        const transcript = loadTranscriptForSession(dataDir, sessionId);
+        if (transcript.length === 0) continue;
+        transcripts[sessionId] = transcript;
+      }
     }
   } finally {
     db.close();
@@ -194,12 +207,12 @@ export function extractTraces(options) {
     skillName,
     observations: enriched,
     otherSkillObservations: enrichedOthers,
-    transcripts,
   };
 }
 
 export function writeTraceDataset(payload, outPath) {
+  const { transcripts: _transcripts, ...sanitized } = payload;
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(outPath, `${JSON.stringify(sanitized, null, 2)}\n`, 'utf-8');
   return outPath;
 }

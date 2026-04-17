@@ -100,6 +100,7 @@ async function handleList(repoRoot) {
           repoRoot,
           limit: 500,
           includeOtherSkills: false,
+          includeTranscripts: false,
         });
         observations = obs;
       } catch {
@@ -195,6 +196,8 @@ async function handleEvolve(skillName, { flags }, repoRoot, config, api) {
         },
         'Not enough trace observations; dropping traces source.',
       );
+      const index = sources.indexOf('traces');
+      if (index >= 0) sources.splice(index, 1);
     } else {
       tracesDatasetPath = datasetPathFor(
         repoRoot,

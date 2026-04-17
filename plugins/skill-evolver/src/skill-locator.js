@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SKILL_SEARCH_ROOTS = [
-  'skills',
-  'community-skills',
-  'plugins',
-];
+const SKILL_SEARCH_ROOTS = ['skills', 'community-skills', 'plugins'];
 
 function* walkSkillFiles(root) {
   if (!fs.existsSync(root)) return;
@@ -21,7 +17,8 @@ function* walkSkillFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        if (entry.name === 'node_modules' || entry.name.startsWith('.'))
+          continue;
         stack.push(full);
         continue;
       }
@@ -31,13 +28,17 @@ function* walkSkillFiles(root) {
 }
 
 function parseFrontmatter(raw) {
-  if (!raw.startsWith('---')) {
-    return { frontmatter: '', body: raw, fields: {} };
+  const normalized = String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.startsWith('---')) {
+    return { frontmatter: '', body: normalized, fields: {} };
   }
-  const end = raw.indexOf('\n---', 3);
-  if (end < 0) return { frontmatter: '', body: raw, fields: {} };
-  const frontmatter = raw.slice(3, end).replace(/^\n/, '').replace(/\n$/, '');
-  const body = raw.slice(end + 4).replace(/^\n/, '');
+  const end = normalized.indexOf('\n---', 3);
+  if (end < 0) return { frontmatter: '', body: normalized, fields: {} };
+  const frontmatter = normalized
+    .slice(3, end)
+    .replace(/^\n/, '')
+    .replace(/\n$/, '');
+  const body = normalized.slice(end + 4).replace(/^\n/, '');
   const fields = {};
   for (const line of frontmatter.split('\n')) {
     const match = /^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
@@ -45,7 +46,9 @@ function parseFrontmatter(raw) {
     const [, key, rawValue] = match;
     const trimmed = rawValue.trim();
     if (!trimmed) continue;
-    const unquoted = trimmed.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+    const unquoted = trimmed
+      .replace(/^"(.*)"$/, '$1')
+      .replace(/^'(.*)'$/, '$1');
     fields[key] = unquoted;
   }
   return { frontmatter, body, fields };
@@ -71,9 +74,7 @@ export function findSkill(skillName, repoRoot) {
         const head = fs.readFileSync(filePath, 'utf-8').slice(0, 1024);
         const { fields } = parseFrontmatter(head);
         if (fields.name === normalized) return filePath;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
 
@@ -107,9 +108,7 @@ export function listAllSkills(repoRoot) {
           path: filePath,
           bodyBytes: Buffer.byteLength(skill.body, 'utf-8'),
         });
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
   return skills;

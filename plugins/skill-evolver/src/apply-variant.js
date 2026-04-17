@@ -13,12 +13,13 @@ function runGit(args, cwd) {
 }
 
 function runShell(cmd, cwd) {
-  const [command, ...args] = cmd.split(/\s+/).filter(Boolean);
+  const command = String(cmd || '').trim();
   if (!command) throw new Error('Empty shell command');
-  const result = spawnSync(command, args, {
+  const result = spawnSync(command, {
     cwd,
     encoding: 'utf-8',
     env: process.env,
+    shell: true,
   });
   return {
     status: result.status,
@@ -28,10 +29,12 @@ function runShell(cmd, cwd) {
 }
 
 function computeSlug(skillName) {
-  return String(skillName)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'skill';
+  return (
+    String(skillName)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'skill'
+  );
 }
 
 export function applyVariant(options) {
@@ -59,7 +62,10 @@ export function applyVariant(options) {
     );
   }
 
-  const baselineBranch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+  const baselineBranch = runGit(
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    repoRoot,
+  );
   const slug = computeSlug(skillName);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const branchName = `${branchPrefix}/${slug}-${target}-${stamp}`;
@@ -67,13 +73,14 @@ export function applyVariant(options) {
   runGit(['checkout', '-b', branchName], repoRoot);
 
   fs.writeFileSync(skillPath, variantRaw, 'utf-8');
+  const relPath = path.relative(repoRoot, skillPath);
 
   let testResult = { skipped: true };
   if (runTests) {
     const result = runShell(testCommand, repoRoot);
     testResult = result;
     if (result.status !== 0) {
-      runGit(['checkout', '--', skillPath], repoRoot);
+      runGit(['checkout', '--', relPath], repoRoot);
       runGit(['checkout', baselineBranch], repoRoot);
       runGit(['branch', '-D', branchName], repoRoot);
       throw new Error(
@@ -82,7 +89,6 @@ export function applyVariant(options) {
     }
   }
 
-  const relPath = path.relative(repoRoot, skillPath);
   runGit(['add', relPath], repoRoot);
   const commitMessage = `chore(skills): evolve ${skillName} (${target})\n\nAutomated evolution via skill-evolver plugin (DSPy + GEPA).`;
   runGit(['commit', '-m', commitMessage], repoRoot);
@@ -92,7 +98,8 @@ export function applyVariant(options) {
     const ghCheck = runShell('gh --version', repoRoot);
     if (ghCheck.status === 0) {
       runGit(['push', '-u', 'origin', branchName], repoRoot);
-      const prBody = reportMarkdown ||
+      const prBody =
+        reportMarkdown ||
         `Automated evolution of \`${skillName}\` (${target}) via skill-evolver plugin.`;
       const pr = spawnSync(
         'gh',

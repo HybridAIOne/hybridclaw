@@ -15,11 +15,17 @@ function venvPythonPath() {
     : path.join(PLUGIN_ROOT, '.venv', 'bin', 'python');
 }
 
+function missingPluginVenvError(venv) {
+  return new Error(
+    `Skill Evolver plugin environment is missing: ${venv}\n` +
+      'Run `hybridclaw plugin install ./plugins/skill-evolver --yes` to create the plugin virtual environment and install its pip dependencies.',
+  );
+}
+
 function resolvePython() {
   const venv = venvPythonPath();
   if (fs.existsSync(venv)) return venv;
-  const sys = process.platform === 'win32' ? 'py' : 'python3';
-  return sys;
+  throw missingPluginVenvError(venv);
 }
 
 function ensurePackageInstalled(python) {
@@ -72,7 +78,9 @@ function collectCapped(stream, collector) {
       collector.truncated = true;
       return;
     }
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8');
+    const buf = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(String(chunk), 'utf-8');
     if (buf.length <= remaining) {
       collector.chunks.push(buf);
       collector.size += buf.length;
