@@ -10,11 +10,7 @@ function normalizeToolTopK(value, maximum) {
   }
   const normalized = Math.trunc(value);
   if (normalized <= 0) return undefined;
-  if (
-    typeof maximum === 'number' &&
-    Number.isFinite(maximum) &&
-    maximum > 0
-  ) {
+  if (typeof maximum === 'number' && Number.isFinite(maximum) && maximum > 0) {
     return Math.min(normalized, Math.trunc(maximum));
   }
   return normalized;
