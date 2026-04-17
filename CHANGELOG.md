@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.7)
+
 ### Added
 
 - **Nine new external API providers**: Google Gemini (`gemini/`), DeepSeek
