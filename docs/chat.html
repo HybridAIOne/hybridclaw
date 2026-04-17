@@ -3814,6 +3814,9 @@
         if (requestState.assistantBlock?.isConnected) {
           renderMessageActions(requestState.assistantBlock);
         }
+        if (!activeChatRequest && !messageEl.disabled) {
+          messageEl.focus();
+        }
       }
 
       return null;
