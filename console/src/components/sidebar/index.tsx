@@ -163,7 +163,7 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
             { '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties
           }
         >
-          <DialogHeader>
+          <DialogHeader visuallyHidden>
             <DialogTitle>Navigation</DialogTitle>
             <DialogDescription>Sidebar navigation panel.</DialogDescription>
           </DialogHeader>

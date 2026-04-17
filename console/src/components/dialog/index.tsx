@@ -28,11 +28,6 @@
  *   <Dialog open={open} onOpenChange={setOpen} isDrawer>
  *     <DialogContent side="left">…</DialogContent>
  *   </Dialog>
- *
- * Or use the Drawer convenience alias:
- *   <Drawer open={open} onOpenChange={setOpen}>
- *     <DrawerContent side="left">…</DrawerContent>
- *   </Drawer>
  */
 
 import {
@@ -307,9 +302,17 @@ export function DialogContent({
 export function DialogHeader(props: {
   children: ReactNode;
   className?: string;
+  visuallyHidden?: boolean;
 }) {
   return (
-    <div className={cx(styles.header, props.className)}>{props.children}</div>
+    <div
+      className={cx(
+        props.visuallyHidden ? styles.srOnly : styles.header,
+        props.className,
+      )}
+    >
+      {props.children}
+    </div>
   );
 }
 
@@ -375,20 +378,3 @@ export function DialogClose(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Drawer — Dialog with isDrawer=true, same API, different presentation.
-// ---------------------------------------------------------------------------
-
-export const Drawer = (
-  props: Omit<Parameters<typeof Dialog>[0], 'isDrawer'> & {
-    children: ReactNode;
-  },
-) => <Dialog {...props} isDrawer />;
-
-export {
-  DialogClose as DrawerClose,
-  DialogContent as DrawerContent,
-  DialogDescription as DrawerDescription,
-  DialogHeader as DrawerHeader,
-  DialogTitle as DrawerTitle,
-};
