@@ -56,7 +56,8 @@ test('skill-locator finds SKILL.md under skills/, community-skills/, and plugins
 
   const alphaPath = findSkill('alpha', repo);
   expect(alphaPath).toBeTruthy();
-  const parsed = loadSkill(alphaPath!);
+  if (!alphaPath) throw new Error('alpha skill path should resolve');
+  const parsed = loadSkill(alphaPath);
   expect(parsed.name).toBe('alpha');
   expect(parsed.description).toBe('first skill');
   expect(parsed.body.startsWith('# Alpha')).toBe(true);
@@ -72,9 +73,8 @@ test('skill-locator returns null for missing skills', async () => {
 });
 
 test('plugin default export registers a command and tools', async () => {
-  const plugin = (
-    await import('../plugins/skill-evolver/src/index.js')
-  ).default;
+  const plugin = (await import('../plugins/skill-evolver/src/index.js'))
+    .default;
 
   const commands: Array<{ name: string }> = [];
   const tools: Array<{ name: string }> = [];

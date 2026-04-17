@@ -1,11 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { applyVariant } from './apply-variant.js';
+import { pluginRoot, runPython, workspaceCacheDir } from './python-bridge.js';
 import { findSkill, listAllSkills, loadSkill } from './skill-locator.js';
 import { extractTraces, writeTraceDataset } from './trace-extractor.js';
-import { applyVariant } from './apply-variant.js';
-import { runPython, pluginRoot, workspaceCacheDir } from './python-bridge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const PLUGIN_ROOT = path.resolve(path.dirname(__filename), '..');
@@ -91,19 +90,6 @@ function datasetPathFor(repoRoot, config, skillName, filename) {
 
 async function handleList(repoRoot) {
   const skills = listAllSkills(repoRoot);
-  let byObservation = [];
-  try {
-    const traces = extractTraces({
-      skillName: '*',
-      repoRoot,
-      limit: 1,
-      includeOtherSkills: false,
-    });
-    byObservation = [];
-    void traces;
-  } catch {
-    byObservation = [];
-  }
 
   const rows = skills
     .map((skill) => {
@@ -119,13 +105,16 @@ async function handleList(repoRoot) {
       } catch {
         observations = [];
       }
-      const failures = observations.filter((o) => o.outcome !== 'success').length;
+      const failures = observations.filter(
+        (o) => o.outcome !== 'success',
+      ).length;
       return {
         name: skill.name,
         bodyBytes: skill.bodyBytes,
         observations: observations.length,
         failures,
-        failureRate: observations.length > 0 ? failures / observations.length : 0,
+        failureRate:
+          observations.length > 0 ? failures / observations.length : 0,
       };
     })
     .sort((a, b) => {
@@ -166,13 +155,7 @@ async function handleExtract(skillName, repoRoot, config) {
   };
 }
 
-async function handleEvolve(
-  skillName,
-  { flags },
-  repoRoot,
-  config,
-  api,
-) {
+async function handleEvolve(skillName, { flags }, repoRoot, config, api) {
   const target = flags.target;
   if (!target || !['description', 'body', 'both'].includes(target)) {
     throw new Error(
@@ -183,7 +166,10 @@ async function handleEvolve(
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const iterations = Number.parseInt(flags.iterations || config.defaultIterations, 10);
+  const iterations = Number.parseInt(
+    flags.iterations || config.defaultIterations,
+    10,
+  );
   if (!Number.isFinite(iterations) || iterations < 1) {
     throw new Error('--iterations must be a positive integer');
   }
@@ -210,7 +196,12 @@ async function handleEvolve(
         'Not enough trace observations; dropping traces source.',
       );
     } else {
-      tracesDatasetPath = datasetPathFor(repoRoot, config, skill.name, 'traces.json');
+      tracesDatasetPath = datasetPathFor(
+        repoRoot,
+        config,
+        skill.name,
+        'traces.json',
+      );
       writeTraceDataset(
         {
           skillName: skill.name,
@@ -223,26 +214,35 @@ async function handleEvolve(
     }
   }
 
-  const workDir = path.join(
-    workspaceCacheDir(),
-    `${skill.name}-${Date.now()}`,
-  );
+  const workDir = path.join(workspaceCacheDir(), `${skill.name}-${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
   const pythonArgs = [
     'evolve',
-    '--skill-path', skillPath,
-    '--skill-name', skill.name,
-    '--target', target,
-    '--iterations', String(iterations),
-    '--optimizer-model', config.optimizerModel,
-    '--eval-model', config.evalModel,
-    '--max-body-bytes', String(config.maxSkillBodyBytes),
-    '--max-description-chars', String(config.maxDescriptionChars),
-    '--sources', sources.join(','),
-    '--work-dir', workDir,
-    '--repo-root', repoRoot,
-    '--datasets-dir', path.join(repoRoot, config.datasetsDir),
+    '--skill-path',
+    skillPath,
+    '--skill-name',
+    skill.name,
+    '--target',
+    target,
+    '--iterations',
+    String(iterations),
+    '--optimizer-model',
+    config.optimizerModel,
+    '--eval-model',
+    config.evalModel,
+    '--max-body-bytes',
+    String(config.maxSkillBodyBytes),
+    '--max-description-chars',
+    String(config.maxDescriptionChars),
+    '--sources',
+    sources.join(','),
+    '--work-dir',
+    workDir,
+    '--repo-root',
+    repoRoot,
+    '--datasets-dir',
+    path.join(repoRoot, config.datasetsDir),
   ];
   if (tracesDatasetPath) {
     pythonArgs.push('--traces-dataset', tracesDatasetPath);
@@ -365,7 +365,9 @@ async function handleShow(skillName, runId) {
   if (!match || !match.resultPath) {
     return { ok: false, error: `No evolution run found for ${skillName}.` };
   }
-  const result = await runPython(['show', match.resultPath], { stdio: 'inherit' });
+  const result = await runPython(['show', match.resultPath], {
+    stdio: 'inherit',
+  });
   return { ok: result.code === 0, exitCode: result.code };
 }
 
@@ -470,7 +472,11 @@ export default {
       name: 'skill_evolver_list',
       description:
         'List skills ranked by observation counts and failure rates, to identify candidates for evolution.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
       handler: async () => handleList(resolveRepoRoot()),
     });
 
@@ -481,7 +487,10 @@ export default {
       parameters: {
         type: 'object',
         properties: {
-          skill: { type: 'string', description: 'Skill name (directory name or frontmatter name:).' },
+          skill: {
+            type: 'string',
+            description: 'Skill name (directory name or frontmatter name:).',
+          },
         },
         required: ['skill'],
         additionalProperties: false,
