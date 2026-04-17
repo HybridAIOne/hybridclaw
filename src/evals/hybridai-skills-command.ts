@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  joinSections,
+  renderKeyValueSection,
+  resolveHarnessVersion,
+} from './eval-command.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
@@ -52,6 +57,7 @@ interface HybridaiSkillsRunSummary {
   filterSkill?: string;
   filterMode?: HybridaiSkillFixtureMode;
   maxFixtures?: number;
+  forceExplicit?: boolean;
   results: FixtureGradeResult[];
 }
 
@@ -441,7 +447,8 @@ function handleSetup(dataDir: string): GatewayCommandResult {
       'Next:',
       '- `/eval hybridai-skills list` to inspect fixtures.',
       '- `/eval hybridai-skills run --dry-run` to validate without calling the model.',
-      '- `/eval hybridai-skills run --max 3` to run a live sample against the local gateway.',
+      '- `/eval hybridai-skills run --skill <name> --max 3` to run a small live sample.',
+      '- `/eval hybridai-skills run` to run every fixture live (use `--max N` to cap).',
     ].join('\n'),
   );
 }
@@ -513,9 +520,7 @@ async function handleRun(params: {
       'No fixtures match the given filters.',
     );
   }
-  const capped = parsed.max
-    ? filtered.slice(0, parsed.max)
-    : filtered.slice(0, parsed.dryRun ? filtered.length : 3);
+  const capped = parsed.max ? filtered.slice(0, parsed.max) : filtered;
   const installRoot = resolveInstallRootSafe();
   const skills = loadBundledSkillCatalogForGrader(installRoot);
   const startedAt = new Date().toISOString();
@@ -526,7 +531,11 @@ async function handleRun(params: {
       continue;
     }
     try {
-      results.push(await runFixtureLive(fixture, params.env, skills));
+      results.push(
+        await runFixtureLive(fixture, params.env, skills, {
+          forceExplicit: parsed.forceExplicit,
+        }),
+      );
     } catch (error) {
       results.push({
         fixture,
@@ -553,12 +562,13 @@ async function handleRun(params: {
     filterSkill: parsed.skill,
     filterMode: parsed.mode,
     maxFixtures: parsed.max,
+    forceExplicit: parsed.forceExplicit ? true : undefined,
     results,
   };
   writeLatestRun(params.dataDir, summary);
   return infoResult(
-    `hybridai-skills run (${summary.mode})`,
-    renderRunSummary(summary),
+    `hybridai-skills Run (${summary.mode})`,
+    renderRunSummary(summary, getLatestRunPath(params.dataDir)),
   );
 }
 
@@ -566,7 +576,7 @@ function handleResults(dataDir: string): GatewayCommandResult {
   const runPath = getLatestRunPath(dataDir);
   if (!fs.existsSync(runPath)) {
     return errorResult(
-      'hybridai-skills results',
+      'hybridai-skills Results',
       'No prior run on disk. Run `/eval hybridai-skills run` first.',
     );
   }
@@ -574,8 +584,8 @@ function handleResults(dataDir: string): GatewayCommandResult {
     fs.readFileSync(runPath, 'utf8'),
   ) as HybridaiSkillsRunSummary;
   return infoResult(
-    `hybridai-skills results (${summary.mode})`,
-    renderRunSummary(summary),
+    'hybridai-skills Results',
+    renderRunSummary(summary, runPath),
   );
 }
 
@@ -585,6 +595,7 @@ interface ParsedRunFlags {
   skill?: string;
   mode?: HybridaiSkillFixtureMode;
   kind?: HybridaiSkillFixtureKind;
+  forceExplicit?: boolean;
   error?: string;
 }
 
@@ -599,6 +610,10 @@ function parseRunFlags(args: string[]): ParsedRunFlags {
     }
     if (raw === '--live') {
       parsed.dryRun = false;
+      continue;
+    }
+    if (raw === '--explicit') {
+      parsed.forceExplicit = true;
       continue;
     }
     const [flagRaw, inlineValue] = splitFlag(raw);
@@ -713,12 +728,16 @@ async function runFixtureLive(
   fixture: HybridaiSkillFixture,
   env: EvalEnvironmentLike,
   skills: Skill[],
+  options: { forceExplicit?: boolean } = {},
 ): Promise<FixtureGradeResult> {
   const start = Date.now();
   const endpoint = `${env.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const prompt = options.forceExplicit
+    ? `/${fixture.skill} ${fixture.prompt}`
+    : fixture.prompt;
   const body = {
     model: env.model,
-    messages: [{ role: 'user', content: fixture.prompt }],
+    messages: [{ role: 'user', content: prompt }],
     stream: false,
   };
   const response = await fetch(endpoint, {
@@ -840,44 +859,115 @@ function writeLatestRun(
   );
 }
 
-function renderRunSummary(summary: HybridaiSkillsRunSummary): string {
+function renderRunSummary(
+  summary: HybridaiSkillsRunSummary,
+  runPath?: string,
+): string {
   const filterLines: string[] = [];
   if (summary.filterSkill) filterLines.push(`skill=${summary.filterSkill}`);
   if (summary.filterMode) filterLines.push(`mode=${summary.filterMode}`);
   if (summary.maxFixtures) filterLines.push(`max=${summary.maxFixtures}`);
-  const header = [
-    `Mode:     ${summary.mode}`,
-    `Base URL: ${summary.baseUrl}`,
-    `Model:    ${summary.model}`,
-    `Fixtures: ${summary.executedFixtures} of ${summary.totalFixtures} executed${
-      filterLines.length ? ` (filters: ${filterLines.join(', ')})` : ''
-    }`,
-    `Passed:   ${summary.passed}`,
-    `Failed:   ${summary.failed}`,
-    `Skipped:  ${summary.skipped}`,
-    `Started:  ${summary.startedAt}`,
-    `Finished: ${summary.finishedAt}`,
-  ];
-  const rows = summary.results.map((result) => renderResultLine(result));
-  return [...header, '', 'Results:', ...rows].join('\n');
+  if (summary.forceExplicit) filterLines.push('explicit');
+  const executed = summary.executedFixtures;
+  const gradable = summary.passed + summary.failed;
+  const score = gradable > 0 ? summary.passed / gradable : null;
+  const startedMs = Date.parse(summary.startedAt);
+  const finishedMs = Date.parse(summary.finishedAt);
+  const durationMs =
+    Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+      ? Math.max(0, finishedMs - startedMs)
+      : null;
+
+  const overviewSection = renderKeyValueSection('Overview', [
+    ['Evaluated model', summary.model],
+    ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+    ['Status', summary.mode === 'dry-run' ? 'dry-run' : 'completed'],
+    ['Base URL', summary.baseUrl],
+    ['Filters', filterLines.length ? filterLines.join(', ') : 'none'],
+  ]);
+  const resultsSection = renderKeyValueSection('Results', [
+    ['Score', score != null ? score.toFixed(3) : 'n/a'],
+    [
+      'Passed',
+      gradable > 0
+        ? `${summary.passed}/${gradable} (${Math.round(((score ?? 0) * 100))}%)`
+        : `${summary.passed}`,
+    ],
+    ['Failed', summary.failed],
+    ['Skipped', summary.skipped],
+    ['Executed', `${executed}/${summary.totalFixtures}`],
+  ]);
+  const runSection = renderKeyValueSection('Run', [
+    ['Mode', summary.mode],
+    ['Started', summary.startedAt],
+    ['Finished', summary.finishedAt],
+    ['Duration', durationMs != null ? formatDuration(durationMs) : null],
+  ]);
+  const pathsSection = renderKeyValueSection('Paths', [
+    ['Latest run', runPath || null],
+  ]);
+
+  const failures = summary.results.filter((r) => r.status === 'failed');
+  const failuresSection =
+    failures.length > 0
+      ? renderKeyValueSection(
+          'Failures',
+          failures.map(
+            (result) => [result.fixture.id, describeFailure(result)] as const,
+          ),
+        )
+      : '';
+
+  const passes = summary.results.filter((r) => r.status === 'passed');
+  const passesSection =
+    passes.length > 0
+      ? renderKeyValueSection(
+          'Passes',
+          passes.map(
+            (result) =>
+              [
+                result.fixture.id,
+                result.toolNames.length > 0
+                  ? result.toolNames.join(',')
+                  : (result.observedSkill ?? 'ok'),
+              ] as const,
+          ),
+        )
+      : '';
+
+  return joinSections([
+    overviewSection,
+    resultsSection,
+    runSection,
+    pathsSection,
+    failuresSection,
+    passesSection,
+  ]);
 }
 
-function renderResultLine(result: FixtureGradeResult): string {
-  const marker =
-    result.status === 'passed'
-      ? 'PASS'
-      : result.status === 'failed'
-        ? 'FAIL'
-        : 'SKIP';
-  const base = `${marker}  ${result.fixture.id}`;
-  const reason = result.reason ? ` — ${result.reason}` : '';
-  const observed =
-    result.observedSkill && result.observedSkill !== result.fixture.skill
-      ? ` (observed: ${result.observedSkill})`
-      : '';
-  const toolTag =
-    result.toolNames.length > 0 ? ` [${result.toolNames.join(',')}]` : '';
-  return `  ${base}${observed}${toolTag}${reason}`;
+function describeFailure(result: FixtureGradeResult): string {
+  const parts: string[] = [];
+  if (result.reason) parts.push(result.reason);
+  if (
+    result.observedSkill &&
+    result.observedSkill !== result.fixture.skill &&
+    !(result.reason || '').includes(result.observedSkill)
+  ) {
+    parts.push(`observed=${result.observedSkill}`);
+  }
+  if (result.toolNames.length > 0) {
+    parts.push(`tools=${result.toolNames.join(',')}`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : 'failed';
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
 }
 
 function renderHybridaiSkillsUsage(
@@ -892,13 +982,14 @@ function renderHybridaiSkillsUsage(
     'Usage:',
     '- `/eval hybridai-skills setup`',
     '- `/eval hybridai-skills list [--skill <name>] [--mode implicit|explicit] [--kind try-it|conversation] [--max N]`',
-    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--mode ...] [--kind ...] [--max N]`',
+    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--mode ...] [--kind ...] [--max N] [--explicit]`',
     '- `/eval hybridai-skills results`',
     '',
     'What it does:',
     '- `setup` harvests the "Try it yourself" prompts from `docs/development/guides/skills/*.md` into a JSONL fixture set.',
     '- `run --dry-run` validates fixtures without calling the model (checks explicit-name references and skill existence).',
-    '- `run` (default `--live` with `--max 3`) posts each fixture to the local HybridClaw OpenAI endpoint and grades the tool trace with `resolveObservedSkillName`.',
+    '- `run` (default `--live`, runs all matching fixtures unless `--max N` is set) posts each fixture to the local HybridClaw OpenAI endpoint and grades the tool trace with `resolveObservedSkillName`.',
+    '- `run --explicit` prefixes each prompt with `/<skill>` so the model is forced to invoke the named skill (useful for isolating skill-execution failures from skill-trigger failures).',
     '',
     `Fixtures path: ${fixturesPath}${installed ? ' (present)' : ' (missing — run setup)'}`,
     `Base URL:      ${env.baseUrl}`,

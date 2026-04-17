@@ -246,9 +246,9 @@ describe('live runner grading', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe('info');
-    expect(result.text).toMatch(/Passed:\s+0/);
-    expect(result.text).toMatch(/Failed:\s+1/);
-    expect(result.text).toMatch(/FAIL\s+synthetic:code-review:try-it:1/);
+    expect(result.text).toMatch(/Passed\s+0\/1/);
+    expect(result.text).toMatch(/Failed\s+1/);
+    expect(result.text).toMatch(/synthetic:code-review:try-it:1/);
     expect(result.text).toMatch(/no skill observed in tool trace/);
   });
 });

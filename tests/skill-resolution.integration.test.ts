@@ -89,6 +89,15 @@ describe('skill resolution integration', () => {
     expect(names).toContain('current-time');
   });
 
+  it('bundled pdf skill description advertises creation and invoice workflows', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const pdfSkill = catalog.find((skill) => skill.name === 'pdf');
+
+    expect(pdfSkill).toBeDefined();
+    expect(pdfSkill?.description).toContain('Create new PDFs');
+    expect(pdfSkill?.description).toContain('invoice/document parsing');
+  });
+
   it('SKILL.md with valid frontmatter parses correctly (name, description, category, tags)', () => {
     const extraDir = path.join(tmpDir, 'extra-skills');
     writeSkill(

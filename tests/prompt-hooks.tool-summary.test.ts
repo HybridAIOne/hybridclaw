@@ -99,6 +99,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   );
   expect(prompt).toContain(
+    'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
+  );
+  expect(prompt).toContain(
     'Do not claim a listed skill is unavailable when the user named it.',
   );
   expect(prompt).toContain(

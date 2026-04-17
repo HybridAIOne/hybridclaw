@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
+description: Create new PDFs and handle existing `.pdf` files safely with bundled Node/JS tools, including text extraction, page rendering, invoice/document parsing, form filling, and overlays.
 user-invocable: true
 disable-model-invocation: false
 metadata:
