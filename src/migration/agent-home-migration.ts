@@ -5,6 +5,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
+  DEFAULT_HYBRIDAI_MODEL,
   getRuntimeConfig,
   type RuntimeConfig,
   runtimeConfigPath,
@@ -1292,7 +1293,7 @@ const openClawAdapter: SourceAdapter = {
     const model = this.extractModel(snapshot.config);
     if (model) {
       const currentModel = draft.hybridai.defaultModel.trim();
-      if (!currentModel || currentModel === 'gpt-4.1-mini' || overwrite) {
+      if (!currentModel || currentModel === DEFAULT_HYBRIDAI_MODEL || overwrite) {
         applyImportedModel(draft, model);
         addItem(
           makeItem(
@@ -1834,7 +1835,7 @@ const hermesAdapter: SourceAdapter = {
     const model = this.extractModel(snapshot.config);
     if (!model) return;
     const currentModel = draft.hybridai.defaultModel.trim();
-    if (!currentModel || currentModel === 'gpt-4.1-mini' || overwrite) {
+    if (!currentModel || currentModel === DEFAULT_HYBRIDAI_MODEL || overwrite) {
       applyImportedModel(draft, model);
       addItem(
         makeItem(
