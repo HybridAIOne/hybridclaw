@@ -2959,10 +2959,10 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('href="#tools"');
   });
 
-  test('serves /agents and /admin without a session cookie outside Docker', async () => {
+  test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
     const state = await importFreshHealth();
 
-    for (const pathname of ['/agents', '/admin']) {
+    for (const pathname of ['/chat', '/agents', '/admin']) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
 
@@ -2973,23 +2973,21 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('returns 404 for legacy /chat and /chat.html paths', async () => {
+  test('returns 404 for legacy /chat.html path', async () => {
     const state = await importFreshHealth();
 
-    for (const pathname of ['/chat', '/chat.html']) {
-      const req = makeRequest({ url: pathname });
-      const res = makeResponse();
+    const req = makeRequest({ url: '/chat.html' });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
+    state.handler(req as never, res as never);
 
-      expect(res.statusCode).toBe(404);
-    }
+    expect(res.statusCode).toBe(404);
   });
 
-  test('redirects /agents and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+  test('redirects /chat, /agents, and /admin to HybridAI login in Docker when no session cookie is present', async () => {
     const state = await importFreshHealth({ runningInsideContainer: true });
 
-    for (const pathname of ['/agents', '/admin']) {
+    for (const pathname of ['/chat', '/agents', '/admin']) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
 

@@ -3,21 +3,25 @@ import { resolveCurrentAdminNavItem } from './admin-nav';
 
 describe('resolveCurrentAdminNavItem', () => {
   const visibleNavItems = [
-    { to: '/', label: 'Dashboard' },
-    { to: '/approvals', label: 'Approvals' },
+    { to: '/admin', label: 'Dashboard' },
+    { to: '/admin/approvals', label: 'Approvals' },
   ] as const;
 
-  it('keeps the chat title for the hidden admin chat route', () => {
-    expect(resolveCurrentAdminNavItem('/chat', visibleNavItems)).toEqual({
-      to: '/chat',
-      label: 'Chat',
+  it('resolves a visible sidebar item by exact path', () => {
+    expect(
+      resolveCurrentAdminNavItem('/admin/approvals', visibleNavItems),
+    ).toEqual({
+      to: '/admin/approvals',
+      label: 'Approvals',
     });
   });
 
-  it('prefers visible sidebar items when present', () => {
-    expect(resolveCurrentAdminNavItem('/approvals', visibleNavItems)).toEqual({
-      to: '/approvals',
-      label: 'Approvals',
+  it('falls back to the first nav item when no match is found', () => {
+    expect(
+      resolveCurrentAdminNavItem('/admin/unknown', visibleNavItems),
+    ).toEqual({
+      to: '/admin',
+      label: 'Dashboard',
     });
   });
 });

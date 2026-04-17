@@ -1182,7 +1182,7 @@
           </span>
           <span class="sidebar-link-label">Agents</span>
         </a>
-        <a class="sidebar-link" href="/admin/chat">
+        <a class="sidebar-link" href="/chat">
           <span class="sidebar-link-icon">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -1229,7 +1229,7 @@
 
           <div class="page-actions">
             <nav class="view-switch" aria-label="Switch view">
-              <a class="view-switch-link" href="/admin/chat">
+              <a class="view-switch-link" href="/chat">
                 <span class="sidebar-link-icon">
                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -1883,7 +1883,7 @@
           <section class="card">
             <h2 class="card-title">${state.snapshot ? 'No sessions in this filter' : 'Waiting for runtime data'}</h2>
             <p class="card-copy">${state.snapshot
-              ? 'Change the filter or open /admin/chat to create another live session.'
+              ? 'Change the filter or open /chat to create another live session.'
               : 'Fetching persisted sessions from /api/agents.'}</p>
           </section>
         `;
@@ -2096,7 +2096,7 @@
 
       if (action === 'open-chat') {
         localStorage.setItem('hybridclaw_session', session.sessionId);
-        window.location.assign('/admin/chat');
+        window.location.assign('/chat');
         return;
       }
 
@@ -2147,7 +2147,7 @@
           localStorage.removeItem('hybridclaw_token');
           apiToken = '';
           setConnectionState('is-offline', 'Token required');
-          showNotice('Gateway requires WEB_API_TOKEN. Reuse the same token flow as /admin/chat with ?token=... or localStorage.hybridclaw_token.');
+          showNotice('Gateway requires WEB_API_TOKEN. Reuse the same token flow as /chat with ?token=... or localStorage.hybridclaw_token.');
         } else {
           setConnectionState('is-offline', 'Gateway unavailable');
           showNotice(`Agent/session data unavailable: ${message}`);
@@ -2198,7 +2198,7 @@
     });
 
     openChatButtonEl.addEventListener('click', () => {
-      window.location.assign('/admin/chat');
+      window.location.assign('/chat');
     });
 
     openSessionsButtonEl.addEventListener('click', () => {

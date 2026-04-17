@@ -723,6 +723,8 @@ function requiresSessionAuth(pathname: string): boolean {
   return (
     pathname === '/agents' ||
     pathname === '/agents.html' ||
+    pathname === '/chat' ||
+    pathname.startsWith('/chat/') ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/')
   );
@@ -3649,7 +3651,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (pathname.startsWith('/admin')) {
+    if (
+      pathname.startsWith('/admin') ||
+      pathname === '/chat' ||
+      pathname.startsWith('/chat/')
+    ) {
       if (serveConsole(pathname, res)) return;
       sendText(
         res,

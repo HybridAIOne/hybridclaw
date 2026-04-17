@@ -62,13 +62,13 @@ session summary with `hybridclaw tui --resume <sessionId>` on exit.
 
 With the gateway running locally:
 
-- chat UI: `http://127.0.0.1:9090/admin/chat`
+- chat UI: `http://127.0.0.1:9090/chat`
 - agent/session dashboard: `http://127.0.0.1:9090/agents`
 - admin console: `http://127.0.0.1:9090/admin`
 - docs: `http://127.0.0.1:9090/docs`
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
-it is set, `/admin/chat`, `/agents`, and `/admin` all reuse the same token gate.
+it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
 

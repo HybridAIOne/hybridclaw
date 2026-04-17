@@ -185,16 +185,8 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     );
   });
 
-  test('legacy /chat returns 404 (chat lives under /admin/chat)', async () => {
+  test('/chat serves the console SPA (chat is top-level, not under /admin)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      redirect: 'manual',
-    });
-    expect(res.status).toBe(404);
-  });
-
-  test('/admin/chat serves the console SPA', async () => {
-    const res = await fetch(`${GATEWAY_URL}/admin/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);

@@ -34,22 +34,16 @@ export function AppShell(props: { children: ReactNode }) {
     queryKey: ['config', auth.token],
     queryFn: () => fetchConfig(auth.token),
   });
-  const adminPath = pathname.startsWith('/admin/')
-    ? pathname.slice('/admin'.length)
-    : pathname === '/admin'
-      ? '/'
-      : pathname;
   const configReady = Boolean(configQuery.data);
   const emailEnabled = configQuery.data?.config.email.enabled === true;
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) => !item.requiresEmail || emailEnabled || adminPath === item.to,
+      (item) => !item.requiresEmail || emailEnabled || pathname === item.to,
     ),
   })).filter((group) => group.items.length > 0);
   const navItems = sidebarGroups.flatMap((group) => group.items);
-  const currentNavItem = resolveCurrentAdminNavItem(adminPath, navItems);
-  const isChatRoute = adminPath === '/chat';
+  const currentNavItem = resolveCurrentAdminNavItem(pathname, navItems);
 
   return (
     <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
@@ -61,23 +55,15 @@ export function AppShell(props: { children: ReactNode }) {
           onLogout={auth.logout}
         />
         <SidebarInset className="main-panel">
-          {!isChatRoute ? (
-            <div className="topbar">
-              <div className="topbar-title">
-                <div className="topbar-heading">
-                  <h2>{currentNavItem.label}</h2>
-                </div>
+          <div className="topbar">
+            <div className="topbar-title">
+              <div className="topbar-heading">
+                <h2>{currentNavItem.label}</h2>
               </div>
-              <ViewSwitchNav />
             </div>
-          ) : null}
-          <div
-            className={
-              isChatRoute ? 'page-content page-content-full' : 'page-content'
-            }
-          >
-            {props.children}
+            <ViewSwitchNav />
           </div>
+          <div className="page-content">{props.children}</div>
         </SidebarInset>
       </SidebarProvider>
     </AppShellConfigContext.Provider>

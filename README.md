@@ -76,7 +76,7 @@ hybridclaw tui
 
 Open locally:
 
-- Chat UI: `http://127.0.0.1:9090/admin/chat`
+- Chat UI: `http://127.0.0.1:9090/chat`
 - Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agents UI: `http://127.0.0.1:9090/agents`
@@ -92,7 +92,7 @@ operator and maintainer manual lives at
 
 Once the gateway is running, open HybridClaw locally:
 
-- Web Chat: `http://127.0.0.1:9090/admin/chat`
+- Web Chat: `http://127.0.0.1:9090/chat`
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`

@@ -32,7 +32,7 @@ Maintainer overrides:
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
 local secrets or artifacts into published images.
-Published images also include the built `/admin/chat` and `/agents` browser assets so
+Published images also include the built `/chat` and `/agents` browser assets so
 the embedded web surfaces work from release images instead of source checkouts
 only.
 
@@ -92,7 +92,7 @@ Core details:
   runtime start. In non-interactive shells, `HYBRIDCLAW_ACCEPT_TRUST=true` can
   persist acceptance automatically before credential validation runs.
 - `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
-  `/admin/chat`, `/agents`, `/admin`, and admin API surfaces when set.
+  `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` let local clients such as the
   TUI, eval runner, and gateway command client target a different
   already-running HybridClaw gateway.
@@ -188,7 +188,7 @@ For the routing rules and operator guidance, see
 
 HybridClaw's built-in browser surfaces share one auth model:
 
-- `/admin/chat` is the end-user chat UI
+- `/chat` is the end-user chat UI
 - `/agents` shows logical agents plus live/persisted session cards
 - `/admin` serves the embedded operator console, including the `Plugins` page
   for discovery and load-status inspection

@@ -206,7 +206,7 @@ Notes:
 | Surface | Can answer approvals? | UX | Local-only commands available? | Notes |
 | --- | --- | --- | --- | --- |
 | TUI (`hybridclaw tui`) | Yes | Interactive picker, numeric shortcuts, exact text replies, `/approve ...` | Yes | Best surface when many approvals may stack up |
-| Web chat (`/admin/chat`) | Yes | Buttons plus typed replies | Yes | Pending approval ids are cached in the UI |
+| Web chat (`/chat`) | Yes | Buttons plus typed replies | Yes | Pending approval ids are cached in the UI |
 | Remote text channels | Yes | Plain text replies | No | Best to use exact approval phrases and include the approval id when needed |
 | Voice (`voice:*`) | Yes | Spoken reply is transcribed and treated as plain text | No | Use exact phrases such as `yes`, `yes for session`, `yes for agent`, `yes for all`, or `no` |
 

@@ -227,7 +227,7 @@ export function GatewayPage() {
         <ProviderHealthPanel
           title="Provider health"
           entries={providerEntries}
-          onLogin={() => void navigate({ to: '/config' })}
+          onLogin={() => void navigate({ to: '/admin/config' })}
         />
 
         <Panel title="Scheduler snapshot" accent="warm">

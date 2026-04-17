@@ -117,7 +117,7 @@ with linked-identity routing available when operators want shared continuity.
 
 ## Is there a web-based admin interface?
 
-Yes. The gateway serves `/admin` for the operator console, `/admin/chat` for the web
+Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
 chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
 Gateway, Sessions, Jobs, Channels, Bindings, Models, Scheduler, MCP, Audit,

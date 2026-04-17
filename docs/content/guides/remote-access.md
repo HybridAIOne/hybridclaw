@@ -9,7 +9,7 @@ sidebar_position: 7
 HybridClaw's gateway is a single HTTP service. Once another machine can reach
 that service, the same remote endpoint can power:
 
-- the web chat at `/admin/chat`
+- the web chat at `/chat`
 - the agent dashboard at `/agents`
 - the admin console at `/admin`
 - `hybridclaw tui`
@@ -38,7 +38,7 @@ hybridclaw config set ops.healthPort 9090
 hybridclaw config set ops.webApiToken "replace-with-a-long-random-token"
 ```
 
-`ops.webApiToken` gates `/admin/chat`, `/agents`, and `/admin`.
+`ops.webApiToken` gates `/chat`, `/agents`, and `/admin`.
 `ops.gatewayApiToken` is optional. If you leave it unset, client-side gateway
 calls fall back to the same token automatically. Set a separate
 `ops.gatewayApiToken` only when you want the CLI or TUI to use a different
@@ -61,7 +61,7 @@ ssh -N -L 19090:127.0.0.1:9090 user@gateway-host
 
 With the tunnel open:
 
-- browser access uses `http://127.0.0.1:19090/admin/chat`
+- browser access uses `http://127.0.0.1:19090/chat`
 - the dashboard uses `http://127.0.0.1:19090/agents`
 - the admin console uses `http://127.0.0.1:19090/admin`
 
