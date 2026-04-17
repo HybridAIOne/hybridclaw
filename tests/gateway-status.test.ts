@@ -2071,7 +2071,7 @@ test('model list openrouter asks for authorization before reporting no models', 
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Available Models');
+  expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toContain('OpenRouter is not authorized.');
   expect(result.text).toContain('Authorize it first from a terminal:');
   expect(result.text).toContain('hybridclaw auth login openrouter');
@@ -2111,7 +2111,7 @@ test('model list openrouter asks to enable the provider when credentials exist b
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Available Models');
+  expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toContain('OpenRouter is disabled.');
   expect(result.text).toContain('config set openrouter.enabled true');
   expect(result.text).toContain('Then rerun `model list openrouter`.');

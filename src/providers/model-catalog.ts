@@ -46,7 +46,7 @@ import {
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
-type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
+export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
@@ -237,9 +237,9 @@ function collectModelsForProvider(
     case 'kilo': {
       // Runtime discovery returns the union across all 9 OpenAI-compat remote
       // providers; the final prefix filter narrows to the requested one.
-      const section = (config as unknown as Record<string, unknown>)[
-        filter
-      ] as { enabled: boolean; models: string[] } | undefined;
+      const section = (config as unknown as Record<string, unknown>)[filter] as
+        | { enabled: boolean; models: string[] }
+        | undefined;
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
         ...(section?.enabled ? section.models : []),
