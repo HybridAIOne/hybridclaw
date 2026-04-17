@@ -1293,7 +1293,11 @@ const openClawAdapter: SourceAdapter = {
     const model = this.extractModel(snapshot.config);
     if (model) {
       const currentModel = draft.hybridai.defaultModel.trim();
-      if (!currentModel || currentModel === DEFAULT_HYBRIDAI_MODEL || overwrite) {
+      if (
+        !currentModel ||
+        currentModel === DEFAULT_HYBRIDAI_MODEL ||
+        overwrite
+      ) {
         applyImportedModel(draft, model);
         addItem(
           makeItem(
