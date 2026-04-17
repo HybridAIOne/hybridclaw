@@ -16,8 +16,7 @@ directly instead.
 When the image is missing, startup logic in `src/container-setup.ts` does:
 
 1. For installed packages, pull a remote image. For the default image it tries
-   Docker Hub `v<app-version>`, then `latest`. If those pulls fail, it falls
-   back to GHCR `v<app-version>`, then `latest`.
+   Docker Hub `v<app-version>`, then `latest`.
 2. For source checkouts, build a local image with `npm run build:container`.
 
 If Docker is not installed or not on `PATH`, container-mode startup fails fast.
