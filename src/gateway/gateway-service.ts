@@ -117,6 +117,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -4631,12 +4632,14 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     };
   }
   const sortedProviderStatus = Object.fromEntries(
-    Object.entries(providerStatus).sort(([leftKey, left], [rightKey, right]) => {
-      const leftEnabled = left.reachable === true;
-      const rightEnabled = right.reachable === true;
-      if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
-      return leftKey.localeCompare(rightKey);
-    }),
+    Object.entries(providerStatus).sort(
+      ([leftKey, left], [rightKey, right]) => {
+        const leftEnabled = left.reachable === true;
+        const rightEnabled = right.reachable === true;
+        if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+        return leftKey.localeCompare(rightKey);
+      },
+    ),
   ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
 
   return {
@@ -8520,6 +8523,10 @@ export async function handleGatewayCommand(
         const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
+        const containerImageStatus =
+          status.sandbox?.mode === 'container' && status.sandbox.image
+            ? await resolveContainerImageStatus(status.sandbox.image)
+            : null;
         const sessionModel = runtime.model;
         if (sessionModel.trim().toLowerCase().startsWith('huggingface/')) {
           await discoverHuggingFaceModels();
@@ -8574,6 +8581,20 @@ export async function handleGatewayCommand(
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
+          ...(status.sandbox?.mode === 'container' && status.sandbox.image
+            ? [
+                `🐳 Container: ${status.sandbox.image} · ${[
+                  containerImageStatus?.version
+                    ? `v${containerImageStatus.version}`
+                    : 'version unavailable',
+                  containerImageStatus?.shortId
+                    ? `id ${containerImageStatus.shortId}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}`,
+              ]
+            : []),
           `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
