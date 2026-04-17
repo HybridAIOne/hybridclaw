@@ -82,6 +82,11 @@ export interface ResetWorkspaceResult {
   removed: boolean;
 }
 
+export interface WorkspaceNodeModulesLinkOptions {
+  allowMissingSource?: boolean;
+  replaceExistingSymlink?: boolean;
+}
+
 interface WorkspaceOnboardingState {
   version: typeof WORKSPACE_STATE_VERSION;
   bootstrapSeededAt?: string;
@@ -327,24 +332,40 @@ function looksLikeCompletedWorkspace(
  * `/app/node_modules`.
  *
  * Only creates the symlink when nothing exists at the destination; a
- * pre-existing `node_modules` (real dir or user-installed symlink) is left
- * untouched so user-installed deps aren't clobbered. When the source
- * `/app/node_modules` doesn't exist (e.g. outside the container) this is a
- * silent no-op.
+ * pre-existing `node_modules` directory is left untouched so user-installed
+ * deps aren't clobbered. Callers can opt into replacing an existing symlink
+ * when they need to repair a stale runtime link before launching Docker.
+ *
+ * When the source `/app/node_modules` doesn't exist (e.g. outside the
+ * container) this is normally a silent no-op. Docker launch paths can opt into
+ * creating the symlink anyway so the bind-mounted workspace is already correct
+ * when the container starts.
  *
  * Exported for tests.
  */
 export function ensureWorkspaceNodeModulesLink(
   wsDir: string,
   source: string = CONTAINER_APP_NODE_MODULES,
+  options: WorkspaceNodeModulesLinkOptions = {},
 ): void {
   const target = path.join(wsDir, 'node_modules');
+  const resolvedSource = path.resolve(source);
+  let replaceExistingSymlink = false;
 
   // `lstat` so we detect a broken symlink at `target` too.
   try {
-    fs.lstatSync(target);
-    // Something already exists — leave it alone.
-    return;
+    const stat = fs.lstatSync(target);
+    if (!stat.isSymbolicLink()) {
+      // A real directory/file already exists — leave it alone.
+      return;
+    }
+
+    if (!options.replaceExistingSymlink) return;
+
+    const existingTarget = fs.readlinkSync(target);
+    const resolvedExisting = path.resolve(path.dirname(target), existingTarget);
+    if (resolvedExisting === resolvedSource) return;
+    replaceExistingSymlink = true;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err?.code !== 'ENOENT') {
@@ -356,11 +377,14 @@ export function ensureWorkspaceNodeModulesLink(
     }
   }
 
-  // Only create the link if the source actually exists. Outside the
-  // container (host dev machines, tests) `/app/node_modules` is absent.
-  if (!fs.existsSync(source)) return;
+  // Only create the link if the source actually exists unless the caller is
+  // deliberately staging a dangling container-path symlink before `docker run`.
+  if (!fs.existsSync(source) && !options.allowMissingSource) return;
 
   try {
+    if (replaceExistingSymlink) {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
     fs.symlinkSync(source, target, 'dir');
     logger.debug(
       { wsDir, source, target },
