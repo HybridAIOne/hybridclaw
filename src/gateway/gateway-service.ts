@@ -4630,10 +4630,18 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         ) || 0,
     };
   }
+  const sortedProviderStatus = Object.fromEntries(
+    Object.entries(providerStatus).sort(([leftKey, left], [rightKey, right]) => {
+      const leftEnabled = left.reachable === true;
+      const rightEnabled = right.reachable === true;
+      if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+      return leftKey.localeCompare(rightKey);
+    }),
+  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
 
   return {
     defaultModel,
-    providerStatus,
+    providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
         const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
@@ -7206,7 +7214,9 @@ export async function handleGatewayCommand(
             }
           }
           const listedModels =
-            gatewayStatus == null ? [] : getAvailableModelList(providerFilterArg);
+            gatewayStatus == null
+              ? []
+              : getAvailableModelList(providerFilterArg);
           const current = resolveRequestedCatalogModelName(
             runtime.model,
             listedModels,
