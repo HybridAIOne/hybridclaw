@@ -53,7 +53,6 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
     '<h1>Agents</h1>',
@@ -2959,10 +2958,10 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('href="#tools"');
   });
 
-  test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
+  test('serves /agents and /admin without a session cookie outside Docker', async () => {
     const state = await importFreshHealth();
 
-    for (const pathname of ['/chat', '/agents', '/admin']) {
+    for (const pathname of ['/agents', '/admin']) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
 
@@ -2973,10 +2972,34 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('redirects /chat, /agents, and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+  test('/chat 301-redirects to /admin/chat outside Docker', async () => {
+    const state = await importFreshHealth();
+
+    const req = makeRequest({ url: '/chat' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.Location).toBe('/admin/chat');
+  });
+
+  test('/chat 301-redirects to /admin/chat in Docker (before auth)', async () => {
     const state = await importFreshHealth({ runningInsideContainer: true });
 
-    for (const pathname of ['/chat', '/agents', '/admin']) {
+    const req = makeRequest({ url: '/chat' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.Location).toBe('/admin/chat');
+  });
+
+  test('redirects /agents and /admin to HybridAI login in Docker when no session cookie is present', async () => {
+    const state = await importFreshHealth({ runningInsideContainer: true });
+
+    for (const pathname of ['/agents', '/admin']) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
 

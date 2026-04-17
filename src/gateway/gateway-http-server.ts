@@ -721,8 +721,6 @@ function requiresSessionAuth(pathname: string): boolean {
   }
 
   return (
-    pathname === '/chat' ||
-    pathname === '/chat.html' ||
     pathname === '/agents' ||
     pathname === '/agents.html' ||
     pathname === '/admin' ||
@@ -1155,11 +1153,7 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
   const pathname = url.pathname;
   if (serveDocs(url, res)) return true;
   const filePath = resolveSiteFile(
-    pathname === '/chat'
-      ? '/chat.html'
-      : pathname === '/agents'
-        ? '/agents.html'
-        : pathname,
+    pathname === '/agents' ? '/agents.html' : pathname,
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -3648,6 +3642,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           },
         });
       });
+      return;
+    }
+
+    if (pathname === '/chat' || pathname === '/chat.html') {
+      sendRedirect(res, 301, '/admin/chat');
       return;
     }
 

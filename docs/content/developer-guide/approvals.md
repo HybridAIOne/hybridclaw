@@ -254,4 +254,4 @@ air on a phone call is worse than the pause window used on text surfaces.
 | `src/commands/policy-command.ts` | Shared CLI and slash-command policy command runner |
 | `src/gateway/pending-approvals.ts` | Gateway-side pending approval cache for button and reply helpers |
 | `src/tui.ts` | TUI picker, numeric shortcuts, and `/approve` replay handling |
-| `docs/chat.html` | Embedded web chat approval buttons and cached approval handling |
+| `console/src/routes/chat/` | React console chat approval buttons and cached approval handling |
