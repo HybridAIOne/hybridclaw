@@ -9,11 +9,6 @@ import { OPENAI_COMPAT_REMOTE_PROVIDERS } from '../providers/openai-compat-remot
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import type { GatewayStatus } from './gateway-types.js';
 
-// API-key readers for every provider with simple bearer-token auth.
-// openrouter/mistral/huggingface predate the OPENAI_COMPAT_REMOTE_PROVIDERS
-// registry and live in their own `*-utils.ts` files; the 9 newer providers
-// live in the registry. Both groups are funnelled into one lookup so the
-// diagnostic treats all 12 identically.
 type ApiKeyedProvider = Exclude<
   ModelCatalogProviderFilter,
   | 'local'
@@ -39,8 +34,6 @@ const READ_API_KEY: Record<
   >),
 };
 
-// Per-provider gate pipeline: enabled → credential → reachable.
-
 export type ProviderDiagnosticKind =
   | 'disabled'
   | 'unauthorized'
@@ -53,7 +46,6 @@ export interface ProviderDiagnostic {
 
 interface ProviderMeta {
   label: string;
-  // Name used in `hybridclaw auth login <name>`; null for local backends.
   loginName: string | null;
 }
 
