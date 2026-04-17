@@ -25,6 +25,14 @@ import {
 
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com']);
 const SKILLS_SH_HOSTS = new Set(['skills.sh', 'www.skills.sh']);
+export const IMPORT_SOURCE_FILE = '.import-source.json';
+
+type LocalSkillImportSource = {
+  kind: 'local';
+  displaySource: string;
+  resolvedPath: string;
+  isZip: boolean;
+};
 
 type SkillImportSource =
   | {
@@ -32,6 +40,7 @@ type SkillImportSource =
       displaySource: string;
       requestedPath: string;
     }
+  | LocalSkillImportSource
   | GitHubSkillImportSource
   | HubSkillImportSource;
 
@@ -136,6 +145,66 @@ function readSkillNameFromFile(skillFilePath: string): string {
     raw,
     path.basename(path.dirname(skillFilePath)),
   );
+}
+
+function hasZipExtension(filePath: string): boolean {
+  return filePath.toLowerCase().endsWith('.zip');
+}
+
+function parseLocalSource(input: string): LocalSkillImportSource | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const isExplicitLocal =
+    trimmed.startsWith('~/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../') ||
+    path.isAbsolute(trimmed);
+
+  if (!isExplicitLocal) return null;
+
+  const expanded = trimmed.startsWith('~/')
+    ? path.join(os.homedir(), trimmed.slice(2))
+    : trimmed;
+  const resolved = path.resolve(expanded);
+
+  return {
+    kind: 'local',
+    displaySource: input,
+    resolvedPath: resolved,
+    isZip: hasZipExtension(resolved),
+  };
+}
+
+function validateLocalSource(resolved: string): { isZip: boolean } {
+  if (!fs.existsSync(resolved)) {
+    throw new SkillImportError(`Local skill source not found: ${resolved}`);
+  }
+
+  const stat = fs.statSync(resolved);
+  const isZip = stat.isFile() && hasZipExtension(resolved);
+
+  if (!stat.isDirectory() && !isZip) {
+    throw new SkillImportError(
+      `Local skill source must be a directory or a .zip file: ${resolved}`,
+    );
+  }
+
+  return { isZip };
+}
+
+async function populateFromLocalSource(
+  source: LocalSkillImportSource,
+  targetDir: string,
+): Promise<string> {
+  const { isZip } = validateLocalSource(source.resolvedPath);
+  if (isZip) {
+    const { safeExtractZip } = await import('../agents/claw-security.js');
+    await safeExtractZip(source.resolvedPath, targetDir);
+  } else {
+    copyDirectoryContents(source.resolvedPath, targetDir);
+  }
+  return source.resolvedPath;
 }
 
 function parseGitHubUrl(input: string): SkillImportSource | null {
@@ -426,16 +495,19 @@ function parsePackagedCommunitySource(input: string): SkillImportSource | null {
 }
 
 function unsupportedSkillSourceMessage(input: string): string {
-  return `Unsupported skill source: ${input}. Use official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].`;
+  return `Unsupported skill source: ${input}. Use a local path (/path/to/skill, ./skill, ~/skill, or /path/to/skill.zip), official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].`;
 }
 
 function resolveSkillImportSource(input: string): SkillImportSource {
   const trimmed = String(input || '').trim();
   if (!trimmed) {
     throw new SkillImportError(
-      'Missing skill source. Use official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].',
+      'Missing skill source. Use a local path (/path/to/skill, ./skill, ~/skill, or /path/to/skill.zip), official/<skill-name>, skills-sh/<owner>/<repo>/<skill>, clawhub/<skill-slug>, lobehub/<agent-id>, claude-marketplace/<skill>[@<marketplace>], well-known:https://example.com/docs, <owner>/<repo>/<path>, or https://github.com/<owner>/<repo>[/path].',
     );
   }
+
+  const localSource = parseLocalSource(trimmed);
+  if (localSource) return localSource;
 
   const packagedCommunity = parsePackagedCommunitySource(trimmed);
   if (packagedCommunity) return packagedCommunity;
@@ -552,20 +624,35 @@ export async function importSkill(
   fs.mkdirSync(tempSkillDir, { recursive: true });
 
   try {
-    const resolvedRemoteSource =
-      resolvedSource.kind === 'packaged-community'
-        ? populateFromPackagedCommunitySource(resolvedSource, tempSkillDir)
-        : resolvedSource.kind === 'github'
-          ? await populateFromGitHubSource(
-              fetchImpl,
-              resolvedSource,
-              tempSkillDir,
-            )
-          : await populateFromHubSource(
-              fetchImpl,
-              resolvedSource,
-              tempSkillDir,
-            );
+    let resolvedRemoteSource: string;
+    switch (resolvedSource.kind) {
+      case 'local':
+        resolvedRemoteSource = await populateFromLocalSource(
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      case 'packaged-community':
+        resolvedRemoteSource = populateFromPackagedCommunitySource(
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      case 'github':
+        resolvedRemoteSource = await populateFromGitHubSource(
+          fetchImpl,
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+      default:
+        resolvedRemoteSource = await populateFromHubSource(
+          fetchImpl,
+          resolvedSource,
+          tempSkillDir,
+        );
+        break;
+    }
 
     normalizeSkillManifestFile(tempSkillDir);
     const skillFilePath = path.join(tempSkillDir, 'SKILL.md');
@@ -586,7 +673,7 @@ export async function importSkill(
       guardDecision = guardSkillDirectory({
         skillName,
         skillPath: tempSkillDir,
-        sourceTag: 'community',
+        sourceTag: resolvedSource.kind === 'local' ? 'extra' : 'community',
       });
       guardVerdict = guardDecision.result.verdict;
       guardFindingsCount = guardDecision.result.findings.length;
@@ -595,12 +682,17 @@ export async function importSkill(
         !guardDecision.allowed &&
         guardVerdict === 'caution';
       if (!guardDecision.allowed && !guardOverrideApplied) {
-        const forceSuffix =
-          options.force === true && guardVerdict === 'dangerous'
-            ? ' Dangerous verdicts cannot be overridden with --force.'
-            : '';
+        let overrideHint: string;
+        if (guardVerdict === 'dangerous' && options.force === true) {
+          overrideHint =
+            ' Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.';
+        } else if (guardVerdict === 'dangerous') {
+          overrideHint = ' To install anyway, re-run with --skip-skill-scan.';
+        } else {
+          overrideHint = ' To install anyway, re-run with --force.';
+        }
         throw new SkillImportError(
-          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${forceSuffix}`,
+          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${overrideHint}`,
         );
       }
     } else {
@@ -614,6 +706,11 @@ export async function importSkill(
       `.${targetDirName}.import-${randomUUID().slice(0, 8)}`,
     );
     fs.mkdirSync(installRoot, { recursive: true });
+    // Strip any attacker-supplied import marker before copying content.
+    const untrustedMarker = path.join(tempSkillDir, IMPORT_SOURCE_FILE);
+    if (fs.existsSync(untrustedMarker)) {
+      fs.rmSync(untrustedMarker, { force: true });
+    }
     copyDirectoryContents(tempSkillDir, stageDir);
     const replacedExisting = fs.existsSync(targetDir);
     if (replacedExisting) {
@@ -625,6 +722,14 @@ export async function importSkill(
       fs.rmSync(targetDir, { recursive: true, force: true });
     }
     fs.renameSync(stageDir, targetDir);
+    // Written after content copy so skill content cannot forge the marker.
+    fs.writeFileSync(
+      path.join(targetDir, IMPORT_SOURCE_FILE),
+      JSON.stringify({
+        kind: resolvedSource.kind,
+        guardSkipped: guardSkipped || undefined,
+      }),
+    );
 
     return {
       skillName,

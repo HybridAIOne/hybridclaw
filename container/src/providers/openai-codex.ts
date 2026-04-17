@@ -11,10 +11,10 @@ import type {
 } from '../types.js';
 import {
   buildRequestHeaders,
-  HybridAIRequestError,
   isRecord,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
 
 interface CodexAccumulatedContentPart {
@@ -761,7 +761,7 @@ export async function callOpenAICodexProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   const contentType = (

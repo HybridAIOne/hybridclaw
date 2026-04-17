@@ -1,6 +1,72 @@
 # Changelog
 
-## [Coming up]
+## Unreleased
+
+### Added
+
+- **Nine new external API providers**: Google Gemini (`gemini/`), DeepSeek
+  (`deepseek/`), xAI / Grok (`xai/`), Z.AI / GLM (`zai/`), Kimi / Moonshot
+  (`kimi/`), MiniMax (`minimax/`), DashScope / Qwen (`dashscope/`), Xiaomi
+  MiMo (`xiaomi/`), and Kilo Code (`kilo/`). Each provider supports
+  `auth login`, `auth status`, and `auth logout` with `--api-key`,
+  `--base-url`, `--model`, and `--no-default` flags, plus full runtime config
+  enablement and model-prefix routing.
+- **Runtime model discovery for OpenAI-compat remote providers**: The nine
+  providers above now auto-discover their current model lineups at runtime
+  via `GET <baseUrl>/models` and surface them through `/model list <provider>`
+  alongside any user-pinned entries in `<provider>.models`. Discovered models
+  are cached for one hour, deduplicated with pinned entries, and silently
+  fall back to the configured list if the provider's `/v1/models` endpoint is
+  unreachable, absent (404), or otherwise errors.
+- **ByteRover memory plugin**: New bundled `byterover-memory` external memory
+  provider that injects prompt-time recall through `brv query`, exposes
+  `brv_query` / `brv_curate` / `brv_status` model tools, and curates
+  completed turns, native memory writes, and pre-compaction summaries into
+  ByteRover's Context Tree. Works offline by default with optional cloud sync.
+- **Memory plugins overview page**: New comparison page at
+  `/docs/extensibility/memory-plugins` covering all five memory plugins and
+  built-in memory with a feature matrix, local vs cloud modes, and guidance
+  for choosing a plugin.
+- **Nested sidebar navigation**: The docs sidebar now supports `children`
+  arrays, used to group memory plugin pages under the overview entry.
+
+### Changed
+
+- **Kilo Code base URL migrated to `https://api.kilo.ai/api/gateway`**: The
+  retired `api.kilocode.ai` host now serves a marketing site, so the default
+  Kilo Code base URL has been updated across `config.ts`, the runtime config
+  defaults, the `auth login kilo` normalizer (suffix `/api/gateway`), and
+  `config.example.json`. Persisted runtime configs still pointing at
+  `https://api.kilocode.ai/v1` are silently migrated to the new URL on load
+  so existing installations self-heal.
+- **Renamed `HybridAIRequestError` → `ProviderRequestError`**: The error class
+  wraps failures from every OpenAI-compat provider (HybridAI, OpenRouter,
+  Mistral, Kilo Code, local Ollama, etc.), so the HybridAI-specific name was
+  misleading. The error-message prefix now reads `Provider API error <status>`
+  instead of `HybridAI API error <status>`. `HybridAIRequestError` is kept as
+  a deprecated alias for backward compatibility; new code should import
+  `ProviderRequestError` directly.
+- **Simpler `formatModelForDisplay` rule**: Models that already carry a
+  provider prefix (`kilo/...`, `gemini/...`, etc.) no longer incorrectly pick
+  up a leading `hybridai/`. The function now treats any slash-containing
+  non-`hybridai/` model as already-namespaced, removing the fragile
+  `NON_HYBRID_PROVIDER_PREFIXES` whitelist dependency for this path.
+- **Memory plugin docs standardized**: All five plugin doc pages now follow
+  the same structure: Prerequisites, HybridClaw Setup, Config, Commands,
+  Example Prompts & Use Cases, Tips & Tricks, and Troubleshooting. Added
+  external links, local vs cloud options, and researched tips for each.
+
+### Fixed
+
+- **Plugin install skips redundant deps**: When a plugin declares
+  `nodeDependencies` or `pipDependencies` but the required binary is already
+  on PATH, `plugin install` now skips both the approval prompt and the npm/pip
+  install, printing a green `[check]` status instead.
+- **Plugin check reports global binaries**: `plugin check` now correctly
+  reports dependencies as installed when the corresponding binary is available
+  globally, instead of only checking the plugin's local `node_modules`.
+
+## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 
 ### Added
 
@@ -8,6 +74,28 @@
   channel with inbound webhook handling, outbound `hybridclaw gateway voice
   call <number>` support, admin-console setup, and a dedicated setup and
   troubleshooting guide.
+- **Salesforce skill**: New bundled skill for enterprise CRM integration with
+  OAuth token binding, a dedicated `secret` CLI surface for credential
+  management, and hardened field-level configuration.
+- **Local skill import**: `skill import` now accepts local filesystem
+  directories and `.zip` archives as sources, with persistent import-source
+  markers so locally-imported skills retain personal trust across restarts.
+- **Admin approvals policy console**: New `/admin/approvals` interface for
+  viewing and managing approval policies from the browser.
+- **Console chat UI**: Migrated the legacy standalone chat UI into the console
+  React app with unified channels selection and improved upstream error
+  handling.
+- **Doctor resource hygiene**: `hybridclaw doctor` now includes a resource
+  hygiene maintenance pass that detects and cleans stale gateway artifacts,
+  with cached DB snapshots and disk-state diffing for efficient checks.
+- **Fetch Email-Config button**: The admin email channel editor includes a
+  one-click button to fetch and validate HybridAI mailbox credentials.
+- **XLSX skill creation script**: Bundled creation script prevents silent
+  generation failures when the xlsx skill produces spreadsheet output.
+- **ToggleGroup component**: New `ToggleGroup` / `ToggleGroupItem` UI
+  primitive used across the admin console for binary-toggle controls.
+- **Provider health panel**: Inline login action and inactive-provider
+  collapse in the admin console for quicker provider triage.
 
 ### Changed
 
@@ -15,6 +103,19 @@
   lets operators edit transport-specific prompt guidance, and runtime config
   exposes the same values under `channelInstructions.*` so channels such as
   voice can enforce spoken-output rules without editing prompt files directly.
+- **OAuth token domain binding**: Bearer tokens are now bound to their OAuth
+  issuer domain to prevent cross-domain exfiltration, and the gateway proxy
+  auto-captures tokens using config constants instead of raw environment
+  variables.
+- **Secret CLI simplification**: Removed the `[--raw]` option from
+  `secret show` and `secret set`, streamlining the operator-facing surface.
+- **CI pipeline split**: Unit tests now run as parallel lint and test jobs
+  with a shared `setup-node-workspace` composite action and PR-level
+  concurrency groups that cancel stale runs.
+- **Security scanner hints**: Block messages now include actionable override
+  hints so operators understand how to respond to policy violations.
+- **DRY provider utilities**: Refactored model-matching and `agentId`
+  normalization into shared provider utilities with prefix-aware matching.
 
 ### Fixed
 
@@ -22,6 +123,23 @@
   reliably, voice turns skip the usual yellow implicit wait, and the Twilio
   relay path handles disconnect, interrupt, and runtime-unavailable cases more
   cleanly instead of dropping into noisier failure states.
+- **Memory-flush pool slot leak**: Host processes spawned during memory-flush
+  no longer leak worker pool slots, and empty sessions are cleaned up
+  automatically.
+- **Stream terminated retry**: Terminated stream errors are now retried
+  correctly, preserving PDF creation workflows across transport retries.
+- **Skill scanning and promotion**: Runtime-created skills in agent workspace
+  directories now appear in `/skill list` and are promoted to the managed
+  directory on save.
+- **Teams webhook resilience**: Missing Teams credentials on incoming webhook
+  requests are handled gracefully instead of crashing the handler.
+- **AuthProvider callback stability**: Stabilized React `AuthProvider`
+  callbacks with memoized context values to prevent unnecessary re-renders.
+- **Upstream error mapping**: Nested HybridAI error payloads are unwrapped
+  and mapped to `502` responses to avoid gateway auth confusion, with
+  `no-store` cache headers on error responses.
+- **Skip-skill-scan persistence**: The `--skip-skill-scan` CLI decision is
+  now persisted so the runtime guard honors it across restarts.
 
 ## [0.12.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.5)
 
@@ -77,6 +195,10 @@
 - **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
   that run immediately, retry up to `maxRetries`, preserve review state, and
   surface richer delivery output across the gateway and admin scheduler UI.
+- **Mem0 memory plugin**: Added a bundled `mem0-memory` plugin so local
+  HybridClaw installs can mirror turns into Mem0 cloud memory, inject
+  prompt-time Mem0 recall, expose `mem0_*` tools, and mirror explicit native
+  memory writes back into Mem0.
 
 ### Changed
 

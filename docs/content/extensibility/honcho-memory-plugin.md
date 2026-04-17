@@ -30,6 +30,27 @@ Only one plugin marked as an external `memoryProvider` can be active at a time.
 That keeps HybridClaw on a clear model: built-in memory plus at most one
 external provider.
 
+## Prerequisites
+
+### Create a Honcho account
+
+Honcho offers two deployment options:
+
+- **Managed cloud (recommended for getting started)**: sign up at
+  [honcho.dev](https://honcho.dev) to get an API key
+  (see [Honcho documentation](https://docs.honcho.dev) for details). The managed service
+  includes $100 in free credits (no credit card required), which covers
+  approximately 50 million tokens of ingestion. The `get_context()` call that
+  runs every turn is free. Background "dreaming" (asynchronous reasoning) is
+  also free.
+- **Self-hosted**: deploy the open-source
+  [Honcho server](https://github.com/plastic-labs/honcho) on your own
+  infrastructure. Set `baseUrl` to your server address and leave
+  `HONCHO_API_KEY` unset if auth is disabled.
+
+No binary installation is required. The plugin communicates with Honcho
+entirely through its HTTP API.
+
 ## What It Mirrors
 
 Honcho receives:
@@ -62,12 +83,16 @@ For a local checkout:
 hybridclaw plugin install ./plugins/honcho-memory
 ```
 
-Then set the Honcho credential through `/secret`. The plugin can run on its
-built-in defaults without any extra config:
+Then enable the plugin and set the Honcho credential through `/secret`:
 
 ```text
+/plugin enable honcho-memory
 /secret set HONCHO_API_KEY your-honcho-key
+/honcho status
 ```
+
+Both `/plugin install` and `/plugin enable` automatically reload the plugin
+runtime — no separate `/plugin reload` is needed.
 
 If you want to pin explicit settings in `config.json`, a small stable config
 looks like this:
@@ -447,6 +472,56 @@ The usual first-run flow is:
 If you already have useful context in `SOUL.md`, `IDENTITY.md`, `USER.md`, or
 `MEMORY.md`, the setup step will seed that data into Honcho on demand.
 
+## Example Prompts and Use Cases
+
+### Cross-session user preferences
+
+```text
+I prefer functional programming patterns over OOP. I use Neovim and work
+primarily in Rust and TypeScript.
+```
+
+Honcho builds an evolving user profile from these facts. In a future session,
+asking for code suggestions will reflect these preferences without repeating
+them.
+
+### Dialectic reasoning for complex decisions
+
+```text
+Should we use a monorepo or polyrepo for the new platform? Consider our
+team size (8 engineers) and the fact that we ship three separate products.
+```
+
+With dialectic reasoning enabled, Honcho uses its accumulated knowledge about
+you and your team to reason through trade-offs, not just retrieve facts.
+
+### Explicit conclusion storage
+
+```text
+Use honcho_conclude to save: we decided on a monorepo with Turborepo.
+The migration starts next sprint.
+```
+
+This stores a durable conclusion in Honcho that persists across sessions and
+can be retrieved through `honcho_search` or automatic prompt recall.
+
+### Inspect what Honcho knows
+
+```text
+/honcho identity --show
+/honcho search deployment process
+What does Honcho know about my coding preferences?
+```
+
+Use these to debug recall quality or verify that Honcho is building an accurate
+user model.
+
+### Long-running project continuity
+
+Use `sessionStrategy: global` or `/honcho map release-v2` to maintain a single
+Honcho thread across many HybridClaw sessions. This is useful for multi-week
+projects where you want the agent to remember all prior context.
+
 ## Tips And Tricks
 
 - Use the defaults first. In most cases, `/secret set HONCHO_API_KEY ...` plus
@@ -468,6 +543,17 @@ If you already have useful context in `SOUL.md`, `IDENTITY.md`, `USER.md`, or
   peer.
 - Use `/honcho sync` after a burst of conversation if you want to force a flush
   and refresh prompt context immediately.
+- **Dreaming is free.** Honcho's background reasoning runs continuously
+  without additional cost. You only pay for token ingestion ($2/M tokens on
+  the managed cloud).
+- **Beware compaction amnesia.** Long sessions get compacted and early context
+  can vanish. If the agent forgets decisions from earlier in the session, use
+  `honcho_conclude` to save them explicitly or switch to
+  `writeFrequency: turn` for immediate persistence.
+- **Cron jobs start with no history.** Background tasks and scheduled jobs spin
+  up fresh sessions with zero conversation history. Use `sessionStrategy:
+  global` or seed important context through workspace files if you need
+  continuity in automated workflows.
 
 ## Troubleshooting
 

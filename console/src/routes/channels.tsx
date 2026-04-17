@@ -1064,11 +1064,7 @@ function EmailChannelEditor(props: {
       // Save password as runtime secret before showing success
       if (creds.password) {
         try {
-          await setRuntimeSecret(
-            props.token,
-            'EMAIL_PASSWORD',
-            creds.password,
-          );
+          await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', creds.password);
           props.onSecretSaved();
         } catch (err) {
           toast.error('Password could not be saved', getErrorMessage(err));
@@ -2533,11 +2529,13 @@ export function ChannelsPage() {
   useEffect(() => {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
-    if (selectedKind && catalog.some((entry) => entry.kind === selectedKind)) {
-      return;
-    }
-    setSelectedKind(firstCatalogEntry.kind);
-  }, [catalog, selectedKind]);
+    setSelectedKind((current) => {
+      if (current && catalog.some((entry) => entry.kind === current)) {
+        return current;
+      }
+      return firstCatalogEntry.kind;
+    });
+  }, [catalog]);
 
   const updateDraft: ConfigUpdater = (updater) => {
     saveMutation.reset();

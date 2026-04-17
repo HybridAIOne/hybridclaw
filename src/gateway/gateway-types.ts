@@ -51,6 +51,7 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  skillUsed?: string;
   agentId?: string;
   model?: string;
   provider?: string;
@@ -434,6 +435,15 @@ export interface GatewayStatus {
       | 'openrouter'
       | 'mistral'
       | 'huggingface'
+      | 'gemini'
+      | 'deepseek'
+      | 'xai'
+      | 'zai'
+      | 'kimi'
+      | 'minimax'
+      | 'dashscope'
+      | 'xiaomi'
+      | 'kilo'
       | 'ollama'
       | 'lmstudio'
       | 'llamacpp'

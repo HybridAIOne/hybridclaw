@@ -106,11 +106,16 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Twilio voice settings, and per-channel instructions that are injected into
   prompts at runtime.
+- `/admin/approvals` manages approval policies from the browser.
 - `hybridclaw tui` includes a keyboard-driven approval picker and prints a
   ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
+- `hybridclaw doctor` checks runtime health including resource hygiene
+  maintenance for stale gateway artifacts.
 - `hybridclaw onboarding` and related local setup flows can restore the last
   known-good saved config snapshot or roll back to a tracked revision when
   `config.json` becomes invalid.
+- `hybridclaw skill import` supports community sources, local directories,
+  and `.zip` archives.
 - Channel delivery stays predictable: email seeds its first mailbox cursor from
   the current head instead of replaying old inbox mail, retry-aware transports
   honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
@@ -206,7 +211,9 @@ Browse the full manual at
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
   [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [ByteRover Memory Plugin](https://www.hybridclaw.io/docs/extensibility/byterover-memory-plugin),
   [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
+  [Mem0 Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mem0-memory-plugin),
   [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
   [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
 - Configuration:

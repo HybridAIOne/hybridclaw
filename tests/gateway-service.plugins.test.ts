@@ -831,6 +831,7 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
 
   expect(installPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
     approveDependencyInstall: true,
+    onDependenciesAlreadySatisfied: expect.any(Function),
   });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
@@ -1188,6 +1189,7 @@ test('handleGatewayCommand reinstalls a plugin from a local TUI/web session and 
 
   expect(reinstallPluginMock).toHaveBeenCalledWith('./plugins/qmd-memory', {
     approveDependencyInstall: true,
+    onDependenciesAlreadySatisfied: expect.any(Function),
   });
   expect(reloadPluginManagerMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');

@@ -98,7 +98,7 @@ function summarizeParsedErrorBody(
   return message;
 }
 
-export class HybridAIRequestError extends Error {
+export class ProviderRequestError extends Error {
   status: number;
   body: string;
   readonly parsedBody: ParsedProviderErrorBody | null;
@@ -106,9 +106,9 @@ export class HybridAIRequestError extends Error {
   constructor(status: number, body: string) {
     const parsedBody = parseProviderErrorBody(body);
     super(
-      `HybridAI API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
+      `Provider API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
     );
-    this.name = 'HybridAIRequestError';
+    this.name = 'ProviderRequestError';
     this.status = status;
     this.body = body;
     this.parsedBody = parsedBody;
@@ -116,7 +116,7 @@ export class HybridAIRequestError extends Error {
 }
 
 export function isPremiumModelPermissionError(error: unknown): boolean {
-  if (!(error instanceof HybridAIRequestError) || error.status !== 403) {
+  if (!(error instanceof ProviderRequestError) || error.status !== 403) {
     return false;
   }
   const parsed = error.parsedBody;

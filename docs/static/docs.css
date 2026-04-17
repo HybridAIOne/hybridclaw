@@ -340,6 +340,11 @@ pre {
   font-size: 0.95rem;
 }
 
+.docs-nav-link-child {
+  padding-left: 28px;
+  font-size: 0.9rem;
+}
+
 .docs-nav-link:hover,
 .docs-toc-link:hover {
   background: var(--brand-blue-soft);
@@ -521,6 +526,85 @@ pre {
   padding-left: 16px;
   border-left: 3px solid var(--brand-blue);
   color: var(--muted-strong);
+}
+
+.docs-content blockquote p {
+  margin: 0 0 6px;
+}
+
+.docs-content blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.docs-content blockquote.docs-try-it,
+.docs-content blockquote.docs-tip {
+  padding: 14px 18px;
+  border-radius: 0 12px 12px 0;
+}
+
+.docs-content blockquote.docs-try-it > p:first-child,
+.docs-content blockquote.docs-tip > p:first-child {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.docs-content blockquote.docs-try-it {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.docs-content blockquote.docs-try-it code {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(21, 128, 61, 0.2);
+}
+
+:root[data-theme="dark"] .docs-content blockquote.docs-try-it code {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(126, 227, 165, 0.2);
+}
+
+.docs-content blockquote.docs-tip {
+  border-left-color: #e8a317;
+  background: rgba(232, 163, 23, 0.1);
+}
+
+:root[data-theme="dark"] .docs-content blockquote.docs-tip {
+  border-left-color: #f0c050;
+  background: rgba(240, 192, 80, 0.1);
+}
+
+.docs-content blockquote.docs-try-it code {
+  position: relative;
+}
+
+.docs-copy-inline {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  color: var(--muted);
+}
+
+.docs-content blockquote.docs-try-it code:hover .docs-copy-inline {
+  opacity: 0.6;
+}
+
+.docs-content blockquote.docs-try-it code .docs-copy-inline:hover {
+  opacity: 1;
+}
+
+.docs-content blockquote.docs-try-it code .docs-copy-inline.is-copied {
+  opacity: 1;
+  color: var(--success);
 }
 
 .docs-content table {

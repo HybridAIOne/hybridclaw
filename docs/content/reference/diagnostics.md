@@ -36,6 +36,15 @@ use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
 report treats the `browser_*` subtools as one browser toolset, so it only
 suggests disabling them when that whole toolset is unused.
 
+## Resource Hygiene
+
+`doctor` includes a resource hygiene maintenance pass that detects stale
+gateway artifacts such as orphaned sessions, leaked worker pool slots, and
+abandoned workspace state. The check caches a DB snapshot and disk-state diff
+so repeated runs are efficient. When `--fix` is passed, safe cleanups are
+applied automatically (e.g. reclaiming leaked pool slots and removing empty
+sessions).
+
 ## Request Logging
 
 When environment-level checks pass but a specific turn still needs debugging,

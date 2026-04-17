@@ -6,11 +6,12 @@ import type {
   ToolCall,
 } from '../types.js';
 import {
-  HybridAIRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
+  ProviderRequestError,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 import {
   createThinkingStreamEmitter,
   extractThinkingBlocks,
@@ -466,7 +467,7 @@ export async function callLocalOpenAICompatProvider(
   );
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
@@ -500,7 +501,7 @@ export async function callLocalOpenAICompatProviderStream(
   );
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const contentType = (
@@ -660,7 +661,10 @@ export async function callLocalOpenAICompatProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });

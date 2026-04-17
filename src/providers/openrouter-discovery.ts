@@ -1,8 +1,8 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
-  readOpenRouterApiKey,
 } from './openrouter-utils.js';
 import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
@@ -191,7 +191,9 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       return [];
     }
 
-    const apiKey = readOpenRouterApiKey({ required: false });
+    const apiKey = readApiKeyForOpenAICompatProvider('openrouter', {
+      required: false,
+    });
     if (!apiKey) {
       replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
       return [];

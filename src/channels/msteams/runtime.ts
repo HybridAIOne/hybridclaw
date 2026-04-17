@@ -694,7 +694,19 @@ export async function handleMSTeamsWebhook(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const activeAdapter = ensureTeamsRuntimeReady();
+  let activeAdapter: CloudAdapter;
+  try {
+    activeAdapter = ensureTeamsRuntimeReady();
+  } catch (error) {
+    logger.warn(
+      { reason: (error as Error).message },
+      'Teams webhook rejected: channel not configured',
+    );
+    sendWebhookJson(res, 422, {
+      error: (error as Error).message,
+    });
+    return;
+  }
   const request = req as ParsedWebhookRequest;
   try {
     request.body = await readWebhookBody(request);

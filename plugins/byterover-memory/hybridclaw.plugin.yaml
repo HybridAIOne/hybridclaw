@@ -1,0 +1,52 @@
+id: byterover-memory
+name: ByteRover Memory
+version: 0.1.0
+kind: memory
+memoryProvider: true
+description: Mirror HybridClaw turns into ByteRover, inject prompt-time recall, and expose ByteRover memory tools.
+entrypoint: src/index.js
+credentials:
+  - BRV_API_KEY
+requires:
+  bins:
+    - name: brv
+      configKey: command
+      installHint: npm install -g byterover-cli
+      installUrl: https://github.com/campfirein/byterover-cli
+nodeDependencies:
+  - byterover-cli
+externalDependencies:
+  - name: brv
+    check: brv --version
+    installHint: npm install -g byterover-cli
+    installUrl: https://github.com/campfirein/byterover-cli
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      default: brv
+    workingDirectory:
+      type: string
+    autoCurate:
+      type: boolean
+      default: true
+    mirrorMemoryWrites:
+      type: boolean
+      default: true
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 16000
+    queryTimeoutMs:
+      type: number
+      default: 30000
+      minimum: 1000
+      maximum: 120000
+    curateTimeoutMs:
+      type: number
+      default: 120000
+      minimum: 1000
+      maximum: 600000

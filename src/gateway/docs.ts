@@ -69,6 +69,7 @@ const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   ],
   allowedAttributes: {
     a: ['aria-hidden', 'class', 'href', 'rel', 'target', 'title'],
+    blockquote: ['class'],
     code: ['class'],
     h1: ['id'],
     h2: ['id'],
@@ -881,6 +882,8 @@ function renderMarkdownSourceScript(source: string): string {
 function renderInteractiveScript(): string {
   return `<script>
 (() => {
+  const ICON_COPY = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  const ICON_CHECK = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
   const body = document.body;
   const copyMarkdownButton = document.querySelector('[data-doc-copy-markdown]');
   const searchInput = document.querySelector('[data-doc-search-input]');
@@ -1115,6 +1118,30 @@ function renderInteractiveScript(): string {
       observer.observe(section.target);
     }
   }
+
+  // Copy buttons for try-it prompts
+  document.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.innerHTML = ICON_COPY;
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText((codeEl.textContent || '').replace(new RegExp('^[0-9]+[.][ ]*'), ''));
+        btn.innerHTML = ICON_CHECK;
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.innerHTML = ICON_COPY;
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {}
+    });
+    codeEl.appendChild(btn);
+  });
 })();
 </script>`;
 }
@@ -1157,6 +1184,17 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     return `<a href="${escapeHtml(
       resolvedHref,
     )}"${titleAttr}${externalAttrs}>${text}</a>`;
+  };
+
+  // Callout detection: mirrors docs/static/docs.js blockquote handling.
+  // Client-side uses custom parser with blank-line grouping; here marked
+  // handles grouping natively. Both detect 🎯 (try-it) and 💡 (tip).
+  renderer.blockquote = function ({ tokens }) {
+    const body = this.parser.parse(tokens);
+    let bqClass = '';
+    if (body.includes('🎯')) bqClass = ' class="docs-try-it"';
+    else if (body.includes('💡')) bqClass = ' class="docs-tip"';
+    return `<blockquote${bqClass}>${body}</blockquote>\n`;
   };
 
   renderer.image = ({ href, title, text }) => {
@@ -1765,6 +1803,79 @@ function renderPage(
       padding: 0 0 0 16px;
       border-left: 3px solid var(--brand-blue);
       color: var(--muted-strong);
+    }
+
+    .docs-article blockquote p {
+      margin: 0 0 6px;
+    }
+
+    .docs-article blockquote p:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-article blockquote.docs-try-it,
+    .docs-article blockquote.docs-tip {
+      padding: 14px 18px;
+      border-radius: 0 12px 12px 0;
+    }
+
+    .docs-article blockquote.docs-try-it > p:first-child,
+    .docs-article blockquote.docs-tip > p:first-child {
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .docs-article blockquote.docs-try-it {
+      border-left-color: var(--success, #15803d);
+      background: rgba(21, 128, 61, 0.08);
+    }
+
+    .docs-article blockquote.docs-tip {
+      border-left-color: #e8a317;
+      background: rgba(232, 163, 23, 0.08);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-try-it {
+      background: rgba(126, 227, 165, 0.1);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-tip {
+      border-left-color: #f0c050;
+      background: rgba(240, 192, 80, 0.08);
+    }
+
+    .docs-article blockquote.docs-try-it code {
+      position: relative;
+    }
+
+    .docs-copy-inline {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      padding: 2px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      color: var(--muted, #6b7280);
+    }
+
+    .docs-article blockquote.docs-try-it code:hover .docs-copy-inline {
+      opacity: 0.6;
+    }
+
+    .docs-article blockquote.docs-try-it code .docs-copy-inline:hover {
+      opacity: 1;
+    }
+
+    .docs-article blockquote.docs-try-it code .docs-copy-inline.is-copied {
+      opacity: 1;
+      color: var(--success, #15803d);
     }
 
     .docs-article table {
