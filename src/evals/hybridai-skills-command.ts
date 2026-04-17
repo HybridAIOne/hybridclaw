@@ -1,16 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
-import {
-  joinSections,
-  renderKeyValueSection,
-  resolveHarnessVersion,
-} from './eval-command.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
+import {
+  joinSections,
+  renderKeyValueSection,
+  resolveHarnessVersion,
+} from './eval-command.js';
 
 export type HybridaiSkillFixtureMode = 'implicit' | 'explicit';
 export type HybridaiSkillFixtureKind = 'try-it' | 'conversation';
@@ -890,7 +889,7 @@ function renderRunSummary(
     [
       'Passed',
       gradable > 0
-        ? `${summary.passed}/${gradable} (${Math.round(((score ?? 0) * 100))}%)`
+        ? `${summary.passed}/${gradable} (${Math.round((score ?? 0) * 100)}%)`
         : `${summary.passed}`,
     ],
     ['Failed', summary.failed],

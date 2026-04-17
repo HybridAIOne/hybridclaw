@@ -657,7 +657,9 @@ function renderSectionCard(title: string, lines: string[]): string {
   return [topBorder, ...middle, bottomBorder].join('\n');
 }
 
-export function joinSections(sections: Array<string | null | undefined>): string {
+export function joinSections(
+  sections: Array<string | null | undefined>,
+): string {
   return sections
     .map((section) => String(section || '').trim())
     .filter(Boolean)
