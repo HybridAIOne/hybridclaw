@@ -32,6 +32,7 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedAttributes: {
     a: ['href', 'rel', 'target', 'title'],
     code: ['class'],
+    ol: ['start'],
     td: ['style'],
     th: ['style'],
   },
@@ -59,7 +60,13 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 };
 
 export function renderMarkdown(raw: string): string {
-  const normalized = String(raw || '').replace(/\r\n/g, '\n');
+  const normalized = String(raw || '')
+    .replace(/\r\n/g, '\n')
+    // LLMs frequently emit numbered headings wrapped entirely in bold
+    // (`**1. Heading**`). That's a paragraph to CommonMark, so each "N."
+    // renders as literal text instead of an ordered-list counter (#320).
+    // Rewrite to `N. **Heading**` so marked treats it as a real list item.
+    .replace(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/gm, '$1$2. **$3**');
   if (!normalized.trim()) return '';
 
   const rendered = marked.parse(normalized, {

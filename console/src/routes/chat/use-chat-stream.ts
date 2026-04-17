@@ -120,7 +120,6 @@ export function useChatStream(
 
       const doRender = () => {
         req.renderFrame = 0;
-        // Skip no-op updates
         if (
           req.assistantText === req.lastRenderedText &&
           !req.pendingApproval

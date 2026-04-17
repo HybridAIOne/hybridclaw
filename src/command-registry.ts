@@ -160,6 +160,26 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'vllm', value: 'vllm' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const AUTH_STATUS_PROVIDERS = [
+  'hybridai',
+  'codex',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
+  'local',
+  'msteams',
+  'slack',
+] as const;
+
 const CONCIERGE_PROFILE_CHOICES = [
   { name: 'asap', value: 'asap' },
   { name: 'balanced', value: 'balanced' },
@@ -1113,15 +1133,17 @@ function buildSlashCommandCatalogDefinitions(
       name: 'auth',
       description: 'Show local provider auth and config status',
       tuiOnly: true,
+      tuiMenuEntries: AUTH_STATUS_PROVIDERS.map((provider) => ({
+        id: `auth.status.${provider}`,
+        label: `/auth status ${provider}`,
+        insertText: `/auth status ${provider}`,
+        description: `Show ${provider} auth status`,
+      })),
       options: [
         {
           kind: 'subcommand',
           name: 'status',
-          description: 'Show local HybridAI auth status',
-          tuiMenu: {
-            label: '/auth status hybridai',
-            insertText: '/auth status hybridai',
-          },
+          description: 'Show auth status for a provider',
           options: [
             {
               kind: 'string',

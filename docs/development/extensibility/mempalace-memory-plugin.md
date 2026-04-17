@@ -588,6 +588,26 @@ debugging patterns are still retrievable.
   alongside Honcho or ByteRover. Use the exclusive provider for session
   modeling and MemPalace for long-term local search.
 
+## Troubleshooting
+
+- `/mempalace status` works in your shell but the plugin still reports it as
+  missing:
+  point `plugin config mempalace-memory command /absolute/path/to/mempalace`
+  at the exact executable you tested manually.
+- Prompt recall is empty:
+  verify whether the plugin is using CLI fallback or an enabled MemPalace MCP
+  server, then test the corresponding path directly with `/mempalace search ...`
+  or `/mcp list`.
+- New chat turns are not appearing in MemPalace:
+  lower `saveEveryMessages`, confirm `sessionExportDir` is writable, and check
+  whether `mempalace mine ... --mode convos` succeeds for exported transcripts.
+- Retrieval seems to come from the wrong project:
+  tighten `wakeUpWing`, `searchWing`, `searchRoom`, or `updateWing` so the
+  plugin stops recalling across unrelated palace areas.
+- Repo edits do not affect the active plugin:
+  reinstall the repo-shipped copy with `/plugin reinstall ./plugins/mempalace-memory`
+  and then reload the plugin.
+
 ## What This Plugin Does Not Do
 
 This plugin is intentionally narrow. It does not:

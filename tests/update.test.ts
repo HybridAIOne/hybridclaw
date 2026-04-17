@@ -5,10 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const spawnMock = vi.fn();
 const spawnSyncMock = vi.fn();
+const requestExternalGatewayRestartMock = vi.fn();
 
 vi.mock('node:child_process', () => ({
   spawn: spawnMock,
   spawnSync: spawnSyncMock,
+}));
+
+vi.mock('../src/gateway/gateway-restart.js', () => ({
+  requestExternalGatewayRestart: requestExternalGatewayRestartMock,
 }));
 
 describe('runUpdateCommand', () => {
@@ -21,6 +26,12 @@ describe('runUpdateCommand', () => {
   beforeEach(() => {
     spawnMock.mockReset();
     spawnSyncMock.mockReset();
+    requestExternalGatewayRestartMock.mockReset();
+    requestExternalGatewayRestartMock.mockReturnValue({
+      status: 'not-running',
+      pid: null,
+      reason: null,
+    });
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-update-'));
   });
 
@@ -39,7 +50,7 @@ describe('runUpdateCommand', () => {
     vi.restoreAllMocks();
   });
 
-  it('reminds the user to restart the gateway after a successful package update', async () => {
+  function setupPackageInstall(version: string) {
     const installRoot = path.join(
       tempDir,
       'node_modules',
@@ -51,7 +62,7 @@ describe('runUpdateCommand', () => {
       path.join(installRoot, 'package.json'),
       JSON.stringify({
         name: '@hybridaione/hybridclaw',
-        version: '0.9.8',
+        version,
       }),
     );
     process.chdir(tempDir);
@@ -70,24 +81,12 @@ describe('runUpdateCommand', () => {
 
     spawnSyncMock.mockImplementation((command: string, args: string[]) => {
       if (command === 'npm' && args[0] === 'view') {
-        return {
-          status: 0,
-          stdout: '0.12.0\n',
-          stderr: '',
-        };
+        return { status: 0, stdout: '0.12.0\n', stderr: '' };
       }
       if (command === 'npm' && args[0] === '--version') {
-        return {
-          status: 0,
-          stdout: '10.0.0\n',
-          stderr: '',
-        };
+        return { status: 0, stdout: '10.0.0\n', stderr: '' };
       }
-      return {
-        status: 1,
-        stdout: '',
-        stderr: '',
-      };
+      return { status: 1, stdout: '', stderr: '' };
     });
 
     spawnMock.mockImplementation(() => ({
@@ -97,6 +96,63 @@ describe('runUpdateCommand', () => {
         }
       },
     }));
+  }
+
+  it('skips the restart message when no gateway is running', async () => {
+    setupPackageInstall('0.9.8');
+    requestExternalGatewayRestartMock.mockReturnValue({
+      status: 'not-running',
+      pid: null,
+      reason: null,
+    });
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { runUpdateCommand } = await import('../src/update.js');
+    await runUpdateCommand(['--yes'], '0.9.8');
+
+    expect(requestExternalGatewayRestartMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock).toHaveBeenCalledWith(
+      'npm',
+      ['install', '-g', '@hybridaione/hybridclaw@latest'],
+      { stdio: 'inherit' },
+    );
+    const messages = logSpy.mock.calls.map((call) => call[0]);
+    expect(messages).not.toContain(
+      'If the gateway is already running, restart it to load the new version:',
+    );
+    expect(messages).not.toContain('  hybridclaw gateway restart');
+    expect(messages).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^Restarting gateway/)]),
+    );
+  });
+
+  it('restarts a running gateway with original parameters after install', async () => {
+    setupPackageInstall('0.9.8');
+    requestExternalGatewayRestartMock.mockReturnValue({
+      status: 'restarted',
+      pid: 4242,
+      reason: null,
+    });
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { runUpdateCommand } = await import('../src/update.js');
+    await runUpdateCommand(['--yes'], '0.9.8');
+
+    expect(requestExternalGatewayRestartMock).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Restarting gateway (pid 4242) with original parameters to load the new version.',
+    );
+  });
+
+  it('falls back to manual restart instructions when auto-restart fails', async () => {
+    setupPackageInstall('0.9.8');
+    requestExternalGatewayRestartMock.mockReturnValue({
+      status: 'failed',
+      pid: 4242,
+      reason: 'Failed to signal gateway pid 4242: EPERM',
+    });
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -104,13 +160,10 @@ describe('runUpdateCommand', () => {
     await runUpdateCommand(['--yes'], '0.9.8');
 
     expect(logSpy).toHaveBeenCalledWith(
-      'If the gateway is already running, restart it to load the new version:',
+      'Could not auto-restart gateway (pid 4242): Failed to signal gateway pid 4242: EPERM',
     );
-    expect(logSpy).toHaveBeenCalledWith('  hybridclaw gateway restart');
-    expect(spawnMock).toHaveBeenCalledWith(
-      'npm',
-      ['install', '-g', '@hybridaione/hybridclaw@latest'],
-      { stdio: 'inherit' },
+    expect(logSpy).toHaveBeenCalledWith(
+      'To load the new version, run: hybridclaw gateway restart',
     );
   });
 });

@@ -403,6 +403,11 @@ test('available model catalog discovers Codex models from the models endpoint', 
   );
   expect(catalog.getAvailableModelList('codex')).toEqual([
     'openai-codex/gpt-5-codex',
+    'openai-codex/gpt-5.1-codex-max',
+    'openai-codex/gpt-5.1-codex-mini',
+    'openai-codex/gpt-5.2-codex',
+    'openai-codex/gpt-5.3-codex',
+    'openai-codex/gpt-5.3-codex-spark',
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
   ]);
@@ -523,6 +528,8 @@ test('available model catalog discovers Codex models from the current models pay
     ]),
   );
   expect(catalog.getAvailableModelList('codex')).toEqual([
+    'openai-codex/gpt-5.1-codex-max',
+    'openai-codex/gpt-5.1-codex-mini',
     'openai-codex/gpt-5.2-codex',
     'openai-codex/gpt-5.3-codex',
     'openai-codex/gpt-5.3-codex-spark',

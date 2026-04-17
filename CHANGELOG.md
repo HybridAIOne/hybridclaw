@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.7)
+
 ### Added
 
 - **Nine new external API providers**: Google Gemini (`gemini/`), DeepSeek
@@ -23,15 +25,34 @@
   `brv_query` / `brv_curate` / `brv_status` model tools, and curates
   completed turns, native memory writes, and pre-compaction summaries into
   ByteRover's Context Tree. Works offline by default with optional cloud sync.
-- **Memory plugins overview page**: New comparison page at
-  `/docs/extensibility/memory-plugins` covering all five memory plugins and
-  built-in memory with a feature matrix, local vs cloud modes, and guidance
-  for choosing a plugin.
-- **Nested sidebar navigation**: The docs sidebar now supports `children`
-  arrays, used to group memory plugin pages under the overview entry.
+- **Mem0 memory plugin**: New bundled `mem0-memory` external memory provider
+  that layers Mem0 profile and search recall on top of built-in memory,
+  exposes `mem0_profile` / `mem0_search` / `mem0_conclude` tools and a local
+  `/mem0 ...` command surface, mirrors completed turns and explicit native
+  memory writes into Mem0, prefetches profile context on `session_start`, and
+  curates compaction snapshots before older turns are archived.
+- **Skill availability controls**: Added `hybridclaw skill enable <name>
+  [--channel <kind>]`, `hybridclaw skill disable <name> [--channel <kind>]`,
+  interactive TUI `/skill config` toggles, and matching gateway slash-command
+  support for enabling or disabling skills globally or per channel.
+- **OpenTelemetry distributed tracing**: The gateway can now emit spans for
+  message handling, agent runs, host/container execution, and skill loading to
+  OTLP collectors when `OTEL_ENABLED=true` or
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with `traceId` / `spanId` correlation
+  injected into structured logs.
+- **Memory plugin and skills docs expansion**: Added a memory-plugin
+  comparison guide, per-category bundled-skills guides, and richer browser
+  docs prompt blocks with copy buttons and styled callouts.
 
 ### Changed
 
+- **Model and provider surfaces now share one registry**: `/model list`,
+  `/model info`, provider status output, and `/admin/models` now use the same
+  data-driven provider catalog, show model counts consistently, and sort
+  enabled or reachable providers first in the admin console.
+- **Fresh installs default HybridAI to `gpt-5.4-mini`**: New runtime homes now
+  seed `hybridai.defaultModel` from the shared `DEFAULT_HYBRIDAI_MODEL`
+  constant so onboarding, migration, and fresh-install defaults stay aligned.
 - **Kilo Code base URL migrated to `https://api.kilo.ai/api/gateway`**: The
   retired `api.kilocode.ai` host now serves a marketing site, so the default
   Kilo Code base URL has been updated across `config.ts`, the runtime config
@@ -39,6 +60,10 @@
   `config.example.json`. Persisted runtime configs still pointing at
   `https://api.kilocode.ai/v1` are silently migrated to the new URL on load
   so existing installations self-heal.
+- **Codex model catalog handling is more resilient**: HybridClaw now pins the
+  `client_version` needed for the full upstream Codex catalog and ships static
+  supplemental entries for UI-known Codex variants when the upstream list is
+  temporarily incomplete.
 - **Renamed `HybridAIRequestError` → `ProviderRequestError`**: The error class
   wraps failures from every OpenAI-compat provider (HybridAI, OpenRouter,
   Mistral, Kilo Code, local Ollama, etc.), so the HybridAI-specific name was
@@ -51,20 +76,41 @@
   up a leading `hybridai/`. The function now treats any slash-containing
   non-`hybridai/` model as already-namespaced, removing the fragile
   `NON_HYBRID_PROVIDER_PREFIXES` whitelist dependency for this path.
-- **Memory plugin docs standardized**: All five plugin doc pages now follow
+- **TUI reply metadata is clearer**: The usage footer now shows the active
+  skill name alongside tools and plugins when a response was driven by a
+  skill.
+- **Plugin dependency checks are quieter**: `plugin install` and
+  `plugin check` now treat global binaries as satisfying declared
+  dependencies, skipping unnecessary npm or pip installs and approval prompts
+  when the required executable is already on `PATH`.
+- **Memory plugin docs standardized**: All six memory-plugin doc pages now follow
   the same structure: Prerequisites, HybridClaw Setup, Config, Commands,
   Example Prompts & Use Cases, Tips & Tricks, and Troubleshooting. Added
   external links, local vs cloud options, and researched tips for each.
+- **Browser docs prompt UX expanded**: The docs shell now groups tips and
+  multi-step prompts into styled callouts, adds copy buttons for try-it
+  blocks, and publishes bundled-skill pages grouped by category.
 
 ### Fixed
 
-- **Plugin install skips redundant deps**: When a plugin declares
-  `nodeDependencies` or `pipDependencies` but the required binary is already
-  on PATH, `plugin install` now skips both the approval prompt and the npm/pip
-  install, printing a green `[check]` status instead.
-- **Plugin check reports global binaries**: `plugin check` now correctly
-  reports dependencies as installed when the corresponding binary is available
-  globally, instead of only checking the plugin's local `node_modules`.
+- **Bundled ESM skill scripts resolve repo-managed dependencies in the
+  sandbox**: Source-checkout container runs now symlink the workspace
+  `node_modules` directory into the agent workspace so bundled skill scripts
+  can import repo dependencies consistently inside Docker.
+- **`/auth status` suggestions list every supported provider**: Slash-command
+  provider completion and status suggestions now include the full provider set
+  instead of omitting newer backends.
+- **Mem0 sync no longer sends unsupported `app_id` fields**: Stored-turn
+  mirroring and later recall now work against Mem0's accepted write shape.
+- **Dream consolidation works for cloud sessions**: `/dream` memory
+  consolidation now runs correctly when the session is backed by cloud state.
+- **Fresh-install model migration tracks the shared default constant**:
+  Migration logic now respects `DEFAULT_HYBRIDAI_MODEL` instead of relying on
+  a stale sentinel when deciding whether a runtime home is still on the
+  original default model.
+- **Browser docs renderer edge cases**: Separate callout blocks no longer
+  merge together, copy actions strip leading numbering more reliably, and the
+  docs copy icon renders and positions consistently across browsers.
 
 ## [0.12.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.6)
 
@@ -195,6 +241,10 @@
 - **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
   that run immediately, retry up to `maxRetries`, preserve review state, and
   surface richer delivery output across the gateway and admin scheduler UI.
+- **Mem0 memory plugin**: Added a bundled `mem0-memory` plugin so local
+  HybridClaw installs can mirror turns into Mem0 cloud memory, inject
+  prompt-time Mem0 recall, expose `mem0_*` tools, and mirror explicit native
+  memory writes back into Mem0.
 
 ### Changed
 

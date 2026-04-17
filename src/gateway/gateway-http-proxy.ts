@@ -27,25 +27,13 @@ import {
   sendJson,
 } from './gateway-http-utils.js';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
 const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
 const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 
-// ---------------------------------------------------------------------------
-// OAuth token auto-capture
-// ---------------------------------------------------------------------------
-
 type CaptureFieldRule = { jsonPath: string; secretName: string };
-
-// ---------------------------------------------------------------------------
-// Request body type
-// ---------------------------------------------------------------------------
 
 type ApiHttpRequestBody = {
   url?: unknown;
@@ -66,10 +54,6 @@ type ApiHttpRequestSecretHeaderBody = {
   secretName?: unknown;
   prefix?: unknown;
 };
-
-// ---------------------------------------------------------------------------
-// SSRF guard
-// ---------------------------------------------------------------------------
 
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
@@ -130,10 +114,6 @@ async function isPrivateHost(hostname: string): Promise<boolean> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Response reading
-// ---------------------------------------------------------------------------
-
 async function readHttpResponseBuffer(
   response: Response,
   maxResponseBytes: number,
@@ -176,10 +156,6 @@ async function readHttpResponseBuffer(
 
   return Buffer.concat(chunks);
 }
-
-// ---------------------------------------------------------------------------
-// URL / method / header normalization
-// ---------------------------------------------------------------------------
 
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
   const input = String(raw || '').trim();
@@ -286,10 +262,6 @@ function normalizeHttpRequestSecretHeaders(
   return headers;
 }
 
-// ---------------------------------------------------------------------------
-// Secret resolution
-// ---------------------------------------------------------------------------
-
 function withAuthPrefix(secret: string, prefix: string): string {
   return prefix ? `${prefix} ${secret}` : secret;
 }
@@ -333,10 +305,6 @@ function replaceSecretPlaceholders(value: unknown): unknown {
   return value;
 }
 
-// ---------------------------------------------------------------------------
-// Domain binding for bearer tokens
-// ---------------------------------------------------------------------------
-
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
 
 /**
@@ -376,10 +344,6 @@ function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
       `request to ${targetHost} is blocked.`,
   );
 }
-
-// ---------------------------------------------------------------------------
-// OAuth response capture
-// ---------------------------------------------------------------------------
 
 function normalizeCaptureResponseFields(
   value: unknown,
@@ -452,10 +416,6 @@ function captureOAuthResponse(
   return captured;
 }
 
-// ---------------------------------------------------------------------------
-// Auth rule resolution
-// ---------------------------------------------------------------------------
-
 function resolveHttpRequestRuleAssignments(
   url: string,
   config: RuntimeConfig,
@@ -484,10 +444,6 @@ function resolveHttpRequestRuleAssignments(
   }
   return Array.from(assignments.values());
 }
-
-// ---------------------------------------------------------------------------
-// Main handler
-// ---------------------------------------------------------------------------
 
 export async function handleApiHttpRequest(
   req: IncomingMessage,

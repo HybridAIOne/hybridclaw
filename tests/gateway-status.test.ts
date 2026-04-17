@@ -65,6 +65,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/local-discovery.js');
   vi.doUnmock('../src/providers/hybridai-health.js');
   vi.doUnmock('../src/providers/local-health.js');
+  vi.doUnmock('../src/infra/container-setup.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   process.chdir(ORIGINAL_CWD);
@@ -204,7 +205,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: 3,
+    modelCount: 8,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -304,7 +305,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   const result = await getGatewayAdminModels();
 
   expect(result.providerStatus?.codex).toMatchObject({
-    modelCount: 3,
+    modelCount: 8,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -825,6 +826,67 @@ test('status command includes active sandbox session ids when present', async ()
   expect(result.text).toContain('Sandbox sessions:');
   expect(result.text).toContain(
     'agent:main:channel:openai:chat:dm:peer:aaaabbbbccccdddd',
+  );
+});
+
+test('status command includes the configured container version when available', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/agent/executor.js')>();
+    return {
+      ...actual,
+      getSandboxDiagnostics: vi.fn(() => ({
+        mode: 'container' as const,
+        modeExplicit: true,
+        runningInsideContainer: false,
+        image: 'hybridclaw-agent',
+        network: 'bridge',
+        memory: '2g',
+        memorySwap: null,
+        cpus: '2',
+        securityFlags: ['read-only rootfs'],
+        mountAllowlistPath: '/tmp/mount-allowlist.json',
+        additionalMountsConfigured: 0,
+        activeSessions: 1,
+        activeSessionIds: [],
+        warning: null,
+      })),
+    };
+  });
+  vi.doMock('../src/infra/container-setup.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/infra/container-setup.js')>();
+    return {
+      ...actual,
+      resolveContainerImageStatus: vi.fn(async () => ({
+        version: '0.12.6',
+        shortId: '1234567890ab',
+      })),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-container-version',
+    guildId: null,
+    channelId: 'tui',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'Container: hybridclaw-agent · v0.12.6 · id 1234567890ab',
   );
 });
 

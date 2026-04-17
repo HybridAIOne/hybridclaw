@@ -598,6 +598,7 @@ Examples:
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
   hybridclaw plugin install ./plugins/example-plugin --yes
+  hybridclaw plugin install mem0-memory --yes
   hybridclaw plugin install mempalace-memory --yes
   hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
   hybridclaw plugin reinstall ./plugins/example-plugin --yes

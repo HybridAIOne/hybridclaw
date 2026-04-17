@@ -327,8 +327,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-// parsePositiveInteger moved to gateway-http-utils.ts
-
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
   if (parsed == null) {
@@ -677,8 +675,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   return 'authenticated';
 }
-
-// sendJson moved to gateway-http-utils.ts
 
 function dispatchWebhookRoute(
   res: ServerResponse,
@@ -1106,8 +1102,6 @@ function resolveStaticFileMimeType(
   const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] || siteMimeType;
   return inlineMimeType || 'application/octet-stream';
 }
-
-// readRequestBody and readJsonBody moved to gateway-http-utils.ts
 
 function normalizeHeaderValue(
   value: string | string[] | undefined,
@@ -2498,7 +2492,6 @@ async function handleApiAdminEmailConfigFetch(
     '',
   );
 
-  // Step 1: list agent handles
   let handlesResult: { ok: boolean; status: number; payload: unknown };
   try {
     handlesResult = await hybridAIFetch(
@@ -2533,7 +2526,6 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
-  // Step 2: fetch mailbox credentials for the first active handle
   const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
   const handleId = activeHandle.id || activeHandle.handle;
 
@@ -2932,7 +2924,6 @@ async function handleApiAdminSkills(
     return;
   }
 
-  // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;

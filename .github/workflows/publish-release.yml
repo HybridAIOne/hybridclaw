@@ -96,6 +96,13 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
+      - name: Require Docker Hub credentials for agent image publishing
+        if: needs.validate.outputs.publish_dockerhub != 'true'
+        shell: bash
+        run: |
+          echo "DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are required to publish the hybridclaw-agent release image." >&2
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -106,21 +113,12 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
-          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
         run: |
           set -euo pipefail
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
           DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
-          TAGS="${GHCR_IMAGE}:${TAG}"
+          TAGS="${DOCKERHUB_IMAGE}:${TAG}"
           if [[ "${TAG}" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
-          fi
-          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
-            if [[ "${TAG}" != *-* ]]; then
-              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
-            fi
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
           fi
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
@@ -131,18 +129,10 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
-        if: needs.validate.outputs.publish_dockerhub == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Login to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ secrets.GHCR_USERNAME || github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || github.token }}
 
       - name: Build and push agent image
         id: push
@@ -250,7 +240,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # npm trusted publishing requires npm 11+, which GitHub-hosted Node 24
+          # provides out of the box on the release runner image.
+          node-version: 24
           cache: npm
 
       - name: Install dependencies

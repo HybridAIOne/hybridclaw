@@ -44,8 +44,6 @@ import {
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
-// --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
-
 const DENY_PATTERNS: RegExp[] = [
   /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
   /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
@@ -76,8 +74,6 @@ function guardCommand(command: string): string | null {
   }
   return null;
 }
-
-// --- Side-effect accumulator for host-processed actions ---
 
 type ScheduledTaskInfo = {
   id: number;
