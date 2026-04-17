@@ -122,6 +122,10 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
             path: 'extensibility/honcho-memory-plugin.md',
           },
           {
+            title: 'Mem0 Memory Plugin',
+            path: 'extensibility/mem0-memory-plugin.md',
+          },
+          {
             title: 'MemPalace Memory Plugin',
             path: 'extensibility/mempalace-memory-plugin.md',
           },
