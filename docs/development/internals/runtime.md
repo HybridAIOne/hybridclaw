@@ -13,7 +13,7 @@ image matching `container.image` (default: `hybridclaw-agent`) when sandbox mode
 is `container`. In `host` sandbox mode they run the packaged agent runtime
 directly instead.
 
-When the image is missing, startup logic in `src/container-setup.ts` does:
+When the image is missing, startup logic in `src/infra/container-setup.ts` does:
 
 1. For installed packages, pull a remote image. For the default image it tries
    Docker Hub `v<app-version>`, then `latest`.
