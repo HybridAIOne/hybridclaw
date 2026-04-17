@@ -1089,7 +1089,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
-    defaultModel: 'gpt-4.1-mini',
+    defaultModel: 'gpt-5.4-mini',
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
