@@ -328,6 +328,72 @@ test('mem0-memory injects prompt context, registers tools, and exposes command h
   expect(process.env.MEM0_TELEMETRY).toBe('false');
 });
 
+test('mem0_search tool ignores invalid top_k values and clamps oversized requests', async () => {
+  const homeDir = makeTempDir('hybridclaw-mem0-home-');
+  const cwd = makeTempDir('hybridclaw-mem0-project-');
+  const pluginDir = installBundledPlugin(cwd);
+  const logPath = installMem0Stub(pluginDir, {
+    getAll: { results: [] },
+    search: { results: [{ id: 'mem-search-1', memory: 'stored' }] },
+    add: [],
+  });
+
+  process.env.MEM0_API_KEY = 'mem0-test-key';
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mem0-memory',
+      enabled: true,
+      config: {
+        searchLimit: 2,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  await manager.executeTool({
+    toolName: 'mem0_search',
+    args: { query: 'negative', top_k: -1 },
+    sessionId: 'session-1',
+    channelId: 'web',
+  });
+  await manager.executeTool({
+    toolName: 'mem0_search',
+    args: { query: 'oversized', top_k: 99 },
+    sessionId: 'session-1',
+    channelId: 'web',
+  });
+
+  const searchCalls = readStubLog(logPath).filter(
+    (entry) => entry.method === 'search',
+  );
+  expect(searchCalls).toContainEqual(
+    expect.objectContaining({
+      query: 'negative',
+      options: expect.objectContaining({
+        top_k: 2,
+      }),
+    }),
+  );
+  expect(searchCalls).toContainEqual(
+    expect.objectContaining({
+      query: 'oversized',
+      options: expect.objectContaining({
+        top_k: 2,
+      }),
+    }),
+  );
+});
+
 test('mem0-memory syncs turns and mirrors native memory writes', async () => {
   const homeDir = makeTempDir('hybridclaw-mem0-home-');
   const cwd = makeTempDir('hybridclaw-mem0-project-');
@@ -434,6 +500,10 @@ test('mem0-memory syncs turns and mirrors native memory writes', async () => {
       }),
     }),
   });
+  expect(
+    (addCalls[0] as { options: { metadata: Record<string, unknown> } }).options
+      .metadata,
+  ).not.toHaveProperty('workspace_path');
   expect(addCalls[1]).toMatchObject({
     messages: [
       {

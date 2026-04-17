@@ -335,7 +335,6 @@ export class Mem0Runtime {
       await this.client.syncMessages(userId, agentId, messages, {
         source: 'hybridclaw-turn',
         session_id: params.sessionId,
-        workspace_path: normalizeString(params.workspacePath),
       });
       this.api.logger.debug(
         {

@@ -4,6 +4,22 @@ function normalizeString(value) {
   return String(value || '').trim();
 }
 
+function normalizeToolTopK(value, maximum) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const normalized = Math.trunc(value);
+  if (normalized <= 0) return undefined;
+  if (
+    typeof maximum === 'number' &&
+    Number.isFinite(maximum) &&
+    maximum > 0
+  ) {
+    return Math.min(normalized, Math.trunc(maximum));
+  }
+  return normalized;
+}
+
 function formatMemoryList(title, entries, options = {}) {
   if (!Array.isArray(entries) || entries.length === 0) {
     return `${title}\nNo Mem0 memories matched.`;
@@ -129,10 +145,7 @@ export class Mem0Controls {
       );
     }
     const result = await this.runtime.search(context.sessionId, '', query, {
-      topK:
-        typeof args.top_k === 'number' && Number.isFinite(args.top_k)
-          ? Math.trunc(args.top_k)
-          : undefined,
+      topK: normalizeToolTopK(args.top_k, this.runtime.config.searchLimit),
       rerank: typeof args.rerank === 'boolean' ? args.rerank : undefined,
     });
     return JSON.stringify(
