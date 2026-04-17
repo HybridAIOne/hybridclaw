@@ -2318,12 +2318,12 @@ test('model list filters by provider alias', async () => {
   }
   expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toBe(
-    [
+    `${[
       'openrouter/free',
       'openrouter/healer-alpha',
       'openrouter/hunter-alpha',
       'openrouter/ai21/jamba-large-1.7',
-    ].join('\n'),
+    ].join('\n')}\n\n4 models`,
   );
   expect(result.modelCatalog).toEqual([
     { value: 'openrouter/free', label: 'openrouter/free', isFree: true },

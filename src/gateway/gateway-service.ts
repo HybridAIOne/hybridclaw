@@ -7359,11 +7359,14 @@ export async function handleGatewayCommand(
                 : 'No models available.',
             );
           }
+          const countSuffix = `${modelCatalog.length} ${
+            modelCatalog.length === 1 ? 'model' : 'models'
+          }`;
           return infoCommand(
             providerFilterArg
               ? `Available Models (${providerFilterArg})`
               : 'Available Models',
-            list,
+            `${list}\n\n${countSuffix}`,
             undefined,
             { modelCatalog },
           );
