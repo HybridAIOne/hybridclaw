@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.8)
+
 ### Changed
 
 - **`hybridclaw update` can restart the gateway automatically**: After a
