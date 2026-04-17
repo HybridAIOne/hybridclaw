@@ -6,10 +6,10 @@ import type {
   ToolCall,
 } from '../types.js';
 import {
-  HybridAIRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
+  ProviderRequestError,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 import {
@@ -467,7 +467,7 @@ export async function callLocalOpenAICompatProvider(
   );
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
@@ -501,7 +501,7 @@ export async function callLocalOpenAICompatProviderStream(
   );
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await response.text());
+    throw new ProviderRequestError(response.status, await response.text());
   }
 
   const contentType = (

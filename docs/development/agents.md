@@ -46,6 +46,7 @@ Main docs landing pages:
 - [Agent Packages](./extensibility/agent-packages.md)
 - [ByteRover Memory Plugin](./extensibility/byterover-memory-plugin.md)
 - [Honcho Memory Plugin](./extensibility/honcho-memory-plugin.md)
+- [Mem0 Memory Plugin](./extensibility/mem0-memory-plugin.md)
 - [MemPalace Memory Plugin](./extensibility/mempalace-memory-plugin.md)
 - [OTEL Plugin](./extensibility/otel-plugin.md)
 - [Plugins](./extensibility/plugins.md)

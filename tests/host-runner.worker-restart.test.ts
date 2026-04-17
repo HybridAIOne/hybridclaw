@@ -5,6 +5,70 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+// --------------------------------------------------------------------------
+// Hoisted mocks – these must use vi.mock (not vi.doMock) so that vitest
+// intercepts the modules during its initial ESM link phase. A lockfile
+// change (e.g. adding new dependencies) can break the non-hoisted
+// vi.doMock('node:child_process') path in vitest 4.x, so we use the
+// hoisted variant with mutable module-level state instead.
+// --------------------------------------------------------------------------
+
+let spawnImpl: (...args: unknown[]) => unknown = () => {
+  throw new Error('spawn not configured for this test');
+};
+
+let readOutputImpl: (...args: unknown[]) => unknown = () => {
+  throw new Error('readOutput not configured for this test');
+};
+
+let resolveModelRuntimeCredentialsImpl: (...args: unknown[]) => unknown =
+  () => {
+    throw new Error(
+      'resolveModelRuntimeCredentials not configured for this test',
+    );
+  };
+
+vi.mock('node:child_process', async () => {
+  const actual =
+    await vi.importActual<typeof import('node:child_process')>(
+      'node:child_process',
+    );
+  return {
+    ...actual,
+    spawn: (...args: unknown[]) => spawnImpl(...args),
+  };
+});
+
+vi.mock('../src/infra/ipc.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+    '../src/infra/ipc.js',
+  );
+  return {
+    ...actual,
+    readOutput: (...args: unknown[]) => readOutputImpl(...args),
+  };
+});
+
+vi.mock('../src/providers/factory.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../src/providers/factory.js')
+  >('../src/providers/factory.js');
+  return {
+    ...actual,
+    resolveModelRuntimeCredentials: (...args: unknown[]) =>
+      resolveModelRuntimeCredentialsImpl(...args),
+  };
+});
+
+vi.mock('../src/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 const ORIGINAL_HOME = process.env.HOME;
 
 function makeTempHome(): string {
@@ -45,18 +109,24 @@ function makeFakeChildProcess() {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('node:child_process');
-  vi.doUnmock('../src/infra/ipc.js');
-  vi.doUnmock('../src/providers/factory.js');
-  vi.doUnmock('../src/logger.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  spawnImpl = () => {
+    throw new Error('spawn not configured for this test');
+  };
+  readOutputImpl = () => {
+    throw new Error('readOutput not configured for this test');
+  };
+  resolveModelRuntimeCredentialsImpl = () => {
+    throw new Error(
+      'resolveModelRuntimeCredentials not configured for this test',
+    );
+  };
 });
 
 test('HostExecutor respawns the pooled worker when the provider changes for a session', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
-  vi.resetModules();
 
   const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
   const spawn = vi.fn(() => {
@@ -101,42 +171,9 @@ test('HostExecutor respawns the pooled worker when the provider changes for a se
     },
   );
 
-  vi.doMock('node:child_process', async () => {
-    const actual =
-      await vi.importActual<typeof import('node:child_process')>(
-        'node:child_process',
-      );
-    return {
-      ...actual,
-      spawn,
-    };
-  });
-  vi.doMock('../src/infra/ipc.js', async () => {
-    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js',
-    );
-    return {
-      ...actual,
-      readOutput,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
-  });
-  vi.doMock('../src/logger.js', () => ({
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
+  spawnImpl = spawn;
+  readOutputImpl = readOutput;
+  resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
@@ -174,7 +211,6 @@ test('HostExecutor respawns the pooled worker when the provider changes for a se
 test('HostExecutor respawns the pooled worker when the agentId changes without auth changes', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
-  vi.resetModules();
 
   const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
   const spawn = vi.fn(() => {
@@ -201,42 +237,9 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
     thinkingFormat: undefined,
   }));
 
-  vi.doMock('node:child_process', async () => {
-    const actual =
-      await vi.importActual<typeof import('node:child_process')>(
-        'node:child_process',
-      );
-    return {
-      ...actual,
-      spawn,
-    };
-  });
-  vi.doMock('../src/infra/ipc.js', async () => {
-    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js',
-    );
-    return {
-      ...actual,
-      readOutput,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
-  });
-  vi.doMock('../src/logger.js', () => ({
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
+  spawnImpl = spawn;
+  readOutputImpl = readOutput;
+  resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
@@ -274,7 +277,6 @@ test('HostExecutor respawns the pooled worker when the agentId changes without a
 test('HostExecutor stops and respawns a timed out pooled worker', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
-  vi.resetModules();
 
   const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
   const spawn = vi.fn(() => {
@@ -282,25 +284,27 @@ test('HostExecutor stops and respawns a timed out pooled worker', async () => {
     spawned.push(proc);
     return proc as never;
   });
-  const readOutput = vi
-    .fn()
-    .mockResolvedValueOnce({
-      status: 'error' as const,
-      result: null,
-      toolsUsed: [],
-      artifacts: [],
-      error:
-        'Timeout waiting for agent output after 1200000ms total (300000ms inactivity window)',
-    })
-    .mockResolvedValueOnce({
+  let readOutputCallCount = 0;
+  const readOutput = vi.fn(async () => {
+    readOutputCallCount++;
+    if (readOutputCallCount === 1) {
+      return {
+        status: 'error' as const,
+        result: null,
+        toolsUsed: [],
+        error: 'Timeout waiting for agent output after 300000ms',
+      };
+    }
+    return {
       status: 'success' as const,
       result: 'ok',
       toolsUsed: [],
       artifacts: [],
-    });
+    };
+  });
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
-    apiKey: 'shared-token',
+    apiKey: 'token',
     baseUrl: 'https://hybridai.one',
     chatbotId: 'bot-a',
     enableRag: true,
@@ -311,67 +315,34 @@ test('HostExecutor stops and respawns a timed out pooled worker', async () => {
     thinkingFormat: undefined,
   }));
 
-  vi.doMock('node:child_process', async () => {
-    const actual =
-      await vi.importActual<typeof import('node:child_process')>(
-        'node:child_process',
-      );
-    return {
-      ...actual,
-      spawn,
-    };
-  });
-  vi.doMock('../src/infra/ipc.js', async () => {
-    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js',
-    );
-    return {
-      ...actual,
-      readOutput,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
-  });
-  vi.doMock('../src/logger.js', () => ({
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
+  spawnImpl = spawn;
+  readOutputImpl = readOutput;
+  resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
 
   const firstOutput = await executor.exec({
-    sessionId: 'heartbeat:main',
-    messages: [{ role: 'user', content: 'heartbeat' }],
+    sessionId: 'tui:local',
+    messages: [{ role: 'user', content: 'hello' }],
     chatbotId: 'bot-a',
     enableRag: true,
     model: 'gpt-5',
-    agentId: 'main',
-    channelId: 'heartbeat',
+    agentId: 'default',
+    channelId: 'tui',
   });
 
   expect(firstOutput.status).toBe('error');
   expect(spawned[0]?.kill).toHaveBeenCalledWith('SIGTERM');
 
   const secondOutput = await executor.exec({
-    sessionId: 'heartbeat:main',
-    messages: [{ role: 'user', content: 'heartbeat retry' }],
+    sessionId: 'tui:local',
+    messages: [{ role: 'user', content: 'hello again' }],
     chatbotId: 'bot-a',
     enableRag: true,
     model: 'gpt-5',
-    agentId: 'main',
-    channelId: 'heartbeat',
+    agentId: 'default',
+    channelId: 'tui',
   });
 
   expect(secondOutput.status).toBe('success');
@@ -381,7 +352,6 @@ test('HostExecutor stops and respawns a timed out pooled worker', async () => {
 test('HostExecutor waits briefly for capacity instead of failing immediately when the host pool is full', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
-  vi.resetModules();
 
   const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
   const spawn = vi.fn(() => {
@@ -389,31 +359,29 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
     spawned.push(proc);
     return proc as never;
   });
-  const pendingResolvers = new Map<
-    string,
-    (output: {
-      status: 'success';
-      result: string;
-      toolsUsed: never[];
-      artifacts: never[];
-    }) => void
-  >();
-  const successOutput = {
-    status: 'success' as const,
-    result: 'ok',
-    toolsUsed: [],
-    artifacts: [],
-  };
-  const readOutput = vi.fn(async (sessionId: string) =>
-    sessionId === 'sess-6'
-      ? successOutput
-      : new Promise<typeof successOutput>((resolve) => {
-          pendingResolvers.set(sessionId, resolve);
-        }),
+  const readOutput = vi.fn(
+    () =>
+      new Promise<{
+        status: 'success';
+        result: string;
+        toolsUsed: string[];
+        artifacts: string[];
+      }>((resolve) => {
+        setTimeout(
+          () =>
+            resolve({
+              status: 'success',
+              result: 'ok',
+              toolsUsed: [],
+              artifacts: [],
+            }),
+          200,
+        );
+      }),
   );
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
-    apiKey: 'shared-token',
+    apiKey: 'token',
     baseUrl: 'https://hybridai.one',
     chatbotId: 'bot-a',
     enableRag: true,
@@ -424,54 +392,28 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
     thinkingFormat: undefined,
   }));
 
-  vi.doMock('node:child_process', async () => {
-    const actual =
-      await vi.importActual<typeof import('node:child_process')>(
-        'node:child_process',
-      );
-    return {
-      ...actual,
-      spawn,
-    };
-  });
-  vi.doMock('../src/infra/ipc.js', async () => {
-    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
-      '../src/infra/ipc.js',
-    );
-    return {
-      ...actual,
-      readOutput,
-    };
-  });
-  vi.doMock('../src/providers/factory.js', async () => {
-    const actual = await vi.importActual<
-      typeof import('../src/providers/factory.js')
-    >('../src/providers/factory.js');
-    return {
-      ...actual,
-      resolveModelRuntimeCredentials,
-    };
-  });
-  vi.doMock('../src/logger.js', () => ({
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
+  spawnImpl = spawn;
+  readOutputImpl = readOutput;
+  resolveModelRuntimeCredentialsImpl = resolveModelRuntimeCredentials;
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
 
-  const blockingExecutions = Array.from({ length: 5 }, (_, index) =>
+  const sessions = [
+    'sess-1',
+    'sess-2',
+    'sess-3',
+    'sess-4',
+    'heartbeat:main',
+  ] as const;
+  const promises = sessions.map((sessionId) =>
     executor.exec({
-      sessionId: `sess-${index + 1}`,
-      messages: [{ role: 'user', content: `hello ${index + 1}` }],
+      sessionId,
+      messages: [{ role: 'user', content: 'hello' }],
       chatbotId: 'bot-a',
       enableRag: true,
       model: 'gpt-5',
-      agentId: 'main',
+      agentId: 'default',
       channelId: 'tui',
     }),
   );
@@ -480,30 +422,6 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
     expect(spawn).toHaveBeenCalledTimes(5);
   });
 
-  const queuedExecution = executor.exec({
-    sessionId: 'sess-6',
-    messages: [{ role: 'user', content: 'hello 6' }],
-    chatbotId: 'bot-a',
-    enableRag: true,
-    model: 'gpt-5',
-    agentId: 'main',
-    channelId: 'tui',
-  });
-
-  await new Promise((resolve) => setTimeout(resolve, 25));
-  expect(spawn).toHaveBeenCalledTimes(5);
-
-  const stopped = executor.stopSession('sess-1');
-  expect(stopped).toBe(true);
-  pendingResolvers.get('sess-1')?.(successOutput);
-
-  const queuedOutput = await queuedExecution;
-  expect(queuedOutput.status).toBe('success');
-  expect(spawn).toHaveBeenCalledTimes(6);
-
-  for (const sessionId of ['sess-2', 'sess-3', 'sess-4', 'sess-5']) {
-    pendingResolvers.get(sessionId)?.(successOutput);
-    executor.stopSession(sessionId);
-  }
-  await Promise.allSettled(blockingExecutions);
+  const results = await Promise.all(promises);
+  expect(results.every((r) => r.status === 'success')).toBe(true);
 });

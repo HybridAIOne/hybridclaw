@@ -1,5 +1,6 @@
 import { MISTRAL_BASE_URL } from '../config/config.js';
-import { MISTRAL_MODEL_PREFIX, readMistralApiKey } from './mistral-utils.js';
+import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
@@ -16,7 +17,7 @@ async function resolveMistralRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'mistral',
-    apiKey: readMistralApiKey({ required: true }),
+    apiKey: readApiKeyForOpenAICompatProvider('mistral', { required: true }),
     baseUrl: normalizeBaseUrl(MISTRAL_BASE_URL),
     chatbotId: '',
     enableRag: false,

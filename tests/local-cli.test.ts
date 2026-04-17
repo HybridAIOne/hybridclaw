@@ -179,10 +179,10 @@ test('local configure without model enables the backend and preserves the defaul
   expect(config.local.backends.lmstudio.baseUrl).toBe(
     'http://127.0.0.1:1234/v1',
   );
-  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
+  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
   expect(logSpy).toHaveBeenCalledWith('Configured model: none');
   expect(logSpy).toHaveBeenCalledWith(
-    'Default model unchanged: hybridai/gpt-4.1-mini',
+    'Default model unchanged: hybridai/gpt-5.4-mini',
   );
   expect(logSpy).toHaveBeenCalledWith('  /model list lmstudio');
 });
@@ -203,7 +203,7 @@ test('local configure --no-default preserves the existing default model', async 
 
   const config = readRuntimeConfig(homeDir);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
-  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
+  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
 });
 
 test('help local prints local command usage', async () => {

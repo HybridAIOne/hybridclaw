@@ -1,7 +1,7 @@
 import type { RuntimeProvider } from './providers/shared.js';
 import {
-  HybridAIRequestError,
   isPremiumModelPermissionError,
+  ProviderRequestError,
 } from './providers/shared.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =
@@ -10,7 +10,7 @@ const TRANSIENT_CODEX_STREAM_ERROR_RE =
   /an error occurred while processing your request|request id [0-9a-f-]{8}-[0-9a-f-]{27}|streaming response ended without payload|stream ended without payload|response\.incomplete|response\.failed/i;
 
 export function shouldFallbackFromStreamError(error: unknown): boolean {
-  if (error instanceof HybridAIRequestError) {
+  if (error instanceof ProviderRequestError) {
     // Keep 429 on retry/backoff path; fallback does not help throttling.
     if (error.status === 429) return false;
     if (isPremiumModelPermissionError(error)) return false;
@@ -35,7 +35,7 @@ export function shouldDowngradeStreamToNonStreaming(
 }
 
 export function isRetryableModelError(error: unknown): boolean {
-  if (error instanceof HybridAIRequestError) {
+  if (error instanceof ProviderRequestError) {
     return error.status === 429 || (error.status >= 500 && error.status <= 504);
   }
   const message = error instanceof Error ? error.message : String(error);

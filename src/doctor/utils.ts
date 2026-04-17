@@ -281,6 +281,6 @@ export function buildChmodFix(
   };
 }
 
-export function pluralize(n: number, singular: string, plural: string): string {
-  return n === 1 ? singular : plural;
-}
+// `pluralize` is re-exported from `src/utils/text-format.ts`; keep this alias
+// so existing doctor call sites don't need import-path churn.
+export { pluralize } from '../utils/text-format.js';

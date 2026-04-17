@@ -204,7 +204,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: 3,
+    modelCount: 8,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -304,7 +304,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   const result = await getGatewayAdminModels();
 
   expect(result.providerStatus?.codex).toMatchObject({
-    modelCount: 3,
+    modelCount: 8,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -2071,7 +2071,7 @@ test('model list openrouter asks for authorization before reporting no models', 
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Available Models');
+  expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toContain('OpenRouter is not authorized.');
   expect(result.text).toContain('Authorize it first from a terminal:');
   expect(result.text).toContain('hybridclaw auth login openrouter');
@@ -2111,10 +2111,48 @@ test('model list openrouter asks to enable the provider when credentials exist b
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Available Models');
+  expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toContain('OpenRouter is disabled.');
   expect(result.text).toContain('config set openrouter.enabled true');
   expect(result.text).toContain('Then rerun `model list openrouter`.');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
+test('model list kilo returns the disabled diagnostic instead of a silent empty list', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.KILO_API_KEY = 'kilo-gateway-status-integration';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.kilo.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-kilo-disabled',
+    guildId: null,
+    channelId: 'channel-model-list-kilo-disabled',
+    args: ['model', 'list', 'kilo'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (kilo)');
+  expect(result.text).toContain('Kilo Code is disabled.');
+  expect(result.text).toContain('config set kilo.enabled true');
+  expect(result.text).toContain('Then rerun `model list kilo`.');
   expect(result.text).not.toContain('No models available for provider');
 });
 
@@ -2318,12 +2356,12 @@ test('model list filters by provider alias', async () => {
   }
   expect(result.title).toBe('Available Models (openrouter)');
   expect(result.text).toBe(
-    [
+    `${[
       'openrouter/free',
       'openrouter/healer-alpha',
       'openrouter/hunter-alpha',
       'openrouter/ai21/jamba-large-1.7',
-    ].join('\n'),
+    ].join('\n')}\n\n4 models`,
   );
   expect(result.modelCatalog).toEqual([
     { value: 'openrouter/free', label: 'openrouter/free', isFree: true },
@@ -2876,7 +2914,12 @@ test('model list refreshes local backend health before filtering models', async 
     return {
       ...actual,
       discoverAllLocalModels: vi.fn(async () => []),
-      getDiscoveredLocalModelNames: vi.fn(() => ['lmstudio/qwen/qwen3.5-9b']),
+      // Discovery reports what's currently reachable. When the backend probe
+      // flips to unreachable (via invalidate + fresh state), the discovered
+      // list goes empty — there's no separate filter stage anymore.
+      getDiscoveredLocalModelNames: vi.fn(() =>
+        useFreshState ? [] : ['lmstudio/qwen/qwen3.5-9b'],
+      ),
     };
   });
 

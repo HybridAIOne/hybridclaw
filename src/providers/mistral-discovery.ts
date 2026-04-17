@@ -1,9 +1,7 @@
 import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
-import {
-  normalizeMistralModelName,
-  readMistralApiKey,
-} from './mistral-utils.js';
+import { normalizeMistralModelName } from './mistral-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const MISTRAL_DISCOVERY_TTL_MS = 3_600_000;
@@ -155,7 +153,9 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       return [];
     }
 
-    const apiKey = readMistralApiKey({ required: false });
+    const apiKey = readApiKeyForOpenAICompatProvider('mistral', {
+      required: false,
+    });
     if (!apiKey) {
       replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
       return [];

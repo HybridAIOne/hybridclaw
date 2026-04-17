@@ -46,6 +46,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
@@ -709,6 +710,20 @@ function getOrSpawnContainer(
  * Send a request to a persistent container and wait for the response.
  */
 export async function runContainer(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.container.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runContainerInner(params),
+  );
+}
+
+async function runContainerInner(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
   const {
