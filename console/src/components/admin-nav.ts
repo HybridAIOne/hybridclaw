@@ -9,11 +9,8 @@ const ALL_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> =
 
 export function resolveCurrentAdminNavItem(
   pathname: string,
-  navItems: ReadonlyArray<AdminNavItemSummary>,
 ): AdminNavItemSummary {
   return (
-    navItems.find((item) => item.to === pathname) ??
-    ALL_NAV_ITEMS.find((item) => item.to === pathname) ??
-    ALL_NAV_ITEMS[0]
+    ALL_NAV_ITEMS.find((item) => item.to === pathname) ?? ALL_NAV_ITEMS[0]
   );
 }

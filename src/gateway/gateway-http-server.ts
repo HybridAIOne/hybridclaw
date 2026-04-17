@@ -715,6 +715,15 @@ function resolveHybridAILoginUrl(): string | null {
   return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
 }
 
+function isConsoleSpaPath(pathname: string): boolean {
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/chat' ||
+    pathname.startsWith('/chat/')
+  );
+}
+
 function requiresSessionAuth(pathname: string): boolean {
   if (!getSandboxAutoDetectionState().runningInsideContainer) {
     return false;
@@ -723,10 +732,7 @@ function requiresSessionAuth(pathname: string): boolean {
   return (
     pathname === '/agents' ||
     pathname === '/agents.html' ||
-    pathname === '/chat' ||
-    pathname.startsWith('/chat/') ||
-    pathname === '/admin' ||
-    pathname.startsWith('/admin/')
+    isConsoleSpaPath(pathname)
   );
 }
 
@@ -3651,11 +3657,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (
-      pathname.startsWith('/admin') ||
-      pathname === '/chat' ||
-      pathname.startsWith('/chat/')
-    ) {
+    if (isConsoleSpaPath(pathname)) {
       if (serveConsole(pathname, res)) return;
       sendText(
         res,

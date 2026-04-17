@@ -42,8 +42,7 @@ export function AppShell(props: { children: ReactNode }) {
       (item) => !item.requiresEmail || emailEnabled || pathname === item.to,
     ),
   })).filter((group) => group.items.length > 0);
-  const navItems = sidebarGroups.flatMap((group) => group.items);
-  const currentNavItem = resolveCurrentAdminNavItem(pathname, navItems);
+  const currentNavItem = resolveCurrentAdminNavItem(pathname);
 
   return (
     <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
