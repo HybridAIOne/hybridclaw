@@ -18,9 +18,6 @@ configSchema:
       type: string
     projectId:
       type: string
-    appId:
-      type: string
-      default: hybridclaw
     userId:
       type: string
     agentId:

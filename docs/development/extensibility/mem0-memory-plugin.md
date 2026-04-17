@@ -30,14 +30,15 @@ recall on top. It can:
 
 ```bash
 hybridclaw plugin install ./plugins/mem0-memory --yes
-hybridclaw plugin enable mem0-memory
 ```
+
+`plugin install` already enables the plugin and reloads the runtime — no
+separate `plugin enable` or `/plugin reload` is required.
 
 Then configure the API key:
 
 ```text
 /secret set MEM0_API_KEY your-mem0-key
-/plugin reload
 ```
 
 ## Minimal Config
@@ -67,7 +68,6 @@ Useful optional keys:
 - `projectId`: pin the plugin to a specific Mem0 project
 - `userId`: override HybridClaw's per-session user id
 - `agentId`: override HybridClaw's active agent id
-- `appId`: defaults to `hybridclaw`
 - `prefetchRerank`: rerank prompt-time Mem0 searches
 - `syncTurns`: disable automatic turn mirroring when set to `false`
 - `mirrorNativeMemoryWrites`: disable explicit native-memory mirroring when set

@@ -428,7 +428,6 @@ test('mem0-memory syncs turns and mirrors native memory writes', async () => {
       api_version: 'v2',
       user_id: 'user-1',
       agent_id: 'main',
-      app_id: 'hybridclaw',
       metadata: expect.objectContaining({
         source: 'hybridclaw-turn',
         session_id: 'session-1',

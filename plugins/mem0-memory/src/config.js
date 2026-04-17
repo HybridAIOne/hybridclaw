@@ -65,7 +65,6 @@ export function resolveMem0PluginConfig(params) {
     ),
     organizationId: normalizeString(pluginConfig.organizationId),
     projectId: normalizeString(pluginConfig.projectId),
-    appId: normalizeString(pluginConfig.appId) || 'hybridclaw',
     userId: normalizeString(pluginConfig.userId),
     agentId: normalizeString(pluginConfig.agentId),
     apiVersion: normalizeApiVersion(pluginConfig.apiVersion),

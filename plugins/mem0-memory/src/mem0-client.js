@@ -52,7 +52,6 @@ function buildWriteOptions(config, userId, agentId, extra = {}) {
     api_version: config.apiVersion,
     user_id: userId,
     agent_id: agentId,
-    app_id: config.appId,
     ...extra,
   };
 }

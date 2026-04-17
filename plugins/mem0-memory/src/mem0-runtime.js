@@ -434,7 +434,6 @@ export class Mem0Runtime {
       `API version: ${this.config.apiVersion}`,
       `User scope: ${userId}`,
       `Agent scope: ${agentId}`,
-      `App scope: ${this.config.appId}`,
       `Search limit: ${this.config.searchLimit}`,
       `Profile limit: ${this.config.profileLimit}`,
       `Sync turns: ${this.config.syncTurns ? 'enabled' : 'disabled'}`,
