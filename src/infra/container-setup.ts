@@ -46,22 +46,26 @@ function runCommand(
   args: string[],
   cwd?: string,
   env?: NodeJS.ProcessEnv,
-): Promise<{ code: number | null; err?: string }> {
+): Promise<{ code: number | null; out?: string; err?: string }> {
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
       cwd,
       env,
       stdio: 'pipe',
     });
+    let out = '';
     let err = '';
+    proc.stdout.on('data', (chunk) => {
+      out += chunk.toString('utf-8');
+    });
     proc.stderr.on('data', (chunk) => {
       err += chunk.toString('utf-8');
     });
     proc.on('error', (error) => {
-      resolve({ code: null, err: (error as Error).message });
+      resolve({ code: null, out, err: (error as Error).message });
     });
     proc.on('close', (code) => {
-      resolve({ code, err });
+      resolve({ code, out, err });
     });
   });
 }
@@ -156,6 +160,79 @@ export async function containerImageExists(
 ): Promise<boolean> {
   const result = await runCommand('docker', ['image', 'inspect', imageName]);
   return result.code === 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeContainerVersion(value: string | undefined): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/^v(?=\d)/, '');
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(
+    normalized,
+  )
+    ? normalized
+    : null;
+}
+
+function extractVersionFromImageRef(imageRef: string): string | null {
+  const trimmed = String(imageRef || '').trim();
+  if (!trimmed) return null;
+  const withoutDigest = trimmed.split('@', 1)[0] || '';
+  const lastSlash = withoutDigest.lastIndexOf('/');
+  const lastColon = withoutDigest.lastIndexOf(':');
+  if (lastColon <= lastSlash) return null;
+  return normalizeContainerVersion(withoutDigest.slice(lastColon + 1));
+}
+
+function parseContainerImageVersion(
+  inspectOutput: string | undefined,
+  imageName: string,
+): string | null {
+  try {
+    const parsed: unknown = JSON.parse(String(inspectOutput || '[]'));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return extractVersionFromImageRef(imageName);
+    }
+    const imageRecord = parsed[0];
+    if (!isRecord(imageRecord)) {
+      return extractVersionFromImageRef(imageName);
+    }
+
+    const config = isRecord(imageRecord.Config) ? imageRecord.Config : null;
+    const labels = config && isRecord(config.Labels) ? config.Labels : null;
+    const labelVersion =
+      labels && typeof labels['org.opencontainers.image.version'] === 'string'
+        ? normalizeContainerVersion(labels['org.opencontainers.image.version'])
+        : null;
+    if (labelVersion) return labelVersion;
+
+    const configuredVersion = extractVersionFromImageRef(imageName);
+    if (configuredVersion) return configuredVersion;
+
+    const repoTags = Array.isArray(imageRecord.RepoTags)
+      ? imageRecord.RepoTags
+      : [];
+    for (const repoTag of repoTags) {
+      if (typeof repoTag !== 'string') continue;
+      const version = extractVersionFromImageRef(repoTag);
+      if (version) return version;
+    }
+  } catch {
+    return extractVersionFromImageRef(imageName);
+  }
+  return null;
+}
+
+export async function resolveContainerImageVersion(
+  imageName: string,
+): Promise<string | null> {
+  const fallback = extractVersionFromImageRef(imageName);
+  const result = await runCommand('docker', ['image', 'inspect', imageName]);
+  if (result.code !== 0) return fallback;
+  return parseContainerImageVersion(result.out, imageName);
 }
 
 async function pullContainerImage(imageName: string): Promise<void> {
