@@ -1,10 +1,10 @@
 import { OPENROUTER_BASE_URL } from '../config/config.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
 } from './openrouter-discovery.js';
-import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,

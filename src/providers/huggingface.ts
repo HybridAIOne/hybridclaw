@@ -18,7 +18,9 @@ async function resolveHuggingFaceRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'huggingface',
-    apiKey: readApiKeyForOpenAICompatProvider('huggingface', { required: true }),
+    apiKey: readApiKeyForOpenAICompatProvider('huggingface', {
+      required: true,
+    }),
     baseUrl: normalizeBaseUrl(HUGGINGFACE_BASE_URL),
     chatbotId: '',
     enableRag: false,

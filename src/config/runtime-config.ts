@@ -854,11 +854,6 @@ const DEFAULT_DEEPSEEK_MODEL_LIST = [
   'deepseek/deepseek-chat',
   'deepseek/deepseek-reasoner',
 ] as const;
-// Default model IDs for each provider. These are used as the seed / fallback
-// list when the provider's /v1/models discovery endpoint is unreachable.
-// Runtime discovery (see `openai-compat-discovery.ts`) augments this list
-// with whatever the provider currently publishes, so stale entries here only
-// affect users without network access or a valid API key.
 const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
 const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5.1'] as const;
 const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
@@ -4502,8 +4497,6 @@ function normalizeRuntimeConfig(
         rawKimi.enabled,
         DEFAULT_RUNTIME_CONFIG.kimi.enabled,
       ),
-      // Self-heal old `api.kimi.com/coding/v1` URLs → Moonshot's real
-      // OpenAI-compat host `api.moonshot.ai/v1`.
       baseUrl: migrateKimiBaseUrl(
         normalizeBaseUrl(rawKimi.baseUrl, DEFAULT_RUNTIME_CONFIG.kimi.baseUrl),
       ),
@@ -4547,9 +4540,6 @@ function normalizeRuntimeConfig(
         rawKilo.enabled,
         DEFAULT_RUNTIME_CONFIG.kilo.enabled,
       ),
-      // Kilo Code migrated from `api.kilocode.ai/v1` to the `api.kilo.ai`
-      // gateway host. Self-heal old configs so users aren't stuck with a
-      // dead base URL that returns HTML from the kilocode.ai marketing site.
       baseUrl: migrateKiloBaseUrl(
         normalizeBaseUrl(rawKilo.baseUrl, DEFAULT_RUNTIME_CONFIG.kilo.baseUrl),
       ),

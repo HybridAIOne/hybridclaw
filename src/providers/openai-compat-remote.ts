@@ -34,26 +34,13 @@ import type {
 } from './types.js';
 import { normalizeBaseUrl } from './utils.js';
 
-// ---------------------------------------------------------------------------
-// Provider definition type
-// ---------------------------------------------------------------------------
-
 export interface OpenAICompatRemoteProviderDef {
-  /** Provider identifier (e.g. 'gemini'). */
   id: RuntimeProviderId;
-  /** Model-string prefix used for matching (e.g. 'gemini/'). */
   prefix: string;
-  /** Returns the base URL from the config module. */
   readBaseUrl: () => string;
-  /** Reads the API key, checking process.env then the config fallback. */
   readApiKey: (opts?: { required?: boolean }) => string;
-  /** Primary env var name shown in error messages. */
   missingEnvVar: string;
 }
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 export function createOpenAICompatRemoteProvider(
   def: OpenAICompatRemoteProviderDef,
@@ -83,10 +70,6 @@ export function createOpenAICompatRemoteProvider(
     resolveRuntimeCredentials,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Registry of all 9 OpenAI-compatible remote providers
-// ---------------------------------------------------------------------------
 
 export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProviderDef[] =
   [
@@ -193,8 +176,6 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
       readBaseUrl: () => KIMI_BASE_URL,
       readApiKey: (opts) =>
         readProviderApiKey(
-          // Moonshot AI (which runs the Kimi API) documents `MOONSHOT_API_KEY`
-          // as the conventional env var. Accept both.
           () => [
             process.env.MOONSHOT_API_KEY,
             process.env.KIMI_API_KEY,
@@ -259,21 +240,16 @@ export const OPENAI_COMPAT_REMOTE_PROVIDERS: readonly OpenAICompatRemoteProvider
     },
   ] as const;
 
-// ---------------------------------------------------------------------------
-// Individual provider instances (backward compatibility with factory.ts)
-// ---------------------------------------------------------------------------
-
-// openrouter / mistral / huggingface live in the registry for shared API-key
-// and base-URL resolution, but keep their custom AIProvider implementations in
-// their own modules (attribution headers, alias normalization, etc.).
 const LEGACY_CUSTOM_PROVIDERS: ReadonlySet<RuntimeProviderId> = new Set([
   'openrouter',
   'mistral',
   'huggingface',
 ]);
 
-const PROVIDER_DEF_BY_ID: ReadonlyMap<RuntimeProviderId, OpenAICompatRemoteProviderDef> =
-  new Map(OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def]));
+const PROVIDER_DEF_BY_ID: ReadonlyMap<
+  RuntimeProviderId,
+  OpenAICompatRemoteProviderDef
+> = new Map(OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def]));
 
 export function getOpenAICompatRemoteProviderDef(
   id: RuntimeProviderId,

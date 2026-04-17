@@ -24,20 +24,8 @@ const OPENAI_COMPAT_DISCOVERY_TTL_MS = 3_600_000;
 const OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS = 5_000;
 const OPENAI_COMPAT_DISCOVERY_PATH = '/models';
 
-/**
- * Per-provider discovery URL overrides for providers whose model list lives at
- * something other than `<baseUrl>/models`. Value may be a fully-qualified URL
- * (host + path) or a path (starting with `/`) resolved against `baseUrl`.
- * Providers not in this map use the default `<baseUrl>/models`.
- *
- * Currently empty — all nine providers' discovery endpoints are reachable at
- * `<baseUrl>/models`. Kept as an extension point.
- */
 const DISCOVERY_URL_OVERRIDES: Partial<Record<RuntimeProviderId, string>> = {};
 
-// Per-provider `*_ENABLED` flag readers. Kept local to this module so we don't
-// churn `OpenAICompatRemoteProviderDef` (and its 9 registry literals) just to
-// carry an enabled-check.
 const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   gemini: () => GEMINI_ENABLED,
   deepseek: () => DEEPSEEK_ENABLED,
@@ -48,8 +36,6 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   dashscope: () => DASHSCOPE_ENABLED,
   xiaomi: () => XIAOMI_ENABLED,
   kilo: () => KILO_ENABLED,
-  // Other RuntimeProviderIds aren't OpenAI-compat-remote providers handled
-  // by this module.
   hybridai: undefined,
   'openai-codex': undefined,
   openrouter: undefined,
@@ -60,10 +46,6 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   llamacpp: undefined,
   vllm: undefined,
 };
-
-// ---------------------------------------------------------------------------
-// Response parsing
-// ---------------------------------------------------------------------------
 
 function readModelEntries(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
@@ -81,11 +63,6 @@ function readEntryId(entry: unknown): string {
   return id.trim();
 }
 
-/**
- * Prepend `prefix` to `id` unless `id` already starts with `prefix`
- * (case-insensitive). Ensures we don't produce `kilo/kilo/...` for providers
- * that already namespace their model ids.
- */
 function prefixModelId(prefix: string, id: string): string {
   const lower = id.toLowerCase();
   const lowerPrefix = prefix.toLowerCase();
@@ -94,10 +71,6 @@ function prefixModelId(prefix: string, id: string): string {
   }
   return `${prefix}${id}`;
 }
-
-// ---------------------------------------------------------------------------
-// Per-provider discovery store
-// ---------------------------------------------------------------------------
 
 export interface OpenAICompatDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
@@ -123,8 +96,6 @@ export function createOpenAICompatDiscoveryStore(
   function resolveDiscoveryUrl(): string {
     const override = DISCOVERY_URL_OVERRIDES[def.id];
     if (override) {
-      // Fully-qualified URL wins. Path-style overrides (leading `/`) are
-      // resolved against the provider's baseUrl.
       if (/^https?:\/\//i.test(override)) return override;
       return `${normalizeBaseUrl(def.readBaseUrl())}${override}`;
     }
@@ -192,10 +163,6 @@ export function createOpenAICompatDiscoveryStore(
         await fetchModels(apiKey);
         return [...discoveredModelNames];
       } catch (err) {
-        // Treat "endpoint absent" responses (404 / 405) as a routine
-        // provider-doesn't-implement-/v1/models condition — log at debug so
-        // users aren't paged by the noise. Everything else (network errors,
-        // 5xx, 401/403) stays at warn.
         const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
         if (httpStatus === 404 || httpStatus === 405) {
           logger.debug(
@@ -223,10 +190,6 @@ export function createOpenAICompatDiscoveryStore(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registry of per-provider stores
-// ---------------------------------------------------------------------------
-
 function buildStoreRegistry(): ReadonlyMap<
   RuntimeProviderId,
   OpenAICompatDiscoveryStore
@@ -241,10 +204,6 @@ function buildStoreRegistry(): ReadonlyMap<
 }
 
 const defaultStoreRegistry = buildStoreRegistry();
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 export async function discoverOpenAICompatRemoteModels(opts?: {
   force?: boolean;
