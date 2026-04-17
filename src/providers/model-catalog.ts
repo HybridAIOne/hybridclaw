@@ -195,36 +195,106 @@ export function getAvailableModelList(provider?: string): string[] {
   return getAvailableModelListWithOptions(provider);
 }
 
+/**
+ * Returns the pinned + discovered raw model list for a specific provider
+ * filter, without touching any other provider's catalog. Caller still passes
+ * the result through `dedupeModelList` and the final prefix filter so
+ * mixed-source groups (`local`, the 9 OpenAI-compat remotes) narrow to the
+ * requested backend when asked for a specific one.
+ */
+function collectModelsForProvider(
+  filter: ModelCatalogProviderFilter,
+  config: ReturnType<typeof getRuntimeConfig>,
+): string[] {
+  switch (filter) {
+    case 'hybridai':
+      return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
+    case 'openai-codex':
+      return getDiscoveredCodexModelNames();
+    case 'huggingface':
+      return getDiscoveredHuggingFaceModelNames();
+    case 'mistral':
+      return getDiscoveredMistralModelNames();
+    case 'openrouter':
+      return getDiscoveredOpenRouterModelNames();
+    case 'local':
+    case 'ollama':
+    case 'lmstudio':
+    case 'llamacpp':
+    case 'vllm':
+      // Local discovery returns a flat list across all four backends; the
+      // final prefix filter narrows per-backend when a specific backend is
+      // requested (e.g. `model list ollama`).
+      return getDiscoveredLocalModelNames();
+    case 'gemini':
+    case 'deepseek':
+    case 'xai':
+    case 'zai':
+    case 'kimi':
+    case 'minimax':
+    case 'dashscope':
+    case 'xiaomi':
+    case 'kilo': {
+      // Runtime discovery returns the union across all 9 OpenAI-compat remote
+      // providers; the final prefix filter narrows to the requested one.
+      const section = (config as unknown as Record<string, unknown>)[
+        filter
+      ] as { enabled: boolean; models: string[] } | undefined;
+      return [
+        ...getDiscoveredOpenAICompatRemoteModelNames(),
+        ...(section?.enabled ? section.models : []),
+      ];
+    }
+  }
+}
+
 export function getAvailableModelListWithOptions(
   provider?: string,
   _opts?: { expanded?: boolean },
 ): string[] {
   const config = getRuntimeConfig();
-  const models = dedupeModelList([
-    HYBRIDAI_MODEL,
-    ...getDiscoveredCodexModelNames(),
-    ...getDiscoveredHuggingFaceModelNames(),
-    ...getDiscoveredHybridAIModelNames(),
-    ...getDiscoveredLocalModelNames(),
-    ...getDiscoveredMistralModelNames(),
-    ...getDiscoveredOpenRouterModelNames(),
-    // Runtime-discovered models for OpenAI-compat remote providers.
-    ...getDiscoveredOpenAICompatRemoteModelNames(),
-    // User-pinned model lists for enabled OpenAI-compat remote providers.
-    // Kept as a pin so entries survive when the provider API drops them or
-    // discovery is offline.
-    ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
-      const section = (config as unknown as Record<string, unknown>)[def.id] as
-        | { enabled: boolean; models: string[] }
-        | undefined;
-      return section?.enabled ? section.models : [];
-    }),
-  ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
-  if (!provider) {
+
+  // `provider` was supplied but doesn't map to a known filter — no match is
+  // the right answer; bail before touching any catalog source.
+  if (provider && normalizedProvider === null) return [];
+
+  // When a provider filter is given, query only that provider's source(s).
+  // No point running openrouter / mistral / huggingface / hybridai / codex /
+  // local discoveries when the caller asked for e.g. `kilo` — we'd just union
+  // all of them and then throw the rest away in the prefix filter.
+  const rawModels = normalizedProvider
+    ? collectModelsForProvider(normalizedProvider, config)
+    : [
+        HYBRIDAI_MODEL,
+        ...getDiscoveredCodexModelNames(),
+        ...getDiscoveredHuggingFaceModelNames(),
+        ...getDiscoveredHybridAIModelNames(),
+        ...getDiscoveredLocalModelNames(),
+        ...getDiscoveredMistralModelNames(),
+        ...getDiscoveredOpenRouterModelNames(),
+        // Runtime-discovered models for OpenAI-compat remote providers.
+        ...getDiscoveredOpenAICompatRemoteModelNames(),
+        // User-pinned model lists for enabled OpenAI-compat remote providers.
+        // Kept as a pin so entries survive when the provider API drops them
+        // or discovery is offline.
+        ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
+          const section = (config as unknown as Record<string, unknown>)[
+            def.id
+          ] as { enabled: boolean; models: string[] } | undefined;
+          return section?.enabled ? section.models : [];
+        }),
+      ];
+
+  const models = dedupeModelList(rawModels);
+
+  if (!normalizedProvider) {
     return models.sort((left, right) => compareModelNames(left, right));
   }
-  if (normalizedProvider === null) return [];
+
+  // Narrow mixed-source groups (`local`, OpenAI-compat remotes) to the
+  // specific requested backend. For already-narrow sources this is a
+  // cheap no-op.
   const filteredModels = models.filter((model) =>
     matchesProviderFilter(model, normalizedProvider),
   );
