@@ -82,7 +82,7 @@ export interface ResetWorkspaceResult {
   removed: boolean;
 }
 
-interface WorkspaceNodeModulesLinkOptions {
+export interface WorkspaceNodeModulesLinkOptions {
   allowMissingSource?: boolean;
   replaceExistingSymlink?: boolean;
 }
