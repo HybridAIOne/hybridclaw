@@ -195,6 +195,10 @@
 - **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
   that run immediately, retry up to `maxRetries`, preserve review state, and
   surface richer delivery output across the gateway and admin scheduler UI.
+- **Mem0 memory plugin**: Added a bundled `mem0-memory` plugin so local
+  HybridClaw installs can mirror turns into Mem0 cloud memory, inject
+  prompt-time Mem0 recall, expose `mem0_*` tools, and mirror explicit native
+  memory writes back into Mem0.
 
 ### Changed
 

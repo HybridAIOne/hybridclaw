@@ -20,7 +20,7 @@ operate at different layers, and are designed to complement each other.
 | **Install** | Ship with the codebase | Drop a `SKILL.md` file | `hybridclaw plugin install` or drop a directory |
 | **Hot reload** | Requires rebuild | Immediate (loaded per turn) | `/plugin reload` in session |
 | **Config needed** | Code change | None | `hybridclaw.plugin.yaml` manifest |
-| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `byterover-memory`, `gbrain`, `honcho-memory` |
+| **Example** | `read`, `write`, `web_fetch`, `bash` | `pdf`, `github-pr-workflow`, `notion` | `byterover-memory`, `gbrain`, `honcho-memory`, `mem0-memory` |
 
 ## Tools (Container Runtime)
 
@@ -100,7 +100,7 @@ register runtime surfaces through the `HybridClawPluginApi`:
 **When to use:**
 - You need a tool that calls an external API (no sandbox restrictions needed)
 - You want to integrate an external memory or context system (e.g., Honcho,
-  LanceDB)
+  Mem0, LanceDB)
 - You need to react to lifecycle events (session start/end, tool calls,
   compaction)
 - You want to distribute an extension as a standalone package
