@@ -39,6 +39,10 @@ import {
   LOCOMO_DATASET_FILENAME,
   LOCOMO_SETUP_MARKER,
 } from './locomo-types.js';
+import {
+  handleHybridaiSkillsCommand,
+  isHybridaiSkillsAlias,
+} from './hybridai-skills-command.js';
 
 type EvalSuiteId =
   | 'swebench-verified'
@@ -505,6 +509,7 @@ function renderUsage(env: EvalEnvironment): string {
     '- `/eval locomo [setup|run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
+    '- `/eval hybridai-skills [setup|list|run|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
     '',
@@ -519,7 +524,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `locomo`, `terminal-bench-2.0`, and `tau2` are implemented today.',
+    'Only `locomo`, `terminal-bench-2.0`, `tau2`, and `hybridai-skills` are implemented today.',
   ].join('\n');
 }
 
@@ -4515,12 +4520,29 @@ export async function handleEvalCommand(
     });
   }
 
+  if (isHybridaiSkillsAlias(action)) {
+    return await handleHybridaiSkillsCommand({
+      dataDir: params.dataDir,
+      env,
+      subcommand: 'help',
+      args: [],
+    });
+  }
+
   if (action === 'run') {
     if (isTau2Alias(parsed.commandArgs[0] || '')) {
       return await handleTau2Command({
         dataDir: params.dataDir,
         env,
         channelId: params.channelId,
+        subcommand: parsed.commandArgs[1],
+        args: parsed.commandArgs.slice(2),
+      });
+    }
+    if (isHybridaiSkillsAlias(parsed.commandArgs[0] || '')) {
+      return await handleHybridaiSkillsCommand({
+        dataDir: params.dataDir,
+        env,
         subcommand: parsed.commandArgs[1],
         args: parsed.commandArgs.slice(2),
       });
