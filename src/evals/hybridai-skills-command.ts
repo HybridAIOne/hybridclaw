@@ -4,18 +4,10 @@ import path from 'node:path';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
-import {
-  resolveObservedSkillName,
-  type Skill,
-} from '../skills/skills.js';
+import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
 
-type HybridaiSkillsSubcommand =
-  | 'help'
-  | 'setup'
-  | 'list'
-  | 'run'
-  | 'results';
+type HybridaiSkillsSubcommand = 'help' | 'setup' | 'list' | 'run' | 'results';
 
 const SUBCOMMANDS: ReadonlySet<string> = new Set<HybridaiSkillsSubcommand>([
   'help',
@@ -110,10 +102,7 @@ function getFixturesMetaPath(dataDir: string): string {
 }
 
 function getLatestRunPath(dataDir: string): string {
-  return path.join(
-    resolveHybridaiSkillsInstallDir(dataDir),
-    'latest-run.json',
-  );
+  return path.join(resolveHybridaiSkillsInstallDir(dataDir), 'latest-run.json');
 }
 
 const SKILLS_HEADING_RE = /^##\s+([a-z0-9][a-z0-9_-]*)\s*$/i;
@@ -354,9 +343,7 @@ export function readHybridaiSkillsFixtures(
   };
 }
 
-export function loadBundledSkillCatalogForGrader(
-  installRoot: string,
-): Skill[] {
+export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
   const skillsDir = path.join(installRoot, 'skills');
   if (!fs.existsSync(skillsDir)) return [];
   const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -396,10 +383,17 @@ export async function handleHybridaiSkillsCommand(params: {
   subcommand?: string;
   args?: string[];
 }): Promise<GatewayCommandResult> {
-  const rawSub = String(params.subcommand || '').trim().toLowerCase();
+  const rawSub = String(params.subcommand || '')
+    .trim()
+    .toLowerCase();
   const sub = rawSub || 'help';
   const args = params.args ?? [];
-  if (!SUBCOMMANDS.has(sub) || sub === 'help' || sub === '--help' || sub === '-h') {
+  if (
+    !SUBCOMMANDS.has(sub) ||
+    sub === 'help' ||
+    sub === '--help' ||
+    sub === '-h'
+  ) {
     return infoResult(
       'hybridai-skills',
       renderHybridaiSkillsUsage(params.env, params.dataDir),
@@ -467,10 +461,7 @@ function handleSetup(dataDir: string): GatewayCommandResult {
   );
 }
 
-function handleList(
-  dataDir: string,
-  rawArgs: string[],
-): GatewayCommandResult {
+function handleList(dataDir: string, rawArgs: string[]): GatewayCommandResult {
   const set = readHybridaiSkillsFixtures(dataDir);
   if (!set) {
     return errorResult(
@@ -718,7 +709,8 @@ function evaluateFixtureStatic(
       status: 'passed',
       observedSkill: fixture.skill,
       toolNames: [],
-      reason: 'explicit prompt references the skill; live run required to verify execution',
+      reason:
+        'explicit prompt references the skill; live run required to verify execution',
       durationMs: 0,
     };
   }
@@ -769,8 +761,7 @@ async function runFixtureLive(
   const observedSkill = resolveObservedSkillName({
     skills,
     toolExecutions: parsed.toolExecutions,
-    explicitSkillName:
-      fixture.mode === 'explicit' ? fixture.skill : undefined,
+    explicitSkillName: fixture.mode === 'explicit' ? fixture.skill : undefined,
   });
   const toolNames = parsed.toolExecutions.map((exec) => exec.name);
   const expected = fixture.skill;

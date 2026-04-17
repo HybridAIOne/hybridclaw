@@ -20,6 +20,10 @@ import {
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from './eval-profile.js';
+import {
+  handleHybridaiSkillsCommand,
+  isHybridaiSkillsAlias,
+} from './hybridai-skills-command.js';
 import type {
   LocomoAgentMode,
   LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
@@ -39,10 +43,6 @@ import {
   LOCOMO_DATASET_FILENAME,
   LOCOMO_SETUP_MARKER,
 } from './locomo-types.js';
-import {
-  handleHybridaiSkillsCommand,
-  isHybridaiSkillsAlias,
-} from './hybridai-skills-command.js';
 
 type EvalSuiteId =
   | 'swebench-verified'

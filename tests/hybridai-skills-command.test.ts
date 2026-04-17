@@ -4,10 +4,10 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import {
+  type HybridaiSkillFixture,
   harvestHybridaiSkillsFixtures,
   readHybridaiSkillsFixtures,
   writeHybridaiSkillsFixtures,
-  type HybridaiSkillFixture,
 } from '../src/evals/hybridai-skills-command.js';
 import { useTempDir } from './test-utils.ts';
 
@@ -73,8 +73,7 @@ describe('harvestHybridaiSkillsFixtures', () => {
     const set = harvestHybridaiSkillsFixtures(docsRoot);
 
     const codeReviewTryIt = set.fixtures.filter(
-      (fixture) =>
-        fixture.skill === 'code-review' && fixture.kind === 'try-it',
+      (fixture) => fixture.skill === 'code-review' && fixture.kind === 'try-it',
     );
     expect(codeReviewTryIt.map((fixture) => fixture.prompt)).toEqual([
       'Review the diff on my current branch for bugs and security issues',
@@ -94,12 +93,8 @@ describe('harvestHybridaiSkillsFixtures', () => {
     expect(conversation).toHaveLength(2);
     expect(conversation[0].turnIndex).toBe(1);
     expect(conversation[1].turnIndex).toBe(2);
-    expect(conversation[0].conversationId).toBe(
-      conversation[1].conversationId,
-    );
-    expect(conversation[0].prompt).toBe(
-      'Review the diff on my current branch',
-    );
+    expect(conversation[0].conversationId).toBe(conversation[1].conversationId);
+    expect(conversation[0].prompt).toBe('Review the diff on my current branch');
   });
 
   test('marks prompts that name the skill as explicit and others as implicit', () => {
@@ -153,9 +148,9 @@ describe('fixture store round-trip', () => {
     expect(fs.existsSync(paths.metaPath)).toBe(true);
 
     const reloaded = readHybridaiSkillsFixtures(dataDir);
-    expect(reloaded?.fixtures.map((fixture: HybridaiSkillFixture) => fixture.id)).toEqual(
-      original.fixtures.map((fixture) => fixture.id),
-    );
+    expect(
+      reloaded?.fixtures.map((fixture: HybridaiSkillFixture) => fixture.id),
+    ).toEqual(original.fixtures.map((fixture) => fixture.id));
     expect(reloaded?.sourceFiles).toEqual(['development.md']);
   });
 
