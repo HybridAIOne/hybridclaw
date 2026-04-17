@@ -1,9 +1,7 @@
 import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
-import {
-  HUGGINGFACE_MODEL_PREFIX,
-  readHuggingFaceApiKey,
-} from './huggingface-utils.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const HUGGINGFACE_DISCOVERY_TTL_MS = 3_600_000;
@@ -96,7 +94,9 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
       return [];
     }
 
-    const apiKey = readHuggingFaceApiKey({ required: false });
+    const apiKey = readApiKeyForOpenAICompatProvider('huggingface', {
+      required: false,
+    });
     if (!apiKey) {
       replaceDiscoveryCache([], [], { cacheResult: false });
       return [];

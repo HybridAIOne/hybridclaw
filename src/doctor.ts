@@ -3,14 +3,13 @@ import { doctorChecks } from './doctor/checks/index.js';
 import type {
   DiagResult,
   DoctorArgs,
-  DoctorCheck,
   DoctorFixOutcome,
   DoctorReport,
 } from './doctor/types.js';
 import {
-  makeResult,
   normalizeComponent,
   normalizeDoctorComponentList,
+  runChecks,
   summarizeCounts,
   toErrorMessage,
 } from './doctor/utils.js';
@@ -59,31 +58,6 @@ function parseDoctorArgs(args: string[]): DoctorArgs {
   return { component, fix, json };
 }
 
-async function runChecks(checks: DoctorCheck[]): Promise<DiagResult[]> {
-  const settled = await Promise.allSettled(checks.map((check) => check.run()));
-  const results: DiagResult[] = [];
-
-  settled.forEach((result, index) => {
-    const check = checks[index];
-    if (result.status === 'fulfilled') {
-      results.push(...result.value);
-      return;
-    }
-
-    const message = toErrorMessage(result.reason);
-    results.push(
-      makeResult(
-        check.category,
-        check.label,
-        'error',
-        `Diagnostic failed: ${message}`,
-      ),
-    );
-  });
-
-  return results;
-}
-
 function shouldPromptForFixes(args: DoctorArgs): boolean {
   return (
     args.fix &&
@@ -96,9 +70,12 @@ async function confirmFix(
   rl: readline.Interface,
   result: DiagResult,
 ): Promise<boolean> {
+  const requiresApprovalSuffix = result.fix?.requiresApproval
+    ? ' (approval required)'
+    : '';
   const prompt = result.fix?.summary
-    ? `Apply fix for ${result.label}? ${result.fix.summary} [y/N] `
-    : `Apply fix for ${result.label}? [y/N] `;
+    ? `Apply fix for ${result.label}${requiresApprovalSuffix}? ${result.fix.summary} [y/N] `
+    : `Apply fix for ${result.label}${requiresApprovalSuffix}? [y/N] `;
   const answer = (await rl.question(prompt)).trim().toLowerCase();
   return answer === 'y' || answer === 'yes';
 }
@@ -126,6 +103,16 @@ async function applyFixes(
     for (let index = 0; index < results.length; index += 1) {
       const result = results[index];
       if (!result.fix || result.severity === 'ok') continue;
+
+      if (!rl && result.fix.requiresApproval) {
+        outcomes.push({
+          category: result.category,
+          label: result.label,
+          status: 'skipped',
+          message: 'Skipped because interactive approval is required',
+        });
+        continue;
+      }
 
       if (rl && !(await confirmFix(rl, result))) {
         outcomes.push({

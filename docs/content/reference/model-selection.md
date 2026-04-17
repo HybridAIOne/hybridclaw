@@ -12,6 +12,15 @@ Model prefixes:
 - OpenRouter models use `openrouter/`
 - Mistral models use `mistral/`
 - Hugging Face router models use `huggingface/`
+- Google Gemini models use `gemini/`
+- DeepSeek models use `deepseek/`
+- xAI / Grok models use `xai/`
+- Z.AI / GLM models use `zai/`
+- Kimi / Moonshot models use `kimi/`
+- MiniMax models use `minimax/`
+- DashScope / Qwen models use `dashscope/`
+- Xiaomi MiMo models use `xiaomi/`
+- Kilo Code models use `kilo/`
 - local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`
 
 The shipped default Codex model is `openai-codex/gpt-5-codex`.
@@ -28,6 +37,14 @@ Examples:
 /model set mistral/mistral-large-latest
 /model list huggingface
 /model set huggingface/meta-llama/Llama-3.1-8B-Instruct
+/model list gemini
+/model set gemini/gemini-2.5-pro
+/model list deepseek
+/model set deepseek/deepseek-chat
+/model list xai
+/model set xai/grok-3
+/model list kilo
+/model set kilo/anthropic/claude-sonnet-4.6
 /model clear
 /agent model openrouter/anthropic/claude-sonnet-4
 /model info
@@ -41,8 +58,9 @@ Examples:
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;
   it can point at a HybridAI model, an `openai-codex/...` model, an
-  `openrouter/...` model, a `mistral/...` model, a `huggingface/...` model, or
-  a local backend model such as `ollama/...`
+  `openrouter/...` model, a `mistral/...` model, a `huggingface/...` model, a
+  `gemini/...` model, a `deepseek/...` model, a `xai/...` model, a
+  `kilo/...` model, or a local backend model such as `ollama/...`
 - `/agent model <name>` sets the persistent model for the current session agent
 - `/model set <name>` is a session-only override
 - `/model clear` removes the session override and falls back to the agent or
@@ -61,10 +79,22 @@ Examples:
   and status output
 - `huggingface.models` controls the allowed Hugging Face model list shown in
   selectors and status output
+- `gemini.models`, `deepseek.models`, `xai.models`, `zai.models`,
+  `kimi.models`, `minimax.models`, `dashscope.models`, `xiaomi.models`, and
+  `kilo.models` act as user-pinned model lists for their respective providers.
+  Pinned entries are merged with the models discovered at runtime (see below),
+  so they survive when a provider drops or renames a model upstream
 - HybridAI model lists are refreshed from the configured HybridAI base URL
   (`/models`, then `/v1/models` as a compatibility fallback), and discovered
   `context_length` values feed status and model-info output when the API
   exposes them
+- Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi, and Kilo Code
+  model lists are also discovered at runtime via `GET <baseUrl>/models` (Kilo
+  Code uses the marketplace endpoint `https://api.kilo.ai/api/gateway/models`).
+  Discovery requires the provider to be enabled in config and its API key to
+  be available. Responses are cached for one hour and gracefully fall back to
+  the pinned `<provider>.models` list if the provider returns an error or
+  doesn't implement a discovery endpoint
 
 ## Provider Routing
 
@@ -76,6 +106,24 @@ Examples:
   credentials through `MISTRAL_API_KEY`
 - when the selected model starts with `huggingface/`, HybridClaw resolves
   credentials through `HF_TOKEN`
+- when the selected model starts with `gemini/`, HybridClaw resolves
+  credentials through `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+- when the selected model starts with `deepseek/`, HybridClaw resolves
+  credentials through `DEEPSEEK_API_KEY`
+- when the selected model starts with `xai/`, HybridClaw resolves
+  credentials through `XAI_API_KEY`
+- when the selected model starts with `zai/`, HybridClaw resolves
+  credentials through `GLM_API_KEY` or `ZAI_API_KEY`
+- when the selected model starts with `kimi/`, HybridClaw resolves
+  credentials through `KIMI_API_KEY`
+- when the selected model starts with `minimax/`, HybridClaw resolves
+  credentials through `MINIMAX_API_KEY`
+- when the selected model starts with `dashscope/`, HybridClaw resolves
+  credentials through `DASHSCOPE_API_KEY`
+- when the selected model starts with `xiaomi/`, HybridClaw resolves
+  credentials through `XIAOMI_API_KEY`
+- when the selected model starts with `kilo/`, HybridClaw resolves
+  credentials through `KILOCODE_API_KEY` or `KILO_API_KEY`
 
 ## Concierge Routing
 

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { hasExecutableCommand } from '../utils/executables.js';
 import type {
   PluginExternalDependency,
   PluginManifest,
@@ -396,11 +397,24 @@ export function installPluginDependencyPlan(
   };
 }
 
+export function allRequiredBinsAvailable(
+  manifest: PluginManifest,
+  cwd: string,
+): boolean {
+  const bins = manifest.requires?.bins;
+  if (!bins || bins.length === 0) return false;
+  return bins.every((req) => hasExecutableCommand(req.name, { cwd }));
+}
+
 export function checkPluginDependencies(
   pluginDir: string,
   manifest: PluginManifest,
   runCheckCommand: PluginDependencyCommandChecker = defaultPluginDependencyCheckCommand,
+  options?: { cwd?: string },
 ): PluginDependencyCheckReport {
+  const cwd = options?.cwd ?? process.cwd();
+  const binsOnPath = allRequiredBinsAvailable(manifest, cwd);
+
   const hasPackageJson = fs.existsSync(path.join(pluginDir, 'package.json'));
   const packageJsonDependencies = readPackageJsonDependencies(pluginDir).map(
     (pkg) => ({
@@ -414,7 +428,7 @@ export function checkPluginDependencies(
     ...(hasPackageJson ? [] : collectLegacyManifestNodePackages(manifest)),
   ]).map((pkg) => ({
     package: pkg,
-    installed: isNodePackageInstalled(pluginDir, pkg),
+    installed: isNodePackageInstalled(pluginDir, pkg) || binsOnPath,
   }));
 
   const venvPython = getPluginVenvPythonPath(pluginDir);
@@ -423,12 +437,13 @@ export function checkPluginDependencies(
   ).map((pkg) => ({
     package: pkg,
     installed:
-      fs.existsSync(venvPython) &&
-      runCheckCommand({
-        command: venvPython,
-        args: ['-m', 'pip', 'show', extractCheckPackageName(pkg)],
-        cwd: pluginDir,
-      }).ok,
+      binsOnPath ||
+      (fs.existsSync(venvPython) &&
+        runCheckCommand({
+          command: venvPython,
+          args: ['-m', 'pip', 'show', extractCheckPackageName(pkg)],
+          cwd: pluginDir,
+        }).ok),
   }));
 
   const externalDependencies = (manifest.externalDependencies ?? []).map(

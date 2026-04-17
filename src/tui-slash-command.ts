@@ -68,6 +68,8 @@ export function mapTuiSlashCommandToGatewayArgs(
     const sub = (parts[1] || '').trim().toLowerCase();
     if (
       sub === 'list' ||
+      sub === 'enable' ||
+      sub === 'disable' ||
       sub === 'inspect' ||
       sub === 'runs' ||
       sub === 'install' ||

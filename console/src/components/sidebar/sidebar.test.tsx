@@ -460,6 +460,7 @@ describe('AppSidebar', () => {
     for (const item of SIDEBAR_NAV_GROUPS.flatMap((g) => g.items)) {
       expect(screen.getByText(item.label)).toBeDefined();
     }
+    expect(screen.queryByText('Chat')).toBeNull();
   });
 
   it('renders version when provided', () => {

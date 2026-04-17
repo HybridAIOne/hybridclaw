@@ -43,6 +43,7 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import {
   isSecretRefInput,
   parseSecretInput,
@@ -80,12 +81,12 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
 } from './runtime-config-revisions.js';
-
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
+export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
   'This is a live phone call. Produce plain spoken text only.',
@@ -599,6 +600,51 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  gemini: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  deepseek: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  xai: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  zai: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  kimi: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  minimax: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  dashscope: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  xiaomi: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  kilo: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   local: LocalProviderConfig;
   auxiliaryModels: {
     vision: RuntimeAuxiliaryModelPolicyConfig;
@@ -801,6 +847,21 @@ const DEFAULT_MISTRAL_MODEL_LIST = ['mistral/mistral-large-latest'] as const;
 const DEFAULT_HUGGINGFACE_MODEL_LIST = [
   'huggingface/meta-llama/Llama-3.1-8B-Instruct',
 ] as const;
+const DEFAULT_GEMINI_MODEL_LIST = [
+  'gemini/gemini-2.5-pro',
+  'gemini/gemini-2.5-flash',
+] as const;
+const DEFAULT_DEEPSEEK_MODEL_LIST = [
+  'deepseek/deepseek-chat',
+  'deepseek/deepseek-reasoner',
+] as const;
+const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
+const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5.1'] as const;
+const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
+const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
+const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
+const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
+const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -1029,7 +1090,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
-    defaultModel: 'gpt-4.1-mini',
+    defaultModel: DEFAULT_HYBRIDAI_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
@@ -1052,6 +1113,51 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     baseUrl: 'https://router.huggingface.co/v1',
     models: [...DEFAULT_HUGGINGFACE_MODEL_LIST],
+  },
+  gemini: {
+    enabled: false,
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    models: [...DEFAULT_GEMINI_MODEL_LIST],
+  },
+  deepseek: {
+    enabled: false,
+    baseUrl: 'https://api.deepseek.com/v1',
+    models: [...DEFAULT_DEEPSEEK_MODEL_LIST],
+  },
+  xai: {
+    enabled: false,
+    baseUrl: 'https://api.x.ai/v1',
+    models: [...DEFAULT_XAI_MODEL_LIST],
+  },
+  zai: {
+    enabled: false,
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    models: [...DEFAULT_ZAI_MODEL_LIST],
+  },
+  kimi: {
+    enabled: false,
+    baseUrl: 'https://api.moonshot.ai/v1',
+    models: [...DEFAULT_KIMI_MODEL_LIST],
+  },
+  minimax: {
+    enabled: false,
+    baseUrl: 'https://api.minimax.io/v1',
+    models: [...DEFAULT_MINIMAX_MODEL_LIST],
+  },
+  dashscope: {
+    enabled: false,
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    models: [...DEFAULT_DASHSCOPE_MODEL_LIST],
+  },
+  xiaomi: {
+    enabled: false,
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    models: [...DEFAULT_XIAOMI_MODEL_LIST],
+  },
+  kilo: {
+    enabled: false,
+    baseUrl: 'https://api.kilo.ai/api/gateway',
+    models: [...DEFAULT_KILO_MODEL_LIST],
   },
   local: {
     backends: {
@@ -1270,7 +1376,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   scheduler: {
-    jobs: [],
+    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
   },
 };
 
@@ -3203,6 +3309,54 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+function migrateProviderBaseUrl(params: {
+  provider: string;
+  baseUrl: string;
+  retired: ReadonlySet<string>;
+  nextDefault: string;
+}): string {
+  if (params.retired.has(params.baseUrl)) {
+    console.warn(
+      `[runtime-config] migrating ${params.provider} baseUrl ${params.baseUrl} -> ${params.nextDefault}`,
+    );
+    return params.nextDefault;
+  }
+  return params.baseUrl;
+}
+
+const RETIRED_KILO_BASE_URLS = new Set<string>([
+  'https://api.kilocode.ai/v1',
+  'https://api.kilocode.ai',
+  'http://api.kilocode.ai/v1',
+  'http://api.kilocode.ai',
+]);
+
+function migrateKiloBaseUrl(baseUrl: string): string {
+  return migrateProviderBaseUrl({
+    provider: 'kilo',
+    baseUrl,
+    retired: RETIRED_KILO_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kilo.baseUrl,
+  });
+}
+
+const RETIRED_KIMI_BASE_URLS = new Set<string>([
+  'https://api.kimi.com/coding/v1',
+  'https://api.kimi.com/coding',
+  'https://api.kimi.com/v1',
+  'https://api.kimi.com',
+  'http://api.kimi.com/coding/v1',
+]);
+
+function migrateKimiBaseUrl(baseUrl: string): string {
+  return migrateProviderBaseUrl({
+    provider: 'kimi',
+    baseUrl,
+    retired: RETIRED_KIMI_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kimi.baseUrl,
+  });
+}
+
 function normalizeApiPath(value: unknown, fallback: string): string {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
@@ -3718,6 +3872,15 @@ function normalizeRuntimeConfig(
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
+  const rawGemini = isRecord(raw.gemini) ? raw.gemini : {};
+  const rawDeepSeek = isRecord(raw.deepseek) ? raw.deepseek : {};
+  const rawXai = isRecord(raw.xai) ? raw.xai : {};
+  const rawZai = isRecord(raw.zai) ? raw.zai : {};
+  const rawKimi = isRecord(raw.kimi) ? raw.kimi : {};
+  const rawMiniMax = isRecord(raw.minimax) ? raw.minimax : {};
+  const rawDashScope = isRecord(raw.dashscope) ? raw.dashscope : {};
+  const rawXiaomi = isRecord(raw.xiaomi) ? raw.xiaomi : {};
+  const rawKilo = isRecord(raw.kilo) ? raw.kilo : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
@@ -3939,6 +4102,42 @@ function normalizeRuntimeConfig(
   const huggingFaceModelList = normalizeStringArray(
     rawHuggingFace.models,
     DEFAULT_RUNTIME_CONFIG.huggingface.models,
+  );
+  const geminiModelList = normalizeStringArray(
+    rawGemini.models,
+    DEFAULT_RUNTIME_CONFIG.gemini.models,
+  );
+  const deepSeekModelList = normalizeStringArray(
+    rawDeepSeek.models,
+    DEFAULT_RUNTIME_CONFIG.deepseek.models,
+  );
+  const xaiModelList = normalizeStringArray(
+    rawXai.models,
+    DEFAULT_RUNTIME_CONFIG.xai.models,
+  );
+  const zaiModelList = normalizeStringArray(
+    rawZai.models,
+    DEFAULT_RUNTIME_CONFIG.zai.models,
+  );
+  const kimiModelList = normalizeStringArray(
+    rawKimi.models,
+    DEFAULT_RUNTIME_CONFIG.kimi.models,
+  );
+  const miniMaxModelList = normalizeStringArray(
+    rawMiniMax.models,
+    DEFAULT_RUNTIME_CONFIG.minimax.models,
+  );
+  const dashScopeModelList = normalizeStringArray(
+    rawDashScope.models,
+    DEFAULT_RUNTIME_CONFIG.dashscope.models,
+  );
+  const xiaomiModelList = normalizeStringArray(
+    rawXiaomi.models,
+    DEFAULT_RUNTIME_CONFIG.xiaomi.models,
+  );
+  const kiloModelList = normalizeStringArray(
+    rawKilo.models,
+    DEFAULT_RUNTIME_CONFIG.kilo.models,
   );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
@@ -4255,6 +4454,103 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl,
       ),
       models: huggingFaceModelList,
+    },
+    gemini: {
+      enabled: normalizeBoolean(
+        rawGemini.enabled,
+        DEFAULT_RUNTIME_CONFIG.gemini.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawGemini.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.gemini.baseUrl,
+      ),
+      models: geminiModelList,
+    },
+    deepseek: {
+      enabled: normalizeBoolean(
+        rawDeepSeek.enabled,
+        DEFAULT_RUNTIME_CONFIG.deepseek.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawDeepSeek.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.deepseek.baseUrl,
+      ),
+      models: deepSeekModelList,
+    },
+    xai: {
+      enabled: normalizeBoolean(
+        rawXai.enabled,
+        DEFAULT_RUNTIME_CONFIG.xai.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawXai.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.xai.baseUrl,
+      ),
+      models: xaiModelList,
+    },
+    zai: {
+      enabled: normalizeBoolean(
+        rawZai.enabled,
+        DEFAULT_RUNTIME_CONFIG.zai.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawZai.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.zai.baseUrl,
+      ),
+      models: zaiModelList,
+    },
+    kimi: {
+      enabled: normalizeBoolean(
+        rawKimi.enabled,
+        DEFAULT_RUNTIME_CONFIG.kimi.enabled,
+      ),
+      baseUrl: migrateKimiBaseUrl(
+        normalizeBaseUrl(rawKimi.baseUrl, DEFAULT_RUNTIME_CONFIG.kimi.baseUrl),
+      ),
+      models: kimiModelList,
+    },
+    minimax: {
+      enabled: normalizeBoolean(
+        rawMiniMax.enabled,
+        DEFAULT_RUNTIME_CONFIG.minimax.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawMiniMax.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.minimax.baseUrl,
+      ),
+      models: miniMaxModelList,
+    },
+    dashscope: {
+      enabled: normalizeBoolean(
+        rawDashScope.enabled,
+        DEFAULT_RUNTIME_CONFIG.dashscope.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawDashScope.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.dashscope.baseUrl,
+      ),
+      models: dashScopeModelList,
+    },
+    xiaomi: {
+      enabled: normalizeBoolean(
+        rawXiaomi.enabled,
+        DEFAULT_RUNTIME_CONFIG.xiaomi.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawXiaomi.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.xiaomi.baseUrl,
+      ),
+      models: xiaomiModelList,
+    },
+    kilo: {
+      enabled: normalizeBoolean(
+        rawKilo.enabled,
+        DEFAULT_RUNTIME_CONFIG.kilo.enabled,
+      ),
+      baseUrl: migrateKiloBaseUrl(
+        normalizeBaseUrl(rawKilo.baseUrl, DEFAULT_RUNTIME_CONFIG.kilo.baseUrl),
+      ),
+      models: kiloModelList,
     },
     local: {
       backends: {

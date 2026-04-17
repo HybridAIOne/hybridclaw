@@ -55,6 +55,32 @@ node skills/pdf/scripts/fill_pdf_form_with_annotations.mjs input.pdf fields.json
 
 ## `pdf-lib` Recipes
 
+### Create a new PDF from scratch
+
+**Critical:** Always call `pdfDoc.embedFont()` before drawing text. Calling
+`drawText()` without an explicit `font` produces invisible or corrupt text
+because the font is not embedded in the output file.
+
+```js
+import fs from "node:fs";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+
+const pdfDoc = await PDFDocument.create();
+const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+const page = pdfDoc.addPage();
+const { width, height } = page.getSize();
+
+page.drawText("Hello World", {
+  x: 50,
+  y: height - 80,
+  size: 30,
+  font,            // ← required — omitting this produces a blank page
+  color: rgb(0, 0, 0),
+});
+
+fs.writeFileSync("output.pdf", await pdfDoc.save());
+```
+
 ### Merge PDFs
 
 ```js

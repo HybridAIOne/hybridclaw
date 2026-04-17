@@ -4,13 +4,13 @@ import {
   shouldDowngradeStreamToNonStreaming,
   shouldFallbackFromStreamError,
 } from '../container/src/model-retry.js';
-import { HybridAIRequestError } from '../container/src/providers/shared.js';
+import { ProviderRequestError } from '../container/src/providers/shared.js';
 
 describe('shouldFallbackFromStreamError', () => {
   test('allows fallback for 500 stream errors', () => {
     expect(
       shouldFallbackFromStreamError(
-        new HybridAIRequestError(500, '{"error":"server_error"}'),
+        new ProviderRequestError(500, '{"error":"server_error"}'),
       ),
     ).toBe(true);
   });
@@ -18,7 +18,7 @@ describe('shouldFallbackFromStreamError', () => {
   test('allows fallback for non-429 4xx errors', () => {
     expect(
       shouldFallbackFromStreamError(
-        new HybridAIRequestError(400, '{"error":"bad_request"}'),
+        new ProviderRequestError(400, '{"error":"bad_request"}'),
       ),
     ).toBe(true);
   });
@@ -26,7 +26,7 @@ describe('shouldFallbackFromStreamError', () => {
   test('keeps 429 on retry/backoff path (no fallback)', () => {
     expect(
       shouldFallbackFromStreamError(
-        new HybridAIRequestError(429, '{"error":"rate_limited"}'),
+        new ProviderRequestError(429, '{"error":"rate_limited"}'),
       ),
     ).toBe(false);
   });
@@ -34,7 +34,7 @@ describe('shouldFallbackFromStreamError', () => {
   test('does not fall back for premium-model permission errors', () => {
     expect(
       shouldFallbackFromStreamError(
-        new HybridAIRequestError(
+        new ProviderRequestError(
           403,
           JSON.stringify({
             error: {
@@ -53,6 +53,7 @@ describe('shouldFallbackFromStreamError', () => {
     expect(shouldFallbackFromStreamError(new Error('socket closed'))).toBe(
       true,
     );
+    expect(shouldFallbackFromStreamError(new Error('terminated'))).toBe(true);
   });
 
   test('falls back for generic Codex stream failures with request ids', () => {
@@ -82,7 +83,7 @@ describe('shouldDowngradeStreamToNonStreaming', () => {
     expect(
       shouldDowngradeStreamToNonStreaming(
         'hybridai',
-        new HybridAIRequestError(500, '{"error":"server_error"}'),
+        new ProviderRequestError(500, '{"error":"server_error"}'),
       ),
     ).toBe(true);
   });
@@ -92,17 +93,17 @@ describe('isRetryableModelError', () => {
   test('treats 429 and 5xx(<=504) as retryable', () => {
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(429, '{"error":"rate_limited"}'),
+        new ProviderRequestError(429, '{"error":"rate_limited"}'),
       ),
     ).toBe(true);
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(500, '{"error":"server_error"}'),
+        new ProviderRequestError(500, '{"error":"server_error"}'),
       ),
     ).toBe(true);
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(504, '{"error":"gateway_timeout"}'),
+        new ProviderRequestError(504, '{"error":"gateway_timeout"}'),
       ),
     ).toBe(true);
   });
@@ -110,12 +111,12 @@ describe('isRetryableModelError', () => {
   test('does not retry non-retryable status codes', () => {
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(400, '{"error":"bad_request"}'),
+        new ProviderRequestError(400, '{"error":"bad_request"}'),
       ),
     ).toBe(false);
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(
+        new ProviderRequestError(
           403,
           JSON.stringify({
             error: {
@@ -130,7 +131,7 @@ describe('isRetryableModelError', () => {
     ).toBe(false);
     expect(
       isRetryableModelError(
-        new HybridAIRequestError(505, '{"error":"http_version_not_supported"}'),
+        new ProviderRequestError(505, '{"error":"http_version_not_supported"}'),
       ),
     ).toBe(false);
   });
@@ -139,6 +140,7 @@ describe('isRetryableModelError', () => {
     expect(isRetryableModelError(new Error('fetch failed'))).toBe(true);
     expect(isRetryableModelError(new Error('ECONNRESET upstream'))).toBe(true);
     expect(isRetryableModelError(new Error('timed out'))).toBe(true);
+    expect(isRetryableModelError(new Error('terminated'))).toBe(true);
   });
 
   test('retries generic Codex processing failures', () => {

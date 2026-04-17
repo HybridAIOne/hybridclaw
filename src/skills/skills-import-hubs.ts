@@ -5,6 +5,7 @@ import path from 'node:path';
 import { safeExtractZip } from '../agents/claw-security.js';
 import { logger } from '../logger.js';
 import { sleep } from '../utils/sleep.js';
+import { SkillImportError } from './skill-errors.js';
 import {
   type GitHubSkillImportSource,
   normalizeImportedSkillRelativePath,
@@ -129,8 +130,6 @@ export type HubSkillImportSource =
   | ClawHubSkillImportSource
   | LobeHubSkillImportSource
   | ClaudeMarketplaceSkillImportSource;
-
-class SkillImportError extends Error {}
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, '');

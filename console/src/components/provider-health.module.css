@@ -1,0 +1,327 @@
+/* ─── Animations ───────────────────────────────────────────────────────────── */
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ─── Panel shell ──────────────────────────────────────────────────────────── */
+
+.panel {
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  overflow: hidden;
+}
+
+.panelHeader {
+  padding: 12px 16px 11px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panelTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Row ──────────────────────────────────────────────────────────────────── */
+
+.row {
+  display: flex;
+  flex-direction: column;
+  padding: 9px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-left: 2.5px solid transparent;
+  transition: background 0.1s ease;
+}
+
+.row:last-of-type {
+  border-bottom: none;
+}
+
+.row:hover {
+  background: rgba(0, 0, 0, 0.012);
+}
+
+.rowWarning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.03);
+}
+
+.rowWarning:hover {
+  background: rgba(245, 158, 11, 0.055);
+}
+
+.rowDown {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.02);
+}
+
+.rowDown:hover {
+  background: rgba(239, 68, 68, 0.04);
+}
+
+/* ─── Row top: name line + meta ────────────────────────────────────────────── */
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nameGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ─── Status dot ───────────────────────────────────────────────────────────── */
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotHealthy {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+}
+.dotWarning {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+  animation: pulse 2s ease-in-out infinite;
+}
+.dotDown {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.dotInactive {
+  background: #d1d5db;
+}
+
+/* ─── Name + badge ─────────────────────────────────────────────────────────── */
+
+.name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #111827;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.badgeRemote {
+  background: #eff6ff;
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.badgeLocal {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid rgba(22, 163, 74, 0.18);
+}
+
+/* ─── Meta (right side of name line) ──────────────────────────────────────── */
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.detail {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
+  white-space: nowrap;
+}
+
+.modelCount {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Warning inline action ────────────────────────────────────────────────── */
+
+.loginBtn {
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid rgba(217, 119, 6, 0.45);
+  background: rgba(255, 251, 235, 0.9);
+  color: #92400e;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.5;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease;
+  flex-shrink: 0;
+}
+
+.loginBtn:hover {
+  background: #fef3c7;
+  border-color: #d97706;
+}
+
+.loginBtn:active {
+  background: #fde68a;
+}
+
+/* ─── Inactive footer ──────────────────────────────────────────────────────── */
+
+.inactiveFooter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 11px;
+  color: #b0b7c3;
+}
+
+.inactiveDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  flex-shrink: 0;
+}
+
+.inactiveNames {
+  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 10.5px;
+  color: #c4c9d4;
+}
+
+/* ─── Empty state ──────────────────────────────────────────────────────────── */
+
+.panelEmpty {
+  padding: 20px 16px;
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ─── Dark mode ────────────────────────────────────────────────────────────── */
+
+:global(html[data-theme="dark"]) .panel {
+  background: #111827;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+:global(html[data-theme="dark"]) .panelHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+:global(html[data-theme="dark"]) .panelTitle {
+  color: #e5edf7;
+}
+
+:global(html[data-theme="dark"]) .row {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+:global(html[data-theme="dark"]) .row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+:global(html[data-theme="dark"]) .rowWarning {
+  border-left-color: #d97706;
+  background: rgba(245, 158, 11, 0.05);
+}
+
+:global(html[data-theme="dark"]) .rowWarning:hover {
+  background: rgba(245, 158, 11, 0.09);
+}
+
+:global(html[data-theme="dark"]) .rowDown {
+  border-left-color: #dc2626;
+  background: rgba(239, 68, 68, 0.04);
+}
+
+:global(html[data-theme="dark"]) .rowDown:hover {
+  background: rgba(239, 68, 68, 0.07);
+}
+
+:global(html[data-theme="dark"]) .name {
+  color: #e5edf7;
+}
+
+:global(html[data-theme="dark"]) .badgeRemote {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+:global(html[data-theme="dark"]) .badgeLocal {
+  background: rgba(22, 163, 74, 0.12);
+  color: #86efac;
+  border-color: rgba(22, 163, 74, 0.22);
+}
+
+:global(html[data-theme="dark"]) .detail {
+  color: #6b7280;
+}
+
+:global(html[data-theme="dark"]) .modelCount {
+  color: #4b5563;
+}
+
+:global(html[data-theme="dark"]) .loginBtn {
+  background: rgba(245, 158, 11, 0.09);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+:global(html[data-theme="dark"]) .loginBtn:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+:global(html[data-theme="dark"]) .inactiveFooter {
+  border-top-color: rgba(255, 255, 255, 0.04);
+  color: #374151;
+}
+
+:global(html[data-theme="dark"]) .inactiveDot {
+  background: #374151;
+}
+
+:global(html[data-theme="dark"]) .inactiveNames {
+  color: #374151;
+}

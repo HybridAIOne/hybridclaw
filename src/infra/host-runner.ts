@@ -33,6 +33,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
@@ -608,6 +609,20 @@ export function stopSessionHostProcess(sessionId: string): boolean {
 }
 
 export async function runHostProcess(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.host.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runHostProcessInner(params),
+  );
+}
+
+async function runHostProcessInner(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
   const {

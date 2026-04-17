@@ -201,13 +201,25 @@ For the local speech and fallback workflow, see
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
-`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `VLLM_API_KEY`,
+`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`,
+`XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
+`DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`, `VLLM_API_KEY`,
 `BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
 `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
 `GATEWAY_API_TOKEN`.
 
-Local TUI and local web chat sessions manage this store through:
+Local TUI/web sessions and the local CLI manage this store through:
+
+```bash
+hybridclaw secret list
+hybridclaw secret set <NAME> <VALUE>
+hybridclaw secret show <NAME>
+hybridclaw secret unset <NAME>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
 
 ```text
 /secret list
@@ -219,7 +231,6 @@ Local TUI and local web chat sessions manage this store through:
 /secret route remove <url-prefix> [header]
 ```
 
-- there is no top-level `hybridclaw secret ...` CLI yet
 - secret names must use uppercase letters, digits, and underscores
 - built-in runtime keys and arbitrary named secrets share the same encrypted
   store

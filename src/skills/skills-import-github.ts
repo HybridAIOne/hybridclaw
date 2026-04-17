@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Readable } from 'node:stream';
 
 import * as yauzl from 'yauzl';
+import { SkillImportError, SkillImportNotFoundError } from './skill-errors.js';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const GITHUB_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
@@ -54,10 +55,6 @@ export interface GitHubSkillPathResolution {
   ref: string;
   requestedPath: string;
 }
-
-class SkillImportError extends Error {}
-
-class NotFoundError extends SkillImportError {}
 
 export function normalizeImportedSkillRelativePath(
   relativePath: string,
@@ -133,7 +130,7 @@ async function throwForStatus(
 ): Promise<never> {
   const detail = await response.text().catch(() => '');
   if (response.status === 404) {
-    throw new NotFoundError(
+    throw new SkillImportNotFoundError(
       `${notFoundPrefix}: ${url}${detail ? ` (${detail.trim()})` : ''}`,
     );
   }
@@ -352,7 +349,7 @@ async function downloadGitHubDirectory(
   requireSkillManifest: boolean,
 ): Promise<void> {
   if (requireSkillManifest && !entries.some(isSkillManifestEntry)) {
-    throw new NotFoundError(
+    throw new SkillImportNotFoundError(
       `GitHub path ${owner}/${repo}/${repoPath || '.'} is not a skill directory.`,
     );
   }
@@ -435,7 +432,7 @@ async function downloadGitHubPath(
   );
   if (!Array.isArray(contents)) {
     if (!isSkillManifestEntry(contents)) {
-      throw new NotFoundError(
+      throw new SkillImportNotFoundError(
         `GitHub path ${owner}/${repo}/${repoPath || '.'} is not a skill file.`,
       );
     }
@@ -498,7 +495,7 @@ async function populateFromGitHubApiCandidates(
       );
       return resolveGitHubPathUrl(owner, repo, ref, candidatePath);
     } catch (error) {
-      if (!(error instanceof NotFoundError)) {
+      if (!(error instanceof SkillImportNotFoundError)) {
         throw error;
       }
     }
@@ -957,7 +954,7 @@ async function populateFromGitHubArchive(
       },
     );
   } catch (error) {
-    if (error instanceof NotFoundError) {
+    if (error instanceof SkillImportNotFoundError) {
       return null;
     }
     throw error;
@@ -1092,7 +1089,7 @@ export async function resolveGitHubSkillPathByName(
         return { ref, requestedPath };
       }
     } catch (error) {
-      if (error instanceof NotFoundError) {
+      if (error instanceof SkillImportNotFoundError) {
         continue;
       }
       throw error;

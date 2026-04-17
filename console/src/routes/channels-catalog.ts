@@ -1,4 +1,5 @@
 import type { AdminConfig } from '../api/types';
+import { pluralize } from '../lib/format';
 
 export type ChannelKind =
   | 'discord'
@@ -51,10 +52,6 @@ export function countTeamsOverrides(config: AdminConfig): number {
   return Object.values(config.msteams.teams).reduce((total, team) => {
     return total + countKeys(team.channels);
   }, 0);
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function describeDiscord(

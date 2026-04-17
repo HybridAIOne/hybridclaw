@@ -13,6 +13,7 @@ import {
   LOGGER_PRETTY_OPTIONS,
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
+import { getTraceContext } from './observability/otel.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -75,6 +76,11 @@ function createLogger() {
     errorKey: LOGGER_ERROR_KEY,
     level: initialLevel,
     serializers: LOGGER_SERIALIZERS,
+    mixin() {
+      const { traceId, spanId } = getTraceContext();
+      if (traceId) return { traceId, spanId };
+      return {};
+    },
   };
   const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
     {

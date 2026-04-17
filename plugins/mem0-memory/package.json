@@ -1,0 +1,13 @@
+{
+  "name": "hybridclaw-plugin-mem0-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory plugin for Mem0 cloud recall and sync",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "mem0ai": "^2.4.6"
+  }
+}

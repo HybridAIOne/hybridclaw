@@ -148,6 +148,15 @@ hybridclaw auth login codex [--device-code|--browser|--import]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
+hybridclaw auth login gemini [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login deepseek [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login zai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kimi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login minimax [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login dashscope [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xiaomi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kilo [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
@@ -161,6 +170,15 @@ hybridclaw help codex
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 hybridclaw help msteams
 hybridclaw help slack
 hybridclaw help local
@@ -168,7 +186,8 @@ hybridclaw help auth
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
@@ -178,8 +197,18 @@ the secret values themselves.
 
 ## Secrets And Routes
 
-Named secrets and gateway-side auth routes currently live on the local TUI/web
-slash-command surface:
+Named secrets and gateway-side auth routes are available from both the local
+CLI and local TUI/web slash-command surface:
+
+```bash
+hybridclaw secret list
+hybridclaw secret set <name> <value>
+hybridclaw secret show <name>
+hybridclaw secret unset <name>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
 
 ```text
 /secret list
@@ -193,7 +222,9 @@ slash-command surface:
 
 - local-only surface: `/secret ...` is available from local TUI and local web
   chat sessions, not from Discord or other remote channels
-- there is no top-level `hybridclaw secret ...` CLI yet
+- `hybridclaw secret show <name>` reports whether the secret is stored; it
+  never outputs decrypted values. Secrets are only resolved gateway-side via
+  `<secret:NAME>` placeholders or auth rules
 - stored secret names must use uppercase letters, digits, and underscores
 - built-in provider keys and custom names share the same encrypted
   `~/.hybridclaw/credentials.json` store
@@ -294,7 +325,9 @@ hybridclaw audit instructions [--sync]
 
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
-`claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
+directories, and `.zip` archives. Locally-imported skills receive personal
+trust and persist their import-source marker across restarts.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.

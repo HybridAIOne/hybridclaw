@@ -1,26 +1,12 @@
 import readline from 'node:readline/promises';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
+import { formatDependencyPlanDetails } from '../plugins/plugin-install.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printPluginUsage } from './help.js';
 
-function formatDependencyPlanDetails(plan: {
-  usesPackageJson: boolean;
-  nodePackages: string[];
-  pipPackages: string[];
-}): string {
-  const parts: string[] = [];
-  if (plan.usesPackageJson) {
-    parts.push('npm install from package.json');
-  }
-  if (plan.nodePackages.length > 0) {
-    parts.push(`npm packages: ${plan.nodePackages.join(', ')}`);
-  }
-  if (plan.pipPackages.length > 0) {
-    parts.push(`pip packages: ${plan.pipPackages.join(', ')}`);
-  }
-  return parts.join('; ');
-}
+const green = (s: string): string =>
+  process.stdout.isTTY ? `\x1b[32m${s}\x1b[0m` : s;
 
 async function confirmDependencyInstall(plan: {
   usesPackageJson: boolean;
@@ -382,6 +368,11 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     try {
       result = await installPlugin(source, {
         approveDependencyInstall: yes === '--yes',
+        onDependenciesAlreadySatisfied: (plan) => {
+          console.log(
+            `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+          );
+        },
       });
     } catch (error) {
       if (isDependencyApprovalRequiredError(error)) {
@@ -401,11 +392,11 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
     if (result.alreadyInstalled) {
       console.log(
-        `Plugin ${result.pluginId} is already present at ${result.pluginDir}.`,
+        `${green('[ok]')} Plugin ${result.pluginId} is already present at ${result.pluginDir}.`,
       );
     } else {
       console.log(
-        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
+        `${green('[ok]')} Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
       );
     }
     printDependencyInstallSummary(result);
@@ -452,6 +443,11 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     try {
       result = await reinstallPlugin(source, {
         approveDependencyInstall: yes === '--yes',
+        onDependenciesAlreadySatisfied: (plan) => {
+          console.log(
+            `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+          );
+        },
       });
     } catch (error) {
       if (isDependencyApprovalRequiredError(error)) {
@@ -471,11 +467,11 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
     if (result.replacedExistingInstall) {
       console.log(
-        `Reinstalled plugin ${result.pluginId} to ${result.pluginDir}.`,
+        `${green('[ok]')} Reinstalled plugin ${result.pluginId} to ${result.pluginDir}.`,
       );
     } else {
       console.log(
-        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
+        `${green('[ok]')} Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
       );
     }
     printDependencyInstallSummary(result);

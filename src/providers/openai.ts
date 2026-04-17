@@ -1,6 +1,6 @@
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
 import { CODEX_BASE_URL } from '../config/config.js';
+import { createModelMatcher, normalizeAgentId } from './provider-utils.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -9,18 +9,13 @@ import type {
 
 export const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
 
-export function isOpenAICodexModel(model: string): boolean {
-  return String(model || '')
-    .trim()
-    .toLowerCase()
-    .startsWith(OPENAI_CODEX_MODEL_PREFIX);
-}
+export const isOpenAICodexModel = createModelMatcher(OPENAI_CODEX_MODEL_PREFIX);
 
 async function resolveOpenAIRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const codex = await resolveCodexCredentials();
-  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'openai-codex',
     apiKey: codex.apiKey,

@@ -6,6 +6,7 @@ import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
 } from '../../container/shared/model-names.js';
+import { pluralize } from '../utils/text-format.js';
 
 export {
   formatHybridAIModelForCatalog,
@@ -25,4 +26,9 @@ export function formatModelForDisplay(model: string): string {
     return normalized;
   }
   return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;
+}
+
+export function formatModelCountSuffix(count: number): string {
+  const n = Math.max(0, Math.floor(count));
+  return `${n} ${pluralize(n, 'model', 'models')}`;
 }

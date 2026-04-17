@@ -51,6 +51,7 @@ export interface GatewayChatResult {
   result: string | null;
   toolsUsed: string[];
   pluginsUsed?: string[];
+  skillUsed?: string;
   agentId?: string;
   model?: string;
   provider?: string;
@@ -321,6 +322,8 @@ export interface GatewayProviderHealthEntry {
   error?: string;
   modelCount?: number;
   detail?: string;
+  /** True when the provider requires explicit re-authentication (e.g. expired OAuth token). */
+  loginRequired?: boolean;
 }
 
 export interface GatewayPluginCommandSummary {
@@ -353,6 +356,10 @@ export interface GatewayStatus {
     accountId: string | null;
     expiresAt: number | null;
     reloginRequired: boolean;
+  };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
   };
   sandbox?: {
     mode: 'container' | 'host';
@@ -428,6 +435,15 @@ export interface GatewayStatus {
       | 'openrouter'
       | 'mistral'
       | 'huggingface'
+      | 'gemini'
+      | 'deepseek'
+      | 'xai'
+      | 'zai'
+      | 'kimi'
+      | 'minimax'
+      | 'dashscope'
+      | 'xiaomi'
+      | 'kilo'
       | 'ollama'
       | 'lmstudio'
       | 'llamacpp'

@@ -11,6 +11,7 @@ export interface GatewayStatus {
   uptime: number;
   sessions: number;
   activeContainers: number;
+  defaultAgentId: string;
   defaultModel: string;
   ragDefault: boolean;
   timestamp: string;
@@ -20,6 +21,10 @@ export interface GatewayStatus {
     accountId: string | null;
     expiresAt: number | null;
     reloginRequired: boolean;
+  };
+  hybridai?: {
+    apiKeyConfigured: boolean;
+    apiKeySource: 'env' | 'runtime-secrets' | null;
   };
   sandbox?: {
     mode: 'container' | 'host';
@@ -96,6 +101,7 @@ export interface GatewayStatus {
       error?: string;
       modelCount?: number;
       detail?: string;
+      loginRequired?: boolean;
     }
   >;
   localBackends?: Record<

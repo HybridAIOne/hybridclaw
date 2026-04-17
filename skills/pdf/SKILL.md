@@ -3,6 +3,9 @@ name: pdf
 description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
 user-invocable: true
 disable-model-invocation: false
+requires:
+  bins:
+    - node
 metadata:
   hybridclaw:
     category: office
@@ -11,17 +14,6 @@ metadata:
       - pdf
       - documents
       - node
-    install:
-      - id: brew-poppler
-        kind: brew
-        formula: poppler
-        bins: ["pdftotext", "pdftoppm", "pdfinfo", "pdfimages"]
-        label: Install Poppler CLI tools (brew)
-      - id: brew-qpdf
-        kind: brew
-        formula: qpdf
-        bins: ["qpdf"]
-        label: Install qpdf (brew)
 ---
 # PDF
 
@@ -31,6 +23,7 @@ This skill is intentionally **Node/JS-only** for supported workflows. Do not swi
 
 ## Supported Workflows
 
+- **create new PDFs** with text content
 - extract text from PDFs
 - render PDF pages to PNG images
 - extract invoice/document fields from PDF text
@@ -72,24 +65,12 @@ When the current turn already provides a single PDF attachment or local PDF path
 3. Run the bundled extractor once.
 4. If the extracted text is usable, answer and stop.
 
-Do **not** start with `glob "**/*.pdf"`, `find /discord-media-cache`, ad-hoc shell rewrites, or chat-history reads for that case.
+Do **not** start with `glob "**/*.pdf"` or ad-hoc shell discovery for that case.
 
 ## Anti-Patterns
 
-- Do not probe `/discord-media-cache` with `find` when a concrete current-turn PDF path is already provided.
 - Do not rewrite a single attached-file task into multi-step shell discovery.
 - Do not keep searching after the first successful `extract_pdf_text.mjs` result.
-- Do not read prior Discord messages unless the user explicitly asked for prior-message context.
-
-## Exact Discovery Rule
-
-When the user asks for PDFs in a folder outside the workspace, use this exact command shape first:
-
-```bash
-find "/absolute/path" -type f \( -iname '*.pdf' -o -iname '*.PDF' \) | sort
-```
-
-Do not start discovery with Python.
 
 ## Default Extraction Workflow
 
@@ -118,38 +99,19 @@ node skills/pdf/scripts/render_pdf_pages.mjs document.pdf /tmp/pdf-pages
 ```
 5. Only then use image or vision tooling on the rendered PNGs.
 
-## Invoice Extraction Workflow
-
-For invoice folders:
-
-1. Find all PDFs.
-```bash
-find "/absolute/path" -type f \( -iname '*.pdf' -o -iname '*.PDF' \) | sort
-```
-2. For each PDF, run:
-```bash
-node skills/pdf/scripts/extract_pdf_text.mjs "/absolute/path/to/file.pdf" --json
-```
-3. Extract invoice fields from the returned text.
-4. If a PDF has no usable text, render pages:
-```bash
-node skills/pdf/scripts/render_pdf_pages.mjs "/absolute/path/to/file.pdf" /tmp/pdf-pages
-```
-5. Inspect the rendered images only for the PDFs that failed text extraction.
-
-## Discord / Attachment Shortcut
-
-For a single PDF attachment in the current turn:
-
-1. Use the supplied local attachment path first.
-```bash
-node skills/pdf/scripts/extract_pdf_text.mjs "/path/from-current-turn.pdf" --json
-```
-2. If that local path is missing, use the provided CDN/remote URL path only if the runtime already supplied it as the fallback path for the same attachment.
-3. Do not call `glob "**/*.pdf"` or `find` first.
-4. Do not read Discord history unless the user asked about prior messages.
-
 ## Bundled Scripts
+
+### Create a New PDF
+
+```bash
+node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Hello World"
+node skills/pdf/scripts/create_pdf.mjs output.pdf --title "Heading" --text "Body content"
+node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Line 1\nLine 2" --font-size 18
+```
+
+For creation tasks ("make a PDF", "create a PDF with X"), always use this bundled
+script or the recipe from [reference.md](./reference.md). Never call `drawText()`
+without passing an embedded `font` — omitting it produces a blank/corrupt page.
 
 ### Text Extraction
 
