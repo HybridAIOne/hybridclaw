@@ -54,6 +54,7 @@ import {
 } from './model-selection.js';
 import {
   formatHybridAIModelForCatalog,
+  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from './providers/model-names.js';
@@ -1183,6 +1184,10 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
           : GOLD;
       console.log(`  ${marker}${color}${entry.label}${RESET}`);
     }
+    console.log();
+    console.log(
+      `  ${MUTED}${formatModelCountSuffix(result.modelCatalog.length)}${RESET}`,
+    );
     console.log();
     return;
   }

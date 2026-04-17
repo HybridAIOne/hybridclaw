@@ -231,6 +231,7 @@ import {
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
+  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
@@ -7359,14 +7360,11 @@ export async function handleGatewayCommand(
                 : 'No models available.',
             );
           }
-          const countSuffix = `${modelCatalog.length} ${
-            modelCatalog.length === 1 ? 'model' : 'models'
-          }`;
           return infoCommand(
             providerFilterArg
               ? `Available Models (${providerFilterArg})`
               : 'Available Models',
-            `${list}\n\n${countSuffix}`,
+            `${list}\n\n${formatModelCountSuffix(modelCatalog.length)}`,
             undefined,
             { modelCatalog },
           );
@@ -8515,7 +8513,6 @@ export async function handleGatewayCommand(
       }
 
       case 'dream': {
-
         const sub = (req.args[1] || '').trim().toLowerCase();
         const currentConfig = getRuntimeConfig();
         const currentIntervalHours = Math.max(

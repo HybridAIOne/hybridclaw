@@ -6,6 +6,7 @@ import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
 } from '../../container/shared/model-names.js';
+import { pluralize } from '../utils/text-format.js';
 
 export {
   formatHybridAIModelForCatalog,
@@ -30,4 +31,14 @@ export function formatModelForDisplay(model: string): string {
     return normalized;
   }
   return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;
+}
+
+/**
+ * Singular/plural count suffix shown at the end of `/model list` output
+ * across every channel (TUI, Discord, Slack, web gateway, ...). Kept here so
+ * every renderer formats the same way without re-implementing the rule.
+ */
+export function formatModelCountSuffix(count: number): string {
+  const n = Math.max(0, Math.floor(count));
+  return `${n} ${pluralize(n, 'model', 'models')}`;
 }
