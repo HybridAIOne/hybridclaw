@@ -210,7 +210,6 @@ const STATE_DIRNAME = 'container-image-state';
 const STATE_FILENAME = 'container-image-state.json';
 const DEFAULT_CONTAINER_IMAGE = 'hybridclaw-agent';
 const DEFAULT_DOCKERHUB_IMAGE = 'hybridaione/hybridclaw-agent';
-const DEFAULT_GHCR_IMAGE = 'ghcr.io/hybridaione/hybridclaw-agent';
 const TRACKED_FILES = [
   'package.json',
   'container/Dockerfile',
@@ -233,8 +232,6 @@ function resolveContainerPullImages(imageName: string): string[] {
   const candidates = [
     `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
     `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
-    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
-    `${DEFAULT_GHCR_IMAGE}:latest`,
   ];
   return Array.from(new Set(candidates));
 }

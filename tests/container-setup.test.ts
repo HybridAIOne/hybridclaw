@@ -546,7 +546,7 @@ describe('ensureContainerImageReady', () => {
     );
   });
 
-  test('falls back to GHCR only after Docker Hub pull attempts fail for packaged installs', async () => {
+  test('reuses the existing image after Docker Hub pull attempts fail for packaged installs', async () => {
     const cwd = createTempDir();
     const homeDir = createTempDir();
     writePackagedTrackedFiles(cwd);
@@ -591,21 +591,6 @@ describe('ensureContainerImageReady', () => {
         });
       }
       if (
-        command === 'docker' &&
-        args[0] === 'pull' &&
-        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1'
-      ) {
-        return makeSpawnResult({ code: 0 });
-      }
-      if (
-        command === 'docker' &&
-        args[0] === 'tag' &&
-        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1' &&
-        args[2] === 'hybridclaw-agent'
-      ) {
-        return makeSpawnResult({ code: 0 });
-      }
-      if (
         command === 'npm' &&
         args[0] === 'run' &&
         args[1] === 'build:container'
@@ -636,7 +621,6 @@ describe('ensureContainerImageReady', () => {
     ).toEqual([
       'hybridaione/hybridclaw-agent:v0.4.1',
       'hybridaione/hybridclaw-agent:latest',
-      'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
     ]);
   });
 
