@@ -215,20 +215,21 @@ describe('live runner grading', () => {
       fixtures: [fixture],
     });
 
-    const mockFetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: 'Sure, I can help with that.',
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: 'Sure, I can help with that.',
+                },
               },
-            },
-          ],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
     );
     vi.stubGlobal('fetch', mockFetch);
 
