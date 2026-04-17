@@ -3,15 +3,48 @@ import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
-import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
 import { readMistralApiKey } from '../providers/mistral-utils.js';
+import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from '../providers/openai-compat-remote.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import type { GatewayStatus } from './gateway-types.js';
 
+// API-key readers for every provider with simple bearer-token auth.
+// openrouter/mistral/huggingface predate the OPENAI_COMPAT_REMOTE_PROVIDERS
+// registry and live in their own `*-utils.ts` files; the 9 newer providers
+// live in the registry. Both groups are funnelled into one lookup so the
+// diagnostic treats all 12 identically.
+type ApiKeyedProvider = Exclude<
+  ModelCatalogProviderFilter,
+  | 'local'
+  | 'hybridai'
+  | 'openai-codex'
+  | 'ollama'
+  | 'lmstudio'
+  | 'llamacpp'
+  | 'vllm'
+>;
+const READ_API_KEY: Record<
+  ApiKeyedProvider,
+  (opts?: { required?: boolean }) => string
+> = {
+  openrouter: readOpenRouterApiKey,
+  mistral: readMistralApiKey,
+  huggingface: readHuggingFaceApiKey,
+  ...(Object.fromEntries(
+    OPENAI_COMPAT_REMOTE_PROVIDERS.map((def) => [def.id, def.readApiKey]),
+  ) as Record<
+    Exclude<ApiKeyedProvider, 'openrouter' | 'mistral' | 'huggingface'>,
+    (opts?: { required?: boolean }) => string
+  >),
+};
+
 // Per-provider gate pipeline: enabled → credential → reachable.
 
-export type ProviderDiagnosticKind = 'disabled' | 'unauthorized' | 'unreachable';
+export type ProviderDiagnosticKind =
+  | 'disabled'
+  | 'unauthorized'
+  | 'unreachable';
 
 export interface ProviderDiagnostic {
   kind: ProviderDiagnosticKind;
@@ -54,7 +87,9 @@ export function buildProviderEnableCommand(
   return `config set ${provider}.enabled true`;
 }
 
-function rerunFilter(filter: Exclude<ModelCatalogProviderFilter, 'local'>): string {
+function rerunFilter(
+  filter: Exclude<ModelCatalogProviderFilter, 'local'>,
+): string {
   return filter === 'openai-codex' ? 'codex' : filter;
 }
 
@@ -137,22 +172,7 @@ export function diagnoseProviderForModels(
     }
     case 'openrouter':
     case 'mistral':
-    case 'huggingface': {
-      const section = (config as unknown as Record<string, unknown>)[
-        filter
-      ] as { enabled: boolean } | undefined;
-      if (!section?.enabled) {
-        return disabled(filter, buildProviderEnableCommand(filter));
-      }
-      const readKey =
-        filter === 'openrouter'
-          ? readOpenRouterApiKey
-          : filter === 'mistral'
-            ? readMistralApiKey
-            : readHuggingFaceApiKey;
-      if (!readKey({ required: false })) return unauthorized(filter);
-      return null;
-    }
+    case 'huggingface':
     case 'gemini':
     case 'deepseek':
     case 'xai':
@@ -162,14 +182,13 @@ export function diagnoseProviderForModels(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (config as unknown as Record<string, unknown>)[
-        filter
-      ] as { enabled: boolean } | undefined;
+      const section = (config as unknown as Record<string, unknown>)[filter] as
+        | { enabled: boolean }
+        | undefined;
       if (!section?.enabled) {
         return disabled(filter, buildProviderEnableCommand(filter));
       }
-      const def = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === filter);
-      if (def && !def.readApiKey({ required: false })) {
+      if (!READ_API_KEY[filter]({ required: false })) {
         return unauthorized(filter);
       }
       return null;
@@ -179,10 +198,16 @@ export function diagnoseProviderForModels(
     case 'llamacpp':
     case 'vllm': {
       if (config.local.backends[filter]?.enabled !== true) {
-        return disabled(filter, `config set local.backends.${filter}.enabled true`);
+        return disabled(
+          filter,
+          `config set local.backends.${filter}.enabled true`,
+        );
       }
       if (providerHealth?.[filter]?.reachable !== true) {
-        return unreachable(filter, config.local.backends[filter]?.baseUrl ?? null);
+        return unreachable(
+          filter,
+          config.local.backends[filter]?.baseUrl ?? null,
+        );
       }
       return null;
     }
