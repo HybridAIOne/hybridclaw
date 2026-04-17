@@ -442,8 +442,20 @@ export async function runUpdateCommand(
   }
 
   console.log('Update complete. Re-run `hybridclaw update --check` to verify.');
-  console.log(
-    'If the gateway is already running, restart it to load the new version:',
+
+  const { requestExternalGatewayRestart } = await import(
+    './gateway/gateway-restart.js'
   );
-  console.log('  hybridclaw gateway restart');
+  const restart = requestExternalGatewayRestart();
+  if (restart.status === 'restarted') {
+    console.log(
+      `Restarting gateway (pid ${restart.pid}) with original parameters to load the new version.`,
+    );
+  } else if (restart.status === 'failed') {
+    const pidSuffix = restart.pid ? ` (pid ${restart.pid})` : '';
+    console.log(
+      `Could not auto-restart gateway${pidSuffix}: ${restart.reason}`,
+    );
+    console.log('To load the new version, run: hybridclaw gateway restart');
+  }
 }

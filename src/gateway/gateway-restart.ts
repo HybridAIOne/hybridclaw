@@ -10,6 +10,12 @@ export interface GatewayLifecycleStatus {
   restartReason: string | null;
 }
 
+export interface GatewayExternalRestartResult {
+  status: 'restarted' | 'not-running' | 'failed';
+  pid: number | null;
+  reason: string | null;
+}
+
 interface GatewayRestartPayload {
   parentPid: number;
   cwd: string;
@@ -157,6 +163,24 @@ export function getGatewayLifecycleStatus(
   };
 }
 
+function spawnRestartHelper(
+  helperCommand: readonly string[],
+  payload: GatewayRestartPayload,
+  cwd: string,
+): void {
+  const helper = spawn(
+    helperCommand[0],
+    [...helperCommand.slice(1), encodePayload(payload)],
+    {
+      cwd,
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+    },
+  );
+  helper.unref();
+}
+
 export function requestGatewayRestart(
   params: { currentPid?: number; state?: GatewayPidState | null } = {},
 ): GatewayLifecycleStatus {
@@ -172,29 +196,70 @@ export function requestGatewayRestart(
     };
   }
 
-  const helper = spawn(
-    resolved.helperCommand[0],
-    [
-      ...resolved.helperCommand.slice(1),
-      encodePayload({
-        parentPid: currentPid,
-        cwd: resolved.cwd,
-        command: resolved.restartCommand,
-      }),
-    ],
+  spawnRestartHelper(
+    resolved.helperCommand,
     {
+      parentPid: currentPid,
       cwd: resolved.cwd,
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
+      command: resolved.restartCommand,
     },
+    resolved.cwd,
   );
-  helper.unref();
 
   return {
     restartSupported: true,
     restartReason: null,
   };
+}
+
+export function requestExternalGatewayRestart(
+  params: { state?: GatewayPidState | null } = {},
+): GatewayExternalRestartResult {
+  const state = params.state === undefined ? readGatewayPid() : params.state;
+  if (!state) {
+    return { status: 'not-running', pid: null, reason: null };
+  }
+  if (!isPidRunning(state.pid)) {
+    return { status: 'not-running', pid: state.pid, reason: null };
+  }
+
+  const restartCommand = normalizeGatewayRestartCommand(state.command);
+  const helperCommand = resolveGatewayRestartHelperCommand(state.command);
+  if (!restartCommand || !helperCommand) {
+    return {
+      status: 'failed',
+      pid: state.pid,
+      reason: 'Recorded gateway launch command cannot be replayed.',
+    };
+  }
+
+  const cwd = state.cwd || process.cwd();
+
+  try {
+    spawnRestartHelper(
+      helperCommand,
+      { parentPid: state.pid, cwd, command: restartCommand },
+      cwd,
+    );
+  } catch (err) {
+    return {
+      status: 'failed',
+      pid: state.pid,
+      reason: `Failed to spawn restart helper: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  try {
+    process.kill(state.pid, 'SIGTERM');
+  } catch (err) {
+    return {
+      status: 'failed',
+      pid: state.pid,
+      reason: `Failed to signal gateway pid ${state.pid}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  return { status: 'restarted', pid: state.pid, reason: null };
 }
 
 async function waitForParentExit(pid: number): Promise<void> {
