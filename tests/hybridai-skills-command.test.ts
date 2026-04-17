@@ -9,6 +9,7 @@ import {
   handleHybridaiSkillsCommand,
   harvestHybridaiSkillsFixtures,
   readHybridaiSkillsFixtures,
+  syncHybridaiSkillsFixturesWithDocs,
   writeHybridaiSkillsFixtures,
 } from '../src/evals/hybridai-skills-command.js';
 import { useTempDir } from './test-utils.ts';
@@ -132,6 +133,23 @@ describe('harvestHybridaiSkillsFixtures', () => {
     expect(conversation[0].prompt).toBe('Review the diff on my current branch');
   });
 
+  test('treats multi-step flow headings as conversation fixtures too', () => {
+    const docsRoot = makeTempDir();
+    writeDoc(
+      docsRoot,
+      'development.md',
+      SAMPLE_DOC.replace('**Conversation flow:**', '**Multi-step flow:**'),
+    );
+
+    const set = harvestHybridaiSkillsFixtures(docsRoot);
+    const conversation = set.fixtures.filter(
+      (fixture) =>
+        fixture.skill === 'code-review' && fixture.kind === 'conversation',
+    );
+    expect(conversation).toHaveLength(2);
+    expect(conversation.map((fixture) => fixture.turnIndex)).toEqual([1, 2]);
+  });
+
   test('marks prompts that name the skill as explicit and others as implicit', () => {
     const docsRoot = makeTempDir();
     writeDoc(docsRoot, 'apple.md', SAMPLE_DOC);
@@ -192,6 +210,35 @@ describe('fixture store round-trip', () => {
   test('returns null when no fixtures are on disk', () => {
     const dataDir = makeTempDir();
     expect(readHybridaiSkillsFixtures(dataDir)).toBeNull();
+  });
+
+  test('refreshes docs-backed fixtures when the source docs change', () => {
+    const docsRoot = makeTempDir();
+    writeDoc(docsRoot, 'development.md', SAMPLE_DOC);
+    const current = harvestHybridaiSkillsFixtures(docsRoot);
+
+    const dataDir = makeTempDir();
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot,
+      sourceFiles: ['development.md'],
+      fixtures: [
+        {
+          id: 'stale:code-review:try-it:1',
+          docFile: 'development.md',
+          skill: 'code-review',
+          prompt: 'stale prompt',
+          mode: 'implicit',
+          kind: 'try-it',
+        },
+      ],
+    });
+
+    const synced = syncHybridaiSkillsFixturesWithDocs(dataDir, docsRoot);
+    expect(synced?.fixtures).toEqual(current.fixtures);
+    expect(readHybridaiSkillsFixtures(dataDir)?.fixtures).toEqual(
+      current.fixtures,
+    );
   });
 });
 
@@ -448,6 +495,251 @@ describe('live runner grading', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe('info');
     expect(result.text).toMatch(/Passed\s+1\/1/);
+  });
+
+  test('resolves audit traces by OpenAI session key and records the real session id', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:session-key',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    const sessionKey =
+      'agent:eval-pdf:channel:openai:chat:dm:peer:feedfacecafebeef';
+    const sessionId = 'sess_pdf_session_key_1';
+    const auditPath = writeAuditWire(dataDir, sessionId, [
+      {
+        type: 'session.start',
+        userId: sessionKey,
+        cwd: '/tmp/eval-agent/workspace',
+      },
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-1',
+        toolName: 'bash',
+        arguments: { cmd: 'node skills/pdf/scripts/create_pdf.mjs' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-1',
+        toolName: 'bash',
+        resultSummary: 'created acme-invoice.pdf',
+        durationMs: 4,
+        isError: false,
+        blocked: false,
+      },
+    ]);
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'Done.' } }],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': sessionKey,
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed\s+1\/1/);
+
+    const latestRun = JSON.parse(
+      fs.readFileSync(
+        path.join(dataDir, 'evals', 'hybridai-skills', 'latest-run.json'),
+        'utf8',
+      ),
+    ) as {
+      runs: Array<{
+        results: Array<{ sessionId?: string; auditPath?: string }>;
+      }>;
+    };
+    expect(latestRun.runs[0]?.results[0]?.sessionId).toBe(sessionId);
+    expect(latestRun.runs[0]?.results[0]?.auditPath).toBe(auditPath);
+  });
+
+  test('does not count a bare SKILL.md read as observed skill usage', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:weak-trace',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    const sessionId = 'sess_pdf_weak_trace_1';
+    writeAuditWire(dataDir, sessionId, [
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-1',
+        toolName: 'read',
+        arguments: { path: 'skills/pdf/SKILL.md' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-1',
+        toolName: 'read',
+        resultSummary: 'skill instructions',
+        durationMs: 1,
+        isError: false,
+        blocked: false,
+      },
+    ]);
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'Done.' } }],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': sessionId,
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed\s+0\/1/);
+    expect(result.text).toMatch(/no skill observed in tool trace/);
+  });
+
+  test('runs conversation fixtures as a chained conversation in one temporary agent workspace', async () => {
+    const dataDir = makeTempDir();
+    const fixtures: HybridaiSkillFixture[] = [
+      {
+        id: 'synthetic:pdf:conversation:1',
+        docFile: 'synthetic.md',
+        skill: 'pdf',
+        prompt: 'Create a quarterly report PDF for Q1',
+        mode: 'implicit',
+        kind: 'conversation',
+        conversationId: 'pdf#conv1',
+        turnIndex: 1,
+      },
+      {
+        id: 'synthetic:pdf:conversation:2',
+        docFile: 'synthetic.md',
+        skill: 'pdf',
+        prompt: 'Now add a second page with a short appendix',
+        mode: 'implicit',
+        kind: 'conversation',
+        conversationId: 'pdf#conv1',
+        turnIndex: 2,
+      },
+    ];
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures,
+    });
+    writeAuditWire(dataDir, 'sess_pdf_conv_1', [
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+    writeAuditWire(dataDir, 'sess_pdf_conv_2', [
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+
+    const seenModels: string[] = [];
+    const seenMessages: Array<Array<{ role: string; content: string }>> = [];
+    const responseSessionIds = ['sess_pdf_conv_1', 'sess_pdf_conv_2'];
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as {
+        model?: string;
+        messages?: Array<{ role: string; content: string }>;
+      };
+      seenModels.push(String(body.model || ''));
+      seenMessages.push(body.messages || []);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content:
+                  responseSessionIds.length === 2
+                    ? 'Created the report.'
+                    : 'Added the appendix.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': responseSessionIds.shift() || 'sess',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--kind', 'conversation', '--max', '2'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(result.text).toMatch(/Passed\s+2\/2/);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(seenModels[0]).toMatch(/__hc_eval=agent=eval-conv-[a-f0-9]+(?:,|$)/);
+    expect(seenModels[1]).toBe(seenModels[0]);
+    expect(seenMessages[0]).toEqual([
+      { role: 'user', content: 'Create a quarterly report PDF for Q1' },
+    ]);
+    expect(seenMessages[1]).toEqual([
+      { role: 'user', content: 'Create a quarterly report PDF for Q1' },
+      { role: 'assistant', content: 'Created the report.' },
+      { role: 'user', content: 'Now add a second page with a short appendix' },
+    ]);
   });
 
   test('runs multiple models and renders a comparison section', async () => {

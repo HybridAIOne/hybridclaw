@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
@@ -5,6 +6,7 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
+import { resetWorkspace } from '../workspace.js';
 import {
   joinSections,
   renderKeyValueSection,
@@ -46,7 +48,11 @@ interface FixtureGradeResult {
   toolNames: string[];
   sessionId?: string;
   auditPath?: string;
-  observationSource?: 'audit.skill.execution' | 'audit.tool.trace' | 'response';
+  observationSource?:
+    | 'audit.skill.execution'
+    | 'audit.expected-skill-ref'
+    | 'audit.tool.trace'
+    | 'response';
   reason?: string;
   durationMs: number;
   assistantPreview?: string;
@@ -128,7 +134,7 @@ function getLatestRunPath(dataDir: string): string {
 
 const SKILLS_HEADING_RE = /^##\s+([a-z0-9][a-z0-9_-]*)\s*$/i;
 const TRY_IT_YOURSELF_RE = /Try it yourself/i;
-const CONVERSATION_FLOW_RE = /Conversation flow/i;
+const CONVERSATION_FLOW_RE = /(Conversation flow|Multi-step flow)/i;
 const BACKTICK_PROMPT_RE = /^\s*`([^`]+)`\s*$/;
 const CONVERSATION_TURN_RE = /^\s*\d+[.)]\s*(.+)$/;
 
@@ -364,6 +370,34 @@ export function readHybridaiSkillsFixtures(
   };
 }
 
+function areHybridaiSkillFixtureSetsEquivalent(
+  left: HybridaiSkillFixtureSet,
+  right: HybridaiSkillFixtureSet,
+): boolean {
+  return (
+    left.docsRoot === right.docsRoot &&
+    JSON.stringify(left.sourceFiles) === JSON.stringify(right.sourceFiles) &&
+    JSON.stringify(left.fixtures) === JSON.stringify(right.fixtures)
+  );
+}
+
+export function syncHybridaiSkillsFixturesWithDocs(
+  dataDir: string,
+  docsRoot = resolveHybridaiSkillsDocsRoot(),
+): HybridaiSkillFixtureSet | null {
+  const existing = readHybridaiSkillsFixtures(dataDir);
+  if (!existing) return null;
+  const normalizedDocsRoot = path.resolve(docsRoot);
+  if (path.resolve(existing.docsRoot || '') !== normalizedDocsRoot) {
+    return existing;
+  }
+  const harvested = harvestHybridaiSkillsFixtures(normalizedDocsRoot);
+  if (!areHybridaiSkillFixtureSetsEquivalent(existing, harvested)) {
+    writeHybridaiSkillsFixtures(dataDir, harvested);
+  }
+  return harvested;
+}
+
 export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
   const skillsDir = path.join(installRoot, 'skills');
   if (!fs.existsSync(skillsDir)) return [];
@@ -481,7 +515,7 @@ function handleSetup(dataDir: string): GatewayCommandResult {
 }
 
 function handleList(dataDir: string, rawArgs: string[]): GatewayCommandResult {
-  const set = readHybridaiSkillsFixtures(dataDir);
+  const set = syncHybridaiSkillsFixturesWithDocs(dataDir);
   if (!set) {
     return errorResult(
       'hybridai-skills list',
@@ -530,7 +564,7 @@ async function handleRun(params: {
   workspaceModeExplicit?: boolean;
   args: string[];
 }): Promise<GatewayCommandResult> {
-  const set = readHybridaiSkillsFixtures(params.dataDir);
+  const set = syncHybridaiSkillsFixturesWithDocs(params.dataDir);
   if (!set) {
     return errorResult(
       'hybridai-skills run',
@@ -563,36 +597,43 @@ async function handleRun(params: {
     const profiledModel = encodeEvalProfileModel(model, profile);
     const modelStartedAt = new Date().toISOString();
     const results: FixtureGradeResult[] = [];
-    for (const fixture of capped) {
+    for (const fixtureGroup of groupFixturesForExecution(capped)) {
       if (parsed.dryRun) {
-        results.push(evaluateFixtureStatic(fixture, skills));
+        results.push(
+          ...fixtureGroup.fixtures.map((fixture) =>
+            evaluateFixtureStatic(fixture, skills),
+          ),
+        );
         continue;
       }
       try {
         results.push(
-          await runFixtureLive(
-            fixture,
+          ...(await runFixtureGroupLive(
+            fixtureGroup.fixtures,
             {
               baseUrl: params.env.baseUrl,
               apiKey: params.env.apiKey,
-              model: profiledModel,
+              model,
+              profile,
             },
             skills,
             params.dataDir,
             {
               forceExplicit: parsed.forceExplicit,
             },
-          ),
+          )),
         );
       } catch (error) {
-        results.push({
-          fixture,
-          status: 'failed',
-          observedSkill: null,
-          toolNames: [],
-          reason: `Error: ${(error as Error).message}`,
-          durationMs: 0,
-        });
+        results.push(
+          ...fixtureGroup.fixtures.map((fixture) => ({
+            fixture,
+            status: 'failed' as const,
+            observedSkill: null,
+            toolNames: [],
+            reason: `Error: ${(error as Error).message}`,
+            durationMs: 0,
+          })),
+        );
       }
     }
     const modelFinishedAt = new Date().toISOString();
@@ -836,6 +877,35 @@ function filterFixtures(
   });
 }
 
+function groupFixturesForExecution(
+  fixtures: HybridaiSkillFixture[],
+): Array<{ fixtures: HybridaiSkillFixture[] }> {
+  const groups: Array<{ fixtures: HybridaiSkillFixture[] }> = [];
+  for (let index = 0; index < fixtures.length; index += 1) {
+    const fixture = fixtures[index];
+    if (!fixture) continue;
+    if (fixture.kind !== 'conversation' || !fixture.conversationId) {
+      groups.push({ fixtures: [fixture] });
+      continue;
+    }
+    const group = [fixture];
+    while (index + 1 < fixtures.length) {
+      const next = fixtures[index + 1];
+      if (
+        !next ||
+        next.kind !== 'conversation' ||
+        next.conversationId !== fixture.conversationId
+      ) {
+        break;
+      }
+      group.push(next);
+      index += 1;
+    }
+    groups.push({ fixtures: group });
+  }
+  return groups;
+}
+
 function evaluateFixtureStatic(
   fixture: HybridaiSkillFixture,
   skills: Skill[],
@@ -872,21 +942,115 @@ function evaluateFixtureStatic(
   };
 }
 
+interface HybridaiSkillsLiveRunEnvironment {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  profile: EvalProfile;
+}
+
+interface ExecutedLiveTurn {
+  durationMs: number;
+  parsed: ParsedChatCompletion;
+  sessionId?: string;
+  auditPath?: string;
+  auditTrace: ParsedAuditTrace | null;
+  httpStatus: number;
+  errorText?: string;
+}
+
+async function runFixtureGroupLive(
+  fixtures: HybridaiSkillFixture[],
+  env: HybridaiSkillsLiveRunEnvironment,
+  skills: Skill[],
+  dataDir: string,
+  options: { forceExplicit?: boolean } = {},
+): Promise<FixtureGradeResult[]> {
+  if (fixtures.length <= 1) {
+    const fixture = fixtures[0];
+    return fixture
+      ? [await runFixtureLive(fixture, env, skills, dataDir, options)]
+      : [];
+  }
+
+  const tempAgentId =
+    env.profile.workspaceMode === 'fresh-agent'
+      ? `eval-conv-${randomUUID().replace(/-/g, '').slice(0, 12)}`
+      : null;
+  const executionProfile: EvalProfile = tempAgentId
+    ? {
+        ...env.profile,
+        workspaceMode: 'current-agent',
+        agentId: tempAgentId,
+      }
+    : {
+        ...env.profile,
+        includePromptParts: [...env.profile.includePromptParts],
+        omitPromptParts: [...env.profile.omitPromptParts],
+      };
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const results: FixtureGradeResult[] = [];
+
+  try {
+    for (const fixture of fixtures) {
+      const prompt = options.forceExplicit
+        ? `/${fixture.skill} ${fixture.prompt}`
+        : fixture.prompt;
+      const executed = await executeLiveTurn(
+        [...messages, { role: 'user', content: prompt }],
+        env,
+        executionProfile,
+        skills,
+        dataDir,
+      );
+      results.push(gradeExecutedFixture(fixture, executed, skills));
+      messages.push({ role: 'user', content: prompt });
+      if (executed.parsed.assistantText) {
+        messages.push({
+          role: 'assistant',
+          content: executed.parsed.assistantText,
+        });
+      }
+    }
+  } finally {
+    if (tempAgentId) resetWorkspace(tempAgentId);
+  }
+
+  return results;
+}
+
 async function runFixtureLive(
   fixture: HybridaiSkillFixture,
-  env: Pick<HybridaiSkillsEvalEnvironment, 'baseUrl' | 'apiKey' | 'model'>,
+  env: HybridaiSkillsLiveRunEnvironment,
   skills: Skill[],
   dataDir: string,
   options: { forceExplicit?: boolean } = {},
 ): Promise<FixtureGradeResult> {
-  const start = Date.now();
-  const endpoint = `${env.baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const prompt = options.forceExplicit
     ? `/${fixture.skill} ${fixture.prompt}`
     : fixture.prompt;
+  const executed = await executeLiveTurn(
+    [{ role: 'user', content: prompt }],
+    env,
+    env.profile,
+    skills,
+    dataDir,
+  );
+  return gradeExecutedFixture(fixture, executed, skills);
+}
+
+async function executeLiveTurn(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  env: HybridaiSkillsLiveRunEnvironment,
+  profile: EvalProfile,
+  skills: Skill[],
+  dataDir: string,
+): Promise<ExecutedLiveTurn> {
+  const start = Date.now();
+  const endpoint = `${env.baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const body = {
-    model: env.model,
-    messages: [{ role: 'user', content: prompt }],
+    model: encodeEvalProfileModel(env.model, profile),
+    messages,
     stream: false,
   };
   const response = await fetch(endpoint, {
@@ -898,50 +1062,96 @@ async function runFixtureLive(
     body: JSON.stringify(body),
   });
   const durationMs = Date.now() - start;
-  const sessionId =
+  const responseSessionId =
     response.headers.get('x-hybridclaw-session-id') || undefined;
-  const auditPath = sessionId
-    ? resolveAuditWirePath(dataDir, sessionId)
-    : undefined;
+  const responseSessionKey =
+    response.headers.get('x-hybridclaw-session-key') || undefined;
+  const resolvedAudit = resolveAuditTraceForSessionIdentifiers(
+    dataDir,
+    [responseSessionId, responseSessionKey],
+    skills,
+  );
+
   if (!response.ok) {
     const errorText = await safeReadText(response);
+    return {
+      durationMs,
+      parsed: { toolExecutions: [] },
+      sessionId:
+        resolvedAudit?.sessionId ?? responseSessionId ?? responseSessionKey,
+      auditPath: resolvedAudit?.auditPath,
+      auditTrace: resolvedAudit?.trace ?? null,
+      httpStatus: response.status,
+      errorText,
+    };
+  }
+
+  const payload = (await response.json()) as unknown;
+  return {
+    durationMs,
+    parsed: parseChatCompletion(payload),
+    sessionId:
+      resolvedAudit?.sessionId ?? responseSessionId ?? responseSessionKey,
+    auditPath: resolvedAudit?.auditPath,
+    auditTrace: resolvedAudit?.trace ?? null,
+    httpStatus: response.status,
+  };
+}
+
+function gradeExecutedFixture(
+  fixture: HybridaiSkillFixture,
+  executed: ExecutedLiveTurn,
+  skills: Skill[],
+): FixtureGradeResult {
+  if (executed.httpStatus < 200 || executed.httpStatus >= 300) {
     return {
       fixture,
       status: 'failed',
       observedSkill: null,
       toolNames: [],
-      sessionId,
-      auditPath,
-      reason: `HTTP ${response.status}: ${errorText.slice(0, 200)}`,
-      durationMs,
+      sessionId: executed.sessionId,
+      auditPath: executed.auditPath,
+      observationSource: executed.auditTrace?.observationSource ?? 'response',
+      reason: `HTTP ${executed.httpStatus}: ${(executed.errorText || '').slice(0, 200)}`,
+      durationMs: executed.durationMs,
     };
   }
-  const payload = (await response.json()) as unknown;
-  const parsed = parseChatCompletion(payload);
-  const auditTrace =
-    sessionId && auditPath ? readAuditTrace(auditPath, skills) : null;
-  // Grade from the executed trace whenever it exists. The audit log is the
-  // authoritative source for real gateway tool execution and skill observation.
-  const toolExecutions = auditTrace?.toolExecutions ?? parsed.toolExecutions;
+
+  const toolExecutions =
+    executed.auditTrace?.toolExecutions ?? executed.parsed.toolExecutions;
+  const exactSkillReference = resolveObservedSkillFromExpectedReference(
+    fixture.skill,
+    toolExecutions,
+  );
+  const observedSkillFromTrace =
+    executed.auditTrace?.observedSkill ??
+    exactSkillReference ??
+    resolveObservedSkillFromStrictTrace(skills, toolExecutions);
   const observedSkill =
-    auditTrace?.observedSkill ??
-    resolveObservedSkillName({
-      skills,
-      toolExecutions,
-    });
+    observedSkillFromTrace ??
+    (executed.auditTrace
+      ? null
+      : resolveObservedSkillName({
+          skills,
+          toolExecutions,
+        }));
   const toolNames = toolExecutions.map((exec) => exec.name);
   const expected = fixture.skill;
+  const observationSource =
+    exactSkillReference && executed.auditTrace
+      ? 'audit.expected-skill-ref'
+      : (executed.auditTrace?.observationSource ?? 'response');
   if (observedSkill === expected) {
     return {
       fixture,
       status: 'passed',
       observedSkill,
       toolNames,
-      sessionId,
-      auditPath,
-      observationSource: auditTrace?.observationSource ?? 'response',
-      durationMs,
-      assistantPreview: parsed.assistantPreview,
+      sessionId: executed.sessionId,
+      auditPath: executed.auditPath,
+      observationSource,
+      durationMs: executed.durationMs,
+      assistantPreview: executed.parsed.assistantPreview,
     };
   }
   return {
@@ -949,37 +1159,53 @@ async function runFixtureLive(
     status: 'failed',
     observedSkill,
     toolNames,
-    sessionId,
-    auditPath,
-    observationSource: auditTrace?.observationSource ?? 'response',
+    sessionId: executed.sessionId,
+    auditPath: executed.auditPath,
+    observationSource,
     reason: observedSkill
       ? `observed skill \`${observedSkill}\`, expected \`${expected}\``
       : 'no skill observed in tool trace',
-    durationMs,
-    assistantPreview: parsed.assistantPreview,
+    durationMs: executed.durationMs,
+    assistantPreview: executed.parsed.assistantPreview,
   };
 }
 
 interface ParsedChatCompletion {
   toolExecutions: ToolExecution[];
   assistantPreview?: string;
+  assistantText?: string;
 }
 
 interface ParsedAuditTrace {
   observedSkill: string | null;
   toolExecutions: ToolExecution[];
-  observationSource: 'audit.skill.execution' | 'audit.tool.trace';
+  observationSource:
+    | 'audit.skill.execution'
+    | 'audit.expected-skill-ref'
+    | 'audit.tool.trace';
 }
+
+interface ResolvedAuditTrace {
+  sessionId: string;
+  auditPath: string;
+  trace: ParsedAuditTrace;
+}
+
+const auditWireLookupCache = new Map<string, string | null>();
 
 function parseChatCompletion(payload: unknown): ParsedChatCompletion {
   if (!isRecord(payload)) return { toolExecutions: [] };
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
   const toolExecutions: ToolExecution[] = [];
   let assistantPreview: string | undefined;
+  let assistantText: string | undefined;
   for (const choice of choices) {
     if (!isRecord(choice)) continue;
     const message = isRecord(choice.message) ? choice.message : null;
     if (!message) continue;
+    if (!assistantText && typeof message.content === 'string') {
+      assistantText = message.content;
+    }
     if (!assistantPreview && typeof message.content === 'string') {
       assistantPreview = message.content.slice(0, 240);
     }
@@ -1005,7 +1231,7 @@ function parseChatCompletion(payload: unknown): ParsedChatCompletion {
       });
     }
   }
-  return { toolExecutions, assistantPreview };
+  return { toolExecutions, assistantPreview, assistantText };
 }
 
 async function safeReadText(response: Response): Promise<string> {
@@ -1086,16 +1312,131 @@ function summarizeHybridaiSkillsRuns(runs: HybridaiSkillsModelRunSummary[]): {
   );
 }
 
+function resolveObservedSkillFromExpectedReference(
+  expectedSkill: string,
+  toolExecutions: ToolExecution[],
+): string | null {
+  const normalizedExpected = expectedSkill.trim().toLowerCase();
+  if (!normalizedExpected) return null;
+  const operationalPathPattern =
+    buildOperationalSkillReferencePattern(normalizedExpected);
+  for (const execution of toolExecutions) {
+    const haystacks = [
+      execution.arguments || '',
+      execution.result || '',
+      execution.name || '',
+    ].map((value) => value.toLowerCase());
+    if (haystacks.some((haystack) => operationalPathPattern.test(haystack))) {
+      return normalizedExpected;
+    }
+  }
+  return null;
+}
+
+function resolveObservedSkillFromStrictTrace(
+  skills: Skill[],
+  toolExecutions: ToolExecution[],
+): string | null {
+  const matches = new Set<string>();
+  for (const skill of skills) {
+    if (resolveObservedSkillFromExpectedReference(skill.name, toolExecutions)) {
+      matches.add(skill.name);
+    }
+  }
+  return matches.size === 1 ? (matches.values().next().value ?? null) : null;
+}
+
+function buildOperationalSkillReferencePattern(skillName: string): RegExp {
+  const escapedSkillName = skillName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `skills[\\\\/]${escapedSkillName}[\\\\/](?!skill\\.md\\b)`,
+    'i',
+  );
+}
+
 function resolveAuditWirePath(dataDir: string, sessionId: string): string {
   const safeSessionDir =
     sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
   return path.join(dataDir, 'audit', safeSessionDir, 'wire.jsonl');
 }
 
+function findAuditWirePathBySessionKey(
+  dataDir: string,
+  sessionKey: string,
+): string | null {
+  const normalizedKey = sessionKey.trim();
+  if (!normalizedKey) return null;
+  const cacheKey = `${path.resolve(dataDir)}::${normalizedKey}`;
+  const cached = auditWireLookupCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached && fs.existsSync(cached) ? cached : null;
+  }
+  const auditRoot = path.join(dataDir, 'audit');
+  if (!fs.existsSync(auditRoot)) {
+    auditWireLookupCache.set(cacheKey, null);
+    return null;
+  }
+  const entries = fs.readdirSync(auditRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const wirePath = path.join(auditRoot, entry.name, 'wire.jsonl');
+    if (!fs.existsSync(wirePath)) continue;
+    const lines = fs.readFileSync(wirePath, 'utf8').split(/\r?\n/, 8);
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!isRecord(parsed) || !isRecord(parsed.event)) continue;
+      const event = parsed.event;
+      if (
+        event.type === 'session.start' &&
+        typeof event.userId === 'string' &&
+        event.userId.trim() === normalizedKey
+      ) {
+        auditWireLookupCache.set(cacheKey, wirePath);
+        return wirePath;
+      }
+    }
+  }
+  auditWireLookupCache.set(cacheKey, null);
+  return null;
+}
+
+function resolveAuditTraceForSession(
+  dataDir: string,
+  sessionIdOrKey: string,
+  skills: Skill[],
+): ResolvedAuditTrace | null {
+  const directPath = resolveAuditWirePath(dataDir, sessionIdOrKey);
+  const resolvedPath = fs.existsSync(directPath)
+    ? directPath
+    : findAuditWirePathBySessionKey(dataDir, sessionIdOrKey);
+  if (!resolvedPath) return null;
+  return readAuditTrace(resolvedPath, skills);
+}
+
+function resolveAuditTraceForSessionIdentifiers(
+  dataDir: string,
+  identifiers: Array<string | undefined>,
+  skills: Skill[],
+): ResolvedAuditTrace | null {
+  for (const identifier of identifiers) {
+    if (!identifier) continue;
+    const resolved = resolveAuditTraceForSession(dataDir, identifier, skills);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
 function readAuditTrace(
   filePath: string,
   skills: Skill[],
-): ParsedAuditTrace | null {
+): ResolvedAuditTrace | null {
   if (!fs.existsSync(filePath)) return null;
   const lines = fs
     .readFileSync(filePath, 'utf8')
@@ -1107,6 +1448,7 @@ function readAuditTrace(
   const toolExecutions = new Map<string, ToolExecution>();
   const toolOrder: string[] = [];
   let observedSkill: string | null = null;
+  let sessionId = '';
 
   for (const line of lines) {
     let parsed: unknown;
@@ -1114,6 +1456,13 @@ function readAuditTrace(
       parsed = JSON.parse(line);
     } catch {
       continue;
+    }
+    if (
+      isRecord(parsed) &&
+      typeof parsed.sessionId === 'string' &&
+      !sessionId
+    ) {
+      sessionId = parsed.sessionId.trim();
     }
     if (!isRecord(parsed) || !isRecord(parsed.event)) continue;
     const event = parsed.event;
@@ -1175,16 +1524,18 @@ function readAuditTrace(
   }
 
   return {
-    observedSkill:
-      observedSkill ||
-      resolveObservedSkillName({
-        skills,
-        toolExecutions: orderedExecutions,
-      }),
-    toolExecutions: orderedExecutions,
-    observationSource: observedSkill
-      ? 'audit.skill.execution'
-      : 'audit.tool.trace',
+    sessionId:
+      sessionId || path.basename(path.dirname(filePath)).trim() || 'session',
+    auditPath: filePath,
+    trace: {
+      observedSkill:
+        observedSkill ||
+        resolveObservedSkillFromStrictTrace(skills, orderedExecutions),
+      toolExecutions: orderedExecutions,
+      observationSource: observedSkill
+        ? 'audit.skill.execution'
+        : 'audit.tool.trace',
+    },
   };
 }
 

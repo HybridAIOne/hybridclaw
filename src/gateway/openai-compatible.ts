@@ -64,6 +64,7 @@ function buildOpenAICompatibleTraceHeaders(
 ): Record<string, string> {
   return {
     'X-HybridClaw-Session-Id': prepared.sessionId,
+    'X-HybridClaw-Session-Key': prepared.sessionId,
     'X-HybridClaw-Agent-Id': prepared.requestAgentId,
     'X-HybridClaw-Workspace-Mode': prepared.profile.workspaceMode,
   };
@@ -444,6 +445,15 @@ async function handleOpenAICompatibleNonStreamingChat(
   traceHeaders: Record<string, string>,
 ): Promise<void> {
   const result = await runOpenAICompatibleChat(chatRequest);
+  const responseTraceHeaders = {
+    ...traceHeaders,
+    ...(result.sessionId
+      ? { 'X-HybridClaw-Session-Id': result.sessionId }
+      : {}),
+    ...(result.sessionKey
+      ? { 'X-HybridClaw-Session-Key': result.sessionKey }
+      : {}),
+  };
   const payload = buildOpenAICompatibleCompletionResponse({
     completionId,
     created,
@@ -452,7 +462,7 @@ async function handleOpenAICompatibleNonStreamingChat(
     tokenUsage: result.tokenUsage,
   });
   res.writeHead(200, {
-    ...traceHeaders,
+    ...responseTraceHeaders,
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(payload, null, 2));

@@ -2061,6 +2061,37 @@ describe('gateway HTTP server', () => {
     expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('current-agent');
   });
 
+  test('prefers the gateway result session ids in non-streaming OpenAI trace headers', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockResolvedValueOnce({
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      userMessageId: 11,
+      assistantMessageId: 12,
+      sessionId: 'sess_eval_real_1',
+      sessionKey: 'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5__hc_eval=agent=charly',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.getHeader('x-hybridclaw-session-id')).toBe('sess_eval_real_1');
+    expect(res.getHeader('x-hybridclaw-session-key')).toBe(
+      'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
+    );
+  });
+
   test('routes OpenAI requests with HybridClaw eval-profile header using the plain model name', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
