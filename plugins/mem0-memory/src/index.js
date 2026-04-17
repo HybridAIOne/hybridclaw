@@ -70,7 +70,6 @@ export default {
   register(api) {
     const config = resolveMem0PluginConfig({
       pluginConfig: api.pluginConfig,
-      runtime: api.runtime,
       credentialApiKey: api.getCredential('MEM0_API_KEY'),
     });
     const runtime = new Mem0Runtime(api, config);

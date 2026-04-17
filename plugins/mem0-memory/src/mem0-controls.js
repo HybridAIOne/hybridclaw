@@ -4,6 +4,26 @@ function normalizeString(value) {
   return String(value || '').trim();
 }
 
+function readRequiredStringArg(args, key, label) {
+  if (typeof args?.[key] !== 'string') {
+    return {
+      ok: false,
+      error: `${label} must be a string.`,
+    };
+  }
+  const normalized = normalizeString(args[key]);
+  if (!normalized) {
+    return {
+      ok: false,
+      error: `${label} is required.`,
+    };
+  }
+  return {
+    ok: true,
+    value: normalized,
+  };
+}
+
 function normalizeToolTopK(value, maximum) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined;
@@ -129,25 +149,30 @@ export class Mem0Controls {
   }
 
   async handleToolSearch(args, context) {
-    const query = normalizeString(args.query);
-    if (!query) {
+    const query = readRequiredStringArg(args, 'query', 'mem0_search.query');
+    if (!query.ok) {
       return JSON.stringify(
         {
           ok: false,
-          error: 'mem0_search requires a query.',
+          error: query.error,
         },
         null,
         2,
       );
     }
-    const result = await this.runtime.search(context.sessionId, '', query, {
-      topK: normalizeToolTopK(args.top_k, this.runtime.config.searchLimit),
-      rerank: typeof args.rerank === 'boolean' ? args.rerank : undefined,
-    });
+    const result = await this.runtime.search(
+      context.sessionId,
+      '',
+      query.value,
+      {
+        topK: normalizeToolTopK(args.top_k, this.runtime.config.searchLimit),
+        rerank: typeof args.rerank === 'boolean' ? args.rerank : undefined,
+      },
+    );
     return JSON.stringify(
       {
         userId: result.userId,
-        query,
+        query: query.value,
         count: result.entries.length,
         results: buildToolMemoryResult(result.entries),
       },
@@ -157,12 +182,16 @@ export class Mem0Controls {
   }
 
   async handleToolConclude(args, context) {
-    const conclusion = normalizeString(args.conclusion);
-    if (!conclusion) {
+    const conclusion = readRequiredStringArg(
+      args,
+      'conclusion',
+      'mem0_conclude.conclusion',
+    );
+    if (!conclusion.ok) {
       return JSON.stringify(
         {
           ok: false,
-          error: 'mem0_conclude requires a conclusion.',
+          error: conclusion.error,
         },
         null,
         2,
@@ -172,14 +201,14 @@ export class Mem0Controls {
       context.sessionId,
       '',
       '',
-      conclusion,
+      conclusion.value,
     );
     return JSON.stringify(
       {
         ok: true,
         userId: result.userId,
         agentId: result.agentId,
-        conclusion,
+        conclusion: conclusion.value,
       },
       null,
       2,

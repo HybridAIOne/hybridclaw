@@ -16,7 +16,10 @@ function normalizeString(value) {
 function truncateText(value, maxChars) {
   const normalized = normalizeString(value);
   if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
+  if (maxChars <= 3) {
+    return '.'.repeat(Math.max(0, maxChars));
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function buildCompactionConclusion(summary, olderMessages) {
@@ -208,16 +211,17 @@ export class Mem0Runtime {
       return;
     }
     const userId = this.resolveUserId(context.userId, context.sessionId);
-    const prefetch = this.client.getProfile(userId).catch((error) => {
+    const agentId = this.resolveAgentId(context.agentId, context.sessionId);
+    const prefetch = this.client.getProfile(userId, agentId).catch((error) => {
       this.api.logger.debug(
-        { error, sessionId: context.sessionId, userId },
+        { error, sessionId: context.sessionId, userId, agentId },
         'Mem0 session prefetch failed',
       );
       return [];
     });
     this.profilePrefetch.set(context.sessionId, prefetch);
     this.api.logger.debug(
-      { sessionId: context.sessionId, userId },
+      { sessionId: context.sessionId, userId, agentId },
       'Mem0 session prefetch scheduled',
     );
   }
@@ -226,7 +230,7 @@ export class Mem0Runtime {
     const prefetch = this.profilePrefetch.get(context.sessionId);
     this.profilePrefetch.delete(context.sessionId);
     if (prefetch) {
-      await prefetch.catch(() => {});
+      await prefetch;
     }
   }
 
@@ -235,7 +239,7 @@ export class Mem0Runtime {
     this.profilePrefetch.delete(context.previousSessionId);
     this.profilePrefetch.delete(context.sessionId);
     if (previous) {
-      await previous.catch(() => {});
+      await previous;
     }
   }
 
@@ -278,16 +282,17 @@ export class Mem0Runtime {
   async getContextForPrompt(params) {
     if (!this.hasApiKey()) return null;
     const userId = this.resolveUserId(params.userId, params.sessionId);
+    const agentId = this.resolveAgentId(params.agentId, params.sessionId);
     const query = getLatestUserQuery(params.recentMessages);
     const prefetched = this.profilePrefetch.get(params.sessionId);
     if (prefetched) this.profilePrefetch.delete(params.sessionId);
     try {
       const [profileEntries, searchEntries] = await Promise.all([
         this.config.includeProfile
-          ? (prefetched ?? this.client.getProfile(userId))
+          ? (prefetched ?? this.client.getProfile(userId, agentId))
           : Promise.resolve([]),
         this.config.includeSearch && query
-          ? this.client.search(userId, query)
+          ? this.client.search(userId, agentId, query)
           : Promise.resolve([]),
       ]);
       const promptContext = buildPromptContext({
@@ -300,6 +305,7 @@ export class Mem0Runtime {
         {
           query,
           userId,
+          agentId,
           profileCount: profileEntries.length,
           searchCount: searchEntries.length,
         },
@@ -314,6 +320,7 @@ export class Mem0Runtime {
           error,
           host: this.config.host,
           userId,
+          agentId,
           query,
         },
         'Mem0 prompt context fetch failed',
@@ -399,13 +406,15 @@ export class Mem0Runtime {
 
   async fetchProfile(sessionId, inputUserId) {
     const userId = this.resolveUserId(inputUserId, sessionId);
-    const entries = await this.client.getProfile(userId);
+    const agentId = this.resolveAgentId('', sessionId);
+    const entries = await this.client.getProfile(userId, agentId);
     return { userId, entries };
   }
 
   async search(sessionId, inputUserId, query, options = {}) {
     const userId = this.resolveUserId(inputUserId, sessionId);
-    const entries = await this.client.search(userId, query, options);
+    const agentId = this.resolveAgentId('', sessionId);
+    const entries = await this.client.search(userId, agentId, query, options);
     return { userId, entries };
   }
 
@@ -433,6 +442,7 @@ export class Mem0Runtime {
       `API version: ${this.config.apiVersion}`,
       `User scope: ${userId}`,
       `Agent scope: ${agentId}`,
+      `Read agent scope: ${this.config.readAgentScope ? 'enabled' : 'disabled'}`,
       `Search limit: ${this.config.searchLimit}`,
       `Profile limit: ${this.config.profileLimit}`,
       `Sync turns: ${this.config.syncTurns ? 'enabled' : 'disabled'}`,
