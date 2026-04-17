@@ -446,7 +446,7 @@ export async function runUpdateCommand(
   const { requestExternalGatewayRestart } = await import(
     './gateway/gateway-restart.js'
   );
-  const restart = requestExternalGatewayRestart();
+  const restart = await requestExternalGatewayRestart();
   if (restart.status === 'restarted') {
     console.log(
       `Restarting gateway (pid ${restart.pid}) with original parameters to load the new version.`,
