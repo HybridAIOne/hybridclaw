@@ -187,30 +187,53 @@ function extractVersionFromImageRef(imageRef: string): string | null {
   return normalizeContainerVersion(withoutDigest.slice(lastColon + 1));
 }
 
-function parseContainerImageVersion(
+function normalizeContainerImageShortId(
+  value: string | undefined,
+): string | null {
+  const trimmed = String(value || '')
+    .trim()
+    .replace(/^sha256:/, '');
+  if (!trimmed) return null;
+  return trimmed.slice(0, 12) || null;
+}
+
+export interface ContainerImageStatus {
+  version: string | null;
+  shortId: string | null;
+}
+
+function parseContainerImageStatus(
   inspectOutput: string | undefined,
   imageName: string,
-): string | null {
+): ContainerImageStatus {
+  const fallback: ContainerImageStatus = {
+    version: extractVersionFromImageRef(imageName),
+    shortId: null,
+  };
   try {
     const parsed: unknown = JSON.parse(String(inspectOutput || '[]'));
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      return extractVersionFromImageRef(imageName);
+      return fallback;
     }
     const imageRecord = parsed[0];
     if (!isRecord(imageRecord)) {
-      return extractVersionFromImageRef(imageName);
+      return fallback;
     }
 
+    const shortId =
+      typeof imageRecord.Id === 'string'
+        ? normalizeContainerImageShortId(imageRecord.Id)
+        : null;
     const config = isRecord(imageRecord.Config) ? imageRecord.Config : null;
     const labels = config && isRecord(config.Labels) ? config.Labels : null;
     const labelVersion =
       labels && typeof labels['org.opencontainers.image.version'] === 'string'
         ? normalizeContainerVersion(labels['org.opencontainers.image.version'])
         : null;
-    if (labelVersion) return labelVersion;
+    if (labelVersion) return { version: labelVersion, shortId };
 
     const configuredVersion = extractVersionFromImageRef(imageName);
-    if (configuredVersion) return configuredVersion;
+    if (configuredVersion) return { version: configuredVersion, shortId };
 
     const repoTags = Array.isArray(imageRecord.RepoTags)
       ? imageRecord.RepoTags
@@ -218,21 +241,31 @@ function parseContainerImageVersion(
     for (const repoTag of repoTags) {
       if (typeof repoTag !== 'string') continue;
       const version = extractVersionFromImageRef(repoTag);
-      if (version) return version;
+      if (version) return { version, shortId };
     }
   } catch {
-    return extractVersionFromImageRef(imageName);
+    return fallback;
   }
-  return null;
+  return { version: null, shortId: null };
+}
+
+export async function resolveContainerImageStatus(
+  imageName: string,
+): Promise<ContainerImageStatus> {
+  const fallback: ContainerImageStatus = {
+    version: extractVersionFromImageRef(imageName),
+    shortId: null,
+  };
+  const result = await runCommand('docker', ['image', 'inspect', imageName]);
+  if (result.code !== 0) return fallback;
+  return parseContainerImageStatus(result.out, imageName);
 }
 
 export async function resolveContainerImageVersion(
   imageName: string,
 ): Promise<string | null> {
-  const fallback = extractVersionFromImageRef(imageName);
-  const result = await runCommand('docker', ['image', 'inspect', imageName]);
-  if (result.code !== 0) return fallback;
-  return parseContainerImageVersion(result.out, imageName);
+  const status = await resolveContainerImageStatus(imageName);
+  return status.version;
 }
 
 async function pullContainerImage(imageName: string): Promise<void> {

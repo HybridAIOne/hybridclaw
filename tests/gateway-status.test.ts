@@ -861,7 +861,10 @@ test('status command includes the configured container version when available', 
       await importOriginal<typeof import('../src/infra/container-setup.js')>();
     return {
       ...actual,
-      resolveContainerImageVersion: vi.fn(async () => '0.12.6'),
+      resolveContainerImageStatus: vi.fn(async () => ({
+        version: '0.12.6',
+        shortId: '1234567890ab',
+      })),
     };
   });
 
@@ -882,7 +885,9 @@ test('status command includes the configured container version when available', 
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('Container: hybridclaw-agent · v0.12.6');
+  expect(result.text).toContain(
+    'Container: hybridclaw-agent · v0.12.6 · id 1234567890ab',
+  );
 });
 
 test('sessions command includes abbreviated first and last message snippets', async () => {

@@ -117,7 +117,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
-import { resolveContainerImageVersion } from '../infra/container-setup.js';
+import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -8523,9 +8523,9 @@ export async function handleGatewayCommand(
         const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
-        const containerImageVersion =
+        const containerImageStatus =
           status.sandbox?.mode === 'container' && status.sandbox.image
-            ? await resolveContainerImageVersion(status.sandbox.image)
+            ? await resolveContainerImageStatus(status.sandbox.image)
             : null;
         const sessionModel = runtime.model;
         if (sessionModel.trim().toLowerCase().startsWith('huggingface/')) {
@@ -8583,7 +8583,16 @@ export async function handleGatewayCommand(
           `📁 CWD: ${runtime.workspacePath}`,
           ...(status.sandbox?.mode === 'container' && status.sandbox.image
             ? [
-                `🐳 Container: ${status.sandbox.image}${containerImageVersion ? ` · v${containerImageVersion}` : ' · version unavailable'}`,
+                `🐳 Container: ${status.sandbox.image} · ${[
+                  containerImageStatus?.version
+                    ? `v${containerImageStatus.version}`
+                    : 'version unavailable',
+                  containerImageStatus?.shortId
+                    ? `id ${containerImageStatus.shortId}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}`,
               ]
             : []),
           `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,

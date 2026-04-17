@@ -224,7 +224,45 @@ describe('resolveContainerImageAcquisitionMode', () => {
   });
 });
 
-describe('resolveContainerImageVersion', () => {
+describe('container image metadata resolution', () => {
+  test('returns the abbreviated image id alongside the resolved version', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              Id: 'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+              RepoTags: ['hybridclaw-agent:latest'],
+              Config: {
+                Labels: {
+                  'org.opencontainers.image.version': '0.4.1',
+                },
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageStatus('hybridclaw-agent'),
+    ).resolves.toEqual({
+      version: '0.4.1',
+      shortId: '1234567890ab',
+    });
+  });
+
   test('prefers the OCI image version label when present', async () => {
     const spawnMock = vi.fn((command: string, args: string[]) => {
       if (
