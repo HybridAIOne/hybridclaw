@@ -40,7 +40,7 @@ Plugins declare one of two integration modes:
 
 - **Exclusive** (`memoryProvider: true`): replaces the external memory slot.
   Only one exclusive plugin can be active at a time. Built-in memory remains
-  active. ByteRover and Honcho use this mode.
+  active. ByteRover, Honcho, and Mem0 use this mode.
 - **Additive**: layers additional recall alongside built-in memory and any
   active exclusive plugin. MemPalace, QMD, and GBrain use this mode.
 
@@ -51,6 +51,7 @@ Plugins declare one of two integration modes:
 | **Built-in Memory** | Always active | SQLite + markdown files | Yes | No | N/A | No | Free | N/A |
 | **ByteRover** | Exclusive | Context Tree (`.brv/`) | Yes (default) | Optional sync | Yes (`npm`) | Optional (`BRV_API_KEY`) | Free local, paid cloud | `/byterover` |
 | **Honcho** | Exclusive | Cloud API / self-hosted | Yes (self-hosted) | Managed cloud | No binary needed | Yes (`HONCHO_API_KEY`) | $100 free credits, no card | `/honcho` |
+| **Mem0** | Exclusive | Managed cloud API | No | Managed cloud | Yes (plugin-local npm) | Yes (`MEM0_API_KEY`) | Mem0 pricing | `/mem0` |
 | **MemPalace** | Additive | ChromaDB + SQLite | Yes (only mode) | No | Yes (`pip`) | No | Free | `/mempalace` |
 | **QMD** | Additive | Local markdown index | Yes (only mode) | No | Manual | No | Free | `/qmd` |
 | **GBrain** | Additive | PGLite / Supabase | Yes (PGLite) | Supabase | Manual | `OPENAI_API_KEY` for embeddings | Free local, Supabase costs | `/gbrain` |
@@ -83,6 +84,16 @@ with generous free tier ($100 credits, no card required) or self-hostable.
 
 - Install: no binary needed, just an API key
 - [Honcho Memory Plugin docs](honcho-memory-plugin.md)
+
+### Mem0
+
+Best for **cloud-backed user and agent recall with minimal local setup**.
+Mem0 keeps HybridClaw's built-in memory active, prefetches profile context on
+session start, mirrors completed turns and explicit native-memory saves into
+Mem0, and exposes direct memory tools for targeted recall or durable facts.
+
+- Install: `hybridclaw plugin install ./plugins/mem0-memory --yes`
+- [Mem0 Memory Plugin docs](mem0-memory-plugin.md)
 
 ### MemPalace
 
@@ -122,7 +133,10 @@ example:
 
 - **Honcho + GBrain**: Honcho handles user modeling and session continuity
   while GBrain provides world knowledge recall
+- **Mem0 + MemPalace**: Mem0 handles hosted user and agent recall while
+  MemPalace adds fully local search over historical conversations
 - **ByteRover + MemPalace**: ByteRover handles structured project knowledge
   while MemPalace adds local search over historical conversations
 
-You cannot run two exclusive plugins (ByteRover + Honcho) at the same time.
+You cannot run two exclusive plugins (ByteRover, Honcho, or Mem0) at the same
+time.
