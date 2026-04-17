@@ -143,9 +143,7 @@ describe('renderMarkdown', () => {
   });
 
   it('strips <img>, <iframe>, and <style> tags entirely', () => {
-    expect(renderMarkdown('![alt](https://x.com/y.png)')).not.toContain(
-      '<img',
-    );
+    expect(renderMarkdown('![alt](https://x.com/y.png)')).not.toContain('<img');
     expect(renderMarkdown('<iframe src="x"></iframe>after')).not.toContain(
       '<iframe',
     );

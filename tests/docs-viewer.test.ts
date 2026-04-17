@@ -217,9 +217,7 @@ describe('docs viewer helpers', () => {
 
   test('groups consecutive blockquote lines into one blockquote', () => {
     const { html } = renderMarkdownToHtml('> first\n> second');
-    expect(html).toBe(
-      '<blockquote><p>first</p><p>second</p></blockquote>',
-    );
+    expect(html).toBe('<blockquote><p>first</p><p>second</p></blockquote>');
   });
 
   test('tags 💡 and 🎯 blockquotes with callout classes', () => {
@@ -254,46 +252,37 @@ describe('docs viewer helpers', () => {
   // These cover realistic LLM output patterns: ordered lists interrupted by
   // unordered sub-bullets, indented nested bullets, and bold-wrapped
   // numbered headings ("**1. Heading**").
-  test(
-    'issue #320: ordered list numbering continues across interrupting <ul>',
-    () => {
-      const md = [
-        '1. **First question?**',
-        '- sub bullet a',
-        '- sub bullet b',
-        '',
-        '2. **Second question?**',
-        '- sub bullet c',
-        '',
-        '3. **Third question?**',
-      ].join('\n');
-      const { html } = renderMarkdownToHtml(md);
-      expect(html).toContain('<ol start="2"');
-      expect(html).toContain('<ol start="3"');
-    },
-  );
+  test('issue #320: ordered list numbering continues across interrupting <ul>', () => {
+    const md = [
+      '1. **First question?**',
+      '- sub bullet a',
+      '- sub bullet b',
+      '',
+      '2. **Second question?**',
+      '- sub bullet c',
+      '',
+      '3. **Third question?**',
+    ].join('\n');
+    const { html } = renderMarkdownToHtml(md);
+    expect(html).toContain('<ol start="2"');
+    expect(html).toContain('<ol start="3"');
+  });
 
-  test(
-    'issue #320: indented sub-bullets nest inside their parent ordered item',
-    () => {
-      const md = '1. parent\n  - child\n  - child2\n2. parent2';
-      const { html } = renderMarkdownToHtml(md);
-      expect(html).toMatch(
-        /<ol><li>parent<ul><li>child<\/li><li>child2<\/li><\/ul><\/li><li>parent2<\/li><\/ol>/,
-      );
-    },
-  );
+  test('issue #320: indented sub-bullets nest inside their parent ordered item', () => {
+    const md = '1. parent\n  - child\n  - child2\n2. parent2';
+    const { html } = renderMarkdownToHtml(md);
+    expect(html).toMatch(
+      /<ol><li>parent<ul><li>child<\/li><li>child2<\/li><\/ul><\/li><li>parent2<\/li><\/ol>/,
+    );
+  });
 
-  test(
-    'issue #320: lines like **1. Heading** are recognized as ordered items',
-    () => {
-      const md = '**1. First**\n**2. Second**';
-      const { html } = renderMarkdownToHtml(md);
-      expect(html).toContain('<ol>');
-      expect(html).toContain('<li><strong>First</strong></li>');
-      expect(html).toContain('<li><strong>Second</strong></li>');
-    },
-  );
+  test('issue #320: lines like **1. Heading** are recognized as ordered items', () => {
+    const md = '**1. First**\n**2. Second**';
+    const { html } = renderMarkdownToHtml(md);
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<li><strong>First</strong></li>');
+    expect(html).toContain('<li><strong>Second</strong></li>');
+  });
 
   test('realistic assistant response: headings, lists, code, and callouts render together', () => {
     const md = [
@@ -321,11 +310,15 @@ describe('docs viewer helpers', () => {
     ]);
     expect(html).toContain('<h1 id="deploy-checklist">');
     expect((html.match(/<ol>/g) || []).length).toBe(1);
-    expect(html).toContain('<li>Run the build with <code>npm run build</code>.</li>');
+    expect(html).toContain(
+      '<li>Run the build with <code>npm run build</code>.</li>',
+    );
     expect(html).toContain('<li>Tag the release.</li>');
     expect(html).toContain('<li>Push to production.</li>');
     expect(html).toContain('<blockquote class="docs-tip">');
-    expect(html).toContain('<pre><code class="language-bash">npm run deploy</code></pre>');
+    expect(html).toContain(
+      '<pre><code class="language-bash">npm run deploy</code></pre>',
+    );
     expect(html).toContain('href="/docs/guides/remote-access"');
   });
 

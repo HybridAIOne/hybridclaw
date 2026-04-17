@@ -633,9 +633,7 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
   // headings commonly emitted by LLMs) into `1. **Heading**` so they parse
   // as real ordered-list items with bold content (#320).
   for (let i = 0; i < lines.length; i += 1) {
-    const bolded = lines[i].match(
-      /^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/,
-    );
+    const bolded = lines[i].match(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/);
     if (bolded) {
       lines[i] = `${bolded[1]}${bolded[2]}. **${bolded[3]}**`;
     }
