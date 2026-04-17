@@ -345,6 +345,7 @@ import {
   reloadPluginRuntime,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
+import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
@@ -397,10 +398,6 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
-import {
-  diagnoseProviderForModels,
-  filterModelsForCurrentGatewayState,
-} from './gateway-provider-service.js';
 import {
   firstNumber,
   numberFromUnknown,
@@ -1556,7 +1553,6 @@ function buildGatewayProviderHealth(params: {
 
   return providerHealth;
 }
-
 
 async function getGatewayStatusForModelSubcommand(
   subcommand: string | undefined,
@@ -6624,23 +6620,6 @@ export async function handleGatewayCommand(
         ),
       };
     }
-    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
-    const availableModels = filterModelsForCurrentGatewayState(
-      catalogModels,
-      gatewayStatus.providerHealth,
-    );
-    if (
-      availableModels.length > 0 &&
-      !availableModels.includes(resolvedModelName)
-    ) {
-      return {
-        ok: false,
-        result: badCommand(
-          'Unknown Model',
-          `\`${rawModelName}\` is not in the available models list.`,
-        ),
-      };
-    }
     return { ok: true, model: resolvedModelName };
   }
 
@@ -7154,12 +7133,7 @@ export async function handleGatewayCommand(
           ? await getGatewayStatusForModelSubcommand(sub)
           : null;
         const availableModels =
-          gatewayStatus == null
-            ? []
-            : filterModelsForCurrentGatewayState(
-                getAvailableModelList(),
-                gatewayStatus.providerHealth,
-              );
+          gatewayStatus == null ? [] : getAvailableModelList();
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
@@ -7191,19 +7165,12 @@ export async function handleGatewayCommand(
               );
             }
           }
-          const rawModels = getAvailableModelListWithOptions(
-            providerFilterArg,
-            { expanded: expandedModelList },
-          );
           const listedModels =
             gatewayStatus == null
               ? []
-              : providerFilter
-                ? rawModels
-                : filterModelsForCurrentGatewayState(
-                    rawModels,
-                    gatewayStatus.providerHealth,
-                  );
+              : getAvailableModelListWithOptions(providerFilterArg, {
+                  expanded: expandedModelList,
+                });
           const current = resolveRequestedCatalogModelName(
             runtime.model,
             listedModels,
@@ -7284,15 +7251,6 @@ export async function handleGatewayCommand(
             modelName,
             availableModels,
           );
-          if (
-            availableModels.length > 0 &&
-            !availableModels.includes(normalizedModelName)
-          ) {
-            return badCommand(
-              'Unknown Model',
-              `\`${modelName}\` is not in the available models list.`,
-            );
-          }
           const modelContextWindowTokens =
             resolveKnownModelContextWindow(normalizedModelName);
           updateSessionModel(session.id, normalizedModelName);

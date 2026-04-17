@@ -10,10 +10,13 @@ import {
   ZAI_ENABLED,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { getDiscoveredHuggingFaceModelNames } from './huggingface-discovery.js';
+import { getDiscoveredMistralModelNames } from './mistral-discovery.js';
 import {
   OPENAI_COMPAT_REMOTE_PROVIDERS,
   type OpenAICompatRemoteProviderDef,
 } from './openai-compat-remote.js';
+import { getDiscoveredOpenRouterModelNames } from './openrouter-discovery.js';
 import type { RuntimeProviderId } from './provider-ids.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
@@ -258,5 +261,8 @@ export function getDiscoveredOpenAICompatRemoteModelNames(): string[] {
   for (const store of defaultStoreRegistry.values()) {
     all.push(...store.getModelNames());
   }
+  all.push(...getDiscoveredOpenRouterModelNames());
+  all.push(...getDiscoveredMistralModelNames());
+  all.push(...getDiscoveredHuggingFaceModelNames());
   return all;
 }

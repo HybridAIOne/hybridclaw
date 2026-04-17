@@ -5,10 +5,7 @@ import {
   getDiscoveredCodexModelNames,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from './huggingface-discovery.js';
+import { discoverHuggingFaceModels } from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
@@ -21,7 +18,6 @@ import {
 } from './local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
@@ -39,7 +35,6 @@ import {
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -127,6 +122,26 @@ function isLocalPrefixedModel(model: string): boolean {
   );
 }
 
+const PROVIDER_FILTER_ALIASES: Record<string, ModelCatalogProviderFilter> = {
+  codex: 'openai-codex',
+  google: 'gemini',
+  'google-gemini': 'gemini',
+  'deep-seek': 'deepseek',
+  grok: 'xai',
+  'x-ai': 'xai',
+  'z-ai': 'zai',
+  glm: 'zai',
+  zhipu: 'zai',
+  moonshot: 'kimi',
+  'kimi-coding': 'kimi',
+  'mini-max': 'minimax',
+  qwen: 'dashscope',
+  alibaba: 'dashscope',
+  mimo: 'xiaomi',
+  kilocode: 'kilo',
+  'kilo-code': 'kilo',
+};
+
 export function normalizeModelCatalogProviderFilter(
   value: string | undefined,
 ): ModelCatalogProviderFilter | null {
@@ -134,7 +149,8 @@ export function normalizeModelCatalogProviderFilter(
     .trim()
     .toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'codex') return 'openai-codex';
+  const alias = PROVIDER_FILTER_ALIASES[normalized];
+  if (alias) return alias;
   if (normalized === 'local' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
@@ -195,13 +211,6 @@ export function getAvailableModelList(provider?: string): string[] {
   return getAvailableModelListWithOptions(provider);
 }
 
-/**
- * Returns the pinned + discovered raw model list for a specific provider
- * filter, without touching any other provider's catalog. Caller still passes
- * the result through `dedupeModelList` and the final prefix filter so
- * mixed-source groups (`local`, the 9 OpenAI-compat remotes) narrow to the
- * requested backend when asked for a specific one.
- */
 function collectModelsForProvider(
   filter: ModelCatalogProviderFilter,
   config: ReturnType<typeof getRuntimeConfig>,
@@ -211,21 +220,16 @@ function collectModelsForProvider(
       return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
-    case 'huggingface':
-      return getDiscoveredHuggingFaceModelNames();
-    case 'mistral':
-      return getDiscoveredMistralModelNames();
-    case 'openrouter':
-      return getDiscoveredOpenRouterModelNames();
     case 'local':
     case 'ollama':
     case 'lmstudio':
     case 'llamacpp':
     case 'vllm':
-      // Local discovery returns a flat list across all four backends; the
-      // final prefix filter narrows per-backend when a specific backend is
-      // requested (e.g. `model list ollama`).
       return getDiscoveredLocalModelNames();
+    case 'openrouter':
+    case 'mistral':
+    case 'huggingface':
+      return getDiscoveredOpenAICompatRemoteModelNames();
     case 'gemini':
     case 'deepseek':
     case 'xai':
@@ -235,8 +239,6 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      // Runtime discovery returns the union across all 9 OpenAI-compat remote
-      // providers; the final prefix filter narrows to the requested one.
       const section = (config as unknown as Record<string, unknown>)[filter] as
         | { enabled: boolean; models: string[] }
         | undefined;
@@ -255,29 +257,16 @@ export function getAvailableModelListWithOptions(
   const config = getRuntimeConfig();
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
 
-  // `provider` was supplied but doesn't map to a known filter — no match is
-  // the right answer; bail before touching any catalog source.
   if (provider && normalizedProvider === null) return [];
 
-  // When a provider filter is given, query only that provider's source(s).
-  // No point running openrouter / mistral / huggingface / hybridai / codex /
-  // local discoveries when the caller asked for e.g. `kilo` — we'd just union
-  // all of them and then throw the rest away in the prefix filter.
   const rawModels = normalizedProvider
     ? collectModelsForProvider(normalizedProvider, config)
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),
-        ...getDiscoveredHuggingFaceModelNames(),
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
-        ...getDiscoveredMistralModelNames(),
-        ...getDiscoveredOpenRouterModelNames(),
-        // Runtime-discovered models for OpenAI-compat remote providers.
         ...getDiscoveredOpenAICompatRemoteModelNames(),
-        // User-pinned model lists for enabled OpenAI-compat remote providers.
-        // Kept as a pin so entries survive when the provider API drops them
-        // or discovery is offline.
         ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
           const section = (config as unknown as Record<string, unknown>)[
             def.id
@@ -292,9 +281,6 @@ export function getAvailableModelListWithOptions(
     return models.sort((left, right) => compareModelNames(left, right));
   }
 
-  // Narrow mixed-source groups (`local`, OpenAI-compat remotes) to the
-  // specific requested backend. For already-narrow sources this is a
-  // cheap no-op.
   const filteredModels = models.filter((model) =>
     matchesProviderFilter(model, normalizedProvider),
   );

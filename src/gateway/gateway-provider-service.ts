@@ -1,7 +1,6 @@
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
-import { resolveModelProvider } from '../providers/factory.js';
 import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import { readMistralApiKey } from '../providers/mistral-utils.js';
 import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
@@ -206,25 +205,3 @@ export function diagnoseProviderForModels(
   }
 }
 
-export function isModelAvailableForCurrentGatewayState(
-  model: string,
-  providerHealth: GatewayStatus['providerHealth'],
-): boolean {
-  const provider = resolveModelProvider(model);
-  if (!provider) return true;
-  return (
-    diagnoseProviderForModels(
-      provider as ModelCatalogProviderFilter,
-      providerHealth,
-    ) === null
-  );
-}
-
-export function filterModelsForCurrentGatewayState(
-  models: string[],
-  providerHealth: GatewayStatus['providerHealth'],
-): string[] {
-  return models.filter((model) =>
-    isModelAvailableForCurrentGatewayState(model, providerHealth),
-  );
-}

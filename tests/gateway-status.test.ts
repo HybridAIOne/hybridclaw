@@ -2876,7 +2876,12 @@ test('model list refreshes local backend health before filtering models', async 
     return {
       ...actual,
       discoverAllLocalModels: vi.fn(async () => []),
-      getDiscoveredLocalModelNames: vi.fn(() => ['lmstudio/qwen/qwen3.5-9b']),
+      // Discovery reports what's currently reachable. When the backend probe
+      // flips to unreachable (via invalidate + fresh state), the discovered
+      // list goes empty — there's no separate filter stage anymore.
+      getDiscoveredLocalModelNames: vi.fn(() =>
+        useFreshState ? [] : ['lmstudio/qwen/qwen3.5-9b'],
+      ),
     };
   });
 
