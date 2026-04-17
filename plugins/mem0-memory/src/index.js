@@ -102,6 +102,24 @@ export default {
       priority: 45,
     });
 
+    api.on('session_start', (context) => runtime.onSessionStart(context), {
+      priority: 45,
+    });
+
+    api.on('session_end', (context) => runtime.onSessionEnd(context), {
+      priority: 45,
+    });
+
+    api.on('session_reset', (context) => runtime.onSessionReset(context), {
+      priority: 45,
+    });
+
+    api.on(
+      'before_compaction',
+      (context) => runtime.onBeforeCompaction(context),
+      { priority: 45 },
+    );
+
     api.registerCommand({
       name: 'mem0',
       description:

@@ -17,6 +17,9 @@ recall on top. It can:
 - expose a `/mem0 ...` command surface in local sessions
 - mirror completed turns into Mem0 under the active HybridClaw user and agent
 - mirror explicit native memory writes back into Mem0 as durable conclusions
+- prefetch profile context on `session_start` to hide latency on the first turn
+- curate a pre-compaction snapshot into Mem0 before older messages are archived
+- clear per-session prefetch state on `session_end` and `session_reset`
 
 ## Requirements
 
@@ -69,6 +72,9 @@ Useful optional keys:
 - `syncTurns`: disable automatic turn mirroring when set to `false`
 - `mirrorNativeMemoryWrites`: disable explicit native-memory mirroring when set
   to `false`
+- `prefetchOnSessionStart`: disable the `session_start` profile prefetch when
+  set to `false`
+- `syncCompaction`: disable pre-compaction curation when set to `false`
 
 ## Commands
 
@@ -104,16 +110,30 @@ sessions.
 
 When enabled with a configured `MEM0_API_KEY`:
 
-1. The plugin runs a Mem0 health check on startup.
-2. Before prompts, it fetches a profile snapshot and searches Mem0 using the
-   latest user message.
-3. After each completed turn, it mirrors user and assistant messages into Mem0.
-4. When HybridClaw writes native memory files such as `USER.md`, it mirrors the
+1. The plugin runs a Mem0 health check on startup as a fire-and-forget
+   background task, so gateway startup is not blocked by a slow Mem0 endpoint.
+2. On `session_start`, the plugin prefetches a profile snapshot for the active
+   HybridClaw user so the first prompt turn reuses the warm result.
+3. Before prompts, it uses the prefetched profile when available and searches
+   Mem0 using the latest user message.
+4. After each completed turn, it mirrors user and assistant messages into Mem0.
+5. On `before_compaction`, it curates the compaction summary and the oldest
+   trimmed messages into Mem0 as a `hybridclaw-compaction` conclusion, so
+   context that falls out of the window is still recoverable via Mem0 recall.
+6. On `session_end` and `session_reset`, it drops the per-session prefetch
+   state so the next session starts with a fresh profile fetch.
+7. When HybridClaw writes native memory files such as `USER.md`, it mirrors the
    explicit write into Mem0 as a durable conclusion.
 
 Read-side Mem0 recall is scoped to the current HybridClaw user id by default.
 Write-side sync uses the current HybridClaw user id plus the active agent id so
 Mem0 keeps attribution data.
+
+## Peer Identity
+
+Mem0 recall is scoped to a single HybridClaw user id. Unlike `honcho-memory`,
+the plugin does not model separate user-peer and AI-peer representations. If
+you need distinct peer identities, prefer `honcho-memory`.
 
 ## Verification
 

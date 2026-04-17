@@ -456,3 +456,152 @@ test('mem0-memory syncs turns and mirrors native memory writes', async () => {
     }),
   });
 });
+
+test('mem0-memory prefetches profile on session_start and stores pre-compaction snapshot', async () => {
+  const homeDir = makeTempDir('hybridclaw-mem0-home-');
+  const cwd = makeTempDir('hybridclaw-mem0-project-');
+  const pluginDir = installBundledPlugin(cwd);
+  const logPath = installMem0Stub(pluginDir, {
+    getAll: {
+      results: [{ id: 'mem-profile-1', memory: 'User prefers dark mode.' }],
+    },
+    search: { results: [] },
+    add: [{ id: 'mem-added-1', memory: 'stored' }],
+  });
+
+  process.env.MEM0_API_KEY = 'mem0-test-key';
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'mem0-memory',
+      enabled: true,
+      config: {
+        host: 'https://api.mem0.ai',
+        searchLimit: 2,
+        profileLimit: 2,
+        maxInjectedChars: 2000,
+        messageMaxChars: 1000,
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  await manager.notifySessionStart({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+  });
+
+  const promptContext = await manager.collectPromptContext({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [],
+  });
+  expect(
+    promptContext.some((section) =>
+      section.includes('User prefers dark mode.'),
+    ),
+  ).toBe(true);
+  const afterPromptGetAllCount = readStubLog(logPath).filter(
+    (entry) => entry.method === 'getAll',
+  ).length;
+  expect(afterPromptGetAllCount).toBe(1);
+
+  await manager.notifyBeforeCompaction({
+    sessionId: 'session-1',
+    agentId: 'main',
+    channelId: 'web',
+    summary: 'Discussed deployment automation and preferred tone.',
+    olderMessages: [
+      {
+        id: 10,
+        session_id: 'session-1',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Prefer concise status updates on deploys.',
+        created_at: '2026-04-11T09:00:00.000Z',
+      },
+      {
+        id: 11,
+        session_id: 'session-1',
+        user_id: 'user-1',
+        username: 'assistant',
+        role: 'assistant',
+        content: 'Confirmed, will keep deploy summaries short.',
+        created_at: '2026-04-11T09:00:30.000Z',
+      },
+    ],
+  });
+
+  const compactionAddCall = readStubLog(logPath).find(
+    (entry) =>
+      entry.method === 'add' &&
+      typeof (entry.options as { metadata?: { source?: unknown } })?.metadata
+        ?.source === 'string' &&
+      (entry.options as { metadata: { source: string } }).metadata.source ===
+        'hybridclaw-compaction',
+  );
+  expect(compactionAddCall).toBeDefined();
+  expect(compactionAddCall).toMatchObject({
+    messages: [
+      {
+        role: 'user',
+        content: expect.stringContaining('[Pre-compaction context]'),
+      },
+    ],
+    options: expect.objectContaining({
+      infer: false,
+      user_id: 'user-1',
+      agent_id: 'main',
+      metadata: expect.objectContaining({
+        source: 'hybridclaw-compaction',
+        session_id: 'session-1',
+      }),
+    }),
+  });
+  expect(
+    (compactionAddCall as { messages: Array<{ content: string }> }).messages[0]
+      .content,
+  ).toContain('Summary:');
+  expect(
+    (compactionAddCall as { messages: Array<{ content: string }> }).messages[0]
+      .content,
+  ).toContain('user: Prefer concise status updates on deploys.');
+
+  await manager.notifySessionEnd({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+  });
+
+  const secondContext = await manager.collectPromptContext({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    recentMessages: [],
+  });
+  const finalGetAllCount = readStubLog(logPath).filter(
+    (entry) => entry.method === 'getAll',
+  ).length;
+  expect(finalGetAllCount).toBe(2);
+  expect(
+    secondContext.some((section) =>
+      section.includes('User prefers dark mode.'),
+    ),
+  ).toBe(true);
+});

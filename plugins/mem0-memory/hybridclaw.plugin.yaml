@@ -69,3 +69,9 @@ configSchema:
     mirrorNativeMemoryWrites:
       type: boolean
       default: true
+    prefetchOnSessionStart:
+      type: boolean
+      default: true
+    syncCompaction:
+      type: boolean
+      default: true

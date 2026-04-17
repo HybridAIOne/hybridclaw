@@ -109,5 +109,7 @@ export function resolveMem0PluginConfig(params) {
     includeSearch: pluginConfig.includeSearch !== false,
     syncTurns: pluginConfig.syncTurns !== false,
     mirrorNativeMemoryWrites: pluginConfig.mirrorNativeMemoryWrites !== false,
+    prefetchOnSessionStart: pluginConfig.prefetchOnSessionStart !== false,
+    syncCompaction: pluginConfig.syncCompaction !== false,
   });
 }

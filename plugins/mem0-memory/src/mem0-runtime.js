@@ -5,6 +5,10 @@ import {
   normalizeMem0Results,
 } from './mem0-client.js';
 
+const MAX_COMPACTION_MESSAGE_CHARS = 500;
+const MAX_COMPACTION_MESSAGES = 10;
+const MAX_COMPACTION_SUMMARY_CHARS = 1500;
+
 function normalizeString(value) {
   return String(value || '').trim();
 }
@@ -13,6 +17,34 @@ function truncateText(value, maxChars) {
   const normalized = normalizeString(value);
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
+}
+
+function buildCompactionConclusion(summary, olderMessages) {
+  const sections = ['[Pre-compaction context]'];
+  const normalizedSummary = normalizeString(summary);
+  if (normalizedSummary) {
+    sections.push(
+      '',
+      'Summary:',
+      truncateText(normalizedSummary, MAX_COMPACTION_SUMMARY_CHARS),
+    );
+  }
+  const excerpts = (olderMessages || [])
+    .filter((message) => {
+      const role = normalizeString(message?.role).toLowerCase();
+      if (role !== 'user' && role !== 'assistant') return false;
+      return normalizeString(message?.content).length > 0;
+    })
+    .slice(-MAX_COMPACTION_MESSAGES)
+    .map((message) => {
+      const role = normalizeString(message.role).toLowerCase();
+      return `${role}: ${truncateText(message.content, MAX_COMPACTION_MESSAGE_CHARS)}`;
+    });
+  if (!normalizedSummary && excerpts.length === 0) return '';
+  if (excerpts.length > 0) {
+    sections.push('', ...excerpts);
+  }
+  return sections.join('\n');
 }
 
 function getLatestUserQuery(recentMessages) {
@@ -121,6 +153,7 @@ export class Mem0Runtime {
     this.api = api;
     this.config = config;
     this.client = new Mem0PluginClient(config);
+    this.profilePrefetch = new Map();
   }
 
   hasApiKey() {
@@ -146,23 +179,98 @@ export class Mem0Runtime {
     return normalizeString(this.api.resolveSessionAgentId(sessionId)) || 'main';
   }
 
-  async start() {
+  start() {
     if (!this.hasApiKey()) {
       this.api.logger.warn(
         'Mem0 memory plugin is enabled but MEM0_API_KEY is not configured.',
       );
       return;
     }
-    try {
-      await this.client.ping();
+    void this.client
+      .ping()
+      .then(() => {
+        this.api.logger.debug(
+          { host: this.config.host, apiVersion: this.config.apiVersion },
+          'Mem0 startup health-check passed',
+        );
+      })
+      .catch((error) => {
+        this.api.logger.warn(
+          { error, host: this.config.host },
+          'Mem0 startup health-check failed',
+        );
+      });
+  }
+
+  onSessionStart(context) {
+    if (!this.hasApiKey()) return;
+    if (!this.config.includeProfile || !this.config.prefetchOnSessionStart) {
+      return;
+    }
+    const userId = this.resolveUserId(context.userId, context.sessionId);
+    const prefetch = this.client.getProfile(userId).catch((error) => {
       this.api.logger.debug(
-        { host: this.config.host, apiVersion: this.config.apiVersion },
-        'Mem0 startup health-check passed',
+        { error, sessionId: context.sessionId, userId },
+        'Mem0 session prefetch failed',
+      );
+      return [];
+    });
+    this.profilePrefetch.set(context.sessionId, prefetch);
+    this.api.logger.debug(
+      { sessionId: context.sessionId, userId },
+      'Mem0 session prefetch scheduled',
+    );
+  }
+
+  async onSessionEnd(context) {
+    const prefetch = this.profilePrefetch.get(context.sessionId);
+    this.profilePrefetch.delete(context.sessionId);
+    if (prefetch) {
+      await prefetch.catch(() => {});
+    }
+  }
+
+  async onSessionReset(context) {
+    const previous = this.profilePrefetch.get(context.previousSessionId);
+    this.profilePrefetch.delete(context.previousSessionId);
+    this.profilePrefetch.delete(context.sessionId);
+    if (previous) {
+      await previous.catch(() => {});
+    }
+  }
+
+  async onBeforeCompaction(context) {
+    if (!this.hasApiKey() || !this.config.syncCompaction) return;
+    const content = buildCompactionConclusion(
+      context.summary,
+      context.olderMessages,
+    );
+    if (!content) return;
+    const userId = this.resolveUserId('', context.sessionId);
+    const agentId = this.resolveAgentId(context.agentId, context.sessionId);
+    try {
+      await this.client.storeConclusion(userId, agentId, content, {
+        source: 'hybridclaw-compaction',
+        session_id: context.sessionId,
+      });
+      this.api.logger.debug(
+        {
+          sessionId: context.sessionId,
+          userId,
+          agentId,
+          olderMessageCount: context.olderMessages?.length || 0,
+        },
+        'Mem0 pre-compaction snapshot stored',
       );
     } catch (error) {
       this.api.logger.warn(
-        { error, host: this.config.host },
-        'Mem0 startup health-check failed',
+        {
+          error,
+          sessionId: context.sessionId,
+          userId,
+          agentId,
+        },
+        'Mem0 pre-compaction snapshot failed',
       );
     }
   }
@@ -171,10 +279,12 @@ export class Mem0Runtime {
     if (!this.hasApiKey()) return null;
     const userId = this.resolveUserId(params.userId, params.sessionId);
     const query = getLatestUserQuery(params.recentMessages);
+    const prefetched = this.profilePrefetch.get(params.sessionId);
+    if (prefetched) this.profilePrefetch.delete(params.sessionId);
     try {
       const [profileEntries, searchEntries] = await Promise.all([
         this.config.includeProfile
-          ? this.client.getProfile(userId)
+          ? (prefetched ?? this.client.getProfile(userId))
           : Promise.resolve([]),
         this.config.includeSearch && query
           ? this.client.search(userId, query)
