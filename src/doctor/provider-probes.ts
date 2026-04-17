@@ -9,6 +9,7 @@ import {
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
+import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import { buildOpenRouterAttributionHeaders } from '../providers/openrouter-utils.js';
@@ -167,7 +168,9 @@ export async function probeCodex(): Promise<ProviderProbeResult> {
     .trim()
     .replace(/\/+$/g, '');
   const startedAt = Date.now();
-  const response = await fetch(`${baseUrl}/models`, {
+  const url = new URL(`${baseUrl}/models`);
+  url.searchParams.set('client_version', CODEX_CLIENT_VERSION);
+  const response = await fetch(url, {
     headers: credentials.headers,
     signal: AbortSignal.timeout(5_000),
   });

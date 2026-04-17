@@ -2,7 +2,7 @@ import {
   getCodexAuthStatus,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
-import { APP_VERSION } from '../config/config.js';
+import { CODEX_CLIENT_VERSION } from './codex-constants.js';
 import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const CODEX_DISCOVERY_TTL_MS = 3_600_000;
@@ -131,7 +131,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     const url = new URL(
       `${normalizeBaseUrl(process.env.HYBRIDCLAW_CODEX_BASE_URL || credentials.baseUrl)}/models`,
     );
-    url.searchParams.set('client_version', APP_VERSION);
+    url.searchParams.set('client_version', CODEX_CLIENT_VERSION);
     const response = await fetch(url, {
       headers: credentials.headers,
       signal: AbortSignal.timeout(5_000),
