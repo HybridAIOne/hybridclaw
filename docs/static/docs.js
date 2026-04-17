@@ -546,13 +546,71 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
 
   const html = [];
   let paragraphLines = [];
-  let openList = '';
+  // Stack of open list frames so nested indented lists render as children of
+  // their parent <li>. Each frame tracks its counter so a following <ol> at
+  // the same indent can continue numbering via a start= attribute (#320).
+  const listStack = [];
+  // Carries the next ordered-list counter across an interrupting <ul> when
+  // both lists share an indent. Cleared by any non-list block content.
+  let pendingOlStart = null;
 
-  const closeList = () => {
-    if (openList) {
-      html.push(openList === 'ul' ? '</ul>' : '</ol>');
-      openList = '';
+  const topFrame = () => listStack[listStack.length - 1] || null;
+
+  const closeOpenLi = (frame) => {
+    if (frame && frame.liOpen) {
+      html.push('</li>');
+      frame.liOpen = false;
     }
+  };
+
+  const closeTopList = () => {
+    const frame = listStack.pop();
+    if (!frame) return;
+    closeOpenLi(frame);
+    html.push(frame.type === 'ul' ? '</ul>' : '</ol>');
+    if (frame.type === 'ol') {
+      pendingOlStart = {
+        indent: frame.indent,
+        next: frame.startNum + frame.itemCount,
+      };
+    }
+  };
+
+  const closeAllLists = () => {
+    while (listStack.length > 0) closeTopList();
+  };
+
+  const closeListsDeeperThan = (indent) => {
+    while (listStack.length > 0 && topFrame().indent > indent) closeTopList();
+  };
+
+  const openList = (type, indent) => {
+    let startNum = 1;
+    let startAttr = '';
+    if (type === 'ol' && pendingOlStart && pendingOlStart.indent === indent) {
+      startNum = pendingOlStart.next;
+      if (startNum > 1) startAttr = ` start="${startNum}"`;
+    }
+    html.push(type === 'ul' ? '<ul>' : `<ol${startAttr}>`);
+    listStack.push({ type, indent, startNum, itemCount: 0, liOpen: false });
+    if (type === 'ol') pendingOlStart = null;
+  };
+
+  const pushListItem = (type, indent, inlineContent) => {
+    closeListsDeeperThan(indent);
+    const top = topFrame();
+    if (top && top.indent === indent && top.type !== type) {
+      closeTopList();
+    }
+    const current = topFrame();
+    const needsOpen =
+      !current || current.indent < indent || current.type !== type;
+    if (needsOpen) openList(type, indent);
+    const frame = topFrame();
+    closeOpenLi(frame);
+    html.push(`<li>${inlineContent}`);
+    frame.liOpen = true;
+    frame.itemCount += 1;
   };
 
   const flushParagraph = () => {
@@ -565,37 +623,55 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     paragraphLines = [];
   };
 
+  const endBlockBreak = () => {
+    flushParagraph();
+    closeAllLists();
+    pendingOlStart = null;
+  };
+
+  // Normalize lines like `**1. Heading**` (whole-line bold-wrapped numbered
+  // headings commonly emitted by LLMs) into `1. **Heading**` so they parse
+  // as real ordered-list items with bold content (#320).
+  for (let i = 0; i < lines.length; i += 1) {
+    const bolded = lines[i].match(
+      /^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/,
+    );
+    if (bolded) {
+      lines[i] = `${bolded[1]}${bolded[2]}. **${bolded[3]}**`;
+    }
+  }
+
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] || '';
 
     const codeMatch = line.match(/^@@CB(\d+)@@$/);
     if (codeMatch) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       html.push(codeBlocks[Number(codeMatch[1])] || '');
       continue;
     }
 
     if (!line.trim()) {
       flushParagraph();
-      // Look ahead past blank lines: keep the list open when the next
-      // non-empty line continues the same list type (#206)
-      if (openList) {
+      // Blank line keeps open lists alive only if the next non-empty line is
+      // itself a list item (any type) — the ol→ul→ol counter continuity is
+      // handled by pendingOlStart, not by keeping the <ol> open (#206, #320).
+      if (listStack.length > 0) {
         let ahead = index + 1;
         while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
         const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
-        const continuesList =
-          (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
-          (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
-        if (!continuesList) closeList();
+        const nextIsListItem = /^\s*(?:[-*+]|\d+\.)\s+/.test(nextNonEmpty);
+        if (!nextIsListItem) {
+          closeAllLists();
+          pendingOlStart = null;
+        }
       }
       continue;
     }
 
     const heading = line.match(/^(#{1,3})\s+(.*)$/);
     if (heading) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       const textContent = heading[2];
       const level = heading[1].length;
       const slug = slugifyHeading(textContent, slugCounts);
@@ -611,8 +687,7 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     }
 
     if (isTableSeparatorLine(lines[index + 1] || '')) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       const headerCells = splitTableRow(line);
       const bodyRows = [];
       index += 2;
@@ -646,8 +721,7 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     // break on new callout types. Both detect 🎯 (try-it) and 💡 (tip).
     const quote = line.match(/^>\s?(.*)$/);
     if (quote) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       const quoteLines = [quote[1]];
       while (index + 1 < lines.length) {
         const nextLine = lines[index + 1] || '';
@@ -695,42 +769,40 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
 
     const divider = line.match(/^\s*((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/);
     if (divider) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       html.push('<hr>');
       continue;
     }
 
-    const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+    const unordered = line.match(/^(\s*)[-*+]\s+(.*)$/);
     if (unordered) {
       flushParagraph();
-      if (openList !== 'ul') {
-        closeList();
-        html.push('<ul>');
-        openList = 'ul';
-      }
-      html.push(`<li>${renderInlineMarkdown(unordered[1], context)}</li>`);
+      pushListItem(
+        'ul',
+        unordered[1].length,
+        renderInlineMarkdown(unordered[2], context),
+      );
       continue;
     }
 
-    const ordered = line.match(/^\s*\d+\.\s+(.*)$/);
+    const ordered = line.match(/^(\s*)\d+\.\s+(.*)$/);
     if (ordered) {
       flushParagraph();
-      if (openList !== 'ol') {
-        closeList();
-        html.push('<ol>');
-        openList = 'ol';
-      }
-      html.push(`<li>${renderInlineMarkdown(ordered[1], context)}</li>`);
+      pushListItem(
+        'ol',
+        ordered[1].length,
+        renderInlineMarkdown(ordered[2], context),
+      );
       continue;
     }
 
-    closeList();
+    closeAllLists();
+    pendingOlStart = null;
     paragraphLines.push(line);
   }
 
   flushParagraph();
-  closeList();
+  closeAllLists();
 
   return {
     html: html.join(''),
