@@ -100,6 +100,12 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Operator workflows
 
+- `hybridclaw gateway status` reports sandbox/runtime details, and in
+  container mode it includes the configured image name plus the resolved
+  version and short image id.
+- `hybridclaw update --yes` upgrades a global npm install and auto-restarts a
+  running local gateway with its original launch parameters when possible,
+  falling back to `hybridclaw gateway restart` if not.
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
