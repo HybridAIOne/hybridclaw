@@ -3356,7 +3356,6 @@ function migrateKimiBaseUrl(baseUrl: string): string {
   });
 }
 
-
 function normalizeApiPath(value: unknown, fallback: string): string {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
