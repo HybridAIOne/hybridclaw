@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   formatHybridAIModelForCatalog,
+  formatModelForDisplay,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
 } from '../src/providers/model-names.js';
@@ -30,5 +31,41 @@ describe('model name helpers', () => {
 
   test('formatHybridAIModelForCatalog still drops prefix-only hybridai inputs', () => {
     expect(formatHybridAIModelForCatalog('hybridai/')).toBe('');
+  });
+
+  test('formatModelForDisplay leaves provider-prefixed models untouched', () => {
+    // Existing providers that used to be whitelisted.
+    expect(
+      formatModelForDisplay('openrouter/anthropic/claude-sonnet-4.6'),
+    ).toBe('openrouter/anthropic/claude-sonnet-4.6');
+    expect(formatModelForDisplay('mistral/mistral-large-latest')).toBe(
+      'mistral/mistral-large-latest',
+    );
+    // Newer OpenAI-compat providers — must not get a `hybridai/` prefix added.
+    expect(formatModelForDisplay('kilo/anthropic/claude-sonnet-4.6')).toBe(
+      'kilo/anthropic/claude-sonnet-4.6',
+    );
+    expect(formatModelForDisplay('gemini/gemini-2.5-pro')).toBe(
+      'gemini/gemini-2.5-pro',
+    );
+    expect(formatModelForDisplay('dashscope/qwen3-coder-plus')).toBe(
+      'dashscope/qwen3-coder-plus',
+    );
+  });
+
+  test('formatModelForDisplay wraps bare and unknown-prefix models as hybridai/', () => {
+    // Bare upstream name — treated as a HybridAI-wrapped model.
+    expect(formatModelForDisplay('gpt-5-nano')).toBe('hybridai/gpt-5-nano');
+    // Already-prefixed hybridai/ — left alone.
+    expect(formatModelForDisplay('hybridai/gpt-5-nano')).toBe(
+      'hybridai/gpt-5-nano',
+    );
+    // Unknown (non-whitelisted) prefix — treated as HybridAI-wrapped upstream.
+    // Guards the `/agents create` warning path when a user passes a garbage
+    // model id through the config normalizer.
+    expect(formatModelForDisplay('garbage/model')).toBe(
+      'hybridai/garbage/model',
+    );
+    expect(formatModelForDisplay('')).toBe('');
   });
 });
