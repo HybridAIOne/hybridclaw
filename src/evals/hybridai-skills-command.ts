@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { deleteSessionData, isDatabaseInitialized } from '../memory/db.js';
+import { parseSessionKey } from '../session/session-key.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
-import { resetWorkspace } from '../workspace.js';
 import {
   joinSections,
   renderKeyValueSection,
@@ -45,6 +47,7 @@ interface FixtureGradeResult {
   fixture: HybridaiSkillFixture;
   status: 'passed' | 'failed' | 'skipped';
   observedSkill: string | null;
+  artifactsObserved?: boolean;
   toolNames: string[];
   sessionId?: string;
   auditPath?: string;
@@ -83,7 +86,6 @@ interface HybridaiSkillsRunSummary {
   failed?: number;
   skipped?: number;
   filterSkill?: string;
-  filterMode?: HybridaiSkillFixtureMode;
   maxFixtures?: number;
   forceExplicit?: boolean;
   results?: FixtureGradeResult[];
@@ -664,7 +666,6 @@ async function handleRun(params: {
     failed: totals.failed,
     skipped: totals.skipped,
     filterSkill: parsed.skill,
-    filterMode: parsed.mode,
     maxFixtures: parsed.max,
     forceExplicit: parsed.forceExplicit ? true : undefined,
     results: runs[0]?.results ?? [],
@@ -698,7 +699,6 @@ interface ParsedRunFlags {
   dryRun: boolean;
   max?: number;
   skill?: string;
-  mode?: HybridaiSkillFixtureMode;
   kind?: HybridaiSkillFixtureKind;
   forceExplicit?: boolean;
   models: string[];
@@ -764,18 +764,6 @@ function parseRunFlags(args: string[]): ParsedRunFlags {
           return { ...parsed, error: 'Expected a skill name after --skill.' };
         }
         parsed.skill = skill;
-        if (inlineValue === undefined) index += 1;
-        break;
-      }
-      case '--mode': {
-        const mode = String(value).trim().toLowerCase();
-        if (mode !== 'implicit' && mode !== 'explicit') {
-          return {
-            ...parsed,
-            error: 'Invalid --mode (expected `implicit` or `explicit`).',
-          };
-        }
-        parsed.mode = mode;
         if (inlineValue === undefined) index += 1;
         break;
       }
@@ -871,7 +859,6 @@ function filterFixtures(
 ): HybridaiSkillFixture[] {
   return fixtures.filter((fixture) => {
     if (filters.skill && fixture.skill !== filters.skill) return false;
-    if (filters.mode && fixture.mode !== filters.mode) return false;
     if (filters.kind && fixture.kind !== filters.kind) return false;
     return true;
   });
@@ -916,6 +903,7 @@ function evaluateFixtureStatic(
       fixture,
       status: 'failed',
       observedSkill: null,
+      artifactsObserved: false,
       toolNames: [],
       reason: `Expected skill \`${fixture.skill}\` is not installed.`,
       durationMs: 0,
@@ -926,6 +914,7 @@ function evaluateFixtureStatic(
       fixture,
       status: 'passed',
       observedSkill: fixture.skill,
+      artifactsObserved: false,
       toolNames: [],
       reason:
         'explicit prompt references the skill; live run required to verify execution',
@@ -936,6 +925,7 @@ function evaluateFixtureStatic(
     fixture,
     status: 'skipped',
     observedSkill: null,
+    artifactsObserved: false,
     toolNames: [],
     reason: 'dry-run cannot verify implicit skill selection; use --live',
     durationMs: 0,
@@ -952,6 +942,10 @@ interface HybridaiSkillsLiveRunEnvironment {
 interface ExecutedLiveTurn {
   durationMs: number;
   parsed: ParsedChatCompletion;
+  artifactsObserved: boolean;
+  agentId?: string;
+  sessionKey?: string;
+  executionSessionId?: string;
   sessionId?: string;
   auditPath?: string;
   auditTrace: ParsedAuditTrace | null;
@@ -990,6 +984,8 @@ async function runFixtureGroupLive(
       };
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   const results: FixtureGradeResult[] = [];
+  const cleanupSessionIdentifiers: string[] = [];
+  let cleanupAgentId = tempAgentId;
 
   try {
     for (const fixture of fixtures) {
@@ -1003,6 +999,10 @@ async function runFixtureGroupLive(
         skills,
         dataDir,
       );
+      cleanupAgentId ||= resolveEvalCleanupAgentId(executed);
+      cleanupSessionIdentifiers.push(
+        ...collectEvalCleanupSessionIdentifiers(executed),
+      );
       results.push(gradeExecutedFixture(fixture, executed, skills));
       messages.push({ role: 'user', content: prompt });
       if (executed.parsed.assistantText) {
@@ -1013,7 +1013,13 @@ async function runFixtureGroupLive(
       }
     }
   } finally {
-    if (tempAgentId) resetWorkspace(tempAgentId);
+    if (tempAgentId) {
+      cleanupTempEvalResources({
+        agentId: cleanupAgentId,
+        dataDir,
+        sessionIdentifiers: cleanupSessionIdentifiers,
+      });
+    }
   }
 
   return results;
@@ -1029,14 +1035,25 @@ async function runFixtureLive(
   const prompt = options.forceExplicit
     ? `/${fixture.skill} ${fixture.prompt}`
     : fixture.prompt;
-  const executed = await executeLiveTurn(
-    [{ role: 'user', content: prompt }],
-    env,
-    env.profile,
-    skills,
-    dataDir,
-  );
-  return gradeExecutedFixture(fixture, executed, skills);
+  let executed: ExecutedLiveTurn | null = null;
+  try {
+    executed = await executeLiveTurn(
+      [{ role: 'user', content: prompt }],
+      env,
+      env.profile,
+      skills,
+      dataDir,
+    );
+    return gradeExecutedFixture(fixture, executed, skills);
+  } finally {
+    if (env.profile.workspaceMode === 'fresh-agent') {
+      cleanupTempEvalResources({
+        agentId: resolveEvalCleanupAgentId(executed),
+        dataDir,
+        sessionIdentifiers: collectEvalCleanupSessionIdentifiers(executed),
+      });
+    }
+  }
 }
 
 async function executeLiveTurn(
@@ -1066,6 +1083,16 @@ async function executeLiveTurn(
     response.headers.get('x-hybridclaw-session-id') || undefined;
   const responseSessionKey =
     response.headers.get('x-hybridclaw-session-key') || undefined;
+  const responseAgentId =
+    response.headers.get('x-hybridclaw-agent-id') ||
+    parseSessionKey(responseSessionKey || responseSessionId || '')?.agentId ||
+    undefined;
+  const executionSessionId =
+    response.headers.get('x-hybridclaw-execution-session-id') || undefined;
+  const artifactsObserved =
+    parseArtifactCountHeader(
+      response.headers.get('x-hybridclaw-artifact-count'),
+    ) > 0;
   const resolvedAudit = resolveAuditTraceForSessionIdentifiers(
     dataDir,
     [responseSessionId, responseSessionKey],
@@ -1077,6 +1104,10 @@ async function executeLiveTurn(
     return {
       durationMs,
       parsed: { toolExecutions: [] },
+      artifactsObserved,
+      agentId: responseAgentId,
+      sessionKey: responseSessionKey,
+      executionSessionId,
       sessionId:
         resolvedAudit?.sessionId ?? responseSessionId ?? responseSessionKey,
       auditPath: resolvedAudit?.auditPath,
@@ -1090,6 +1121,10 @@ async function executeLiveTurn(
   return {
     durationMs,
     parsed: parseChatCompletion(payload),
+    artifactsObserved,
+    agentId: responseAgentId,
+    sessionKey: responseSessionKey,
+    executionSessionId,
     sessionId:
       resolvedAudit?.sessionId ?? responseSessionId ?? responseSessionKey,
     auditPath: resolvedAudit?.auditPath,
@@ -1108,6 +1143,7 @@ function gradeExecutedFixture(
       fixture,
       status: 'failed',
       observedSkill: null,
+      artifactsObserved: executed.artifactsObserved,
       toolNames: [],
       sessionId: executed.sessionId,
       auditPath: executed.auditPath,
@@ -1146,6 +1182,7 @@ function gradeExecutedFixture(
       fixture,
       status: 'passed',
       observedSkill,
+      artifactsObserved: executed.artifactsObserved,
       toolNames,
       sessionId: executed.sessionId,
       auditPath: executed.auditPath,
@@ -1158,6 +1195,7 @@ function gradeExecutedFixture(
     fixture,
     status: 'failed',
     observedSkill,
+    artifactsObserved: executed.artifactsObserved,
     toolNames,
     sessionId: executed.sessionId,
     auditPath: executed.auditPath,
@@ -1239,6 +1277,86 @@ async function safeReadText(response: Response): Promise<string> {
     return await response.text();
   } catch {
     return '';
+  }
+}
+
+function parseArtifactCountHeader(value: string | null): number {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function isTempEvalAgentId(agentId: string | null | undefined): boolean {
+  const normalized = String(agentId || '').trim();
+  return normalized.startsWith('eval-') || normalized.startsWith('eval-conv-');
+}
+
+function resolveEvalCleanupAgentId(
+  executed: ExecutedLiveTurn | null,
+): string | null {
+  const agentId = String(executed?.agentId || '').trim();
+  if (isTempEvalAgentId(agentId)) return agentId;
+  const parsed = parseSessionKey(
+    String(executed?.sessionKey || executed?.sessionId || '').trim(),
+  );
+  return isTempEvalAgentId(parsed?.agentId) ? parsed?.agentId || null : null;
+}
+
+function collectEvalCleanupSessionIdentifiers(
+  executed: ExecutedLiveTurn | null,
+): string[] {
+  if (!executed) return [];
+  return [executed.sessionId, executed.sessionKey, executed.executionSessionId]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function cleanupTempEvalResources(params: {
+  agentId: string | null;
+  dataDir: string;
+  sessionIdentifiers: string[];
+}): void {
+  if (!params.agentId || !isTempEvalAgentId(params.agentId)) return;
+
+  for (const identifier of new Set(params.sessionIdentifiers)) {
+    if (isDatabaseInitialized()) {
+      try {
+        deleteSessionData(identifier);
+      } catch (error) {
+        logger.warn(
+          { sessionId: identifier, error },
+          'Failed to delete eval session data',
+        );
+      }
+    }
+
+    const resolvedAudit = resolveAuditTraceForSession(
+      params.dataDir,
+      identifier,
+      [],
+    );
+    const auditDir = resolvedAudit?.auditPath
+      ? path.dirname(resolvedAudit.auditPath)
+      : path.dirname(resolveAuditWirePath(params.dataDir, identifier));
+    try {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    } catch (error) {
+      logger.warn(
+        { sessionId: identifier, auditDir, error },
+        'Failed to delete eval audit trail',
+      );
+    }
+  }
+
+  auditWireLookupCache.clear();
+
+  const agentDir = path.dirname(agentWorkspaceDir(params.agentId));
+  try {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, agentDir, error },
+      'Failed to delete temp eval agent directory',
+    );
   }
 }
 
@@ -1560,7 +1678,6 @@ function renderRunSummary(
   const profile = summary.profile ?? buildDefaultEvalProfile();
   const filterLines: string[] = [];
   if (summary.filterSkill) filterLines.push(`skill=${summary.filterSkill}`);
-  if (summary.filterMode) filterLines.push(`mode=${summary.filterMode}`);
   if (summary.maxFixtures) filterLines.push(`max=${summary.maxFixtures}`);
   if (summary.forceExplicit) filterLines.push('explicit');
   const totals = summarizeHybridaiSkillsRuns(runs);
@@ -1682,9 +1799,7 @@ function renderRunSummary(
                 runs.length > 1
                   ? `${run.model} · ${result.fixture.id}`
                   : result.fixture.id,
-                result.toolNames.length > 0
-                  ? result.toolNames.join(',')
-                  : (result.observedSkill ?? 'ok'),
+                describeResultTrace(result),
               ] as const,
           ),
         )
@@ -1703,22 +1818,36 @@ function renderRunSummary(
 }
 
 function describeFailure(result: FixtureGradeResult): string {
-  const parts: string[] = [];
-  if (result.reason) parts.push(result.reason);
+  const trace = describeResultTrace(result);
   if (
-    result.observedSkill &&
-    result.observedSkill !== result.fixture.skill &&
-    !(result.reason || '').includes(result.observedSkill)
+    !result.reason ||
+    result.reason.trim().toLowerCase() === 'no skill observed in tool trace'
   ) {
-    parts.push(`observed=${result.observedSkill}`);
+    return trace || 'failed';
   }
+  return [result.reason, trace].filter(Boolean).join(' · ');
+}
+
+function describeResultTrace(result: FixtureGradeResult): string {
+  const parts = [
+    `skills=${result.observedSkill || 'None'}`,
+    `artefacts=${result.artifactsObserved ? '✅' : '❌'}`,
+  ];
   if (result.toolNames.length > 0) {
-    parts.push(`tools=${result.toolNames.join(',')}`);
+    parts.push(`tools=${formatToolCallCounts(result.toolNames)}`);
   }
-  if (result.sessionId) {
-    parts.push(`session=${result.sessionId}`);
+  return parts.join(' ');
+}
+
+function formatToolCallCounts(toolNames: string[]): string {
+  const counts = new Map<string, number>();
+  for (const rawName of toolNames) {
+    const name = String(rawName || '').trim() || 'tool';
+    counts.set(name, (counts.get(name) || 0) + 1);
   }
-  return parts.length > 0 ? parts.join(' · ') : 'failed';
+  return Array.from(counts.entries())
+    .map(([name, count]) => `${name} (${count})`)
+    .join(',');
 }
 
 function normalizeModelRuns(
@@ -1763,8 +1892,8 @@ function renderHybridaiSkillsUsage(
     '',
     'Usage:',
     '- `/eval hybridai-skills setup`',
-    '- `/eval hybridai-skills list [--skill <name>] [--mode implicit|explicit] [--kind try-it|conversation] [--max N]`',
-    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--mode ...] [--kind ...] [--max N] [--explicit] [--model <name>[,<name>]] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `/eval hybridai-skills list [--skill <name>] [--kind try-it|conversation] [--max N]`',
+    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--kind try-it|conversation] [--max N] [--explicit] [--model <name>[,<name>]] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval hybridai-skills results`',
     '',
     'What it does:',
