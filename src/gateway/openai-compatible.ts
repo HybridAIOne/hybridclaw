@@ -221,11 +221,15 @@ function prepareOpenAICompatibleRequest(
 ): {
   responseModel: string;
   cleanupAgentId: string | null;
+  isEvalRequest: boolean;
   requestAgentId: string;
   sessionId: string;
   model: string;
   profile: ReturnType<typeof parseEvalProfileModel>['profile'];
 } {
+  const isEvalRequest =
+    Boolean(input.evalProfile?.trim()) ||
+    input.model.includes(EVAL_MODEL_PROFILE_MARKER);
   const profiledModel = input.evalProfile
     ? input.model.includes(EVAL_MODEL_PROFILE_MARKER)
       ? input.model
@@ -272,6 +276,7 @@ function prepareOpenAICompatibleRequest(
   return {
     responseModel: input.model,
     cleanupAgentId: freshAgentId,
+    isEvalRequest,
     requestAgentId,
     sessionId,
     model,
@@ -291,6 +296,12 @@ function buildGatewayChatRequest(params: {
     sessionId: params.prepared.sessionId,
     ...(params.executionSessionId
       ? { executionSessionId: params.executionSessionId }
+      : {}),
+    ...(params.prepared.isEvalRequest
+      ? {
+          autoApproveTools: true,
+          neverAutoApproveTools: [] as string[],
+        }
       : {}),
     guildId: null,
     channelId: 'openai',
@@ -453,6 +464,12 @@ async function handleOpenAICompatibleNonStreamingChat(
     ...(result.sessionKey
       ? { 'X-HybridClaw-Session-Key': result.sessionKey }
       : {}),
+    ...(chatRequest.executionSessionId
+      ? {
+          'X-HybridClaw-Execution-Session-Id': chatRequest.executionSessionId,
+        }
+      : {}),
+    'X-HybridClaw-Artifact-Count': String(result.artifacts?.length || 0),
   };
   const payload = buildOpenAICompatibleCompletionResponse({
     completionId,

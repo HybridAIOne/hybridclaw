@@ -267,6 +267,9 @@ describe('handleHybridaiSkillsCommand dispatch', () => {
     const bare = await handleHybridaiSkillsCommand({ dataDir, env });
     expect(bare.kind).toBe('info');
     expect(bare.text).toMatch(/Usage:/);
+    expect(bare.text).toContain(
+      '--kind try-it|conversation] [--max N] [--explicit]',
+    );
     const withHelp = await handleHybridaiSkillsCommand({
       dataDir,
       env,
@@ -290,6 +293,34 @@ describe('live runner grading', () => {
       profile: buildDefaultEvalProfile(),
     };
   }
+
+  test('rejects the removed --mode flag', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:mode-removed',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--skill', 'pdf', '--mode', 'explicit'],
+    });
+
+    expect(result.kind).toBe('error');
+    expect(result.text).toContain('Unknown flag: `--mode`.');
+  });
 
   test('does not short-circuit on explicit-mode fixtures; empty tool trace fails', async () => {
     const dataDir = makeTempDir();
@@ -338,7 +369,9 @@ describe('live runner grading', () => {
     expect(result.text).toMatch(/Passed\s+0\/1/);
     expect(result.text).toMatch(/Failed\s+1/);
     expect(result.text).toMatch(/synthetic:code-review:try-it:1/);
-    expect(result.text).toMatch(/no skill observed in tool trace/);
+    expect(result.text).toMatch(/skills=None/);
+    expect(result.text).toContain('artefacts=❌');
+    expect(result.text).not.toMatch(/session=/);
   });
 
   test('defaults to fresh-agent per fixture and grades from the audit trace', async () => {
@@ -358,6 +391,8 @@ describe('live runner grading', () => {
       fixtures: [fixture],
     });
     const sessionId = 'sess_pdf_eval_1';
+    const executionSessionId = 'sess_pdf_exec_1';
+    const tempAgentId = 'eval-cleanup-agent-1';
     const auditPath = writeAuditWire(dataDir, sessionId, [
       {
         type: 'session.start',
@@ -384,6 +419,30 @@ describe('live runner grading', () => {
         outcome: 'success',
       },
     ]);
+    const executionAuditPath = writeAuditWire(dataDir, executionSessionId, [
+      {
+        type: 'session.start',
+        cwd: '/tmp/eval-agent/workspace',
+      },
+    ]);
+    const { initDatabase } = await import('../src/memory/db.js');
+    const { memoryService } = await import('../src/memory/memory-service.js');
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    initDatabase({ quiet: true });
+    memoryService.getOrCreateSession(sessionId, null, 'openai', tempAgentId);
+    memoryService.getOrCreateSession(
+      executionSessionId,
+      null,
+      'openai',
+      tempAgentId,
+    );
+    const tempAgentWorkspace = agentWorkspaceDir(tempAgentId);
+    fs.mkdirSync(tempAgentWorkspace, { recursive: true });
+    fs.writeFileSync(
+      path.join(tempAgentWorkspace, 'placeholder.txt'),
+      'temp\n',
+      'utf8',
+    );
     const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as { model?: string };
       expect(body.model).toContain('__hc_eval=fresh-agent');
@@ -403,6 +462,9 @@ describe('live runner grading', () => {
           headers: {
             'content-type': 'application/json',
             'x-hybridclaw-session-id': sessionId,
+            'x-hybridclaw-execution-session-id': executionSessionId,
+            'x-hybridclaw-agent-id': tempAgentId,
+            'x-hybridclaw-artifact-count': '1',
           },
         },
       );
@@ -420,6 +482,7 @@ describe('live runner grading', () => {
     expect(result.kind).toBe('info');
     expect(result.text).toMatch(/Passed\s+1\/1/);
     expect(result.text).toContain('Profile');
+    expect(result.text).toContain('skills=pdf artefacts=✅ tools=read (1)');
 
     const latestRun = JSON.parse(
       fs.readFileSync(
@@ -435,6 +498,14 @@ describe('live runner grading', () => {
     expect(latestRun.profile.workspaceMode).toBe('fresh-agent');
     expect(latestRun.runs[0]?.results[0]?.sessionId).toBe(sessionId);
     expect(latestRun.runs[0]?.results[0]?.auditPath).toBe(auditPath);
+    expect(memoryService.getSessionById(sessionId)).toBeUndefined();
+    expect(memoryService.getSessionById(executionSessionId)).toBeUndefined();
+    expect(fs.existsSync(tempAgentWorkspace)).toBe(false);
+    expect(fs.existsSync(path.dirname(tempAgentWorkspace))).toBe(false);
+    expect(fs.existsSync(auditPath)).toBe(false);
+    expect(fs.existsSync(path.dirname(auditPath))).toBe(false);
+    expect(fs.existsSync(executionAuditPath)).toBe(false);
+    expect(fs.existsSync(path.dirname(executionAuditPath))).toBe(false);
   });
 
   test('supports suite-local current-agent override after run', async () => {
@@ -637,7 +708,9 @@ describe('live runner grading', () => {
 
     expect(result.kind).toBe('info');
     expect(result.text).toMatch(/Passed\s+0\/1/);
-    expect(result.text).toMatch(/no skill observed in tool trace/);
+    expect(result.text).toMatch(/skills=None/);
+    expect(result.text).toContain('artefacts=❌');
+    expect(result.text).not.toMatch(/session=/);
   });
 
   test('runs conversation fixtures as a chained conversation in one temporary agent workspace', async () => {
@@ -814,5 +887,102 @@ describe('live runner grading', () => {
       'model-a',
       'model-b',
     ]);
+  });
+
+  test('renders tool call counts instead of repeating tool names', async () => {
+    const dataDir = makeTempDir();
+    const fixture: HybridaiSkillFixture = {
+      id: 'synthetic:pdf:try-it:counts',
+      docFile: 'synthetic.md',
+      skill: 'pdf',
+      prompt: 'Create a one-page PDF invoice for Acme Corp',
+      mode: 'implicit',
+      kind: 'try-it',
+    };
+    writeHybridaiSkillsFixtures(dataDir, {
+      generatedAt: new Date().toISOString(),
+      docsRoot: '',
+      sourceFiles: ['synthetic.md'],
+      fixtures: [fixture],
+    });
+    const sessionId = 'sess_pdf_tool_counts_1';
+    writeAuditWire(dataDir, sessionId, [
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-1',
+        toolName: 'write',
+        arguments: { path: 'invoice.md' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-1',
+        toolName: 'write',
+        resultSummary: 'ok',
+        durationMs: 1,
+        isError: false,
+        blocked: false,
+      },
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-2',
+        toolName: 'bash',
+        arguments: { cmd: 'step 1' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-2',
+        toolName: 'bash',
+        resultSummary: 'ok',
+        durationMs: 1,
+        isError: false,
+        blocked: false,
+      },
+      {
+        type: 'tool.call',
+        toolCallId: 'tool-3',
+        toolName: 'bash',
+        arguments: { cmd: 'step 2' },
+      },
+      {
+        type: 'tool.result',
+        toolCallId: 'tool-3',
+        toolName: 'bash',
+        resultSummary: 'ok',
+        durationMs: 1,
+        isError: false,
+        blocked: false,
+      },
+      {
+        type: 'skill.execution',
+        skillName: 'pdf',
+        outcome: 'success',
+      },
+    ]);
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'Done.' } }],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-hybridclaw-session-id': sessionId,
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await handleHybridaiSkillsCommand({
+      dataDir,
+      env: makeEnv(),
+      subcommand: 'run',
+      args: ['--live', '--max', '1'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(result.text).toContain('tools=write (1),bash (2)');
+    expect(result.text).not.toContain('tools=write,bash,bash');
   });
 });
