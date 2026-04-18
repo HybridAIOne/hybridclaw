@@ -53,6 +53,9 @@ current workspace after confirmation.
 current built-in memory layers for a session: `MEMORY.md`, today's daily note,
 recent raw history, compacted `session_summary`, recent semantic-memory rows,
 and canonical cross-session recall state.
+`hybridclaw gateway status` reports the current sandbox/runtime state; in
+container mode it also shows the configured image name, resolved image
+version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
 `gateway voice info` reports the current local Twilio voice setup, and
@@ -283,7 +286,10 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.
 `update` checks for a newer installed release and can upgrade a global npm
-install; source checkouts receive git-based update instructions instead.
+install. When `--yes` completes successfully and a local gateway is already
+running with a replayable launch command, HybridClaw restarts it automatically
+with the original parameters; otherwise it falls back to manual restart
+instructions. Source checkouts receive git-based update instructions instead.
 
 ## Discord And Session Commands
 

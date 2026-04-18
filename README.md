@@ -100,6 +100,12 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Operator workflows
 
+- `hybridclaw gateway status` reports sandbox/runtime details, and in
+  container mode it includes the configured image name plus the resolved
+  version and short image id.
+- `hybridclaw update --yes` upgrades a global npm install and auto-restarts a
+  running local gateway with its original launch parameters when possible,
+  falling back to `hybridclaw gateway restart` if not.
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
@@ -120,6 +126,23 @@ Once the gateway is running, open HybridClaw locally:
   the current head instead of replaying old inbox mail, retry-aware transports
   honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
   init-query bad-request failures.
+
+## Models, Skills, and Memory
+
+- `hybridclaw auth login` and `/model list` cover HybridAI, Codex, OpenRouter,
+  Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
+  DashScope, Xiaomi, Kilo Code, and local backends such as Ollama, LM Studio,
+  llama.cpp, and vLLM. Remote OpenAI-compatible providers can merge
+  runtime-discovered model catalogs with operator-pinned lists.
+- Skills can be enabled or disabled globally or per channel from
+  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
+  `Skills` page.
+- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
+  MemPalace, QMD, and GBrain plugins depending on whether you want
+  local-first recall, hosted memory, or domain-specific retrieval.
+- Optional OpenTelemetry tracing exports gateway and agent spans to OTLP
+  backends and annotates structured logs with trace ids for cross-system
+  correlation.
 
 ## How HybridClaw compares
 
@@ -211,6 +234,7 @@ Browse the full manual at
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
   [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
+  [Memory Plugins](https://www.hybridclaw.io/docs/extensibility/memory-plugins),
   [ByteRover Memory Plugin](https://www.hybridclaw.io/docs/extensibility/byterover-memory-plugin),
   [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
   [Mem0 Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mem0-memory-plugin),

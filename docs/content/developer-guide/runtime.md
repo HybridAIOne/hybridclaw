@@ -13,11 +13,15 @@ image matching `container.image` (default: `hybridclaw-agent`) when sandbox mode
 is `container`. In `host` sandbox mode they run the packaged agent runtime
 directly instead.
 
-When the image is missing, startup logic in `src/container-setup.ts` does:
+When the image is missing, startup logic in `src/infra/container-setup.ts` does:
 
 1. For installed packages, pull a remote image. For the default image it tries
-   GHCR `v<app-version>`, then `latest`, then Docker Hub.
+   Docker Hub `v<app-version>`, then `latest`.
 2. For source checkouts, build a local image with `npm run build:container`.
+
+Release-built images carry an OCI version label, and
+`hybridclaw gateway status` uses that metadata plus the image id to report
+which container image is currently active.
 
 If Docker is not installed or not on `PATH`, container-mode startup fails fast.
 Install Docker or switch to `container.sandboxMode=host` to run without it.
@@ -53,8 +57,9 @@ HybridClaw can execute agent turns in two modes:
   `hybridclaw gateway restart --sandbox=container|host`.
 - If HybridClaw detects it is already inside a container and the setting is not
   explicitly pinned, it auto-selects `host`.
-- `hybridclaw gateway status` and `!claw status` surface the active sandbox mode
-  and session count.
+- `hybridclaw gateway status` and `!claw status` surface the active sandbox
+  mode; in container mode they also show the configured image name, resolved
+  version, short image id, and session count.
 
 ## Configuration Internals
 
@@ -127,6 +132,25 @@ Common advanced areas:
 - Plugin overrides: `plugins.list[]`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
+
+## OpenTelemetry Tracing
+
+HybridClaw's built-in OpenTelemetry support is off by default. It turns on when
+either `OTEL_ENABLED=true` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
+Supported environment variables:
+
+- `OTEL_ENABLED=true` enables OTel explicitly
+- `OTEL_EXPORTER_OTLP_ENDPOINT` points at the collector and also enables OTel
+- `OTEL_EXPORTER_OTLP_PROTOCOL` selects `grpc` (default) or `http/protobuf`
+- `OTEL_SERVICE_NAME` overrides the reported service name (default:
+  `hybridclaw-gateway`)
+
+When enabled, HybridClaw emits spans for gateway message handling, agent runs,
+host or container execution, and skill loading. Structured logs also include
+`traceId` and `spanId` fields so logs and traces can be correlated in the same
+incident workflow. The OTel SDK is loaded lazily, so there is no startup or
+runtime overhead when tracing is off.
 
 ## Runtime Diagnostics
 

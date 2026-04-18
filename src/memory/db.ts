@@ -1894,8 +1894,6 @@ export function deleteAgent(agentId: string): boolean {
   );
 }
 
-// --- Structured Memory (KV) ---
-
 type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {
   value: Buffer | Uint8Array | string;
 };
@@ -2021,8 +2019,6 @@ export function listMemoryValues(
     updated_at: row.updated_at,
   }));
 }
-
-// --- Canonical Sessions (Cross-Channel Memory) ---
 
 const DEFAULT_CANONICAL_WINDOW = 50;
 const DEFAULT_CANONICAL_COMPACTION_THRESHOLD = 100;
@@ -2318,8 +2314,6 @@ export function clearCanonicalContext(params: {
     )
     .run(agentId, userId).changes;
 }
-
-// --- Usage Tracking / Aggregation ---
 
 function normalizeUsageWindow(window: UsageWindow | undefined): UsageWindow {
   if (window === 'daily' || window === 'monthly' || window === 'all') {
@@ -2971,8 +2965,6 @@ export function listUsageDailyBreakdown(params?: {
   }));
 }
 
-// --- Knowledge Graph ---
-
 type RawKnowledgeGraphRow = {
   s_id: KnowledgeEntity['id'];
   s_type: string;
@@ -3354,8 +3346,6 @@ export function queryKnowledgeGraph(
   const rows = queryAll<RawKnowledgeGraphRow>(db, sql.join('\n'), ...args);
   return rows.map(mapKnowledgeMatchRow);
 }
-
-// --- Sessions ---
 
 export function resetSessionIfExpired(
   sessionId: string,
@@ -4352,8 +4342,6 @@ export function deleteSessionData(sessionId: string): {
 
   return transaction(resolvedSessionId);
 }
-
-// --- Messages ---
 
 export function storeMessage(
   sessionId: string,
@@ -5711,8 +5699,6 @@ export function markSessionMemoryFlush(sessionId: string): void {
   ).run(resolvedSessionId);
 }
 
-// --- Tasks ---
-
 export function createTask(
   sessionId: string,
   channelId: string,
@@ -6003,8 +5989,6 @@ function mapSkillObservationSummaries(params: {
     last_observed_at: row.last_observed_at,
   }));
 }
-
-// --- Adaptive Skills ---
 
 export function recordSkillObservation(input: {
   skillName: string;
@@ -6455,8 +6439,6 @@ export function getAmendmentHistory(skillName: string): SkillAmendment[] {
   ).map(mapSkillAmendmentRow);
 }
 
-// --- Audit ---
-
 export function logAudit(
   event: string,
   sessionId?: string,
@@ -6806,8 +6788,6 @@ export function deleteObservabilityIngestToken(tokenKey: string): void {
     normalized,
   );
 }
-
-// --- Proactive Message Queue ---
 
 export interface QueuedProactiveMessage {
   id: number;
