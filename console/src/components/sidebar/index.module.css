@@ -356,8 +356,6 @@
   display: none;
 }
 
-/* Offcanvas collapse — sidebar slides fully off-screen */
-
 .root[data-collapsible="offcanvas"] {
   width: 0;
   padding: 0;

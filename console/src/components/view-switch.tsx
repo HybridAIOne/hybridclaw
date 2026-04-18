@@ -1,31 +1,36 @@
+import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType } from 'react';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
 
-const VIEW_SWITCH_ITEMS: ReadonlyArray<{
-  href: string;
+type ViewSwitchItem = {
   label: string;
   icon: ComponentType;
-  matchPrefix?: string;
-}> = [
-  { href: '/chat', label: 'Chat', icon: Chat, matchPrefix: '/chat' },
-  { href: '/agents', label: 'Agents', icon: Agents, matchPrefix: '/agents' },
-  { href: '/admin', label: 'Admin', icon: Admin, matchPrefix: '/admin' },
+} & (
+  | { href: string; external: true }
+  | { to: string; external?: false }
+);
+
+const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
+  { to: '/chat', label: 'Chat', icon: Chat },
+  { to: '/agents', label: 'Agents', icon: Agents },
+  { to: '/admin', label: 'Admin', icon: Admin },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
     label: 'GitHub',
     icon: Github,
+    external: true,
   },
-  { href: '/development', label: 'Docs', icon: Docs },
+  { to: '/development', label: 'Docs', icon: Docs },
 ];
 
-function isActive(pathname: string, matchPrefix: string | undefined): boolean {
-  if (!matchPrefix) return false;
-  return pathname === matchPrefix || pathname.startsWith(`${matchPrefix}/`);
+function isActive(pathname: string, path: string): boolean {
+  return pathname === path || pathname.startsWith(`${path}/`);
 }
 
 export function ViewSwitchNav() {
-  const pathname =
-    typeof window === 'undefined' ? '' : window.location.pathname;
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
   return (
     <nav className="view-switch" aria-label="Switch view">
@@ -38,18 +43,32 @@ export function ViewSwitchNav() {
             <span>{item.label}</span>
           </>
         );
-        return isActive(pathname, item.matchPrefix) ? (
+        if (item.external) {
+          return (
+            <a
+              key={item.href}
+              className="view-switch-link"
+              href={item.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {inner}
+            </a>
+          );
+        }
+        const active = isActive(pathname, item.to);
+        return active ? (
           <span
-            key={item.href}
+            key={item.to}
             className="view-switch-link active"
             aria-current="page"
           >
             {inner}
           </span>
         ) : (
-          <a key={item.href} className="view-switch-link" href={item.href}>
+          <Link key={item.to} className="view-switch-link" to={item.to}>
             {inner}
-          </a>
+          </Link>
         );
       })}
     </nav>
