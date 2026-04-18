@@ -16,6 +16,7 @@ import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
+  EVAL_MODEL_PROFILE_MARKER,
   type EvalProfile,
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
@@ -421,10 +422,13 @@ function buildEvalEnvironment(params: {
 }): EvalEnvironment {
   const token = params.webApiToken.trim();
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';
+  const profiledModel = encodeEvalProfileModel(baseModel, params.profile);
   return {
     baseUrl: buildOpenAIBaseUrl(params.gatewayBaseUrl),
     apiKey: token || 'hybridclaw-local',
-    model: encodeEvalProfileModel(baseModel, params.profile),
+    model: profiledModel.includes(EVAL_MODEL_PROFILE_MARKER)
+      ? profiledModel
+      : `${profiledModel}${EVAL_MODEL_PROFILE_MARKER}current-agent`,
     baseModel,
     authMode: token ? 'web-token' : 'loopback',
     profile: params.profile,

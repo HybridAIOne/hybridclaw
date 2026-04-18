@@ -196,13 +196,16 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
-export function restartGateway(
+export function reloadGateway(
   token: string,
 ): Promise<{ status: 'ok'; message: string }> {
-  return requestJson<{ status: 'ok'; message: string }>('/api/admin/restart', {
-    token,
-    method: 'POST',
-  });
+  return requestJson<{ status: 'ok'; message: string }>(
+    '/api/admin/config/reload',
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function startAdminTerminal(
