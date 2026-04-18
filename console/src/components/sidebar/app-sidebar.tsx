@@ -112,7 +112,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
       inactiveProps={{ className: styles.menuButton }}
-      activeOptions={{ exact: props.item.to === '/' }}
+      activeOptions={{ exact: true }}
       onClick={() => {
         if (isMobile) {
           setOpenMobile(false);
