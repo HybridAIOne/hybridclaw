@@ -45,23 +45,32 @@ function runCommand(
   command: string,
   args: string[],
   cwd?: string,
-  env?: NodeJS.ProcessEnv,
-): Promise<{ code: number | null; err?: string }> {
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    captureStdout?: boolean;
+  },
+): Promise<{ code: number | null; out?: string; err?: string }> {
   return new Promise((resolve) => {
+    const captureStdout = options?.captureStdout === true;
     const proc = spawn(command, args, {
       cwd,
-      env,
+      env: options?.env,
       stdio: 'pipe',
     });
+    let out = captureStdout ? '' : undefined;
     let err = '';
+    proc.stdout.on('data', (chunk) => {
+      if (!captureStdout) return;
+      out += chunk.toString('utf-8');
+    });
     proc.stderr.on('data', (chunk) => {
       err += chunk.toString('utf-8');
     });
     proc.on('error', (error) => {
-      resolve({ code: null, err: (error as Error).message });
+      resolve({ code: null, out, err: (error as Error).message });
     });
     proc.on('close', (code) => {
-      resolve({ code, err });
+      resolve({ code, out, err });
     });
   });
 }
@@ -158,6 +167,120 @@ export async function containerImageExists(
   return result.code === 0;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeContainerVersion(value: string | undefined): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/^v(?=\d)/, '');
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(
+    normalized,
+  )
+    ? normalized
+    : null;
+}
+
+function extractVersionFromImageRef(imageRef: string): string | null {
+  const trimmed = String(imageRef || '').trim();
+  if (!trimmed) return null;
+  const withoutDigest = trimmed.split('@', 1)[0] || '';
+  const lastSlash = withoutDigest.lastIndexOf('/');
+  const lastColon = withoutDigest.lastIndexOf(':');
+  if (lastColon <= lastSlash) return null;
+  return normalizeContainerVersion(withoutDigest.slice(lastColon + 1));
+}
+
+function normalizeContainerImageShortId(
+  value: string | undefined,
+): string | null {
+  const trimmed = String(value || '')
+    .trim()
+    .replace(/^sha256:/, '');
+  if (!trimmed) return null;
+  return trimmed.slice(0, 12) || null;
+}
+
+export interface ContainerImageStatus {
+  version: string | null;
+  shortId: string | null;
+}
+
+function parseContainerImageStatus(
+  inspectOutput: string | undefined,
+  imageName: string,
+): ContainerImageStatus {
+  const fallback: ContainerImageStatus = {
+    version: extractVersionFromImageRef(imageName),
+    shortId: null,
+  };
+  let shortId: string | null = null;
+  try {
+    const parsed: unknown = JSON.parse(String(inspectOutput || '[]'));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return fallback;
+    }
+    const imageRecord = parsed[0];
+    if (!isRecord(imageRecord)) {
+      return fallback;
+    }
+
+    shortId =
+      typeof imageRecord.Id === 'string'
+        ? normalizeContainerImageShortId(imageRecord.Id)
+        : null;
+    const config = isRecord(imageRecord.Config) ? imageRecord.Config : null;
+    const labels = config && isRecord(config.Labels) ? config.Labels : null;
+    const labelVersion =
+      labels && typeof labels['org.opencontainers.image.version'] === 'string'
+        ? normalizeContainerVersion(labels['org.opencontainers.image.version'])
+        : null;
+    if (labelVersion) return { version: labelVersion, shortId };
+
+    const configuredVersion = extractVersionFromImageRef(imageName);
+    if (configuredVersion) return { version: configuredVersion, shortId };
+
+    const repoTags = Array.isArray(imageRecord.RepoTags)
+      ? imageRecord.RepoTags
+      : [];
+    for (const repoTag of repoTags) {
+      if (typeof repoTag !== 'string') continue;
+      const version = extractVersionFromImageRef(repoTag);
+      if (version) return { version, shortId };
+    }
+  } catch {
+    return fallback;
+  }
+  return { version: null, shortId };
+}
+
+export async function resolveContainerImageStatus(
+  imageName: string,
+): Promise<ContainerImageStatus> {
+  const fallback: ContainerImageStatus = {
+    version: extractVersionFromImageRef(imageName),
+    shortId: null,
+  };
+  const result = await runCommand(
+    'docker',
+    ['image', 'inspect', imageName],
+    undefined,
+    {
+      captureStdout: true,
+    },
+  );
+  if (result.code !== 0) return fallback;
+  return parseContainerImageStatus(result.out, imageName);
+}
+
+export async function resolveContainerImageVersion(
+  imageName: string,
+): Promise<string | null> {
+  const status = await resolveContainerImageStatus(imageName);
+  return status.version;
+}
+
 async function pullContainerImage(imageName: string): Promise<void> {
   const result = await runCommand('docker', ['pull', imageName]);
   if (result.code !== 0) {
@@ -187,8 +310,10 @@ async function buildContainerImage(
   imageName: string,
 ): Promise<void> {
   const result = await runCommand('npm', ['run', 'build:container'], cwd, {
-    ...process.env,
-    HYBRIDCLAW_CONTAINER_IMAGE: imageName,
+    env: {
+      ...process.env,
+      HYBRIDCLAW_CONTAINER_IMAGE: imageName,
+    },
   });
   if (result.code !== 0) {
     throw new Error(
@@ -210,7 +335,6 @@ const STATE_DIRNAME = 'container-image-state';
 const STATE_FILENAME = 'container-image-state.json';
 const DEFAULT_CONTAINER_IMAGE = 'hybridclaw-agent';
 const DEFAULT_DOCKERHUB_IMAGE = 'hybridaione/hybridclaw-agent';
-const DEFAULT_GHCR_IMAGE = 'ghcr.io/hybridaione/hybridclaw-agent';
 const TRACKED_FILES = [
   'package.json',
   'container/Dockerfile',
@@ -233,8 +357,6 @@ function resolveContainerPullImages(imageName: string): string[] {
   const candidates = [
     `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
     `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
-    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
-    `${DEFAULT_GHCR_IMAGE}:latest`,
   ];
   return Array.from(new Set(candidates));
 }

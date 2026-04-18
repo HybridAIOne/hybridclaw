@@ -89,6 +89,10 @@ saved revision history directly.
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
   runtime status reporting, including the target base URL, bot and agent ids,
   flush interval, and batch size
+- `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
+  distributed tracing export to OTLP collectors; see
+  [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped

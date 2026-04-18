@@ -1,22 +1,3 @@
-/**
- * Toast — a non-blocking notification system.
- *
- * Follows the provider + imperative hook pattern (à la Radix / Base UI): a provider wraps the app, and an
- * hook lets any component fire toasts.
- *
- * Setup (once, in app root):
- *   <ToastProvider>
- *     <App />
- *   </ToastProvider>
- *
- * Usage (anywhere inside the provider):
- *   const toast = useToast();
- *   toast.success('Saved.');
- *   toast.error('Something went wrong.');
- *   toast.info('FYI.');
- *   toast.add({ title: 'Custom', description: '…', type: 'default' });
- */
-
 import {
   createContext,
   forwardRef,
@@ -32,10 +13,6 @@ import { createPortal } from 'react-dom';
 import { useAnimationsFinished } from '../../hooks/useAnimationsFinished';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type ToastType = 'default' | 'success' | 'error' | 'info';
 
@@ -58,10 +35,6 @@ interface ToastEntry extends Required<Pick<ToastOptions, 'title' | 'type'>> {
   exiting: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
 interface ToastManager {
   add: (options: ToastOptions) => string;
   success: (title: string, description?: string) => string;
@@ -80,10 +53,6 @@ export function useToast(): ToastManager {
   return ctx;
 }
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
-
 // Module-level counter for unique toast IDs. Not suitable for SSR.
 let nextId = 0;
 
@@ -101,7 +70,6 @@ export function ToastProvider(props: {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [windowBlurred, setWindowBlurred] = useState(false);
 
-  // Single listener for window focus state, shared by all toasts.
   useEffect(() => {
     function onBlur() {
       setWindowBlurred(true);
@@ -243,10 +211,6 @@ export function ToastProvider(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Viewport (renders the toast stack)
-// ---------------------------------------------------------------------------
-
 const ToastViewport = forwardRef<
   HTMLDivElement,
   {
@@ -276,10 +240,6 @@ const ToastViewport = forwardRef<
     </div>
   );
 });
-
-// ---------------------------------------------------------------------------
-// Individual toast
-// ---------------------------------------------------------------------------
 
 function ToastItem(props: {
   toast: ToastEntry;

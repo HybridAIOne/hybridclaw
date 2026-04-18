@@ -12,8 +12,10 @@ RUN npx tsc
 # --- Runtime base (no LibreOffice) ---
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime-lite
 
+ARG HYBRIDCLAW_VERSION=0.0.0
 LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
 LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
+LABEL org.opencontainers.image.version="${HYBRIDCLAW_VERSION}"
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

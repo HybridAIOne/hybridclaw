@@ -86,10 +86,6 @@ export async function shutdownOtel(): Promise<void> {
   await sdk.shutdown();
 }
 
-// ---------------------------------------------------------------------------
-// Tracing helpers
-// ---------------------------------------------------------------------------
-
 const TRACER_NAME = 'hybridclaw';
 
 function getTracer() {
