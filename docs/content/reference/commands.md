@@ -24,6 +24,7 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
@@ -88,12 +89,29 @@ hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
+  `hybridai-skills`
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--mode
+  implicit|explicit`, `--kind try-it|conversation`, and `--max N`; results
+  land at `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and
+  are also shown via `/eval hybridai-skills results`
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics

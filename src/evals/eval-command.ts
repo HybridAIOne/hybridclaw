@@ -20,6 +20,10 @@ import {
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from './eval-profile.js';
+import {
+  handleHybridaiSkillsCommand,
+  isHybridaiSkillsAlias,
+} from './hybridai-skills-command.js';
 import type {
   LocomoAgentMode,
   LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
@@ -69,7 +73,7 @@ interface ManagedSuiteRunPreparation {
   cwd: string;
 }
 
-interface EvalEnvironment {
+export interface EvalEnvironment {
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -114,7 +118,7 @@ interface EvalSetupCommand {
   strategy: 'native' | 'uv' | 'system-python';
 }
 
-interface EvalRunMeta {
+export interface EvalRunMeta {
   runId: string;
   suiteId?: string;
   operation?: string;
@@ -505,6 +509,7 @@ function renderUsage(env: EvalEnvironment): string {
     '- `/eval locomo [setup|run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
+    '- `/eval hybridai-skills [setup|list|run|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
     '',
@@ -519,11 +524,11 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `locomo`, `terminal-bench-2.0`, and `tau2` are implemented today.',
+    'Only `locomo`, `terminal-bench-2.0`, `tau2`, and `hybridai-skills` are implemented today.',
   ].join('\n');
 }
 
-function renderKeyValueSection(
+export function renderKeyValueSection(
   title: string,
   entries: Array<readonly [string, string | number | null | undefined]>,
 ): string {
@@ -652,7 +657,9 @@ function renderSectionCard(title: string, lines: string[]): string {
   return [topBorder, ...middle, bottomBorder].join('\n');
 }
 
-function joinSections(sections: Array<string | null | undefined>): string {
+export function joinSections(
+  sections: Array<string | null | undefined>,
+): string {
   return sections
     .map((section) => String(section || '').trim())
     .filter(Boolean)
@@ -672,7 +679,7 @@ function readVersionFromPackageJson(packageJsonPath: string): string | null {
   return null;
 }
 
-function resolveHarnessVersion(): string {
+export function resolveHarnessVersion(): string {
   if (cachedHarnessVersion) return cachedHarnessVersion;
   const envVersion = process.env.npm_package_version;
   if (envVersion?.trim()) {
@@ -1029,7 +1036,10 @@ function getManagedSuiteNextStep(
   }
 }
 
-function buildInternalEvalCommand(commandName: string, args: string[]): string {
+export function buildInternalEvalCommand(
+  commandName: string,
+  args: string[],
+): string {
   const commandArgs =
     resolveInternalEvalLauncherCommandArgs().map(quoteShellArg);
 
@@ -1228,7 +1238,7 @@ function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function tailLines(text: string, maxLines: number): string {
+export function tailLines(text: string, maxLines: number): string {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -1290,7 +1300,7 @@ function formatTerminalBenchTokenUsage(
   return null;
 }
 
-function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
+export function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
   const baseDir = getEvalBaseDir(dataDir);
   if (!fs.existsSync(baseDir)) return [];
   const metas: EvalRunMeta[] = [];
@@ -1324,7 +1334,7 @@ function findEvalRunMetaPath(dataDir: string, runId: string): string | null {
   return null;
 }
 
-function isRunMetaActive(meta: EvalRunMeta): boolean {
+export function isRunMetaActive(meta: EvalRunMeta): boolean {
   if (meta.finishedAt) return false;
   return isProcessRunning(meta.pid);
 }
@@ -1333,7 +1343,7 @@ function readRunMetaStatus(meta: EvalRunMeta): 'running' | 'exited' {
   return isRunMetaActive(meta) ? 'running' : 'exited';
 }
 
-function findLatestEvalRun(
+export function findLatestEvalRun(
   dataDir: string,
   predicate: (meta: EvalRunMeta) => boolean,
 ): EvalRunMeta | null {
@@ -2523,7 +2533,7 @@ function prepareEvalRun(commandArgs: string[]): EvalRunPreparation {
   };
 }
 
-function readLogFileText(filePath: string): string {
+export function readLogFileText(filePath: string): string {
   try {
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
@@ -2914,7 +2924,7 @@ function startEvalProgressTracker(params: {
   interval.unref();
 }
 
-async function startDetachedEvalRun(params: {
+export async function startDetachedEvalRun(params: {
   command: string;
   commandArgs: string[];
   dataDir: string;
@@ -4521,6 +4531,15 @@ export async function handleEvalCommand(
         dataDir: params.dataDir,
         env,
         channelId: params.channelId,
+        subcommand: parsed.commandArgs[1],
+        args: parsed.commandArgs.slice(2),
+      });
+    }
+    if (isHybridaiSkillsAlias(parsed.commandArgs[0] || '')) {
+      return await handleHybridaiSkillsCommand({
+        dataDir: params.dataDir,
+        env,
+        workspaceModeExplicit: parsed.workspaceModeExplicit,
         subcommand: parsed.commandArgs[1],
         args: parsed.commandArgs.slice(2),
       });
