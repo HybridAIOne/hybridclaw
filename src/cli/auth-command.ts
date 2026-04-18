@@ -9,8 +9,8 @@ import {
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
-import { getProviderAliasesFor } from '../providers/provider-aliases.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { getProviderAliasesFor } from '../providers/provider-aliases.js';
 import {
   isLocalBackendType,
   LOCAL_BACKEND_IDS,
@@ -524,11 +524,6 @@ async function configureHuggingFace(args: string[]): Promise<void> {
       }),
   });
 }
-
-// ---------------------------------------------------------------------------
-// Data-driven definitions for OpenAI-compatible remote providers.
-// Used by auth login/status/logout and unified provider routing.
-// ---------------------------------------------------------------------------
 
 interface GenericProviderAuthDef {
   /** Provider ID used in CLI and config. */

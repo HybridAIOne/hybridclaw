@@ -1,30 +1,3 @@
-/**
- * Dialog — a modal dialog built on our own accessibility primitives.
- *
- * Follows the compound-component pattern (à la Radix / Base UI): compose sub-components
- * to build the dialog layout you need.
- *
- * Usage:
- *   <Dialog open={open} onOpenChange={setOpen}>
- *     <DialogContent>
- *       <DialogHeader>
- *         <DialogTitle>Confirm deletion</DialogTitle>
- *         <DialogDescription>This cannot be undone.</DialogDescription>
- *       </DialogHeader>
- *       <DialogFooter>
- *         <DialogClose className="ghost-button">Cancel</DialogClose>
- *         <button className="danger-button" onClick={onConfirm}>Delete</button>
- *       </DialogFooter>
- *     </DialogContent>
- *   </Dialog>
- *
- * For dialogs triggered by a button, use DialogTrigger:
- *   <Dialog open={open} onOpenChange={setOpen}>
- *     <DialogTrigger className="primary-button">Open</DialogTrigger>
- *     <DialogContent>…</DialogContent>
- *   </Dialog>
- */
-
 import {
   type ButtonHTMLAttributes,
   createContext,
@@ -46,10 +19,6 @@ import { useScrollLock } from '../../hooks/useScrollLock';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
 type DialogContextValue = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -64,10 +33,6 @@ function useDialogContext() {
   if (!ctx) throw new Error('Dialog components must be used within <Dialog>.');
   return ctx;
 }
-
-// ---------------------------------------------------------------------------
-// Dialog (root)
-// ---------------------------------------------------------------------------
 
 export function Dialog(props: {
   open: boolean;
@@ -91,10 +56,6 @@ export function Dialog(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// DialogTrigger
-// ---------------------------------------------------------------------------
-
 export function DialogTrigger(
   props: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode },
 ) {
@@ -115,10 +76,6 @@ export function DialogTrigger(
     </button>
   );
 }
-
-// ---------------------------------------------------------------------------
-// DialogContent
-// ---------------------------------------------------------------------------
 
 export function DialogContent(props: {
   children: ReactNode;
@@ -209,10 +166,6 @@ export function DialogContent(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// DialogHeader / DialogTitle / DialogDescription
-// ---------------------------------------------------------------------------
-
 export function DialogHeader(props: {
   children: ReactNode;
   className?: string;
@@ -246,10 +199,6 @@ export function DialogDescription(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// DialogFooter
-// ---------------------------------------------------------------------------
-
 export function DialogFooter(props: {
   children: ReactNode;
   className?: string;
@@ -258,10 +207,6 @@ export function DialogFooter(props: {
     <div className={cx(styles.footer, props.className)}>{props.children}</div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// DialogClose
-// ---------------------------------------------------------------------------
 
 export function DialogClose(
   props: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode },

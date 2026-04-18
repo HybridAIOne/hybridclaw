@@ -8,15 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const MAX_REQUEST_BYTES = 1_000_000; // 1 MB
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 export function parsePositiveInteger(value: unknown): number | null {
   if (typeof value === 'number') {
