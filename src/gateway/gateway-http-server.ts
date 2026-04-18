@@ -28,8 +28,8 @@ import {
   HYBRIDAI_BASE_URL,
   IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
-  WEB_API_TOKEN,
   refreshRuntimeSecretsFromEnv,
+  WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
   RuntimeConfig,
@@ -38,8 +38,8 @@ import type {
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
-  reloadRuntimeConfig,
   parseSchedulerBoardStatus,
+  reloadRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
