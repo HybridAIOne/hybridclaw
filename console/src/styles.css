@@ -229,15 +229,9 @@ code {
   white-space: nowrap;
 }
 
-.topbar-sidebar-trigger {
-  display: none;
-  flex: 0 0 auto;
-}
-
-@media (max-width: 1080px) {
-  .topbar-sidebar-trigger {
-    display: inline-flex;
-  }
+.page-content-full {
+  height: calc(100% + 48px);
+  margin: -24px;
 }
 
 .view-switch {

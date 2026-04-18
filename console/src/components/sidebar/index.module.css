@@ -172,9 +172,30 @@
   color: var(--accent-foreground);
 }
 
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.sidebarToggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.sidebarToggle svg {
+  width: 16px;
+  height: 16px;
+}
+
 .brand {
   display: grid;
   padding: 2px 6px;
+  min-width: 0;
 }
 
 .brandTitle {
@@ -318,6 +339,14 @@
   display: none;
 }
 
+.root[data-state="collapsed"] .headerRow {
+  justify-content: center;
+}
+
+.root[data-state="collapsed"] .brand {
+  display: none;
+}
+
 .root[data-state="collapsed"] .menuButton {
   justify-content: center;
   padding: 7px;
@@ -325,6 +354,15 @@
 
 .root[data-state="collapsed"] .menuButton > span:not(.menuIcon) {
   display: none;
+}
+
+/* Offcanvas collapse — sidebar slides fully off-screen */
+
+.root[data-collapsible="offcanvas"] {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
 }
 
 @media (max-width: 780px) {
