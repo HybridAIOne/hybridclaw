@@ -235,3 +235,134 @@ describe('Dialog — drawer mode', () => {
     expect(sectionAfterClose).toBe(sectionOnOpen);
   });
 });
+
+describe('Dialog — modal exit animation lifecycle', () => {
+  it('keeps the panel mounted with data-state="closed" until animations finish, then unmounts', async () => {
+    // Drive a controllable pending animation so we can observe the intermediate
+    // exiting state before resolution.
+    let resolveAnim: (() => void) | null = null;
+    const pendingAnim = {
+      finished: new Promise<void>((resolve) => {
+        resolveAnim = () => resolve();
+      }),
+    } as unknown as Animation;
+    const getAnimationsSpy = vi
+      .spyOn(HTMLElement.prototype, 'getAnimations')
+      .mockReturnValue([pendingAnim]);
+
+    try {
+      render(<TestDialog />);
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+      expect(screen.getByRole('dialog').getAttribute('data-state')).toBe(
+        'open',
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      // Mid-exit: panel still mounted, data-state flipped to "closed".
+      const panelDuringExit = screen.getByRole('dialog');
+      expect(panelDuringExit.getAttribute('data-state')).toBe('closed');
+
+      // Resolve the animation → useAnimationsFinished calls clearExiting → unmount.
+      await act(async () => {
+        resolveAnim?.();
+        await Promise.resolve();
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      getAnimationsSpy.mockRestore();
+    }
+  });
+
+  it('ignores backdrop clicks while exiting', async () => {
+    let resolveAnim: (() => void) | null = null;
+    const pendingAnim = {
+      finished: new Promise<void>((resolve) => {
+        resolveAnim = () => resolve();
+      }),
+    } as unknown as Animation;
+    const getAnimationsSpy = vi
+      .spyOn(HTMLElement.prototype, 'getAnimations')
+      .mockReturnValue([pendingAnim]);
+
+    try {
+      const onOpenChange = vi.fn();
+      function Harness() {
+        const [open, setOpen] = useState(true);
+        return (
+          <Dialog
+            open={open}
+            onOpenChange={(next) => {
+              onOpenChange(next);
+              setOpen(next);
+            }}
+          >
+            <DialogContent>
+              <DialogTitle>t</DialogTitle>
+              <DialogClose>Close</DialogClose>
+            </DialogContent>
+          </Dialog>
+        );
+      }
+      render(<Harness />);
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      onOpenChange.mockClear();
+
+      const dialog = screen.getByRole('dialog');
+      const backdrop = dialog.parentElement
+        ?.previousElementSibling as HTMLElement;
+      fireEvent.click(backdrop);
+      expect(onOpenChange).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveAnim?.();
+        await Promise.resolve();
+      });
+    } finally {
+      getAnimationsSpy.mockRestore();
+    }
+  });
+});
+
+describe('Dialog — FocusGuard wiring', () => {
+  function WrapTarget() {
+    const [open, setOpen] = useState(true);
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogTitle>t</DialogTitle>
+          <button type="button">first</button>
+          <button type="button">middle</button>
+          <button type="button">last</button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  it('trailing FocusGuard redirects focus to the first focusable (forward Tab wrap)', () => {
+    render(<WrapTarget />);
+    const guards = document.body.querySelectorAll(
+      'span[tabindex="0"][aria-hidden="true"]',
+    );
+    expect(guards.length).toBe(2);
+    const [, trailing] = Array.from(guards) as HTMLElement[];
+
+    act(() => {
+      trailing.focus();
+    });
+    expect((document.activeElement as HTMLElement).textContent).toBe('first');
+  });
+
+  it('leading FocusGuard redirects focus to the last focusable (backward Shift+Tab wrap)', () => {
+    render(<WrapTarget />);
+    const guards = document.body.querySelectorAll(
+      'span[tabindex="0"][aria-hidden="true"]',
+    );
+    const [leading] = Array.from(guards) as HTMLElement[];
+
+    act(() => {
+      leading.focus();
+    });
+    expect((document.activeElement as HTMLElement).textContent).toBe('last');
+  });
+});

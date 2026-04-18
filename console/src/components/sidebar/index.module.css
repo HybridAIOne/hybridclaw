@@ -92,8 +92,6 @@
   height: 18px;
 }
 
-/* Backdrop is now owned by Sheet */
-
 .group,
 .groupContent {
   display: grid;
