@@ -1171,15 +1171,10 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
   return true;
 }
 
-function resolveConsoleFile(pathname: string): string | null {
-  const subPath = pathname.replace(/^\/admin/, '') || '/index.html';
-  const directFile = resolveStaticFile(CONSOLE_DIST_DIR, subPath);
-  if (directFile) return directFile;
-  return resolveStaticFile(CONSOLE_DIST_DIR, '/index.html');
-}
-
-function serveConsole(pathname: string, res: ServerResponse): boolean {
-  const filePath = resolveConsoleFile(pathname);
+function serveConsoleFile(
+  filePath: string | null,
+  res: ServerResponse,
+): boolean {
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
@@ -1191,6 +1186,17 @@ function serveConsole(pathname: string, res: ServerResponse): boolean {
   });
   res.end(fs.readFileSync(filePath));
   return true;
+}
+
+function serveConsoleAsset(pathname: string, res: ServerResponse): boolean {
+  return serveConsoleFile(resolveStaticFile(CONSOLE_DIST_DIR, pathname), res);
+}
+
+function serveConsoleIndex(res: ServerResponse): boolean {
+  return serveConsoleFile(
+    resolveStaticFile(CONSOLE_DIST_DIR, '/index.html'),
+    res,
+  );
 }
 
 async function handleApiChat(
@@ -3653,12 +3659,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname.startsWith('/assets/')) {
+      if (serveConsoleAsset(pathname, res)) return;
+      sendText(res, 404, 'Not Found');
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
 
     if (isConsoleSpaPath(pathname)) {
-      if (serveConsole(pathname, res)) return;
+      if (serveConsoleIndex(res)) return;
       sendText(
         res,
         503,
