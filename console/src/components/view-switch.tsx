@@ -15,7 +15,7 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
     label: 'GitHub',
     icon: Github,
   },
-  { href: '/development', label: 'Docs', icon: Docs },
+  { href: '/docs', label: 'Docs', icon: Docs, matchPrefix: '/docs' },
 ];
 
 function isActive(pathname: string, matchPrefix: string | undefined): boolean {
