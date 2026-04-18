@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Button, type ButtonSize, type ButtonVariant } from './index';
 import styles from './button.module.css';
+import { Button, type ButtonSize, type ButtonVariant } from './index';
 
 describe('Button', () => {
   it('renders children', () => {
@@ -76,5 +76,86 @@ describe('Button', () => {
     render(<Button onClick={onClick}>Save</Button>);
     fireEvent.click(screen.getByRole('button'));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks onClick when disabled (aria-disabled path)', () => {
+    const onClick = vi.fn();
+    const anchor = <a href="/x">placeholder</a>;
+    render(
+      <Button render={anchor} disabled onClick={onClick}>
+        Go
+      </Button>,
+    );
+    fireEvent.click(screen.getByRole('link'));
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  describe('loading', () => {
+    it('sets aria-busy and aria-disabled but not native disabled', () => {
+      render(<Button loading>Save</Button>);
+      const button = screen.getByRole('button') as HTMLButtonElement;
+      expect(button.getAttribute('aria-busy')).toBe('true');
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.disabled).toBe(false);
+    });
+
+    it('keeps the button focusable while loading', () => {
+      render(<Button loading>Save</Button>);
+      const button = screen.getByRole('button');
+      button.focus();
+      expect(document.activeElement).toBe(button);
+    });
+
+    it('suppresses onClick while loading', () => {
+      const onClick = vi.fn();
+      render(
+        <Button loading onClick={onClick}>
+          Save
+        </Button>,
+      );
+      fireEvent.click(screen.getByRole('button'));
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it('exposes data-loading and data-disabled attributes', () => {
+      render(<Button loading>Save</Button>);
+      const button = screen.getByRole('button');
+      expect(button.hasAttribute('data-loading')).toBe(true);
+      expect(button.hasAttribute('data-disabled')).toBe(true);
+    });
+  });
+
+  describe('render prop', () => {
+    it('renders as the provided element', () => {
+      const anchor = <a href="/docs">placeholder</a>;
+      render(<Button render={anchor}>Docs</Button>);
+      const link = screen.getByRole('link');
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe('/docs');
+      expect(link.textContent).toBe('Docs');
+    });
+
+    it('applies Button styles to the rendered element', () => {
+      const anchor = <a href="/x">placeholder</a>;
+      render(<Button render={anchor}>Go</Button>);
+      expect(screen.getByRole('link').className).toContain(styles.button);
+    });
+
+    it('merges className from the render element with Button styles', () => {
+      const anchor = (
+        <a href="/x" className="link-extra">
+          placeholder
+        </a>
+      );
+      render(<Button render={anchor}>Go</Button>);
+      const { className } = screen.getByRole('link');
+      expect(className).toContain(styles.button);
+      expect(className).toContain('link-extra');
+    });
+
+    it('preserves the render element children when Button has none', () => {
+      render(<Button render={<a href="/x">Fallback</a>} />);
+      expect(screen.getByRole('link').textContent).toBe('Fallback');
+    });
   });
 });

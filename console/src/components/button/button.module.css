@@ -25,10 +25,18 @@
   outline-offset: 2px;
 }
 
-.button:disabled {
+.button:disabled,
+.button[data-disabled] {
   cursor: default;
   opacity: 0.72;
+}
+
+.button:disabled {
   pointer-events: none;
+}
+
+.button[data-loading] {
+  cursor: progress;
 }
 
 /* SVG icons inside button inherit size */
@@ -45,7 +53,7 @@
   color: var(--primary-foreground);
 }
 
-.default:hover:not(:disabled) {
+.default:hover:not(:disabled):not([data-disabled]) {
   opacity: 0.9;
 }
 
@@ -55,7 +63,7 @@
   color: var(--text);
 }
 
-.ghost:hover:not(:disabled) {
+.ghost:hover:not(:disabled):not([data-disabled]) {
   background: var(--muted);
 }
 
@@ -65,7 +73,7 @@
   color: var(--text);
 }
 
-.outline:hover:not(:disabled) {
+.outline:hover:not(:disabled):not([data-disabled]) {
   background: var(--muted);
 }
 
@@ -75,7 +83,7 @@
   color: var(--danger);
 }
 
-.danger:hover:not(:disabled) {
+.danger:hover:not(:disabled):not([data-disabled]) {
   opacity: 0.85;
 }
 
