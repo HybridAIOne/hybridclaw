@@ -1,5 +1,5 @@
 import { type ButtonHTMLAttributes, forwardRef } from 'react';
-import { cx } from '../lib/cx';
+import { cx } from '../../lib/cx';
 import styles from './button.module.css';
 
 export type ButtonVariant = 'default' | 'ghost' | 'outline' | 'danger';

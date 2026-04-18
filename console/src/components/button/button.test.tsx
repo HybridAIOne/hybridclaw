@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Button, type ButtonSize, type ButtonVariant } from './button';
+import { Button, type ButtonSize, type ButtonVariant } from './index';
 import styles from './button.module.css';
 
 describe('Button', () => {
@@ -30,13 +30,14 @@ describe('Button', () => {
     expect(className).toContain(styles.sizeDefault);
   });
 
-  it.each<ButtonVariant>(['ghost', 'outline', 'danger'])(
-    'applies variant class for %s',
-    (variant) => {
-      render(<Button variant={variant}>Save</Button>);
-      expect(screen.getByRole('button').className).toContain(styles[variant]);
-    },
-  );
+  it.each<ButtonVariant>([
+    'ghost',
+    'outline',
+    'danger',
+  ])('applies variant class for %s', (variant) => {
+    render(<Button variant={variant}>Save</Button>);
+    expect(screen.getByRole('button').className).toContain(styles[variant]);
+  });
 
   it.each<[ButtonSize, keyof typeof styles]>([
     ['sm', 'sizeSm'],
