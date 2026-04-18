@@ -5,11 +5,11 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
   label: string;
   icon: ComponentType;
-  active?: true;
+  matchPrefix?: string;
 }> = [
-  { href: '/chat', label: 'Chat', icon: Chat },
-  { href: '/agents', label: 'Agents', icon: Agents },
-  { href: '/admin', label: 'Admin', icon: Admin, active: true },
+  { href: '/chat', label: 'Chat', icon: Chat, matchPrefix: '/chat' },
+  { href: '/agents', label: 'Agents', icon: Agents, matchPrefix: '/agents' },
+  { href: '/admin', label: 'Admin', icon: Admin, matchPrefix: '/admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
     label: 'GitHub',
@@ -18,7 +18,15 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   { href: '/development', label: 'Docs', icon: Docs },
 ];
 
+function isActive(pathname: string, matchPrefix: string | undefined): boolean {
+  if (!matchPrefix) return false;
+  return pathname === matchPrefix || pathname.startsWith(`${matchPrefix}/`);
+}
+
 export function ViewSwitchNav() {
+  const pathname =
+    typeof window === 'undefined' ? '' : window.location.pathname;
+
   return (
     <nav className="view-switch" aria-label="Switch view">
       {VIEW_SWITCH_ITEMS.map((item) => {
@@ -30,7 +38,7 @@ export function ViewSwitchNav() {
             <span>{item.label}</span>
           </>
         );
-        return item.active ? (
+        return isActive(pathname, item.matchPrefix) ? (
           <span
             key={item.href}
             className="view-switch-link active"

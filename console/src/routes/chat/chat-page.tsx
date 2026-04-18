@@ -38,7 +38,7 @@ import {
   storeSessionId,
 } from '../../lib/chat-helpers';
 import css from './chat-page.module.css';
-import { ChatSidebarPanel } from './chat-sidebar';
+import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
@@ -518,6 +518,7 @@ export function ChatPage() {
   } as const;
 
   return (
+    <ChatSidebarProvider>
     <div className={css.chatPage} aria-busy={isPending}>
       <ChatSidebarPanel {...sidebarProps} />
 
@@ -580,5 +581,6 @@ export function ChatPage() {
         />
       </div>
     </div>
+    </ChatSidebarProvider>
   );
 }
