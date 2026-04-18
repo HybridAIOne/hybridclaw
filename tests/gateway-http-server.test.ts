@@ -1382,6 +1382,8 @@ async function importFreshHealth(options?: {
     restartSupported: true,
     restartReason: null,
   }));
+  const refreshRuntimeSecretsFromEnv = vi.fn();
+  const reloadRuntimeConfig = vi.fn();
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -1399,6 +1401,7 @@ async function importFreshHealth(options?: {
     IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
+    refreshRuntimeSecretsFromEnv,
     getSandboxAutoDetectionState: vi.fn(() => ({
       runningInsideContainer: options?.runningInsideContainer === true,
       sandboxModeExplicit: false,
@@ -1409,6 +1412,15 @@ async function importFreshHealth(options?: {
       path.join(installRoot, ...segments),
     ),
   }));
+  vi.doMock('../src/config/runtime-config.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/config/runtime-config.js')
+    >('../src/config/runtime-config.js');
+    return {
+      ...actual,
+      reloadRuntimeConfig,
+    };
+  });
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: loggerDebug,
@@ -1610,6 +1622,8 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
+    refreshRuntimeSecretsFromEnv,
+    reloadRuntimeConfig,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
     restoreGatewayAdminAgentMarkdownRevision,
@@ -2041,6 +2055,8 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2057,6 +2073,10 @@ describe('gateway HTTP server', () => {
     expect(res.getHeader('x-hybridclaw-session-id')).toMatch(
       OPENAI_SESSION_ID_RE,
     );
+    expect(res.getHeader('x-hybridclaw-execution-session-id')).toMatch(
+      OPENAI_EXECUTION_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-artifact-count')).toBe('0');
     expect(res.getHeader('x-hybridclaw-agent-id')).toBe('charly');
     expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('current-agent');
   });
@@ -2071,7 +2091,13 @@ describe('gateway HTTP server', () => {
       assistantMessageId: 12,
       sessionId: 'sess_eval_real_1',
       sessionKey: 'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
-      artifacts: [],
+      artifacts: [
+        {
+          path: '/tmp/report.pdf',
+          filename: 'report.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
     });
     const req = makeRequest({
       method: 'POST',
@@ -2090,6 +2116,10 @@ describe('gateway HTTP server', () => {
     expect(res.getHeader('x-hybridclaw-session-key')).toBe(
       'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
     );
+    expect(res.getHeader('x-hybridclaw-execution-session-id')).toMatch(
+      OPENAI_EXECUTION_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-artifact-count')).toBe('1');
   });
 
   test('routes OpenAI requests with HybridClaw eval-profile header using the plain model name', async () => {
@@ -2113,6 +2143,8 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2145,6 +2177,8 @@ describe('gateway HTTP server', () => {
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -3967,6 +4001,25 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Gateway restart is unavailable in this launch mode.',
+    });
+  });
+
+  test('reloads gateway config for authorized admin API calls', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      status: 'ok',
+      message: 'Gateway reloaded.',
     });
   });
 

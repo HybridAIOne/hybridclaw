@@ -29,6 +29,7 @@ import {
   IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
+  refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 import type {
   RuntimeConfig,
@@ -37,6 +38,7 @@ import type {
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
+  reloadRuntimeConfig,
   parseSchedulerBoardStatus,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
@@ -1845,6 +1847,26 @@ function handleApiRestart(res: ServerResponse): void {
   }, 50);
 }
 
+function handleApiConfigReload(res: ServerResponse): void {
+  try {
+    refreshRuntimeSecretsFromEnv();
+    reloadRuntimeConfig('admin-api');
+  } catch (error) {
+    sendJson(res, 500, {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Gateway reload failed unexpectedly.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway reloaded.',
+  });
+}
+
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
@@ -3551,6 +3573,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/restart' && method === 'POST') {
             handleApiRestart(res);
+            return;
+          }
+
+          if (pathname === '/api/admin/config/reload' && method === 'POST') {
+            handleApiConfigReload(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
