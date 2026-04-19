@@ -886,6 +886,13 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
 
 test('checkSkills warns on enabled skills unused in the last 30 days', async () => {
   const disabledSkills = new Set<string>();
+  const now = Date.now();
+  const freshObservedAt = new Date(
+    now - 10 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const staleObservedAt = new Date(
+    now - 90 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({
@@ -939,7 +946,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: '2026-03-20T10:00:00.000Z',
+        last_observed_at: freshObservedAt,
       },
       {
         skill_name: 'stale-skill',
@@ -953,7 +960,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: '2026-01-20T10:00:00.000Z',
+        last_observed_at: staleObservedAt,
       },
     ],
   }));

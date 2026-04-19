@@ -1758,7 +1758,7 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
       userId,
       channelId,
       limit,
-      query,
+      ...(query ? { query } : {}),
     }),
   });
 }

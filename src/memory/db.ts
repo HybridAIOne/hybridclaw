@@ -4328,10 +4328,9 @@ export function getRecentSessionsForUser(params: {
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
       title,
-      searchSnippet:
-        rawSearchSnippet && !String(title || '').includes(rawSearchSnippet)
-          ? rawSearchSnippet
-          : null,
+      ...(rawSearchSnippet && !String(title || '').includes(rawSearchSnippet)
+        ? { searchSnippet: rawSearchSnippet }
+        : {}),
     };
   });
 
