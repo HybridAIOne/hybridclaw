@@ -374,14 +374,16 @@ function resolveArtifactHostPath(
 
   if (path.posix.isAbsolute(normalized)) {
     const cleanAbs = path.posix.normalize(normalized);
-    const allowedRoots = new Set([CONTAINER_WORKSPACE_ROOT, displayRoot]);
-    let matchedRoot: string | null = null;
-    for (const root of allowedRoots) {
-      if (cleanAbs === root || cleanAbs.startsWith(`${root}/`)) {
-        matchedRoot = root;
-        break;
-      }
-    }
+    const allowedRoots =
+      displayRoot === CONTAINER_WORKSPACE_ROOT
+        ? [CONTAINER_WORKSPACE_ROOT]
+        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
+            (left, right) => right.length - left.length,
+          );
+    const matchedRoot =
+      allowedRoots.find(
+        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
+      ) ?? null;
     if (!matchedRoot) {
       return null;
     }

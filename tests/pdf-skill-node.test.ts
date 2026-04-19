@@ -91,6 +91,22 @@ async function readPageTextItems(outputPath, pageNumber = 1) {
     .filter(Boolean);
 }
 
+function groupItemsByLine(items, tolerance = 0.75) {
+  const positioned = [...items].sort((left, right) => right.y - left.y);
+  const lines = [];
+
+  for (const item of positioned) {
+    const previous = lines.at(-1);
+    if (!previous || Math.abs(previous.y - item.y) > tolerance) {
+      lines.push({ y: item.y, items: [item] });
+      continue;
+    }
+    previous.items.push(item);
+  }
+
+  return lines;
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
@@ -136,10 +152,31 @@ describe('PDF skill Node scripts', () => {
     ]);
 
     const items = await readPageTextItems(outputPdf);
-    expect(items.length).toBeGreaterThan(8);
-    for (let index = 1; index < items.length; index += 1) {
-      expect(items[index].y).toBeLessThan(items[index - 1].y);
+    const lines = groupItemsByLine(items);
+    expect(lines.length).toBeGreaterThan(8);
+    for (let index = 1; index < lines.length; index += 1) {
+      expect(lines[index].y).toBeLessThan(lines[index - 1].y);
     }
+  });
+
+  test('wraps overlong single tokens without inserting spaces between segments', async () => {
+    const dir = makeTempDir();
+    const outputPdf = path.join(dir, 'long-token.pdf');
+    const longToken = 'a'.repeat(160);
+
+    runNodeScript([
+      'skills/pdf/scripts/create_pdf.mjs',
+      outputPdf,
+      '--font-size',
+      '24',
+      '--text',
+      longToken,
+    ]);
+
+    const items = await readPageTextItems(outputPdf);
+    const combinedText = items.map((item) => item.text).join('');
+    expect(combinedText).toContain(longToken);
+    expect(combinedText).not.toContain(' ');
   });
 
   test('adds new pages when wrapped body text exceeds the first page', async () => {

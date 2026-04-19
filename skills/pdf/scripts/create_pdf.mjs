@@ -28,9 +28,14 @@ function parseArgs(argv) {
       continue;
     }
     if (value === '--font-size') {
-      const parsed = Number.parseInt(argv[index + 1] || '', 10);
+      const rawFontSize = argv[index + 1] || '';
+      const parsed = Number.parseInt(rawFontSize, 10);
       if (Number.isFinite(parsed) && parsed > 0) {
         args.fontSize = parsed;
+      } else {
+        console.warn(
+          `Ignoring invalid --font-size "${rawFontSize}" and keeping ${args.fontSize}.`,
+        );
       }
       index += 1;
       continue;
@@ -64,12 +69,16 @@ function resolveStandardFont(name) {
     timesitalic: StandardFonts.TimesRomanItalic,
     timesbolditalic: StandardFonts.TimesRomanBoldItalic,
   };
-  return fontMap[normalized] || StandardFonts.Helvetica;
+  const resolvedFont = fontMap[normalized];
+  if (resolvedFont) {
+    return resolvedFont;
+  }
+  console.warn(`Unknown --font "${name}". Falling back to Helvetica.`);
+  return StandardFonts.Helvetica;
 }
 
 function normalizeTextBreaks(value) {
   return String(value || '')
-    .replace(/\\r\\n/g, '\n')
     .replace(/\\n/g, '\n')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
@@ -86,7 +95,7 @@ function splitLongToken(token, font, fontSize, maxWidth) {
   const pieces = [];
   let current = '';
 
-  for (const character of Array.from(token)) {
+  for (const character of token) {
     const next = `${current}${character}`;
     if (current && font.widthOfTextAtSize(next, fontSize) > maxWidth) {
       pieces.push(current);
@@ -114,7 +123,7 @@ function buildWrappedLines(text, font, fontSize, maxWidth) {
       continue;
     }
 
-    const words = rawLine.trim().split(/\s+/).filter(Boolean);
+    const words = rawLine.trim().split(/\s+/);
     let currentLine = '';
 
     for (const word of words) {
@@ -123,8 +132,13 @@ function buildWrappedLines(text, font, fontSize, maxWidth) {
           ? splitLongToken(word, font, fontSize, maxWidth)
           : [word];
 
-      for (const segment of segments) {
-        const candidate = currentLine ? `${currentLine} ${segment}` : segment;
+      for (const [segmentIndex, segment] of segments.entries()) {
+        const joinsExistingWord = segmentIndex > 0;
+        const candidate = currentLine
+          ? joinsExistingWord
+            ? `${currentLine}${segment}`
+            : `${currentLine} ${segment}`
+          : segment;
         if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
           currentLine = candidate;
           continue;
@@ -165,6 +179,7 @@ async function main() {
   let page = firstPage;
   let y = height - margin;
 
+  // These helpers mutate the current page/cursor state in outer scope.
   const startNewPage = () => {
     page = pdfDoc.addPage([width, height]);
     y = height - margin;
