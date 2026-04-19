@@ -159,12 +159,7 @@ test('maps Discord-style slash commands to gateway command args', () => {
     mapTuiSlashCommandToGatewayArgs(['skill', 'install', 'demo-skill']),
   ).toEqual(['skill', 'install', 'demo-skill']);
   expect(
-    mapTuiSlashCommandToGatewayArgs([
-      'skill',
-      'install',
-      '1password',
-      'brew',
-    ]),
+    mapTuiSlashCommandToGatewayArgs(['skill', 'install', '1password', 'brew']),
   ).toEqual(['skill', 'install', '1password', 'brew']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
