@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
 import { type GatewayExitPayload, GatewayRuntime } from './gateway-runtime.js';
 import {
   type DesktopRoute,
+  isDesktopRoute,
   isInAppUrl,
   normalizeGatewayBaseUrl,
   routeForUrl,
@@ -398,11 +399,7 @@ function openAboutWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('hc-about://')) {
       const candidate = url.slice('hc-about://'.length);
-      if (
-        candidate === 'chat' ||
-        candidate === 'agents' ||
-        candidate === 'admin'
-      ) {
+      if (isDesktopRoute(candidate)) {
         void openRoute(candidate);
       }
       return { action: 'deny' };
@@ -414,11 +411,7 @@ function openAboutWindow(): BrowserWindow {
     if (!url.startsWith('hc-about://')) return;
     event.preventDefault();
     const candidate = url.slice('hc-about://'.length);
-    if (
-      candidate === 'chat' ||
-      candidate === 'agents' ||
-      candidate === 'admin'
-    ) {
+    if (isDesktopRoute(candidate)) {
       void openRoute(candidate);
     }
   });

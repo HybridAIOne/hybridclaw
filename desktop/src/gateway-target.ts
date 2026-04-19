@@ -2,6 +2,15 @@ import path from 'node:path';
 
 export type DesktopRoute = 'chat' | 'agents' | 'admin';
 
+const DESKTOP_ROUTES: readonly DesktopRoute[] = ['chat', 'agents', 'admin'];
+
+export function isDesktopRoute(value: unknown): value is DesktopRoute {
+  return (
+    typeof value === 'string' &&
+    (DESKTOP_ROUTES as readonly string[]).includes(value)
+  );
+}
+
 export const DEFAULT_GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const COMMON_DESKTOP_PATH_ENTRIES = [
   '/opt/homebrew/bin',
@@ -36,10 +45,9 @@ export function normalizeGatewayBaseUrl(
 }
 
 export function routeUrl(baseUrl: string, route: DesktopRoute): string {
-  const normalizedBaseUrl = normalizeGatewayBaseUrl(baseUrl);
   const pathname =
     route === 'chat' ? '/chat' : route === 'agents' ? '/agents' : '/admin';
-  return new URL(pathname, `${normalizedBaseUrl}/`).toString();
+  return new URL(pathname, `${baseUrl}/`).toString();
 }
 
 export function routeForUrl(
@@ -50,7 +58,7 @@ export function routeForUrl(
   let base: URL;
   try {
     url = new URL(candidate);
-    base = new URL(`${normalizeGatewayBaseUrl(baseUrl)}/`);
+    base = new URL(`${baseUrl}/`);
   } catch {
     return null;
   }
@@ -88,12 +96,11 @@ export function buildGatewayPath(
 }
 
 export function buildGatewayEnv(baseUrl: string): NodeJS.ProcessEnv {
-  const normalizedBaseUrl = normalizeGatewayBaseUrl(baseUrl);
-  const url = new URL(`${normalizedBaseUrl}/`);
+  const url = new URL(`${baseUrl}/`);
   return {
     ...process.env,
     PATH: buildGatewayPath(process.env.PATH),
-    GATEWAY_BASE_URL: normalizedBaseUrl,
+    GATEWAY_BASE_URL: baseUrl,
     HEALTH_HOST: url.hostname,
     HEALTH_PORT: url.port || (url.protocol === 'https:' ? '443' : '80'),
   };
