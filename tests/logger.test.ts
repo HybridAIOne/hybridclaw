@@ -21,6 +21,36 @@ async function waitForFileText(
   throw new Error(`Timed out waiting for log file: ${filePath}`);
 }
 
+function removeHybridClawProcessListeners(event: 'uncaughtException'): void {
+  for (const listener of process.listeners(event)) {
+    if (listener.name === 'uncaughtExceptionHandler') {
+      process.removeListener(event, listener);
+    }
+  }
+}
+
+async function importFreshLogger() {
+  removeHybridClawProcessListeners('uncaughtException');
+  vi.resetModules();
+  vi.doMock('../src/config/runtime-config.ts', () => ({
+    getRuntimeConfig: () => ({
+      ops: { logLevel: 'info' },
+    }),
+    onRuntimeConfigChange: vi.fn(),
+  }));
+  const module = await import('../src/logger.ts');
+  const listener = process
+    .listeners('uncaughtException')
+    .find((candidate) => candidate.name === 'uncaughtExceptionHandler');
+  if (!listener) {
+    throw new Error('Failed to register uncaughtExceptionHandler');
+  }
+  return {
+    ...module,
+    uncaughtExceptionHandler: listener as (error: Error) => void,
+  };
+}
+
 describe('logger forced level override', () => {
   let tempDir: string | null = null;
 
@@ -28,6 +58,7 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
+    removeHybridClawProcessListeners('uncaughtException');
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
     if (tempDir) {
@@ -144,5 +175,45 @@ describe('logger forced level override', () => {
     );
 
     expect(logText).toContain('late forced debug mirror test');
+  });
+
+  it('keeps expected transport exceptions non-fatal', async () => {
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const fatalSpy = vi
+      .spyOn(logger, 'fatal')
+      .mockImplementation(() => undefined);
+
+    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Handled expected transport exception without exiting',
+    );
+    expect(fatalSpy).not.toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('still exits on unexpected uncaught exceptions', async () => {
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const fatalSpy = vi
+      .spyOn(logger, 'fatal')
+      .mockImplementation(() => undefined);
+
+    uncaughtExceptionHandler(new Error('Invariant violation'));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(fatalSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Uncaught exception',
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });

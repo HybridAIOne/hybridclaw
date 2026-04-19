@@ -14,6 +14,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -157,6 +158,13 @@ const UNCAUGHT_EXCEPTION_TAG = '__hybridclaw_uncaughtException__';
 const UNHANDLED_REJECTION_TAG = '__hybridclaw_unhandledRejection__';
 
 function uncaughtExceptionHandler(err: Error) {
+  if (isExpectedTransportError(err)) {
+    logger.warn(
+      { err },
+      'Handled expected transport exception without exiting',
+    );
+    return;
+  }
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 }

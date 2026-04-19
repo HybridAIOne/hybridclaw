@@ -133,6 +133,7 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
+import { attachDiscordTransportErrorHandlers } from './transport-errors.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -1539,6 +1540,7 @@ export async function initDiscord(
       Partials.User,
     ],
   });
+  attachDiscordTransportErrorHandlers(client);
 
   client.on('presenceUpdate', (_oldPresence, nextPresence) => {
     const userId = nextPresence.userId || nextPresence.user?.id;
@@ -1552,13 +1554,6 @@ export async function initDiscord(
         details: activity.details || null,
       })),
     });
-  });
-
-  client.on('error', (error) => {
-    logger.error(
-      { error },
-      'Discord client error (will reconnect automatically)',
-    );
   });
 
   client.on('clientReady', () => {

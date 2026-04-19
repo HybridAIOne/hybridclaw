@@ -1,17 +1,33 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, test, vi } from 'vitest';
+import type { Client } from 'discord.js';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('../src/logger.ts', () => ({
+  logger: loggerMocks,
+}));
+
+import { attachDiscordTransportErrorHandlers } from '../src/channels/discord/transport-errors.ts';
 
 /**
- * Regression test for gateway crash caused by unhandled Discord client 'error'
- * events. Without an error listener, Node's EventEmitter throws 'error' events
- * as uncaught exceptions — which hit our process.on('uncaughtException') handler
- * in logger.ts and call process.exit(1).
- *
- * The fix adds `client.on('error', ...)` in initDiscord() so transient
- * WebSocket errors (e.g. "Opening handshake has timed out") are logged
- * instead of crashing the gateway.
+ * Regression tests for transport errors bubbling out of Discord websocket
+ * setup/reconnect paths. These failures are expected during normal network
+ * churn and must be handled locally instead of surfacing as fatal process
+ * exceptions.
  */
-describe('Discord client error handler', () => {
+class FakeDiscordClient extends EventEmitter {}
+
+afterEach(() => {
+  loggerMocks.error.mockReset();
+  loggerMocks.warn.mockReset();
+  vi.restoreAllMocks();
+});
+
+describe('Discord client transport error handlers', () => {
   test('EventEmitter without error listener throws on error event', () => {
     const emitter = new EventEmitter();
     // Without a listener, emitting 'error' throws
@@ -20,18 +36,40 @@ describe('Discord client error handler', () => {
     );
   });
 
-  test('EventEmitter with error listener does not throw', () => {
-    const emitter = new EventEmitter();
-    const errorHandler = vi.fn();
-    emitter.on('error', errorHandler);
+  test('expected Discord transport errors are handled locally', () => {
+    const client = new FakeDiscordClient() as unknown as Client;
 
-    // With a listener, emitting 'error' is handled gracefully
+    attachDiscordTransportErrorHandlers(client);
+
     expect(() =>
-      emitter.emit('error', new Error('Opening handshake has timed out')),
+      client.emit('error', new Error('Opening handshake has timed out')),
     ).not.toThrow();
-    expect(errorHandler).toHaveBeenCalledOnce();
-    expect(errorHandler.mock.calls[0][0].message).toBe(
-      'Opening handshake has timed out',
+    expect(() =>
+      client.emit('shardError', new Error('Opening handshake has timed out'), 7),
+    ).not.toThrow();
+
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      { error: expect.any(Error) },
+      'Discord client transport error (will reconnect automatically)',
+    );
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      { error: expect.any(Error), shardId: 7 },
+      'Discord shard transport error (will reconnect automatically)',
+    );
+  });
+
+  test('unexpected Discord client errors stay at error level', () => {
+    const client = new FakeDiscordClient() as unknown as Client;
+
+    attachDiscordTransportErrorHandlers(client);
+
+    expect(() =>
+      client.emit('error', new Error('Discord parser exploded')),
+    ).not.toThrow();
+
+    expect(loggerMocks.error).toHaveBeenCalledWith(
+      { error: expect.any(Error) },
+      'Discord client transport error (will reconnect automatically)',
     );
   });
 });
