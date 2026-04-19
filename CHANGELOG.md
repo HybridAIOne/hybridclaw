@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Added
+
+- **HybridAI skills eval suite**: Added `hybridclaw eval hybridai-skills
+  [setup|list|run|results]` plus local `/eval hybridai-skills ...` flows that
+  harvest the "Try it yourself" prompts from the bundled skills guides into a
+  fixture set and grade which documented skill actually fired from the model's
+  tool trace.
+
+### Changed
+
+- **`/admin/gateway` now reloads config instead of restarting the runtime**:
+  The browser action now uses `Reload Gateway`, which refreshes runtime config
+  and secrets through the admin API without tearing down the enclosing
+  workspace container. Local/manual `hybridclaw gateway restart` stays
+  available when a full restart is still required.
+- **`hybridai-skills` eval output is more actionable**: Live results now show
+  the observed skill, whether artifacts were produced, and counted tool-call
+  totals per fixture. The old `--mode implicit|explicit` filter has been
+  removed; use `--explicit` on `run` when you want prompts rewritten as
+  `/<skill> ...` for forced invocation.
+
+### Fixed
+
+- **Unattended eval runs no longer stop on tool approvals**: Eval-profiled
+  loopback requests now auto-approve tools end to end, expose execution-session
+  and artifact-count response headers for correlation, and let detached or
+  `hybridai-skills` eval runs finish without manual approval interruptions.
+- **Fresh-agent eval cleanup is more complete**: Temporary agent workspaces,
+  transient sessions, and audit-trail directories created for `fresh-agent`
+  eval runs are deleted after grading instead of accumulating under the runtime
+  data directory.
+- **Agent image builds are quieter in CI**: The container Dockerfile now sets
+  `DEBIAN_FRONTEND=noninteractive` for the apt-based image layers and
+  Playwright's `install-deps chromium` step, eliminating repeated `debconf`
+  frontend fallback warnings during release and snapshot builds without
+  changing the installed package set or runtime behavior.
+
 ## [0.12.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.8)
 
 ### Changed
