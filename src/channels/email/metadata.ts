@@ -1,4 +1,5 @@
 import type { TokenUsageStats } from '../../types/usage.js';
+import { normalizeNullableTrimmedString as trimString } from '../../utils/normalized-strings.js';
 
 export type EmailDeliveryTokenSource = 'api' | 'estimated';
 
@@ -21,11 +22,6 @@ const EMAIL_METADATA_HEADERS = {
   totalTokens: 'X-HybridClaw-Total-Tokens',
   tokenSource: 'X-HybridClaw-Token-Source',
 } as const;
-
-function trimString(value: unknown): string | null {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  return trimmed || null;
-}
 
 function normalizeTokenCount(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {

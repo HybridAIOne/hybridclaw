@@ -1,3 +1,4 @@
+import { normalizeTrimmedString as normalizeValue } from '../utils/normalized-strings.js';
 import type { ChannelInfo } from './channel.js';
 import {
   getChannel,
@@ -24,10 +25,6 @@ export type ChannelAgentPromptAdapter = {
     runtimeInfo?: ChannelPromptRuntimeInfo;
   }) => string[];
 };
-
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
 
 function resolveRuntimeChannel(
   runtimeInfo?: ChannelPromptRuntimeInfo,
