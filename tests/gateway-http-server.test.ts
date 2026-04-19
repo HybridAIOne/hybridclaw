@@ -3745,6 +3745,24 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('passes chat title search queries through to recent session lookup', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=25&q=deploy',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 25,
+      query: 'deploy',
+    });
+  });
+
   test('rejects history requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?limit=2' });

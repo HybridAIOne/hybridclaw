@@ -881,6 +881,70 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser searches titles before applying the result limit', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-1', null, 'web');
+    getOrCreateSession('web-session-2', null, 'web');
+    getOrCreateSession('web-session-3', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+
+    insertMessage.run(
+      'web-session-1',
+      'web-user-a',
+      'web',
+      'user',
+      'Draft the deployment checklist',
+      '2026-03-24T08:00:00.000Z',
+    );
+    updateSession.run(1, '2026-03-24T08:00:00.000Z', 'web-session-1');
+
+    insertMessage.run(
+      'web-session-2',
+      'web-user-a',
+      'web',
+      'user',
+      'Review deployment rollback plan',
+      '2026-03-24T09:00:00.000Z',
+    );
+    updateSession.run(1, '2026-03-24T09:00:00.000Z', 'web-session-2');
+
+    insertMessage.run(
+      'web-session-3',
+      'web-user-a',
+      'web',
+      'user',
+      'Brainstorm launch copy',
+      '2026-03-24T10:00:00.000Z',
+    );
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'web-session-3');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 1,
+        query: 'deploy',
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-2',
+        lastActive: '2026-03-24T09:00:00.000Z',
+        messageCount: 1,
+        title: '"Review deployment rollback plan"',
+      },
+    ]);
+  });
+
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

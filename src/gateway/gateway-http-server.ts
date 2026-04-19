@@ -1750,6 +1750,7 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
     return;
   }
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
+  const query = (url.searchParams.get('q') || '').trim();
   const parsedLimit = parseInt(url.searchParams.get('limit') || '10', 10);
   const limit = Number.isNaN(parsedLimit) ? 10 : parsedLimit;
   sendJson(res, 200, {
@@ -1757,6 +1758,7 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
       userId,
       channelId,
       limit,
+      query,
     }),
   });
 }

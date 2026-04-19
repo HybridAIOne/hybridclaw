@@ -4125,14 +4125,72 @@ interface RecentSessionBoundaryRow {
   last_role: string | null;
 }
 
+const RECENT_SESSION_BOUNDARY_BATCH_SIZE = 400;
+
+function getRecentSessionBoundaryRows(
+  sessionIds: string[],
+  userId: string,
+): RecentSessionBoundaryRow[] {
+  const rows: RecentSessionBoundaryRow[] = [];
+
+  for (
+    let index = 0;
+    index < sessionIds.length;
+    index += RECENT_SESSION_BOUNDARY_BATCH_SIZE
+  ) {
+    const batch = sessionIds.slice(
+      index,
+      index + RECENT_SESSION_BOUNDARY_BATCH_SIZE,
+    );
+    const placeholders = batch.map(() => '?').join(', ');
+    rows.push(
+      ...queryAll<RecentSessionBoundaryRow>(
+        db,
+        `WITH ranked AS (
+           SELECT
+             session_id,
+             role,
+             content,
+             CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
+             ROW_NUMBER() OVER (
+               PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+               ORDER BY id ASC
+             ) AS rn_target_group
+           FROM messages
+           WHERE session_id IN (${placeholders})
+         )
+         SELECT
+           session_id,
+           MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
+           MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
+           MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
+           MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
+         FROM ranked
+         GROUP BY session_id`,
+        userId,
+        userId,
+        ...batch,
+      ),
+    );
+  }
+
+  return rows;
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
   limit?: number;
+  query?: string | null;
 }): RecentUserSessionSummary[] {
   const userId = params.userId.trim();
   if (!userId) return [];
   const channelId = String(params.channelId || '').trim();
+  const titleQuery = String(params.query || '')
+    .trim()
+    .toLowerCase();
   const limit =
     typeof params.limit === 'number' && Number.isFinite(params.limit)
       ? Math.max(1, Math.floor(params.limit))
@@ -4160,53 +4218,26 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const targetRows = rows
-    .sort((left, right) => {
-      const rightTimestamp = parseTimestamp(right.last_active);
-      const leftTimestamp = parseTimestamp(left.last_active);
-      if (rightTimestamp !== leftTimestamp) {
-        return rightTimestamp - leftTimestamp;
-      }
-      return right.id.localeCompare(left.id);
-    })
-    .slice(0, limit);
+  const sortedRows = rows.sort((left, right) => {
+    const rightTimestamp = parseTimestamp(right.last_active);
+    const leftTimestamp = parseTimestamp(left.last_active);
+    if (rightTimestamp !== leftTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+    return right.id.localeCompare(left.id);
+  });
+  const targetRows = titleQuery ? sortedRows : sortedRows.slice(0, limit);
   if (targetRows.length === 0) return [];
 
-  const placeholders = targetRows.map(() => '?').join(', ');
-  const boundaryRows = queryAll<RecentSessionBoundaryRow>(
-    db,
-    `WITH ranked AS (
-       SELECT
-         session_id,
-         role,
-         content,
-         CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
-         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
-         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
-         ROW_NUMBER() OVER (
-           PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
-           ORDER BY id ASC
-         ) AS rn_target_group
-       FROM messages
-       WHERE session_id IN (${placeholders})
-     )
-     SELECT
-       session_id,
-       MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
-       MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
-       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
-       MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
-     FROM ranked
-     GROUP BY session_id`,
+  const boundaryRows = getRecentSessionBoundaryRows(
+    targetRows.map((row) => row.id),
     userId,
-    userId,
-    ...targetRows.map((row) => row.id),
   );
   const boundariesBySessionId = new Map(
     boundaryRows.map((row) => [row.session_id, row] as const),
   );
 
-  return targetRows.map((row) => {
+  const sessions = targetRows.map((row) => {
     const boundary = boundariesBySessionId.get(row.id);
     const firstMessage =
       boundary?.first_user_content || boundary?.first_content || null;
@@ -4232,6 +4263,15 @@ export function getRecentSessionsForUser(params: {
       }),
     };
   });
+
+  if (!titleQuery) return sessions;
+  return sessions
+    .filter((session) =>
+      String(session.title || '')
+        .toLowerCase()
+        .includes(titleQuery),
+    )
+    .slice(0, limit);
 }
 
 export function getFullAutoSessionCount(): number {

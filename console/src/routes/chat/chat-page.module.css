@@ -58,6 +58,30 @@
   background: var(--accent-soft);
 }
 
+.sidebarSearchWrap {
+  padding: 2px 0 4px;
+}
+
+.sidebarSearch {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 9px 11px;
+}
+
+.sidebarSearch::placeholder {
+  color: var(--muted-foreground);
+}
+
+.sidebarSearch:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+  border-color: var(--ring);
+}
+
 .sidebarLabel {
   margin: 12px 0 4px;
   padding: 0 6px;
@@ -115,6 +139,12 @@
 
 .sessionTime {
   font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.sidebarStatus {
+  padding: 6px 10px;
+  font-size: 0.82rem;
   color: var(--muted-foreground);
 }
 

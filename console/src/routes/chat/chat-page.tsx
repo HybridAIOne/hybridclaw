@@ -75,6 +75,7 @@ export function ChatPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [branchFamilies, setBranchFamilies] = useState<
     Map<string, BranchVariant[]>
   >(new Map());
@@ -91,6 +92,7 @@ export function ChatPage() {
     content: string;
     media: MediaItem[];
   } | null>(null);
+  const trimmedSessionSearchQuery = sessionSearchQuery.trim();
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -138,8 +140,15 @@ export function ChatPage() {
   }, [auth.token]);
 
   const recentQuery = useQuery({
-    queryKey: ['chat-recent', auth.token, userId],
-    queryFn: () => fetchChatRecent(auth.token, userId),
+    queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    queryFn: () =>
+      fetchChatRecent(
+        auth.token,
+        userId,
+        'web',
+        trimmedSessionSearchQuery ? 50 : 10,
+        trimmedSessionSearchQuery || undefined,
+      ),
     staleTime: 10_000,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
@@ -358,6 +367,9 @@ export function ChatPage() {
     activeSessionId: sessionId,
     onNewChat: handleNewChat,
     onOpenSession: handleOpenSession,
+    searchQuery: sessionSearchQuery,
+    onSearchQueryChange: setSessionSearchQuery,
+    isLoading: recentQuery.isFetching,
   } as const;
 
   return (

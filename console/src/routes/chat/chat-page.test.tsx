@@ -18,7 +18,15 @@ import { ChatPage } from './chat-page';
 
 const validateTokenMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
 const fetchChatRecentMock =
-  vi.fn<(token: string, userId: string) => Promise<ChatRecentResponse>>();
+  vi.fn<
+    (
+      token: string,
+      userId: string,
+      channelId?: string,
+      limit?: number,
+      query?: string,
+    ) => Promise<ChatRecentResponse>
+  >();
 const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
 const createChatBranchMock =
@@ -38,8 +46,13 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
-  fetchChatRecent: (token: string, userId: string) =>
-    fetchChatRecentMock(token, userId),
+  fetchChatRecent: (
+    token: string,
+    userId: string,
+    channelId?: string,
+    limit?: number,
+    query?: string,
+  ) => fetchChatRecentMock(token, userId, channelId, limit, query),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
   createChatBranch: (
@@ -111,22 +124,33 @@ describe('ChatPage', () => {
       ragDefault: false,
       timestamp: '2026-04-14T10:00:00.000Z',
     });
-    fetchChatRecentMock.mockResolvedValue({
-      sessions: [
-        {
-          sessionId: 'session-a',
-          title: 'Session A',
-          lastActive: '2026-04-14T10:00:00.000Z',
-          messageCount: 2,
-        },
-        {
-          sessionId: 'session-b',
-          title: 'Session B',
-          lastActive: '2026-04-14T09:30:00.000Z',
-          messageCount: 3,
-        },
-      ],
-    });
+    fetchChatRecentMock.mockImplementation(
+      async (_token, _userId, _channelId, _limit, query) => ({
+        sessions: query
+          ? [
+              {
+                sessionId: 'session-search',
+                title: 'Deployment checklist',
+                lastActive: '2026-04-13T09:30:00.000Z',
+                messageCount: 4,
+              },
+            ]
+          : [
+              {
+                sessionId: 'session-a',
+                title: 'Session A',
+                lastActive: '2026-04-14T10:00:00.000Z',
+                messageCount: 2,
+              },
+              {
+                sessionId: 'session-b',
+                title: 'Session B',
+                lastActive: '2026-04-14T09:30:00.000Z',
+                messageCount: 3,
+              },
+            ],
+      }),
+    );
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -221,6 +245,57 @@ describe('ChatPage', () => {
       ['test-token', 'session-a'],
       ['test-token', 'session-b'],
     ]);
+  });
+
+  it('searches conversation titles beyond the default recent list', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: sessionId === 'session-search' ? 301 : 101,
+            role: 'assistant',
+            content:
+              sessionId === 'session-search'
+                ? 'Opened deployment thread'
+                : 'Opened session A',
+          },
+        ],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Search conversations by title'), {
+      target: { value: 'deploy' },
+    });
+
+    expect(await screen.findByText('Deployment checklist')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatRecentMock).toHaveBeenCalledWith(
+        'test-token',
+        'web-user-1',
+        'web',
+        50,
+        'deploy',
+      ),
+    );
+
+    fireEvent.click(
+      screen
+        .getByText('Deployment checklist')
+        .closest('button') as HTMLButtonElement,
+    );
+
+    expect(await screen.findByText('Opened deployment thread')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-search',
+      ),
+    );
   });
 
   it('assigns branch controls to loaded history and opens sibling branches', async () => {
