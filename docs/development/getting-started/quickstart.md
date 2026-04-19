@@ -42,6 +42,10 @@ hybridclaw gateway start --foreground --sandbox=host
 Use `--sandbox=host` for stdio MCP servers that depend on host binaries such
 as `docker`, `node`, or `npx`.
 
+Use `hybridclaw gateway status` to confirm the active sandbox and runtime
+metadata. In container mode it also shows the configured image name, resolved
+version, and short image id.
+
 ## Start The TUI
 
 In a second terminal:

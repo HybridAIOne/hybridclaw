@@ -106,8 +106,6 @@ let taskRunner: TaskRunner | null = null;
 let ticking = false;
 const schedulerState: SchedulerStateFile = loadSchedulerState();
 
-// --- Prompt framing ---
-
 function resolveSchedulerTimeZone(timeZone: string | undefined): string {
   const trimmed = timeZone?.trim();
   return trimmed || DEFAULT_SCHEDULER_TIME_ZONE;
@@ -1304,8 +1302,6 @@ export function resetConfigJobRuntime(jobId: string): boolean {
   );
   return true;
 }
-
-// --- Public API ---
 
 export function startScheduler(runner: TaskRunner): void {
   logger.info('Scheduler started');

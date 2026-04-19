@@ -15,38 +15,48 @@ with bundled Node/JS tools.
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| `poppler` | PDF-to-image rendering (`pdftoppm`) | `hybridclaw skill install pdf brew-poppler` |
-| `qpdf` | PDF merging, splitting, linearization | `hybridclaw skill install pdf brew-qpdf` |
+| `node` | Required runtime — the skill is Node-only | System install |
 
-Both are optional — the skill degrades gracefully without them.
+The Node libraries (`pdf-lib`, `pdfjs-dist`, `@napi-rs/canvas`) are bundled
+with HybridClaw. No external CLI tools are required.
 
 > 💡 **Tips & Tricks**
 >
 > The skill ships bundled Node scripts under `skills/pdf/scripts/` — always prefer them over external CLIs.
 >
-> For invoice extraction, let the skill try text extraction first; it falls back to page rendering and vision only when text is unusable.
+> Let the skill try text extraction first; it falls back to page rendering and vision only when text is unusable.
 >
-> Use `--format json` on extraction scripts when you need structured downstream processing.
+> Use `--json` on `extract_pdf_text.mjs` when you need structured downstream processing.
+>
+> When filling a fillable form, add `--flatten` so the values are baked into the page content and survive re-extraction.
 
 > 🎯 **Try it yourself**
 >
-> `Create a one-page PDF invoice for "Acme Corp" with 3 line items (Widget A $120, Widget B $250, Consulting $500), a subtotal, 8% tax, and grand total`
+> Creation and extraction:
 >
-> `Create a PDF form with fields "Name", "Email", and "Date", then fill them with "Jane Doe", "jane@example.com", and "2026-04-16", and save as filled-form.pdf`
+> `Create a one-page PDF titled "Quarterly Report" with three body lines: revenue, growth, and team size`
 >
-> `Create two single-page PDFs — one titled "Q1 Report" and one titled "Q2 Report" — then merge them into combined-report.pdf`
+> `Create a one-page PDF invoice for "Acme Corp" with 3 line items (Widget A 120, Widget B 250, Consulting 500), a subtotal, 8% tax, and grand total, then extract the text back as JSON so I can see exactly what was written`
 >
-> `Render page 1 of the merged combined-report.pdf as a PNG so I can inspect the layout`
+> `Create a 2-page PDF titled "Board Brief" with any placeholder text, then render both pages as PNGs so I can inspect the layout`
 >
-> `Create a PDF with 3 pages of placeholder text and check if it has any fillable form fields`
+> Fillable forms:
 >
-> `Create a multi-page PDF containing three financial tables (Revenue by Quarter, Expenses by Department, Profit Margins by Product Line) with sample data, then extract each table and save them as separate CSV files in ./extracted/`
+> `Create a PDF registration form with fields "last_name" (text), "country" (dropdown with DE/US/FR), and "is_adult" (checkbox), then report the extracted field metadata`
 >
-> **Conversation flow:**
+> `Create that same registration form, fill it with last_name="Simpson", country="US", and is_adult=true, save both a regular filled.pdf and a flattened filled-flat.pdf, and extract text from the flattened copy to confirm the values stuck`
 >
-> `1. Create a 5-page PDF report titled "Annual Review 2025" with a cover page, executive summary, revenue breakdown table, expense analysis, and closing remarks`
-> `2. Add page numbers in the footer and a confidential watermark on every page`
-> `3. Split the report into individual page PDFs and merge just the cover and revenue pages into a standalone highlights.pdf`
+> Non-fillable overlays:
+>
+> `Create a plain one-page PDF titled "Tax Form 2025" with three label lines ("Name:", "Date:", "Signature:"), confirm it has no fillable fields, then render the page to PNG and extract its best-effort label structure so I can plan coordinate boxes`
+>
+> `Create a plain one-page PDF titled "Tax Form 2025" with three label lines ("Name:", "Date:", "Signature:"), render the page to PNG, extract its best-effort label structure, write a fields.json with label/entry boxes for Name and Signature, validate the bounding boxes, draw a validation overlay onto the rendered page image, then write the filled PDF with the text annotations in place`
+>
+> Multi-step flow:
+>
+> `1. Create a 2-page PDF titled "Annual Review 2025" with a cover page and an executive summary`
+> `2. Extract the text as JSON and render both pages to PNGs`
+> `3. Check whether the PDF has fillable fields, and if not, add a "Signed By: Jane Doe" overlay near the bottom of page 2`
 
 **Troubleshooting**
 
@@ -54,8 +64,9 @@ Both are optional — the skill degrades gracefully without them.
   is Node-only; it does not use Python.
 - **Blank text extraction** — the PDF may be image-based (scanned). The skill
   does not include OCR; render pages to PNG and use vision tooling instead.
-- **Missing `pdftoppm`** — install Poppler via the command above. Without it,
-  page-to-image rendering is unavailable.
+- **Filled form fields disappear on re-extraction** — use `--flatten` when
+  calling `fill_fillable_fields.mjs` so values are baked into the content
+  stream rather than left as interactive widgets.
 
 ---
 

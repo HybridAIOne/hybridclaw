@@ -1,6 +1,6 @@
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { SKILL_CONFIG_CHANNEL_KINDS } from '../channels/channel.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   getRuntimeSkillScopeDisabledNames,
   setRuntimeSkillScopeEnabled,

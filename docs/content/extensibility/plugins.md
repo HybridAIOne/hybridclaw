@@ -19,6 +19,7 @@ hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
 hybridclaw plugin install ./plugins/gbrain
 hybridclaw plugin install ./plugins/honcho-memory
+hybridclaw plugin install ./plugins/mem0-memory
 hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/brevo-email
@@ -76,6 +77,9 @@ or change one top-level `plugins.list[].config` key without editing
   tools
 - `honcho-memory` mirrors HybridClaw turns into Honcho, injects prompt-time
   recall, and exposes direct Honcho tools while keeping built-in memory active
+- `mem0-memory` mirrors HybridClaw turns into Mem0 cloud memory, injects
+  prompt-time recall, and exposes direct `mem0_*` tools while keeping
+  built-in memory active
 - `mempalace-memory` layers MemPalace recall on top of native memory, mirrors
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server

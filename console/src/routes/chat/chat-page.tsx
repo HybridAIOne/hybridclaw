@@ -285,7 +285,6 @@ export function ChatPage() {
     staleTime: Infinity,
   });
 
-  // Apply loaded history when session changes; flush queued edit if pending
   useEffect(() => {
     const data = historyQuery.data;
 
@@ -503,8 +502,6 @@ export function ChatPage() {
     },
     [branchFamilies, handleOpenSession],
   );
-
-  /* ── Render ─────────────────────────────────────────────── */
 
   const isEmpty = messages.length === 0;
 

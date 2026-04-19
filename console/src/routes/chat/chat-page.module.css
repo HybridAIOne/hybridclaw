@@ -1,5 +1,3 @@
-/* ── Chat Page Layout ─────────────────────────────────────── */
-
 .chatPage {
   display: flex;
   height: 100%;
@@ -154,8 +152,6 @@
   width: 100%;
 }
 
-/* ── Empty State ──────────────────────────────────────────── */
-
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -174,8 +170,6 @@
   letter-spacing: -0.02em;
   line-height: 1.3;
 }
-
-/* ── Message Blocks ───────────────────────────────────────── */
 
 .messageBlock {
   display: flex;
@@ -254,8 +248,6 @@
   max-width: 90%;
   text-align: center;
 }
-
-/* ── Markdown Content ─────────────────────────────────────── */
 
 .markdownContent {
   line-height: 1.6;
@@ -368,8 +360,6 @@
   background: var(--muted);
 }
 
-/* ── Message Actions ──────────────────────────────────────── */
-
 .messageActions {
   display: flex;
   gap: 4px;
@@ -401,8 +391,6 @@
   color: var(--success);
 }
 
-/* ── Branch Switcher ──────────────────────────────────────── */
-
 .branchSwitcher {
   display: inline-flex;
   align-items: center;
@@ -420,6 +408,16 @@
   font-size: 0.8rem;
 }
 
+.branchButton:hover {
+  background: var(--muted);
+  color: var(--text);
+}
+
+.branchButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ── Approval Actions ─────────────────────────────────────── */
 
 .approvalActions {
@@ -434,8 +432,6 @@
   background: var(--success-soft);
   color: var(--success);
 }
-
-/* ── Artifacts ────────────────────────────────────────────── */
 
 .artifactCard {
   display: flex;
@@ -500,8 +496,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* ── Thinking Indicator ───────────────────────────────────── */
-
 .thinking {
   display: flex;
   align-items: center;
@@ -537,8 +531,6 @@
     opacity: 1;
   }
 }
-
-/* ── Composer ─────────────────────────────────────────────── */
 
 .composerWrapper {
   flex-shrink: 0;
@@ -692,8 +684,6 @@
   color: var(--danger);
 }
 
-/* ── Slash Suggestions ────────────────────────────────────── */
-
 .slashSuggestions {
   position: absolute;
   bottom: 100%;
@@ -734,8 +724,6 @@
   color: var(--muted-foreground);
 }
 
-/* ── Error Banner ─────────────────────────────────────────── */
-
 .errorBanner {
   padding: 8px 14px;
   margin: 0 24px;
@@ -749,8 +737,6 @@
   margin-right: auto;
   width: calc(100% - 48px);
 }
-
-/* ── Edit Mode ────────────────────────────────────────────── */
 
 .editArea {
   width: 100%;
@@ -772,8 +758,6 @@
   gap: 6px;
   margin-top: 6px;
 }
-
-/* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 900px) {
   .messageArea {

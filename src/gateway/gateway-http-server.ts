@@ -28,6 +28,7 @@ import {
   HYBRIDAI_BASE_URL,
   IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
@@ -38,6 +39,7 @@ import type {
 import {
   getRuntimeConfig,
   parseSchedulerBoardStatus,
+  reloadRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -326,8 +328,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized || undefined;
 }
-
-// parsePositiveInteger moved to gateway-http-utils.ts
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -677,8 +677,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   return 'authenticated';
 }
-
-// sendJson moved to gateway-http-utils.ts
 
 function dispatchWebhookRoute(
   res: ServerResponse,
@@ -1112,8 +1110,6 @@ function resolveStaticFileMimeType(
   const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] || siteMimeType;
   return inlineMimeType || 'application/octet-stream';
 }
-
-// readRequestBody and readJsonBody moved to gateway-http-utils.ts
 
 function normalizeHeaderValue(
   value: string | string[] | undefined,
@@ -1859,6 +1855,26 @@ function handleApiRestart(res: ServerResponse): void {
   }, 50);
 }
 
+function handleApiConfigReload(res: ServerResponse): void {
+  try {
+    refreshRuntimeSecretsFromEnv();
+    reloadRuntimeConfig('admin-api');
+  } catch (error) {
+    sendJson(res, 500, {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Gateway reload failed unexpectedly.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway reloaded.',
+  });
+}
+
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
@@ -2506,7 +2522,6 @@ async function handleApiAdminEmailConfigFetch(
     '',
   );
 
-  // Step 1: list agent handles
   let handlesResult: { ok: boolean; status: number; payload: unknown };
   try {
     handlesResult = await hybridAIFetch(
@@ -2541,7 +2556,6 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
-  // Step 2: fetch mailbox credentials for the first active handle
   const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
   const handleId = activeHandle.id || activeHandle.handle;
 
@@ -2940,7 +2954,6 @@ async function handleApiAdminSkills(
     return;
   }
 
-  // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
@@ -3568,6 +3581,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/restart' && method === 'POST') {
             handleApiRestart(res);
+            return;
+          }
+
+          if (pathname === '/api/admin/config/reload' && method === 'POST') {
+            handleApiConfigReload(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
