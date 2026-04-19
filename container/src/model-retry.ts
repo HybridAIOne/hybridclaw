@@ -1,11 +1,10 @@
+import { classifyModelError } from './model-error-classification.js';
 import type { RuntimeProvider } from './providers/shared.js';
 import {
   isPremiumModelPermissionError,
   ProviderRequestError,
 } from './providers/shared.js';
 
-const TRANSIENT_NETWORK_ERROR_RE =
-  /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN|terminated/i;
 const TRANSIENT_CODEX_STREAM_ERROR_RE =
   /an error occurred while processing your request|request id [0-9a-f-]{8}-[0-9a-f-]{27}|streaming response ended without payload|stream ended without payload|response\.incomplete|response\.failed/i;
 const MAX_ERROR_DETAIL_DEPTH = 3;
@@ -143,6 +142,12 @@ export function formatModelErrorForLog(
   }
 }
 
+export {
+  classifyModelError,
+  RoutedModelError,
+  shouldAutoRouteFromModelError,
+} from './model-error-classification.js';
+
 export function shouldFallbackFromStreamError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
     // Keep 429 on retry/backoff path; fallback does not help throttling.
@@ -154,10 +159,8 @@ export function shouldFallbackFromStreamError(error: unknown): boolean {
   if (!message.trim()) return false;
   // Keep 429 on retry/backoff path; fallback does not help throttling.
   if (/429|rate.?limit/i.test(message)) return false;
-  return (
-    TRANSIENT_NETWORK_ERROR_RE.test(message) ||
-    TRANSIENT_CODEX_STREAM_ERROR_RE.test(message)
-  );
+  const classified = classifyModelError(error);
+  return classified.autoRoute || TRANSIENT_CODEX_STREAM_ERROR_RE.test(message);
 }
 
 export function shouldDowngradeStreamToNonStreaming(
@@ -169,12 +172,12 @@ export function shouldDowngradeStreamToNonStreaming(
 }
 
 export function isRetryableModelError(error: unknown): boolean {
-  if (error instanceof ProviderRequestError) {
-    return error.status === 429 || (error.status >= 500 && error.status <= 504);
+  if (error instanceof ProviderRequestError && error.status === 505) {
+    return false;
   }
   const message = error instanceof Error ? error.message : String(error);
   return (
-    TRANSIENT_NETWORK_ERROR_RE.test(message) ||
+    classifyModelError(error).retryable ||
     TRANSIENT_CODEX_STREAM_ERROR_RE.test(message)
   );
 }
