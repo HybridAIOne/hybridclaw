@@ -38,11 +38,11 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar>
+    <Sidebar collapsible="none">
       <SidebarHeader>
         <div className={styles.headerRow}>
           <SidebarBrand />
-          <SidebarTrigger className={styles.sidebarToggle} />
+          <MobileSidebarTrigger />
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -81,14 +81,9 @@ export function AppSidebar(props: {
 }
 
 function SidebarBrand() {
-  const { state } = useSidebar();
-
   return (
     <div className={styles.brand}>
-      <div
-        className={styles.brandTitle}
-        title={state === 'collapsed' ? 'HybridClaw' : undefined}
-      >
+      <div className={styles.brandTitle}>
         <span className={styles.brandMark} aria-hidden="true">
           <HybridClaw />
         </span>
@@ -101,13 +96,18 @@ function SidebarBrand() {
   );
 }
 
+function MobileSidebarTrigger() {
+  const { isMobile } = useSidebar();
+  if (!isMobile) return null;
+  return <SidebarTrigger className={styles.sidebarToggle} />;
+}
+
 function SidebarNavLink(props: { item: SidebarNavItem }) {
-  const { isMobile, setOpenMobile, state } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   return (
     <Link
       to={props.item.to}
-      title={state === 'collapsed' ? props.item.label : undefined}
       activeProps={{
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
