@@ -8,7 +8,11 @@
   [setup|list|run|results]` plus local `/eval hybridai-skills ...` flows that
   harvest the "Try it yourself" prompts from the bundled skills guides into a
   fixture set and grade which documented skill actually fired from the model's
-  tool trace.
+  tool trace. It also includes `--explicit` for
+  forced `/<skill> ...` invocation, richer result traces with observed skill,
+  artifact presence, and counted tool-call totals, and fresh-agent cleanup so
+  temporary eval workspaces, sessions, and audit trails do not accumulate after
+  grading.
 
 ### Changed
 
@@ -17,22 +21,13 @@
   and secrets through the admin API without tearing down the enclosing
   workspace container. Local/manual `hybridclaw gateway restart` stays
   available when a full restart is still required.
-- **`hybridai-skills` eval output is more actionable**: Live results now show
-  the observed skill, whether artifacts were produced, and counted tool-call
-  totals per fixture. The old `--mode implicit|explicit` filter has been
-  removed; use `--explicit` on `run` when you want prompts rewritten as
-  `/<skill> ...` for forced invocation.
 
 ### Fixed
 
 - **Unattended eval runs no longer stop on tool approvals**: Eval-profiled
   loopback requests now auto-approve tools end to end, expose execution-session
-  and artifact-count response headers for correlation, and let detached or
-  `hybridai-skills` eval runs finish without manual approval interruptions.
-- **Fresh-agent eval cleanup is more complete**: Temporary agent workspaces,
-  transient sessions, and audit-trail directories created for `fresh-agent`
-  eval runs are deleted after grading instead of accumulating under the runtime
-  data directory.
+  and artifact-count response headers for correlation, and let detached local
+  eval runs finish without manual approval interruptions.
 - **Agent image builds are quieter in CI**: The container Dockerfile now sets
   `DEBIAN_FRONTEND=noninteractive` for the apt-based image layers and
   Playwright's `install-deps chromium` step, eliminating repeated `debconf`
