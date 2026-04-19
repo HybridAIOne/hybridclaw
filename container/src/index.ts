@@ -17,6 +17,11 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  createPrimaryModelRoutingSession,
+  ContextTierDowngradedError,
+  type PrimaryModelRoutingSession,
+} from './model-routing.js';
+import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -138,6 +143,7 @@ let cachedSelectedSkillPath: string | null = null;
 let storedApiKey = '';
 let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
+let storedModelRouting: ContainerInput['modelRouting'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
 let shutdownPromise: Promise<never> | null = null;
@@ -207,6 +213,121 @@ function resolveTaskModelsForRequest(
     return undefined;
   }
   storedTaskModels = cloneTaskModels(merged);
+  return merged;
+}
+
+function cloneModelRouting(
+  modelRouting: ContainerInput['modelRouting'],
+): ContainerInput['modelRouting'] | undefined {
+  if (!modelRouting) return undefined;
+  return {
+    routes: modelRouting.routes.map((route) => ({
+      ...route,
+      requestHeaders: route.requestHeaders ? { ...route.requestHeaders } : undefined,
+      credentialPool: route.credentialPool
+        ? {
+            rotation: route.credentialPool.rotation,
+            entries: route.credentialPool.entries.map((entry) => ({
+              ...entry,
+            })),
+          }
+        : undefined,
+    })),
+    adaptiveContextTierDowngradeOn429:
+      modelRouting.adaptiveContextTierDowngradeOn429,
+  };
+}
+
+function isModelRouteRoutingEqual(
+  left: NonNullable<ContainerInput['modelRouting']>['routes'][number] | undefined,
+  right:
+    | NonNullable<ContainerInput['modelRouting']>['routes'][number]
+    | undefined,
+): boolean {
+  if (!left || !right) return false;
+  if (
+    String(left.provider || '') !== String(right.provider || '') ||
+    normalizeTaskModelBaseUrl(left.baseUrl) !==
+      normalizeTaskModelBaseUrl(right.baseUrl) ||
+    String(left.model || '').trim() !== String(right.model || '').trim() ||
+    String(left.chatbotId || '').trim() !== String(right.chatbotId || '').trim()
+  ) {
+    return false;
+  }
+
+  const leftPool = left.credentialPool;
+  const rightPool = right.credentialPool;
+  if (!leftPool && !rightPool) return true;
+  if (!leftPool || !rightPool) return false;
+  if (leftPool.rotation !== rightPool.rotation) return false;
+  if (leftPool.entries.length !== rightPool.entries.length) return false;
+
+  return leftPool.entries.every((entry, index) => {
+    const candidate = rightPool.entries[index];
+    return (
+      entry.id === candidate?.id &&
+      String(entry.label || '').trim() === String(candidate?.label || '').trim()
+    );
+  });
+}
+
+function resolveModelRoutingForRequest(
+  modelRouting: ContainerInput['modelRouting'],
+): ContainerInput['modelRouting'] | undefined {
+  if (!modelRouting?.routes.length) {
+    storedModelRouting = undefined;
+    return undefined;
+  }
+
+  const mergedRoutes = modelRouting.routes.map((route, routeIndex) => {
+    const storedRoute = storedModelRouting?.routes[routeIndex];
+    const sameRouting = isModelRouteRoutingEqual(route, storedRoute);
+
+    return {
+      ...route,
+      apiKey:
+        String(route.apiKey || '').trim() ||
+        (sameRouting ? String(storedRoute?.apiKey || '').trim() : ''),
+      requestHeaders:
+        route.requestHeaders && Object.keys(route.requestHeaders).length > 0
+          ? { ...route.requestHeaders }
+          : sameRouting && storedRoute?.requestHeaders
+            ? { ...storedRoute.requestHeaders }
+            : undefined,
+      credentialPool: route.credentialPool
+        ? {
+            rotation: route.credentialPool.rotation,
+            entries: route.credentialPool.entries.map((entry) => {
+              const storedEntry =
+                sameRouting &&
+                storedRoute?.credentialPool?.entries.find(
+                  (candidate) => candidate.id === entry.id,
+                );
+              return {
+                ...entry,
+                apiKey:
+                  String(entry.apiKey || '').trim() ||
+                  String(storedEntry?.apiKey || '').trim(),
+              };
+            }),
+          }
+        : sameRouting && storedRoute?.credentialPool
+          ? {
+              rotation: storedRoute.credentialPool.rotation,
+              entries: storedRoute.credentialPool.entries.map((entry) => ({
+                ...entry,
+              })),
+            }
+          : undefined,
+    };
+  });
+
+  const merged = {
+    routes: mergedRoutes,
+    adaptiveContextTierDowngradeOn429:
+      modelRouting.adaptiveContextTierDowngradeOn429,
+  };
+  storedModelRouting = cloneModelRouting(merged);
   return merged;
 }
 
@@ -687,56 +808,38 @@ async function executePreparedToolCall(
 }
 
 async function callHybridAIWithRetry(params: {
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  chatbotId: string;
-  enableRag: boolean;
-  requestHeaders?: Record<string, string>;
+  modelRouting: PrimaryModelRoutingSession;
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
   onActivity?: () => void;
-  maxTokens?: number;
-  isLocal?: boolean;
-  contextWindow?: number;
-  thinkingFormat?: 'qwen';
+  onRouteChange?: () => void;
 }): Promise<ChatCompletionResponse> {
-  const {
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    chatbotId,
-    enableRag,
-    requestHeaders,
-    history,
-    tools,
-    onTextDelta,
-    onActivity,
-    maxTokens,
-    isLocal,
-    contextWindow,
-    thinkingFormat,
-  } = params;
+  const { modelRouting, history, tools, onTextDelta, onActivity, onRouteChange } =
+    params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
+    const activeRoute = modelRouting.current();
+    const {
+      provider,
+      baseUrl,
+      apiKey,
+      model,
+      chatbotId,
+      enableRag,
+      requestHeaders,
+      maxTokens,
+      isLocal,
+      contextWindow,
+      thinkingFormat,
+      credentialLabel,
+    } = activeRoute;
     attempt += 1;
     const attemptStartedAt = Date.now();
     console.error(
-      `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
+      `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}${credentialLabel ? ` credential=${credentialLabel}` : ''}`,
     );
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
@@ -802,6 +905,7 @@ async function callHybridAIWithRetry(params: {
       console.error(
         `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
       );
+      modelRouting.noteSuccess();
       await emitRuntimeEvent({
         event: 'after_model_call',
         attempt,
@@ -813,6 +917,35 @@ async function callHybridAIWithRetry(params: {
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
         attempt < RETRY_MAX_ATTEMPTS;
+      const recovery = modelRouting.recover(err, {
+        canRetrySameRoute: retryable,
+      });
+      if (recovery.type === 'context_downgraded') {
+        console.error(
+          `[model] context tier downgrade provider=${provider || 'hybridai'} model=${model} ${recovery.previousContextWindow}->${recovery.nextContextWindow} reason=${recovery.reason}`,
+        );
+        onRouteChange?.();
+        throw new ContextTierDowngradedError(
+          recovery.previousContextWindow,
+          recovery.nextContextWindow,
+        );
+      }
+      if (recovery.type === 'route_changed') {
+        const nextRoute = modelRouting.current();
+        console.error(
+          `[model] route recovery provider=${provider || 'hybridai'} model=${model} nextProvider=${nextRoute.provider || 'hybridai'} nextModel=${nextRoute.model} reason=${recovery.reason}`,
+        );
+        await emitRuntimeEvent({
+          event: 'model_retry',
+          attempt,
+          retryable: true,
+          error: `Recovered via ${recovery.reason}`,
+        });
+        attempt = 0;
+        delayMs = RETRY_BASE_DELAY_MS;
+        onRouteChange?.();
+        continue;
+      }
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
@@ -836,17 +969,7 @@ async function processRequest(
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
+  provider: ContainerInput['provider'],
   isLocal: boolean | undefined,
   contextWindow: number | undefined,
   thinkingFormat: 'qwen' | undefined,
@@ -854,6 +977,7 @@ async function processRequest(
   chatbotId: string,
   enableRag: boolean,
   requestHeaders: Record<string, string> | undefined,
+  modelRoutingInput: ContainerInput['modelRouting'] | undefined,
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
@@ -894,11 +1018,53 @@ async function processRequest(
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const primaryModelRouting = createPrimaryModelRoutingSession({
+    sessionId: '',
+    messages: [],
+    chatbotId,
+    enableRag,
+    apiKey,
+    baseUrl,
+    provider,
+    requestHeaders,
+    isLocal,
+    contextWindow,
+    thinkingFormat,
+    model,
+    maxTokens,
+    channelId: '',
+    modelRouting: modelRoutingInput,
+  });
+  const updateActiveModelContext = () => {
+    const activeRoute = primaryModelRouting.current();
+    setModelContext(
+      activeRoute.provider,
+      activeRoute.baseUrl,
+      activeRoute.apiKey,
+      activeRoute.model,
+      activeRoute.chatbotId,
+      activeRoute.requestHeaders,
+      activeRoute.maxTokens,
+    );
+  };
+
+  updateActiveModelContext();
 
   while (stalledTurns < maxStalledTurns) {
+    const activeRoute = primaryModelRouting.current();
+    const activeProvider = activeRoute.provider;
+    const activeBaseUrl = activeRoute.baseUrl;
+    const activeApiKey = activeRoute.apiKey;
+    const activeModel = activeRoute.model;
+    const activeChatbotId = activeRoute.chatbotId;
+    const activeEnableRag = activeRoute.enableRag;
+    const activeRequestHeaders = activeRoute.requestHeaders;
+    const activeIsLocal = activeRoute.isLocal;
+    const activeContextWindow = activeRoute.contextWindow;
+    const activeThinkingFormat = activeRoute.thinkingFormat;
     const guardResult = applyContextGuard({
       history,
-      contextWindowTokens: contextWindow,
+      contextWindowTokens: activeContextWindow,
       config: contextGuard,
       cache: tokenEstimateCache,
     });
@@ -930,7 +1096,7 @@ async function processRequest(
 
       const compacted = await compactInLoop({
         history,
-        contextWindowTokens: contextWindow,
+        contextWindowTokens: activeContextWindow,
         summarize: async (summaryMessages, summaryMaxTokens) => {
           tokenUsage.modelCalls += 1;
           tokenUsage.estimatedPromptTokens +=
@@ -939,15 +1105,15 @@ async function processRequest(
             task: 'compression',
             taskModels,
             fallbackContext: {
-              provider,
-              baseUrl,
-              apiKey,
-              model,
-              chatbotId,
-              requestHeaders,
-              isLocal,
-              contextWindow,
-              thinkingFormat,
+              provider: activeProvider,
+              baseUrl: activeBaseUrl,
+              apiKey: activeApiKey,
+              model: activeModel,
+              chatbotId: activeChatbotId,
+              requestHeaders: activeRequestHeaders,
+              isLocal: activeIsLocal,
+              contextWindow: activeContextWindow,
+              thinkingFormat: activeThinkingFormat,
             },
             messages: summaryMessages,
             maxTokens: summaryMaxTokens,
@@ -993,23 +1159,20 @@ async function processRequest(
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     try {
       response = await callHybridAIWithRetry({
-        provider,
-        baseUrl,
-        apiKey,
-        model,
-        chatbotId,
-        enableRag,
-        requestHeaders,
+        modelRouting: primaryModelRouting,
         history,
         tools,
         onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
         onActivity: streamTextDeltas ? emitStreamActivity : undefined,
-        maxTokens,
-        isLocal,
-        contextWindow,
-        thinkingFormat,
+        onRouteChange: updateActiveModelContext,
       });
     } catch (err) {
+      if (err instanceof ContextTierDowngradedError) {
+        console.error(
+          `[context] adaptive tier downgrade ${err.previousContextWindow}->${err.nextContextWindow} retrying model call`,
+        );
+        continue;
+      }
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1030,6 +1193,7 @@ async function processRequest(
       return failed;
     }
 
+    const completedRoute = primaryModelRouting.current();
     accumulateApiUsage(tokenUsage, response);
 
     const choice = response.choices[0];
@@ -1064,7 +1228,7 @@ async function processRequest(
     const invalidToolCallError = validateStructuredToolCalls(toolCalls);
     if (invalidToolCallError) {
       console.error(
-        `[model] invalid structured tool call provider=${provider || 'hybridai'} model=${model} error=${invalidToolCallError}`,
+        `[model] invalid structured tool call provider=${completedRoute.provider || 'hybridai'} model=${completedRoute.model} error=${invalidToolCallError}`,
       );
       const failed: ContainerOutput = {
         status: 'error',
@@ -1099,12 +1263,12 @@ async function processRequest(
       latestVisibleAssistantText = visibleAssistantText;
     }
     if (
-      provider === 'hybridai' &&
+      completedRoute.provider === 'hybridai' &&
       parseRalphChoice(choice.message.content) === null &&
       isHybridAIEmptyVisibleCompletion(response)
     ) {
       console.error(
-        `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
+        `[model] empty completion provider=hybridai model=${completedRoute.model} debug=${summarizeHybridAICompletionForDebug(response)}`,
       );
       const failed: ContainerOutput = {
         status: 'error',
@@ -1535,6 +1699,7 @@ async function main(): Promise<void> {
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
+  const firstModelRouting = resolveModelRoutingForRequest(firstInput.modelRouting);
 
   console.error(
     `[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`,
@@ -1608,6 +1773,7 @@ async function main(): Promise<void> {
       firstInput.chatbotId,
       firstInput.enableRag,
       storedRequestHeaders,
+      firstModelRouting,
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
@@ -1643,6 +1809,7 @@ async function main(): Promise<void> {
         firstInput.chatbotId,
         firstInput.enableRag,
         firstInput.requestHeaders,
+        firstModelRouting,
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
@@ -1683,6 +1850,7 @@ async function main(): Promise<void> {
       storedRequestHeaders = { ...input.requestHeaders };
     }
     const taskModels = resolveTaskModelsForRequest(input.taskModels);
+    const modelRouting = resolveModelRoutingForRequest(input.modelRouting);
 
     console.error(
       `[hybridclaw-agent] processing request (${input.messages.length} messages)`,
@@ -1760,6 +1928,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       input.enableRag,
       requestHeaders,
+      modelRouting,
       resolveTools(input),
       taskModels,
       input.contextGuard,
@@ -1794,6 +1963,7 @@ async function main(): Promise<void> {
         input.chatbotId,
         input.enableRag,
         requestHeaders,
+        modelRouting,
         resolveTools(input),
         taskModels,
         input.contextGuard,

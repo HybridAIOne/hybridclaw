@@ -18,6 +18,29 @@ export interface ResolvedModelRuntimeCredentials {
   thinkingFormat?: LocalThinkingFormat;
 }
 
+export interface ResolvedCredentialPoolEntry {
+  id: string;
+  label: string;
+  apiKey: string;
+}
+
+export interface ResolvedCredentialPool {
+  rotation: 'least_used';
+  entries: ResolvedCredentialPoolEntry[];
+}
+
+export interface ResolvedModelRuntimeRoute
+  extends ResolvedModelRuntimeCredentials {
+  model: string;
+  maxTokens?: number;
+  credentialPool?: ResolvedCredentialPool;
+}
+
+export interface ResolvedModelRoutingPlan {
+  routes: ResolvedModelRuntimeRoute[];
+  adaptiveContextTierDowngradeOn429: boolean;
+}
+
 export interface ResolveProviderRuntimeParams {
   model: string;
   chatbotId?: string;

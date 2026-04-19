@@ -84,7 +84,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 21;
+export const CONFIG_VERSION = 22;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -266,6 +266,11 @@ export interface RuntimeRoutingConciergeConfig {
     balanced: string;
     noHurry: string;
   };
+}
+
+export interface RuntimePrimaryModelRoutingConfig {
+  fallbackModels: string[];
+  adaptiveContextTierDowngradeOn429: boolean;
 }
 
 export interface RuntimeDiscordHumanDelayConfig {
@@ -684,6 +689,7 @@ export interface RuntimeConfig {
   };
   routing: {
     concierge: RuntimeRoutingConciergeConfig;
+    primaryModel: RuntimePrimaryModelRoutingConfig;
   };
   heartbeat: {
     enabled: boolean;
@@ -1276,6 +1282,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
         balanced: 'gpt-5-mini',
         noHurry: 'gpt-5-nano',
       },
+    },
+    primaryModel: {
+      fallbackModels: [],
+      adaptiveContextTierDowngradeOn429: true,
     },
   },
   heartbeat: {
@@ -3829,6 +3839,25 @@ function normalizeRoutingConciergeConfig(
   };
 }
 
+function normalizePrimaryModelRoutingConfig(
+  value: unknown,
+  fallback: RuntimePrimaryModelRoutingConfig,
+): RuntimePrimaryModelRoutingConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    fallbackModels: normalizeStringArray(
+      raw.fallbackModels ?? raw.fallbacks,
+      fallback.fallbackModels,
+    )
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    adaptiveContextTierDowngradeOn429: normalizeBoolean(
+      raw.adaptiveContextTierDowngradeOn429 ?? raw.contextTierDowngradeOn429,
+      fallback.adaptiveContextTierDowngradeOn429,
+    ),
+  };
+}
+
 function normalizeTavilySearchDepth(
   value: unknown,
   fallback: 'basic' | 'advanced',
@@ -3935,6 +3964,9 @@ function normalizeRuntimeConfig(
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
   const rawMedia = isRecord(raw.media) ? raw.media : {};
   const rawRouting = isRecord(raw.routing) ? raw.routing : {};
+  const rawPrimaryModelRouting = isRecord(rawRouting.primaryModel)
+    ? rawRouting.primaryModel
+    : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
@@ -4851,6 +4883,10 @@ function normalizeRuntimeConfig(
       concierge: normalizeRoutingConciergeConfig(
         rawRouting.concierge,
         DEFAULT_RUNTIME_CONFIG.routing.concierge,
+      ),
+      primaryModel: normalizePrimaryModelRoutingConfig(
+        rawPrimaryModelRouting,
+        DEFAULT_RUNTIME_CONFIG.routing.primaryModel,
       ),
     },
     heartbeat: {

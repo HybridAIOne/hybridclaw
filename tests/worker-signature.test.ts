@@ -108,3 +108,98 @@ test('computeWorkerSignature changes when auxiliary task routing changes', () =>
     }),
   ).not.toBe(baseline);
 });
+
+test('computeWorkerSignature changes when primary model routing changes', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    modelRouting: {
+      routes: [
+        {
+          provider: 'hybridai',
+          baseUrl: 'https://hybridai.one',
+          apiKey: 'main-secret',
+          requestHeaders: {},
+          model: 'gpt-5-nano',
+          chatbotId: 'bot_123',
+          enableRag: false,
+          maxTokens: 333,
+          credentialPool: {
+            rotation: 'least_used',
+            entries: [
+              {
+                id: 'pool-a',
+                label: 'primary',
+                apiKey: 'secret-a',
+              },
+            ],
+          },
+        },
+      ],
+      adaptiveContextTierDowngradeOn429: true,
+    },
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      modelRouting: {
+        routes: [
+          {
+            provider: 'hybridai',
+            baseUrl: 'https://hybridai.one',
+            apiKey: 'main-secret',
+            requestHeaders: {},
+            model: 'gpt-5-nano',
+            chatbotId: 'bot_123',
+            enableRag: false,
+            maxTokens: 333,
+            credentialPool: {
+              rotation: 'least_used',
+              entries: [
+                {
+                  id: 'pool-b',
+                  label: 'secondary',
+                  apiKey: 'secret-b',
+                },
+              ],
+            },
+          },
+        ],
+        adaptiveContextTierDowngradeOn429: true,
+      },
+    }),
+  ).not.toBe(baseline);
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      modelRouting: {
+        routes: [
+          {
+            provider: 'hybridai',
+            baseUrl: 'https://hybridai.one',
+            apiKey: 'main-secret',
+            requestHeaders: {},
+            model: 'gpt-5',
+            chatbotId: 'bot_123',
+            enableRag: false,
+            maxTokens: 333,
+          },
+        ],
+        adaptiveContextTierDowngradeOn429: true,
+      },
+    }),
+  ).not.toBe(baseline);
+});
