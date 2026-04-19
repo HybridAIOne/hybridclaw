@@ -12,7 +12,11 @@ const runtimeBinDir = path.join(desktopDir, 'build', 'runtime-bin');
 const runtimeDepsDir = path.join(desktopDir, 'build', 'runtime-deps');
 const rootNodeModulesSource = path.join(repoRoot, 'node_modules');
 const rootNodeModulesTarget = path.join(runtimeDepsDir, 'root-node_modules');
-const containerNodeModulesSource = path.join(repoRoot, 'container', 'node_modules');
+const containerNodeModulesSource = path.join(
+  repoRoot,
+  'container',
+  'node_modules',
+);
 const containerNodeModulesTarget = path.join(
   runtimeDepsDir,
   'container-node_modules',
@@ -127,29 +131,24 @@ async function shouldIncludePackage(packagePath) {
 }
 
 /** Packages excluded from the runtime bundle (browser-only / unused). */
-const EXCLUDED_PACKAGES = new Set([
-  'onnxruntime-web',
-]);
+const EXCLUDED_PACKAGES = new Set(['onnxruntime-web']);
 
 /**
  * Directory basenames stripped from every copied package to shed test fixtures
  * and other files that aren't needed at runtime.
  */
-const STRIPPED_DIRS = new Set([
-  'test',
-  'tests',
-  '__tests__',
-]);
+const STRIPPED_DIRS = new Set(['test', 'tests', '__tests__']);
 
 function shouldCopyEntry(src) {
   const base = path.basename(src);
   if (base.endsWith('.js.map')) return false;
   if (STRIPPED_DIRS.has(base)) {
-    const parent = path.basename(path.dirname(src));
-    // Only strip when the directory sits directly inside a package (or scoped
-    // package).  Never strip "test" inside deeply-nested paths that may be
-    // runtime-required.
-    if (!parent.startsWith('@') && parent !== 'node_modules') {
+    // Only strip when the directory sits directly inside a package (so the
+    // grandparent is either `node_modules` or a scoped-package directory like
+    // `@scope`). Never strip test dirs inside deeply-nested paths, which may
+    // be runtime-required.
+    const grandparent = path.basename(path.dirname(path.dirname(src)));
+    if (grandparent === 'node_modules' || grandparent.startsWith('@')) {
       return false;
     }
   }

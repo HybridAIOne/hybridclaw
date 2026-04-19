@@ -1,11 +1,11 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import fs from 'node:fs';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   buildGatewayEnv,
-  normalizeGatewayBaseUrl,
   type DesktopRoute,
+  normalizeGatewayBaseUrl,
   routeUrl,
 } from './gateway-target.js';
 import {
@@ -59,7 +59,11 @@ export class GatewayRuntime extends EventEmitter {
       this.startChild();
     }
 
-    const ready = await waitForGatewayReachable(this.baseUrl, timeoutMs, this.#child);
+    const ready = await waitForGatewayReachable(
+      this.baseUrl,
+      timeoutMs,
+      this.#child,
+    );
     if (ready) return;
 
     await this.stop();
@@ -71,7 +75,11 @@ export class GatewayRuntime extends EventEmitter {
   async restart(timeoutMs = GATEWAY_READY_TIMEOUT_MS): Promise<void> {
     await this.stop();
     this.startChild();
-    const ready = await waitForGatewayReachable(this.baseUrl, timeoutMs, this.#child);
+    const ready = await waitForGatewayReachable(
+      this.baseUrl,
+      timeoutMs,
+      this.#child,
+    );
     if (ready) return;
 
     await this.stop();
@@ -190,7 +198,9 @@ async function waitForGatewayReachable(
   const deadline = Date.now() + timeoutMs;
 
   let exited = false;
-  const onExit = () => { exited = true; };
+  const onExit = () => {
+    exited = true;
+  };
   child?.once('exit', onExit);
 
   try {
@@ -210,16 +220,22 @@ async function waitForExit(
 ): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
 
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      child.once('exit', () => {
-        resolve();
-      });
-    }),
-    delay(timeoutMs).then(() => {
+  const exited = new Promise<void>((resolve) => {
+    child.once('exit', () => {
+      resolve();
+    });
+  });
+
+  const killTimer = delay(timeoutMs).then(() => {
+    if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL');
-    }),
-  ]);
+    }
+  });
+
+  await Promise.race([exited, killTimer]);
+  // Always wait for the actual `exit` event before returning so callers can
+  // safely clear their #stopping flag without racing the exit handler.
+  await exited;
 }
 
 function delay(ms: number): Promise<void> {

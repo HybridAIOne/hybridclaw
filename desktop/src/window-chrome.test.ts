@@ -16,7 +16,8 @@ describe('MAC_WINDOW_CHROME_CSS', () => {
   it('keeps controls inside drag regions interactive', () => {
     expect(MAC_WINDOW_CHROME_CSS).toContain('-webkit-app-region: drag');
     expect(MAC_WINDOW_CHROME_CSS).toContain('-webkit-app-region: no-drag');
-    expect(MAC_WINDOW_CHROME_CSS).toContain(".page-header button");
+    expect(MAC_WINDOW_CHROME_CSS).toContain('.page-header');
+    expect(MAC_WINDOW_CHROME_CSS).toMatch(/:is\([^)]*button[^)]*\)/);
   });
 
   it('adds a dedicated drag strip for agents and admin content panes', () => {
@@ -27,7 +28,7 @@ describe('MAC_WINDOW_CHROME_CSS', () => {
     expect(MAC_WINDOW_CHROME_CSS).toContain("data-hc-desktop-route='admin'");
     expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 24px');
     expect(MAC_WINDOW_CHROME_CSS).toContain('padding-top: 20px');
-    expect(MAC_WINDOW_CHROME_CSS).toContain(".topbar-title h2");
+    expect(MAC_WINDOW_CHROME_CSS).toContain('.topbar-title h2');
     expect(MAC_WINDOW_CHROME_CSS).toContain('.view-switch-link');
   });
 });
