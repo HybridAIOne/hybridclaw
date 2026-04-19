@@ -3841,21 +3841,26 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('rejects web chat search without a signed session', async () => {
-    const state = await importFreshHealth();
+  test('accepts web chat search with request auth and explicit user id', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=25&q=deploy',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
     });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
-    expect(state.getGatewayRecentChatSessions).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(401);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'Web chat search requires a signed session.',
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 25,
+      query: 'deploy',
     });
+    expect(res.statusCode).toBe(200);
   });
 
   test('rejects history requests without an explicit session id', async () => {

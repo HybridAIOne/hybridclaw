@@ -1794,14 +1794,7 @@ function handleApiChatRecent(
   url: URL,
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
-  const sessionUserId = resolveSessionAuthenticatedUserId(req);
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
-  if (query && channelId.toLowerCase() === 'web' && !sessionUserId) {
-    sendJson(res, 401, {
-      error: 'Web chat search requires a signed session.',
-    });
-    return;
-  }
   const userId = resolveGatewayRequestUserId({
     req,
     channelId,
