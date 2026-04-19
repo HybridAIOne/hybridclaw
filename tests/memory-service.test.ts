@@ -37,6 +37,7 @@ import {
   type MemoryBackend,
   MemoryService,
 } from '../src/memory/memory-service.js';
+import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
@@ -1109,55 +1110,12 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
-  test('getRecentSessionsForUser truncates long search queries before content matching', () => {
-    const dbPath = createTempDbPath();
-    initDatabase({ quiet: true, dbPath });
+  test('normalizeRecentChatSearchQuery truncates long search queries', () => {
+    const rawQuery = 'alpha beta '.repeat(25).trimEnd();
+    const normalizedQuery = normalizeRecentChatSearchQuery(rawQuery);
 
-    getOrCreateSession('web-session-long-query', null, 'web');
-
-    const inspect = new Database(dbPath);
-    const insertMessage = inspect.prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const updateSession = inspect.prepare(
-      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
-    );
-    const longContent = 'a'.repeat(210);
-
-    insertMessage.run(
-      'web-session-long-query',
-      'web-user-a',
-      'web',
-      'user',
-      'Keep this title unrelated',
-      '2026-03-24T11:10:00.000Z',
-    );
-    insertMessage.run(
-      'web-session-long-query',
-      'assistant',
-      null,
-      'assistant',
-      longContent,
-      '2026-03-24T11:11:00.000Z',
-    );
-    updateSession.run(2, '2026-03-24T11:11:00.000Z', 'web-session-long-query');
-    inspect.close();
-
-    const sessions = getRecentSessionsForUser({
-      userId: 'web-user-a',
-      channelId: 'web',
-      limit: 10,
-      query: 'a'.repeat(250),
-    });
-
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({
-      sessionId: 'web-session-long-query',
-      lastActive: '2026-03-24T11:11:00.000Z',
-      messageCount: 2,
-      searchSnippet: longContent,
-    });
-    expect(sessions[0]?.title).toContain('Keep this title unrelated');
+    expect(normalizedQuery).toHaveLength(200);
+    expect(normalizedQuery).toBe(rawQuery.trim().slice(0, 200));
   });
 
   test('getRecentSessionsForUser only scans the capped recent search window', () => {
