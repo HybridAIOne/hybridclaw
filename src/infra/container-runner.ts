@@ -373,6 +373,14 @@ function resolveArtifactHostPath(
   );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (
+      resolvedActual === workspaceRoot ||
+      resolvedActual.startsWith(`${workspaceRoot}${path.sep}`)
+    ) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
     const allowedRoots =
       displayRoot === CONTAINER_WORKSPACE_ROOT
