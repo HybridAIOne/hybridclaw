@@ -21,16 +21,48 @@ async function waitForFileText(
   throw new Error(`Timed out waiting for log file: ${filePath}`);
 }
 
-function removeHybridClawProcessListeners(event: 'uncaughtException'): void {
-  for (const listener of process.listeners(event)) {
-    if (listener.name === 'uncaughtExceptionHandler') {
-      process.removeListener(event, listener);
-    }
+const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
+  'hybridclaw.logger.process-handler-registration',
+);
+
+interface ProcessWithRegistrationState extends NodeJS.Process {
+  [PROCESS_HANDLER_REGISTRATION_KEY]?: {
+    uncaughtExceptionHandler: ((err: Error) => void) | null;
+    unhandledRejectionHandler: ((reason: unknown) => void) | null;
+  };
+}
+
+function getHybridClawProcessListenerState() {
+  return (process as ProcessWithRegistrationState)[
+    PROCESS_HANDLER_REGISTRATION_KEY
+  ];
+}
+
+function removeHybridClawProcessListeners(): void {
+  const state = getHybridClawProcessListenerState();
+  if (state?.uncaughtExceptionHandler) {
+    process.removeListener(
+      'uncaughtException',
+      state.uncaughtExceptionHandler as (error: Error) => void,
+    );
+  }
+  if (state?.unhandledRejectionHandler) {
+    process.removeListener(
+      'unhandledRejection',
+      state.unhandledRejectionHandler as (reason: unknown) => void,
+    );
   }
 }
 
+function resetHybridClawProcessListenerState(): void {
+  delete (process as ProcessWithRegistrationState)[
+    PROCESS_HANDLER_REGISTRATION_KEY
+  ];
+}
+
 async function importFreshLogger() {
-  removeHybridClawProcessListeners('uncaughtException');
+  removeHybridClawProcessListeners();
+  resetHybridClawProcessListenerState();
   vi.resetModules();
   vi.doMock('../src/config/runtime-config.ts', () => ({
     getRuntimeConfig: () => ({
@@ -39,9 +71,7 @@ async function importFreshLogger() {
     onRuntimeConfigChange: vi.fn(),
   }));
   const module = await import('../src/logger.ts');
-  const listener = process
-    .listeners('uncaughtException')
-    .find((candidate) => candidate.name === 'uncaughtExceptionHandler');
+  const listener = getHybridClawProcessListenerState()?.uncaughtExceptionHandler;
   if (!listener) {
     throw new Error('Failed to register uncaughtExceptionHandler');
   }
@@ -58,7 +88,8 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
-    removeHybridClawProcessListeners('uncaughtException');
+    removeHybridClawProcessListeners();
+    resetHybridClawProcessListenerState();
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
     if (tempDir) {
@@ -215,5 +246,40 @@ describe('logger forced level override', () => {
       'Uncaught exception',
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('registers process handlers only once across module reloads', async () => {
+    removeHybridClawProcessListeners();
+    resetHybridClawProcessListenerState();
+
+    const mockRuntimeConfig = () =>
+      vi.doMock('../src/config/runtime-config.ts', () => ({
+        getRuntimeConfig: () => ({
+          ops: { logLevel: 'info' },
+        }),
+        onRuntimeConfigChange: vi.fn(),
+      }));
+
+    mockRuntimeConfig();
+    await import('../src/logger.ts');
+    vi.resetModules();
+    mockRuntimeConfig();
+    await import('../src/logger.ts');
+
+    const state = getHybridClawProcessListenerState();
+    if (!state?.uncaughtExceptionHandler || !state.unhandledRejectionHandler) {
+      throw new Error('Failed to register logger process handlers');
+    }
+
+    expect(
+      process
+        .listeners('uncaughtException')
+        .filter((listener) => listener === state.uncaughtExceptionHandler),
+    ).toHaveLength(1);
+    expect(
+      process
+        .listeners('unhandledRejection')
+        .filter((listener) => listener === state.unhandledRejectionHandler),
+    ).toHaveLength(1);
   });
 });

@@ -23,6 +23,24 @@ describe('isExpectedTransportError', () => {
     expect(isExpectedTransportError(error)).toBe(true);
   });
 
+  test('matches deeply nested transport causes', () => {
+    const error = new Error('Discord shard error', {
+      cause: new Error('Gateway reconnect failed', {
+        cause: Object.assign(new Error('connect failed'), {
+          code: 'ECONNRESET',
+        }),
+      }),
+    });
+    expect(isExpectedTransportError(error)).toBe(true);
+  });
+
+  test('matches transport errors nested inside errors arrays', () => {
+    const error = {
+      errors: [new Error('validation failed'), new Error('socket hang up')],
+    };
+    expect(isExpectedTransportError(error)).toBe(true);
+  });
+
   test('ignores unrelated application errors', () => {
     expect(
       isExpectedTransportError(new Error("Cannot read properties of undefined")),

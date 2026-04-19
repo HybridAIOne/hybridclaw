@@ -24,6 +24,7 @@ class FakeDiscordClient extends EventEmitter {}
 afterEach(() => {
   loggerMocks.error.mockReset();
   loggerMocks.warn.mockReset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -49,11 +50,11 @@ describe('Discord client transport error handlers', () => {
     ).not.toThrow();
 
     expect(loggerMocks.warn).toHaveBeenCalledWith(
-      { error: expect.any(Error) },
+      { err: expect.any(Error) },
       'Discord client transport error (will reconnect automatically)',
     );
     expect(loggerMocks.warn).toHaveBeenCalledWith(
-      { error: expect.any(Error), shardId: 7 },
+      { err: expect.any(Error), shardId: 7 },
       'Discord shard transport error (will reconnect automatically)',
     );
   });
@@ -68,8 +69,27 @@ describe('Discord client transport error handlers', () => {
     ).not.toThrow();
 
     expect(loggerMocks.error).toHaveBeenCalledWith(
-      { error: expect.any(Error) },
+      { err: expect.any(Error) },
       'Discord client transport error (will reconnect automatically)',
     );
+  });
+
+  test('rate-limits repeated expected transport warnings and resumes later', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-19T17:00:00Z'));
+
+    const client = new FakeDiscordClient() as unknown as Client;
+    attachDiscordTransportErrorHandlers(client);
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      client.emit('error', new Error('socket hang up'));
+    }
+
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(5);
+
+    vi.setSystemTime(new Date('2026-04-19T17:01:01Z'));
+    client.emit('error', new Error('socket hang up'));
+
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(6);
   });
 });

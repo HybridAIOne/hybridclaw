@@ -150,12 +150,31 @@ onRuntimeConfigChange((next, prev) => {
   }
 });
 
-// Use a module-level symbol so the same named handler can be detected across
-// re-imports that occur in tests (vi.resetModules + dynamic import). Without
-// this guard, every reimport of this module appends a fresh listener to the
-// process, quickly exceeding the default MaxListeners limit of 10.
-const UNCAUGHT_EXCEPTION_TAG = '__hybridclaw_uncaughtException__';
-const UNHANDLED_REJECTION_TAG = '__hybridclaw_unhandledRejection__';
+// Keep registration state on `process` so module reloads in tests
+// (vi.resetModules + dynamic import) do not append duplicate listeners.
+const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
+  'hybridclaw.logger.process-handler-registration',
+);
+
+interface ProcessHandlerRegistrationState {
+  uncaughtExceptionHandler: ((err: Error) => void) | null;
+  unhandledRejectionHandler: ((reason: unknown) => void) | null;
+}
+
+function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
+  const target = process as NodeJS.Process & {
+    [PROCESS_HANDLER_REGISTRATION_KEY]?: ProcessHandlerRegistrationState;
+  };
+  if (target[PROCESS_HANDLER_REGISTRATION_KEY]) {
+    return target[PROCESS_HANDLER_REGISTRATION_KEY];
+  }
+  const state: ProcessHandlerRegistrationState = {
+    uncaughtExceptionHandler: null,
+    unhandledRejectionHandler: null,
+  };
+  target[PROCESS_HANDLER_REGISTRATION_KEY] = state;
+  return state;
+}
 
 function uncaughtExceptionHandler(err: Error) {
   if (isExpectedTransportError(err)) {
@@ -173,30 +192,16 @@ function unhandledRejectionHandler(reason: unknown) {
   logger.error({ err: reason }, 'Unhandled rejection');
 }
 
-// Tag the handlers so we can detect whether they are already registered.
-(uncaughtExceptionHandler as unknown as Record<string, boolean>)[
-  UNCAUGHT_EXCEPTION_TAG
-] = true;
-(unhandledRejectionHandler as unknown as Record<string, boolean>)[
-  UNHANDLED_REJECTION_TAG
-] = true;
+const processHandlerRegistrationState = getProcessHandlerRegistrationState();
 
-if (
-  !process
-    .listeners('uncaughtException')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNCAUGHT_EXCEPTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.uncaughtExceptionHandler) {
   process.on('uncaughtException', uncaughtExceptionHandler);
+  processHandlerRegistrationState.uncaughtExceptionHandler =
+    uncaughtExceptionHandler;
 }
 
-if (
-  !process
-    .listeners('unhandledRejection')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNHANDLED_REJECTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.unhandledRejectionHandler) {
   process.on('unhandledRejection', unhandledRejectionHandler);
+  processHandlerRegistrationState.unhandledRejectionHandler =
+    unhandledRejectionHandler;
 }
