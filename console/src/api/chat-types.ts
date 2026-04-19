@@ -1,6 +1,7 @@
 export interface ChatRecentSession {
   sessionId: string;
   title: string;
+  searchSnippet?: string | null;
   lastActive: string;
   messageCount: number;
 }

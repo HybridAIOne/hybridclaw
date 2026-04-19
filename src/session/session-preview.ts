@@ -39,6 +39,45 @@ export function buildSessionBoundaryPreview(params: {
   return single ? `"${single}"` : null;
 }
 
+export function buildSessionSearchSnippet(
+  raw: string | null | undefined,
+  query: string | null | undefined,
+  maxLength = 120,
+): string | null {
+  const compact = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!compact) return null;
+
+  const normalizedQuery = String(query || '')
+    .trim()
+    .toLowerCase();
+  if (!normalizedQuery) {
+    return trimSessionPreviewText(compact, maxLength);
+  }
+
+  const matchIndex = compact.toLowerCase().indexOf(normalizedQuery);
+  if (matchIndex < 0) {
+    return trimSessionPreviewText(compact, maxLength);
+  }
+
+  const surroundingChars = Math.max(
+    18,
+    Math.floor((maxLength - normalizedQuery.length) / 2),
+  );
+  const start = Math.max(0, matchIndex - surroundingChars);
+  const end = Math.min(
+    compact.length,
+    matchIndex + normalizedQuery.length + surroundingChars,
+  );
+
+  let snippet = compact.slice(start, end).trim();
+  if (!snippet) return null;
+  if (start > 0) snippet = `...${snippet}`;
+  if (end < compact.length) snippet = `${snippet}...`;
+  return snippet;
+}
+
 export function buildSessionConversationPreview(
   messages: Array<Pick<StoredMessage, 'role' | 'content'>>,
   maxLength = 140,

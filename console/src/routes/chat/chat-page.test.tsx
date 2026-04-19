@@ -131,6 +131,7 @@ describe('ChatPage', () => {
               {
                 sessionId: 'session-search',
                 title: 'Deployment checklist',
+                searchSnippet: '...deployment rollback steps from yesterday...',
                 lastActive: '2026-04-13T09:30:00.000Z',
                 messageCount: 4,
               },
@@ -268,11 +269,14 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
-    fireEvent.change(screen.getByLabelText('Search conversations by title'), {
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
       target: { value: 'deploy' },
     });
 
     expect(await screen.findByText('Deployment checklist')).not.toBeNull();
+    expect(
+      await screen.findByText('...deployment rollback steps from yesterday...'),
+    ).not.toBeNull();
     await waitFor(() =>
       expect(fetchChatRecentMock).toHaveBeenCalledWith(
         'test-token',

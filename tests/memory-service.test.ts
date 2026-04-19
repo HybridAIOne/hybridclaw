@@ -945,6 +945,69 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser matches content outside the derived title', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-content-match', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+
+    insertMessage.run(
+      'web-session-content-match',
+      'web-user-a',
+      'web',
+      'user',
+      'Discuss the release checklist',
+      '2026-03-24T11:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-content-match',
+      'assistant',
+      null,
+      'assistant',
+      'Deployment rollback steps are documented here.',
+      '2026-03-24T11:01:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-content-match',
+      'web-user-a',
+      'web',
+      'user',
+      'Thanks, that helps.',
+      '2026-03-24T11:02:00.000Z',
+    );
+    updateSession.run(
+      3,
+      '2026-03-24T11:02:00.000Z',
+      'web-session-content-match',
+    );
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+        query: 'deploy',
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-content-match',
+        lastActive: '2026-03-24T11:02:00.000Z',
+        messageCount: 3,
+        searchSnippet: 'Deployment rollback steps are documented here.',
+        title: '"Discuss the release checklist" ... "Thanks, that helps."',
+      },
+    ]);
+  });
+
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

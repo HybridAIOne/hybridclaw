@@ -137,6 +137,14 @@
   text-overflow: ellipsis;
 }
 
+.sessionSnippet {
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sessionTime {
   font-size: 0.72rem;
   color: var(--muted-foreground);

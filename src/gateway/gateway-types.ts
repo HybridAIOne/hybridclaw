@@ -295,6 +295,7 @@ export interface GatewayChatBranchResponse {
 export interface GatewayRecentChatSession {
   sessionId: string;
   title: string | null;
+  searchSnippet?: string | null;
   lastActive: string;
   messageCount: number;
 }

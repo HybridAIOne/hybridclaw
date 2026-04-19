@@ -21,6 +21,7 @@ import {
 } from '../session/session-key.js';
 import {
   buildSessionBoundaryPreview,
+  buildSessionSearchSnippet,
   RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
 } from '../session/session-preview.js';
 import {
@@ -4110,6 +4111,7 @@ export interface RecentUserSessionSummary {
   lastActive: string;
   messageCount: number;
   title: string | null;
+  searchSnippet?: string | null;
 }
 
 type RecentUserSessionRow = Pick<
@@ -4123,6 +4125,11 @@ interface RecentSessionBoundaryRow {
   first_content: string | null;
   last_content: string | null;
   last_role: string | null;
+}
+
+interface RecentSessionContentMatchRow {
+  session_id: string;
+  content: string | null;
 }
 
 const RECENT_SESSION_BOUNDARY_BATCH_SIZE = 400;
@@ -4179,6 +4186,55 @@ function getRecentSessionBoundaryRows(
   return rows;
 }
 
+function getRecentSessionContentMatches(
+  sessionIds: string[],
+  query: string,
+): Map<string, string> {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || sessionIds.length === 0) {
+    return new Map();
+  }
+
+  const rows: RecentSessionContentMatchRow[] = [];
+
+  for (
+    let index = 0;
+    index < sessionIds.length;
+    index += RECENT_SESSION_BOUNDARY_BATCH_SIZE
+  ) {
+    const batch = sessionIds.slice(
+      index,
+      index + RECENT_SESSION_BOUNDARY_BATCH_SIZE,
+    );
+    const placeholders = batch.map(() => '?').join(', ');
+    rows.push(
+      ...queryAll<RecentSessionContentMatchRow>(
+        db,
+        `WITH ranked_matches AS (
+           SELECT
+             session_id,
+             content,
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn
+           FROM messages
+           WHERE session_id IN (${placeholders})
+             AND instr(lower(content), ?) > 0
+         )
+         SELECT session_id, content
+         FROM ranked_matches
+         WHERE rn = 1`,
+        ...batch,
+        normalizedQuery,
+      ),
+    );
+  }
+
+  return new Map(
+    rows
+      .filter((row) => row.session_id && row.content)
+      .map((row) => [row.session_id, row.content as string] as const),
+  );
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
@@ -4188,7 +4244,7 @@ export function getRecentSessionsForUser(params: {
   const userId = params.userId.trim();
   if (!userId) return [];
   const channelId = String(params.channelId || '').trim();
-  const titleQuery = String(params.query || '')
+  const searchQuery = String(params.query || '')
     .trim()
     .toLowerCase();
   const limit =
@@ -4226,12 +4282,16 @@ export function getRecentSessionsForUser(params: {
     }
     return right.id.localeCompare(left.id);
   });
-  const targetRows = titleQuery ? sortedRows : sortedRows.slice(0, limit);
+  const targetRows = searchQuery ? sortedRows : sortedRows.slice(0, limit);
   if (targetRows.length === 0) return [];
 
   const boundaryRows = getRecentSessionBoundaryRows(
     targetRows.map((row) => row.id),
     userId,
+  );
+  const contentMatchesBySessionId = getRecentSessionContentMatches(
+    targetRows.map((row) => row.id),
+    searchQuery,
   );
   const boundariesBySessionId = new Map(
     boundaryRows.map((row) => [row.session_id, row] as const),
@@ -4251,26 +4311,38 @@ export function getRecentSessionsForUser(params: {
       boundary?.last_content && !shouldHideApprovalPrompt
         ? boundary.last_content
         : null;
+    const title = buildSessionBoundaryPreview({
+      firstMessage,
+      lastMessage,
+      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+    });
+    const rawSearchSnippet = searchQuery
+      ? buildSessionSearchSnippet(
+          contentMatchesBySessionId.get(row.id) || null,
+          searchQuery,
+        )
+      : null;
 
     return {
       sessionId: row.id,
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
-      title: buildSessionBoundaryPreview({
-        firstMessage,
-        lastMessage,
-        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-      }),
+      title,
+      searchSnippet:
+        rawSearchSnippet && !String(title || '').includes(rawSearchSnippet)
+          ? rawSearchSnippet
+          : null,
     };
   });
 
-  if (!titleQuery) return sessions;
+  if (!searchQuery) return sessions;
   return sessions
-    .filter((session) =>
-      String(session.title || '')
+    .filter((session) => {
+      const titleMatches = String(session.title || '')
         .toLowerCase()
-        .includes(titleQuery),
-    )
+        .includes(searchQuery);
+      return titleMatches || Boolean(session.searchSnippet);
+    })
     .slice(0, limit);
 }
 
