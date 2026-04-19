@@ -1,8 +1,4 @@
-import {
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useCallback,
   useEffect,
@@ -279,14 +275,28 @@ export function ChatPage() {
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
 
-  const historyQuery = useSuspenseQuery({
+  const historyQuery = useQuery({
     queryKey: ['chat-history', auth.token, sessionId],
     queryFn: () => fetchChatHistory(auth.token, sessionId),
+    enabled: Boolean(sessionId),
     staleTime: Infinity,
   });
 
+  // Forward fetch errors inline rather than throwing to the page-level error
+  // boundary — a failed background refetch (invalidated after each stream)
+  // would otherwise tear down ChatPage and lose composer/session state.
+  useEffect(() => {
+    if (!historyQuery.error) return;
+    const message =
+      historyQuery.error instanceof Error
+        ? historyQuery.error.message
+        : 'Failed to load chat history.';
+    dispatch({ type: 'ERROR_SET', error: message });
+  }, [historyQuery.error]);
+
   useEffect(() => {
     const data = historyQuery.data;
+    if (!data) return;
 
     const resolvedSessionId = data.sessionId ?? sessionId;
     const loadedBranchFamilies = new Map(
