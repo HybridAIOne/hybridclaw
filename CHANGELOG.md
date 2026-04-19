@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
+
 ### Added
 
 - **HybridAI skills eval suite**: Added `hybridclaw eval hybridai-skills
