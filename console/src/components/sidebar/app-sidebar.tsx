@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
-import { LogOut } from '../icons';
+import { HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
   Sidebar,
@@ -80,13 +80,13 @@ function SidebarBrand() {
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
-        <img
-          className={styles.brandLogo}
-          src="/static/hybridclaw-logo.svg"
-          alt=""
-          aria-hidden="true"
-        />
-        <span className={styles.brandWordmark}>HybridClaw</span>
+        <span className={styles.brandMark} aria-hidden="true">
+          <HybridClaw />
+        </span>
+        <div className={styles.brandText}>
+          <h1>HybridClaw</h1>
+          <span className={styles.eyebrow}>Admin console</span>
+        </div>
       </div>
     </div>
   );

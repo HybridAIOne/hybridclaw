@@ -104,6 +104,15 @@
   gap: 8px;
 }
 
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
 .groupLabel {
   display: flex;
   align-items: center;
@@ -165,17 +174,32 @@
 
 .brand {
   display: grid;
-  padding: 4px 6px 12px;
+  padding: 2px 6px;
 }
 
 .brandTitle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  min-height: auto;
+  min-height: 34px;
 }
 
-.brandLogo,
+.brandText {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.brandTitle h1 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.brandMark,
 .menuIcon,
 .icon {
   display: inline-flex;
@@ -186,6 +210,13 @@
   flex: 0 0 auto;
 }
 
+.brandMark {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-foreground);
+}
+
 .menuIcon {
   color: var(--muted-foreground);
 }
@@ -194,20 +225,9 @@
   color: var(--accent-foreground);
 }
 
-.brandLogo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-}
-
-.brandWordmark {
-  display: inline-flex;
-  align-items: center;
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.02em;
-  white-space: nowrap;
+.brandMark svg {
+  width: 32px;
+  height: 32px;
 }
 
 .menuIcon svg,
@@ -290,7 +310,7 @@
 }
 
 .root[data-state="collapsed"] .groupLabel,
-.root[data-state="collapsed"] .brandWordmark,
+.root[data-state="collapsed"] .brandText,
 .root[data-state="collapsed"] .footerMeta,
 .root[data-state="collapsed"] .footerDivider,
 .root[data-state="collapsed"] .footerButton span:not(.icon),
