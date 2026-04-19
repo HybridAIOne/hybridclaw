@@ -113,15 +113,6 @@
   gap: 8px;
 }
 
-.eyebrow {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.64rem;
-  font-weight: 600;
-  color: var(--muted-foreground);
-}
-
 .groupLabel {
   display: flex;
   align-items: center;
@@ -340,7 +331,7 @@
 }
 
 .root[data-state="collapsed"] .groupLabel,
-.root[data-state="collapsed"] .brandText,
+.root[data-state="collapsed"] .brandWordmark,
 .root[data-state="collapsed"] .footerMeta,
 .root[data-state="collapsed"] .footerDivider,
 .root[data-state="collapsed"] .footerButton span:not(.icon),

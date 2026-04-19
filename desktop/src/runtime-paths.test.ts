@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   resolveGatewayEntry,
   resolveGatewayNodeExecutable,
@@ -9,21 +12,50 @@ describe('resolveRuntimeRoot', () => {
   test('uses the bundled runtime inside packaged apps', () => {
     expect(
       resolveRuntimeRoot({
-        currentFile: '/Applications/HybridClaw.app/Contents/Resources/app.asar/dist/main.js',
+        currentFile:
+          '/Applications/HybridClaw.app/Contents/Resources/app.asar/dist/main.js',
         packaged: true,
         resourcesPath: '/Applications/HybridClaw.app/Contents/Resources',
       }),
-    ).toBe('/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime');
+    ).toBe(
+      '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime',
+    );
   });
 
-  test('uses the repo root in development', () => {
-    expect(
-      resolveRuntimeRoot({
-        currentFile: '/Users/example/src/hybridclaw/desktop/dist/main.js',
-        packaged: false,
-        resourcesPath: '/unused',
-      }),
-    ).toBe('/Users/example/src/hybridclaw');
+  describe('in development', () => {
+    let fakeRepoRoot: string;
+
+    beforeAll(() => {
+      fakeRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-runtime-root-'));
+      fs.writeFileSync(path.join(fakeRepoRoot, 'package.json'), '{}');
+      fs.mkdirSync(path.join(fakeRepoRoot, 'desktop', 'dist'), {
+        recursive: true,
+      });
+    });
+
+    afterAll(() => {
+      fs.rmSync(fakeRepoRoot, { recursive: true, force: true });
+    });
+
+    test('uses the repo root when package.json is present', () => {
+      expect(
+        resolveRuntimeRoot({
+          currentFile: path.join(fakeRepoRoot, 'desktop', 'dist', 'main.js'),
+          packaged: false,
+          resourcesPath: '/unused',
+        }),
+      ).toBe(fakeRepoRoot);
+    });
+
+    test('throws when the resolved root is missing package.json', () => {
+      expect(() =>
+        resolveRuntimeRoot({
+          currentFile: '/Users/example/src/hybridclaw/desktop/dist/main.js',
+          packaged: false,
+          resourcesPath: '/unused',
+        }),
+      ).toThrow(/no package\.json was found/);
+    });
   });
 });
 
@@ -43,7 +75,8 @@ describe('resolveGatewayNodeExecutable', () => {
         packaged: true,
         processExecPath:
           '/Applications/HybridClaw.app/Contents/MacOS/HybridClaw',
-        runtimeRoot: '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime',
+        runtimeRoot:
+          '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime',
       }),
     ).toBe(
       '/Applications/HybridClaw.app/Contents/Resources/hybridclaw-runtime/bin/node',

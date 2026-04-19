@@ -1,22 +1,32 @@
-import { app, BrowserWindow, Menu, dialog, nativeImage, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
+import { type GatewayExitPayload, GatewayRuntime } from './gateway-runtime.js';
 import {
+  type DesktopRoute,
   isInAppUrl,
   normalizeGatewayBaseUrl,
   routeForUrl,
-  type DesktopRoute,
 } from './gateway-target.js';
-import {
-  GatewayRuntime,
-  type GatewayExitPayload,
-} from './gateway-runtime.js';
 import { resolveRuntimeRoot } from './runtime-paths.js';
 import { MAC_WINDOW_CHROME_CSS } from './window-chrome.js';
 
 const APP_NAME = 'HybridClaw';
 const IS_MAC = process.platform === 'darwin';
+
+const SAFE_EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+function openExternalSafely(target: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return;
+  }
+  if (!SAFE_EXTERNAL_SCHEMES.has(parsed.protocol)) return;
+  void shell.openExternal(parsed.toString());
+}
 
 function escapeHtml(s: string): string {
   return s
@@ -103,7 +113,10 @@ function navigateWindow(
   return window;
 }
 
-function syncWindowRouteFromUrl(window: BrowserWindow, targetUrl: string): void {
+function syncWindowRouteFromUrl(
+  window: BrowserWindow,
+  targetUrl: string,
+): void {
   const route = routeForUrl(targetUrl, gateway.baseUrl);
   if (!route) return;
   setWindowRoute(window, route);
@@ -113,7 +126,8 @@ async function syncWindowChrome(
   window: BrowserWindow,
   targetUrl: string,
 ): Promise<void> {
-  const route = routeForUrl(targetUrl, gateway.baseUrl) ?? windowRoutes.get(window);
+  const route =
+    routeForUrl(targetUrl, gateway.baseUrl) ?? windowRoutes.get(window);
   if (!route || window.isDestroyed()) return;
 
   try {
@@ -156,7 +170,10 @@ function readRuntimeVersion(root: string): string {
 
 let cachedAboutHtml: string | undefined;
 function getAboutHtml(): string {
-  return (cachedAboutHtml ??= buildAboutHtml());
+  if (cachedAboutHtml === undefined) {
+    cachedAboutHtml = buildAboutHtml();
+  }
+  return cachedAboutHtml;
 }
 
 function buildAboutHtml(): string {
@@ -381,19 +398,27 @@ function openAboutWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('hc-about://')) {
       const candidate = url.slice('hc-about://'.length);
-      if (candidate === 'chat' || candidate === 'agents' || candidate === 'admin') {
+      if (
+        candidate === 'chat' ||
+        candidate === 'agents' ||
+        candidate === 'admin'
+      ) {
         void openRoute(candidate);
       }
       return { action: 'deny' };
     }
-    void shell.openExternal(url);
+    openExternalSafely(url);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('hc-about://')) return;
     event.preventDefault();
     const candidate = url.slice('hc-about://'.length);
-    if (candidate === 'chat' || candidate === 'agents' || candidate === 'admin') {
+    if (
+      candidate === 'chat' ||
+      candidate === 'agents' ||
+      candidate === 'admin'
+    ) {
       void openRoute(candidate);
     }
   });
@@ -447,7 +472,9 @@ function createWindow(
         if (chromeCssKey) {
           await window.webContents.removeInsertedCSS(chromeCssKey);
         }
-        chromeCssKey = await window.webContents.insertCSS(MAC_WINDOW_CHROME_CSS);
+        chromeCssKey = await window.webContents.insertCSS(
+          MAC_WINDOW_CHROME_CSS,
+        );
         await syncWindowChrome(window, window.webContents.getURL());
       };
       void applyChrome();
@@ -475,7 +502,7 @@ function createWindow(
       return;
     }
 
-    void shell.openExternal(target);
+    openExternalSafely(target);
   };
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -490,7 +517,7 @@ function createWindow(
     }
 
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternalSafely(url);
   });
 
   window.webContents.on(
@@ -552,7 +579,7 @@ function buildMenu(): Menu {
             const focused = BrowserWindow.getFocusedWindow();
             const target =
               focused?.webContents.getURL() || gateway.routeUrl('chat');
-            void shell.openExternal(target);
+            openExternalSafely(target);
           },
         },
         {
