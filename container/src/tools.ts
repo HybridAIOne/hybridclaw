@@ -960,6 +960,18 @@ function resolveGatewayPluginToolUrl(): string | null {
   return `${base}/api/plugin/tool`;
 }
 
+function resolveGatewayAgentsUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/agents`;
+}
+
+function resolveGatewayAgentChatUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/agents/chat`;
+}
+
 function resolveGatewayHttpRequestUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -1047,6 +1059,171 @@ async function callGatewayMessageAction(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText || JSON.stringify({ ok: true }, null, 2);
+}
+
+async function callGatewayAgentsList(): Promise<string> {
+  const url = resolveGatewayAgentsUrl();
+  if (!url) {
+    return failTool(
+      'Error: list_agents is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {};
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers,
+    });
+  } catch (err) {
+    return failTool(
+      `Error: list_agents request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    return failTool(
+      JSON.stringify(
+        {
+          ok: false,
+          status: response.status,
+          error:
+            (parsed && typeof parsed.error === 'string' && parsed.error) ||
+            rawText ||
+            `HTTP ${response.status}`,
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  const rawAgents = Array.isArray(parsed?.agents) ? parsed.agents : [];
+  const agents = rawAgents
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
+    )
+    .map((entry) => ({
+      id: typeof entry.id === 'string' ? entry.id : '',
+      name: typeof entry.name === 'string' ? entry.name : null,
+      model: typeof entry.model === 'string' ? entry.model : null,
+      status: typeof entry.status === 'string' ? entry.status : null,
+      workspacePath:
+        typeof entry.workspacePath === 'string' ? entry.workspacePath : null,
+      sessionCount:
+        typeof entry.sessionCount === 'number' &&
+        Number.isFinite(entry.sessionCount)
+          ? entry.sessionCount
+          : 0,
+      activeSessions:
+        typeof entry.activeSessions === 'number' &&
+        Number.isFinite(entry.activeSessions)
+          ? entry.activeSessions
+          : 0,
+    }))
+    .filter((entry) => entry.id);
+
+  return JSON.stringify(
+    {
+      success: true,
+      count: agents.length,
+      agents,
+    },
+    null,
+    2,
+  );
+}
+
+async function callGatewayAgentChat(
+  payload: Record<string, unknown>,
+): Promise<string> {
+  const url = resolveGatewayAgentChatUrl();
+  if (!url) {
+    return failTool(
+      'Error: chat_with_agent is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  const requestPayload = { ...payload };
+  if (
+    currentSessionId &&
+    typeof requestPayload.currentSessionId !== 'string' &&
+    !Array.isArray(requestPayload.currentSessionId)
+  ) {
+    requestPayload.currentSessionId = currentSessionId;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestPayload),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: chat_with_agent request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    return failTool(
+      JSON.stringify(
+        {
+          ok: false,
+          status: response.status,
+          error:
+            (parsed && typeof parsed.error === 'string' && parsed.error) ||
+            rawText ||
+            `HTTP ${response.status}`,
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  if (parsed) return JSON.stringify(parsed, null, 2);
+  return rawText || JSON.stringify({ success: true }, null, 2);
 }
 
 async function callGatewayPluginTool(
@@ -2157,7 +2334,7 @@ async function executeToolInternal(
   }
   const args =
     parsedArgs && typeof parsedArgs === 'object'
-      ? (parsedArgs as Record<string, any>)
+      ? (parsedArgs as Record<string, unknown>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
@@ -2396,6 +2573,43 @@ async function executeToolInternal(
         command: args.command,
         timeoutMs,
       });
+    }
+
+    case 'list_agents': {
+      return await callGatewayAgentsList();
+    }
+
+    case 'chat_with_agent': {
+      const toAgent =
+        readStringValue(args.to_agent) ||
+        readStringValue(args.toAgent) ||
+        readStringValue(args.agentId);
+      if (!toAgent) {
+        return failTool('Error: to_agent is required for chat_with_agent.');
+      }
+      const text =
+        readStringValue(args.text) ||
+        readStringValue(args.prompt) ||
+        readStringValue(args.message);
+      if (!text) {
+        return failTool('Error: text is required for chat_with_agent.');
+      }
+
+      const payload: Record<string, unknown> = {
+        toAgent,
+        text,
+      };
+      const sessionId =
+        readStringValue(args.session_id) || readStringValue(args.sessionId);
+      const destination =
+        readStringValue(args.destination) || readStringValue(args.route);
+      const timeoutSeconds = readPositiveNumberValue(
+        args.timeout_seconds ?? args.timeoutSeconds,
+      );
+      if (sessionId) payload.sessionId = sessionId;
+      if (destination) payload.destination = destination;
+      if (timeoutSeconds != null) payload.timeoutSeconds = timeoutSeconds;
+      return await callGatewayAgentChat(payload);
     }
 
     case 'memory': {
@@ -3903,6 +4117,86 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   ...BROWSER_TOOL_DEFINITIONS,
+  {
+    type: 'function',
+    function: {
+      name: 'list_agents',
+      description:
+        'List the configured HybridClaw agents available for collaboration. Use this before handing work to a named agent so you can target a real agent id instead of guessing.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'chat_with_agent',
+      description:
+        'Send a focused foreground handoff to another configured HybridClaw agent and wait for its reply. Use `to_agent` with an id returned by `list_agents`. Optional `destination` creates or reuses a named route between the current agent and the target agent. Reuse `session_id` to continue the same inter-agent conversation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to_agent: {
+            type: 'string',
+            description:
+              'Target agent id from `list_agents` (required). Alias: `toAgent`.',
+          },
+          toAgent: {
+            type: 'string',
+            description: 'Alias of `to_agent`.',
+          },
+          agentId: {
+            type: 'string',
+            description: 'Secondary alias of `to_agent`.',
+          },
+          text: {
+            type: 'string',
+            description:
+              'Self-contained request for the target agent. Alias: `prompt` or `message`.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Alias of `text`.',
+          },
+          message: {
+            type: 'string',
+            description: 'Alias of `text`.',
+          },
+          session_id: {
+            type: 'string',
+            description:
+              'Optional existing inter-agent session key to continue. Alias: `sessionId`.',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Alias of `session_id`.',
+          },
+          destination: {
+            type: 'string',
+            description:
+              'Optional named destination for the route between the current agent and the target agent. Defaults to `default` when omitted. Alias: `route`.',
+          },
+          route: {
+            type: 'string',
+            description: 'Alias of `destination`.',
+          },
+          timeout_seconds: {
+            type: 'number',
+            description:
+              'Optional wall-clock timeout in seconds for the target agent turn (5-900). Alias: `timeoutSeconds`.',
+          },
+          timeoutSeconds: {
+            type: 'number',
+            description: 'Alias of `timeout_seconds`.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

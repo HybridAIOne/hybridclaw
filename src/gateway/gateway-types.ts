@@ -191,6 +191,31 @@ export interface GatewayChatRequest {
   source?: string;
 }
 
+export interface GatewayAgentCollaborationRequest {
+  currentSessionId: string;
+  toAgent: string;
+  text: string;
+  sessionId?: string | null;
+  destination?: string | null;
+  timeoutSeconds?: number | null;
+}
+
+export interface GatewayAgentCollaborationResult {
+  status: 'success' | 'error';
+  route: {
+    sourceAgentId: string;
+    targetAgentId: string;
+    destination: string;
+    sessionId: string;
+    executionSessionId: string;
+    channelId: string;
+  } | null;
+  result: string | null;
+  toolsUsed: string[];
+  artifacts?: ArtifactMetadata[];
+  error?: string;
+}
+
 export interface GatewayMediaUploadResult {
   media: GatewayMediaItem;
 }

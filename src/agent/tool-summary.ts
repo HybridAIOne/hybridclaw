@@ -46,6 +46,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['message'],
   },
   {
+    label: 'Agent Collaboration',
+    tools: ['list_agents', 'chat_with_agent'],
+  },
+  {
     label: 'Scheduling',
     tools: ['cron'],
   },
