@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -83,6 +84,26 @@ export function writeInput(
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');
   return inputPath;
+}
+
+export function enqueueSteeringNote(sessionId: string, note: string): string {
+  const normalizedNote = String(note || '').trim();
+  if (!normalizedNote) {
+    throw new Error('Steering note must be non-empty.');
+  }
+  ensureSessionDirs(sessionId);
+  const dir = ipcDir(sessionId);
+  const timestamp = String(Date.now()).padStart(13, '0');
+  const finalPath = path.join(dir, `steer-${timestamp}-${randomUUID()}.json`);
+  const tempPath = `${finalPath}.tmp`;
+  const payload = {
+    note: normalizedNote,
+    createdAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2));
+  fs.renameSync(tempPath, finalPath);
+  logger.debug({ sessionId, path: finalPath }, 'Queued IPC steering note');
+  return finalPath;
 }
 
 /**

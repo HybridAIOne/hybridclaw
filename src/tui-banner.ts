@@ -101,6 +101,7 @@ const SLASH_COMMANDS = [
   '/show',
   '/skill',
   '/status',
+  '/steer',
   '/stop',
   '/usage',
 ] as const;

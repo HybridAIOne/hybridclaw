@@ -1,4 +1,5 @@
 import { stopSessionExecution } from '../agent/executor.js';
+import { enqueueSteeringNote } from '../infra/ipc.js';
 
 interface ActiveGatewayRequest {
   controller: AbortController;
@@ -22,6 +23,20 @@ function deleteGatewayRequestEntry(
   if (sessionEntries.size === 0) {
     activeGatewayRequestsBySession.delete(sessionId);
   }
+}
+
+function listExecutionSessionIds(sessionId: string): string[] {
+  const sessionEntries = activeGatewayRequestsBySession.get(sessionId);
+  if (!sessionEntries || sessionEntries.size === 0) return [];
+  return [
+    ...new Set(
+      [...sessionEntries]
+        .map((entry) => entry.executionSessionId)
+        .filter(
+          (value) => typeof value === 'string' && value.trim().length > 0,
+        ),
+    ),
+  ];
 }
 
 export function registerActiveGatewayRequest(params: {
@@ -76,13 +91,25 @@ export function abortActiveGatewayRequests(sessionId: string): number {
   return entries.length;
 }
 
+export function enqueueGatewaySessionSteeringNote(params: {
+  sessionId: string;
+  note: string;
+}): {
+  queued: number;
+  executionSessionIds: string[];
+} {
+  const executionSessionIds = listExecutionSessionIds(params.sessionId);
+  for (const executionSessionId of executionSessionIds) {
+    enqueueSteeringNote(executionSessionId, params.note);
+  }
+  return {
+    queued: executionSessionIds.length,
+    executionSessionIds,
+  };
+}
+
 export function interruptGatewaySessionExecution(sessionId: string): boolean {
-  const sessionEntries = activeGatewayRequestsBySession.get(sessionId);
-  const executionSessionIds = new Set(
-    [...(sessionEntries || [])]
-      .map((entry) => entry.executionSessionId)
-      .filter((value) => typeof value === 'string' && value.trim().length > 0),
-  );
+  const executionSessionIds = new Set(listExecutionSessionIds(sessionId));
   const abortedRequests = abortActiveGatewayRequests(sessionId);
   if (executionSessionIds.size === 0) {
     executionSessionIds.add(sessionId);
