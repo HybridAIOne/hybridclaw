@@ -10,6 +10,12 @@ const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
 const createTempDir = useTempDir();
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Timestamps within the 30-day unused-activity window; computed at runtime so
+// fixtures don't drift stale as the wall clock advances past a hardcoded date.
+const recentIso = () => new Date(Date.now() - 5 * DAY_MS).toISOString();
+const staleIso = () => new Date(Date.now() - 90 * DAY_MS).toISOString();
+
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[name];
@@ -195,12 +201,12 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
       {
         toolName: 'github__search',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-21T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -278,12 +284,12 @@ test('checkConfig does not flag a single unused browser subtool when other brows
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
       {
         toolName: 'browser_navigate',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-21T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -330,7 +336,7 @@ test('checkConfig describes a grouped browser warning as a toolset when singular
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -383,7 +389,7 @@ test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () =>
       {
         toolName: 'read',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -886,13 +892,6 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
 
 test('checkSkills warns on enabled skills unused in the last 30 days', async () => {
   const disabledSkills = new Set<string>();
-  const now = Date.now();
-  const freshObservedAt = new Date(
-    now - 10 * 24 * 60 * 60 * 1000,
-  ).toISOString();
-  const staleObservedAt = new Date(
-    now - 90 * 24 * 60 * 60 * 1000,
-  ).toISOString();
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({
@@ -946,7 +945,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: freshObservedAt,
+        last_observed_at: recentIso(),
       },
       {
         skill_name: 'stale-skill',
@@ -960,7 +959,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: staleObservedAt,
+        last_observed_at: staleIso(),
       },
     ],
   }));
