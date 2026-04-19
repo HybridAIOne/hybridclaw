@@ -1,3 +1,11 @@
+import type { SkillConfigChannelKind } from '../channels/channel.js';
+import { SKILL_CONFIG_CHANNEL_KINDS } from '../channels/channel.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import {
+  getRuntimeSkillScopeDisabledNames,
+  setRuntimeSkillScopeEnabled,
+  updateRuntimeConfig,
+} from '../config/runtime-config.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
@@ -8,7 +16,7 @@ import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 const SKILL_LIST_LINE_MAX_CHARS = 113;
 
 interface SkillCommandContext {
@@ -190,6 +198,94 @@ export async function handleSkillCommand(
       lines.push('', '* foreign skill source');
     }
     return context.infoCommand('Skills', lines.join('\n'));
+  }
+
+  if (sub === 'enable' || sub === 'disable') {
+    const rest = context.args.slice(2);
+    const usageMessage = `Usage: \`skill ${sub} <name> [--channel <kind>]\``;
+    let skillName: string | undefined;
+    let channelKind: SkillConfigChannelKind | undefined;
+    const resolveChannelKind = (
+      raw: string,
+    ): SkillConfigChannelKind | undefined | 'invalid' => {
+      const trimmed = String(raw || '').trim();
+      if (!trimmed || trimmed.toLowerCase() === 'global') {
+        return undefined;
+      }
+      const normalized = normalizeSkillConfigChannelKind(trimmed);
+      if (!normalized) {
+        return 'invalid';
+      }
+      return normalized;
+    };
+
+    for (let i = 0; i < rest.length; i += 1) {
+      const arg = String(rest[i] || '').trim();
+      if (arg === '--channel') {
+        const next = String(rest[i + 1] || '').trim();
+        if (!next) {
+          return context.badCommand(
+            'Usage',
+            `Missing value for \`--channel\`. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
+          );
+        }
+        const resolved = resolveChannelKind(next);
+        if (resolved === 'invalid') {
+          return context.badCommand(
+            'Usage',
+            `Invalid channel kind: ${next}. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
+          );
+        }
+        channelKind = resolved;
+        i += 1;
+        continue;
+      }
+      if (arg.startsWith('--channel=')) {
+        const value = arg.slice('--channel='.length);
+        const resolved = resolveChannelKind(value);
+        if (resolved === 'invalid') {
+          return context.badCommand(
+            'Usage',
+            `Invalid channel kind: ${value}. Valid kinds: ${SKILL_CONFIG_CHANNEL_KINDS.join(', ')}, global`,
+          );
+        }
+        channelKind = resolved;
+        continue;
+      }
+      if (arg.startsWith('-')) {
+        return context.badCommand('Usage', `Unknown flag: ${arg}`);
+      }
+      if (skillName !== undefined) {
+        return context.badCommand('Usage', usageMessage);
+      }
+      skillName = arg;
+    }
+    if (!skillName) {
+      return context.badCommand('Usage', usageMessage);
+    }
+
+    const { loadSkillCatalog } = await import('../skills/skills.js');
+    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
+    if (!known) {
+      return context.badCommand('Unknown Skill', `Unknown skill: ${skillName}`);
+    }
+
+    const enabled = sub === 'enable';
+    const nextConfig = updateRuntimeConfig((draft) => {
+      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
+    });
+    const scope = channelKind ?? 'global';
+    const lines = [
+      `${enabled ? 'Enabled' : 'Disabled'} \`${skillName}\` in ${scope} scope.`,
+    ];
+    if (
+      channelKind &&
+      enabled &&
+      getRuntimeSkillScopeDisabledNames(nextConfig).has(skillName)
+    ) {
+      lines.push(`\`${skillName}\` remains globally disabled.`);
+    }
+    return context.plainCommand(lines.join('\n'));
   }
 
   if (sub === 'inspect') {

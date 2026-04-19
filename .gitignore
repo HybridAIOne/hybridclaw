@@ -45,3 +45,8 @@ docs/development/workplan-*.md
 
 # Temporary files
 *.tmp*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class

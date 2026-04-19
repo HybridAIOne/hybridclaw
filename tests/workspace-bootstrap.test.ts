@@ -246,6 +246,129 @@ describe('workspace bootstrap lifecycle', () => {
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
+  test('symlinks workspace node_modules to the container app deps when absent', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    const wsDir = makeTempDir('hybridclaw-ws-');
+    const appNodeModules = makeTempDir('hybridclaw-app-node_modules-');
+    fs.mkdirSync(path.join(appNodeModules, 'pdf-lib'), { recursive: true });
+    fs.writeFileSync(
+      path.join(appNodeModules, 'pdf-lib', 'package.json'),
+      JSON.stringify({ name: 'pdf-lib', version: '0.0.0-test' }),
+      'utf-8',
+    );
+
+    workspace.ensureWorkspaceNodeModulesLink(wsDir, appNodeModules);
+
+    const linkPath = path.join(wsDir, 'node_modules');
+    const stat = fs.lstatSync(linkPath);
+    expect(stat.isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(linkPath)).toBe(appNodeModules);
+    // Sanity: the symlink resolves to the fake dep we staged.
+    expect(fs.existsSync(path.join(linkPath, 'pdf-lib', 'package.json'))).toBe(
+      true,
+    );
+  });
+
+  test('leaves a pre-existing workspace node_modules directory untouched', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    const wsDir = makeTempDir('hybridclaw-ws-');
+    const appNodeModules = makeTempDir('hybridclaw-app-node_modules-');
+    fs.mkdirSync(path.join(appNodeModules, 'pdf-lib'), { recursive: true });
+
+    // User-installed deps already present in the workspace.
+    const userNodeModules = path.join(wsDir, 'node_modules');
+    fs.mkdirSync(path.join(userNodeModules, 'left-pad'), { recursive: true });
+    fs.writeFileSync(
+      path.join(userNodeModules, 'left-pad', 'package.json'),
+      JSON.stringify({ name: 'left-pad', version: '1.0.0' }),
+      'utf-8',
+    );
+
+    workspace.ensureWorkspaceNodeModulesLink(wsDir, appNodeModules);
+
+    const stat = fs.lstatSync(userNodeModules);
+    expect(stat.isDirectory()).toBe(true);
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(
+      fs.existsSync(path.join(userNodeModules, 'left-pad', 'package.json')),
+    ).toBe(true);
+    // App deps must NOT have leaked into the user's workspace.
+    expect(fs.existsSync(path.join(userNodeModules, 'pdf-lib'))).toBe(false);
+  });
+
+  test('is a no-op when the container app node_modules source is absent', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    const wsDir = makeTempDir('hybridclaw-ws-');
+    const missingSource = path.join(
+      makeTempDir('hybridclaw-app-'),
+      'does-not-exist',
+    );
+
+    workspace.ensureWorkspaceNodeModulesLink(wsDir, missingSource);
+
+    expect(fs.existsSync(path.join(wsDir, 'node_modules'))).toBe(false);
+  });
+
+  test('can stage a dangling container node_modules symlink before docker launch', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    const wsDir = makeTempDir('hybridclaw-ws-');
+
+    workspace.ensureWorkspaceNodeModulesLink(wsDir, '/app/node_modules', {
+      allowMissingSource: true,
+    });
+
+    const linkPath = path.join(wsDir, 'node_modules');
+    const stat = fs.lstatSync(linkPath);
+    expect(stat.isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(linkPath)).toBe('/app/node_modules');
+  });
+
+  test('can replace a stale workspace node_modules symlink before docker launch', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    const wsDir = makeTempDir('hybridclaw-ws-');
+    const linkPath = path.join(wsDir, 'node_modules');
+    fs.symlinkSync('/Users/example/project/node_modules', linkPath, 'dir');
+
+    workspace.ensureWorkspaceNodeModulesLink(wsDir, '/app/node_modules', {
+      allowMissingSource: true,
+      replaceExistingSymlink: true,
+    });
+
+    const stat = fs.lstatSync(linkPath);
+    expect(stat.isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(linkPath)).toBe('/app/node_modules');
+  });
+
   test('keeps a package-provided custom BOOTSTRAP.md on fresh install', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

@@ -1,5 +1,3 @@
-/* ── Chat Page Layout ─────────────────────────────────────── */
-
 .chatPage {
   display: grid;
   grid-template-columns: 260px 1fr;
@@ -7,8 +5,6 @@
   min-height: 0;
   overflow: hidden;
 }
-
-/* ── Chat Sidebar ─────────────────────────────────────────── */
 
 .sidebar {
   display: flex;
@@ -122,8 +118,6 @@
   color: var(--muted-foreground);
 }
 
-/* ── Main Chat Area ───────────────────────────────────────── */
-
 .chatMain {
   display: flex;
   flex-direction: column;
@@ -149,8 +143,6 @@
   width: 100%;
 }
 
-/* ── Empty State ──────────────────────────────────────────── */
-
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -169,8 +161,6 @@
   letter-spacing: -0.02em;
   line-height: 1.3;
 }
-
-/* ── Message Blocks ───────────────────────────────────────── */
 
 .messageBlock {
   display: flex;
@@ -249,8 +239,6 @@
   max-width: 90%;
   text-align: center;
 }
-
-/* ── Markdown Content ─────────────────────────────────────── */
 
 .markdownContent {
   line-height: 1.6;
@@ -363,8 +351,6 @@
   background: var(--muted);
 }
 
-/* ── Message Actions ──────────────────────────────────────── */
-
 .messageActions {
   display: flex;
   gap: 4px;
@@ -403,8 +389,6 @@
   color: var(--success);
 }
 
-/* ── Branch Switcher ──────────────────────────────────────── */
-
 .branchSwitcher {
   display: inline-flex;
   align-items: center;
@@ -437,8 +421,6 @@
   opacity: 0.4;
   cursor: default;
 }
-
-/* ── Approval Actions ─────────────────────────────────────── */
 
 .approvalActions {
   display: flex;
@@ -482,8 +464,6 @@
   opacity: 0.5;
   cursor: default;
 }
-
-/* ── Artifacts ────────────────────────────────────────────── */
 
 .artifactCard {
   display: flex;
@@ -548,8 +528,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* ── Thinking Indicator ───────────────────────────────────── */
-
 .thinking {
   display: flex;
   align-items: center;
@@ -585,8 +563,6 @@
     opacity: 1;
   }
 }
-
-/* ── Composer ─────────────────────────────────────────────── */
 
 .composerWrapper {
   flex-shrink: 0;
@@ -718,8 +694,6 @@
   color: var(--danger);
 }
 
-/* ── Slash Suggestions ────────────────────────────────────── */
-
 .slashSuggestions {
   position: absolute;
   bottom: 100%;
@@ -760,8 +734,6 @@
   color: var(--muted-foreground);
 }
 
-/* ── Error Banner ─────────────────────────────────────────── */
-
 .errorBanner {
   padding: 8px 14px;
   margin: 0 24px;
@@ -775,8 +747,6 @@
   margin-right: auto;
   width: calc(100% - 48px);
 }
-
-/* ── Edit Mode ────────────────────────────────────────────── */
 
 .editArea {
   width: 100%;
@@ -798,8 +768,6 @@
   gap: 6px;
   margin-top: 6px;
 }
-
-/* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 900px) {
   .chatPage {

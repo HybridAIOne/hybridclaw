@@ -24,6 +24,7 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
@@ -52,6 +53,9 @@ current workspace after confirmation.
 current built-in memory layers for a session: `MEMORY.md`, today's daily note,
 recent raw history, compacted `session_summary`, recent semantic-memory rows,
 and canonical cross-session recall state.
+`hybridclaw gateway status` reports the current sandbox/runtime state; in
+container mode it also shows the configured image name, resolved image
+version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
 `gateway voice info` reports the current local Twilio voice setup, and
@@ -85,12 +89,35 @@ hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
+  `hybridai-skills`
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--kind
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics
@@ -154,10 +181,20 @@ hybridclaw help auth
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 
@@ -255,7 +292,10 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.
 `update` checks for a newer installed release and can upgrade a global npm
-install; source checkouts receive git-based update instructions instead.
+install. When `--yes` completes successfully and a local gateway is already
+running with a replayable launch command, HybridClaw restarts it automatically
+with the original parameters; otherwise it falls back to manual restart
+instructions. Source checkouts receive git-based update instructions instead.
 
 ## Discord And Session Commands
 

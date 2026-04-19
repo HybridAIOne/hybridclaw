@@ -2880,10 +2880,15 @@ describe('CLI hybridai commands', () => {
 
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
-      { approveDependencyInstall: true },
+      {
+        approveDependencyInstall: true,
+        onDependenciesAlreadySatisfied: expect.any(Function),
+      },
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      expect.stringContaining(
+        'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      ),
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
@@ -3059,9 +3064,12 @@ describe('CLI hybridai commands', () => {
 
     expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin', {
       approveDependencyInstall: true,
+      onDependenciesAlreadySatisfied: expect.any(Function),
     });
     expect(logSpy).toHaveBeenCalledWith(
-      'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      expect.stringContaining(
+        'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      ),
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',

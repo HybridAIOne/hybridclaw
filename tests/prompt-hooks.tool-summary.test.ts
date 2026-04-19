@@ -99,6 +99,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   );
   expect(prompt).toContain(
+    'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
+  );
+  expect(prompt).toContain(
     'Do not claim a listed skill is unavailable when the user named it.',
   );
   expect(prompt).toContain(
@@ -146,6 +149,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
+  );
+  expect(prompt).toContain(
+    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
   );
   expect(prompt).toContain(
     'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',

@@ -43,6 +43,24 @@ export class MissingRequiredEnvVarError extends Error {
         'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
       HF_TOKEN:
         'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+      GEMINI_API_KEY:
+        'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
+      DEEPSEEK_API_KEY:
+        'DeepSeek provider is not configured. Use `/auth login deepseek` in the TUI, or switch to a model from another configured provider.',
+      XAI_API_KEY:
+        'xAI provider is not configured. Use `/auth login xai` in the TUI, or switch to a model from another configured provider.',
+      ZAI_API_KEY:
+        'Z.AI / GLM provider is not configured. Use `/auth login zai` in the TUI, or switch to a model from another configured provider.',
+      KIMI_API_KEY:
+        'Kimi / Moonshot provider is not configured. Use `/auth login kimi` in the TUI, or switch to a model from another configured provider.',
+      MINIMAX_API_KEY:
+        'MiniMax provider is not configured. Use `/auth login minimax` in the TUI, or switch to a model from another configured provider.',
+      DASHSCOPE_API_KEY:
+        'DashScope / Qwen provider is not configured. Use `/auth login dashscope` in the TUI, or switch to a model from another configured provider.',
+      XIAOMI_API_KEY:
+        'Xiaomi / MiMo provider is not configured. Use `/auth login xiaomi` in the TUI, or switch to a model from another configured provider.',
+      KILO_API_KEY:
+        'Kilo Code provider is not configured. Use `/auth login kilo` in the TUI, or switch to a model from another configured provider.',
     };
     super(
       messageByEnvVar[envVar] ||
@@ -119,7 +137,18 @@ function readRuntimeSecretValue(
     const value = String(process.env[envKey] || '').trim();
     if (value) return value;
   }
-  return storedSecrets[storedKey]?.trim() || '';
+  // Prefer the canonical `storedKey`, then fall back to any alias env-var name
+  // the user may have persisted (e.g. `GOOGLE_API_KEY` for Gemini,
+  // `GLM_API_KEY` / `Z_AI_API_KEY` for Z.AI, `KILOCODE_API_KEY` for Kilo).
+  // Without this, stored alias values would be orphaned — readable from disk
+  // but never surfaced because only the canonical key was consulted.
+  const canonical = storedSecrets[storedKey]?.trim();
+  if (canonical) return canonical;
+  for (const envKey of envKeys) {
+    const stored = storedSecrets[envKey]?.trim();
+    if (stored) return stored;
+  }
+  return '';
 }
 
 function syncRuntimeSecretExports(): void {
@@ -184,6 +213,51 @@ function syncRuntimeSecretExports(): void {
     'HF_TOKEN',
     storedSecrets,
   );
+  GEMINI_API_KEY = readRuntimeSecretValue(
+    ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+    'GEMINI_API_KEY',
+    storedSecrets,
+  );
+  DEEPSEEK_API_KEY = readRuntimeSecretValue(
+    ['DEEPSEEK_API_KEY'],
+    'DEEPSEEK_API_KEY',
+    storedSecrets,
+  );
+  XAI_API_KEY = readRuntimeSecretValue(
+    ['XAI_API_KEY'],
+    'XAI_API_KEY',
+    storedSecrets,
+  );
+  ZAI_API_KEY = readRuntimeSecretValue(
+    ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
+    'ZAI_API_KEY',
+    storedSecrets,
+  );
+  KIMI_API_KEY = readRuntimeSecretValue(
+    ['KIMI_API_KEY'],
+    'KIMI_API_KEY',
+    storedSecrets,
+  );
+  MINIMAX_API_KEY = readRuntimeSecretValue(
+    ['MINIMAX_API_KEY'],
+    'MINIMAX_API_KEY',
+    storedSecrets,
+  );
+  DASHSCOPE_API_KEY = readRuntimeSecretValue(
+    ['DASHSCOPE_API_KEY'],
+    'DASHSCOPE_API_KEY',
+    storedSecrets,
+  );
+  XIAOMI_API_KEY = readRuntimeSecretValue(
+    ['XIAOMI_API_KEY'],
+    'XIAOMI_API_KEY',
+    storedSecrets,
+  );
+  KILO_API_KEY = readRuntimeSecretValue(
+    ['KILOCODE_API_KEY', 'KILO_API_KEY'],
+    'KILO_API_KEY',
+    storedSecrets,
+  );
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
@@ -200,6 +274,15 @@ export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
+export let GEMINI_API_KEY = '';
+export let DEEPSEEK_API_KEY = '';
+export let XAI_API_KEY = '';
+export let ZAI_API_KEY = '';
+export let KIMI_API_KEY = '';
+export let MINIMAX_API_KEY = '';
+export let DASHSCOPE_API_KEY = '';
+export let XIAOMI_API_KEY = '';
+export let KILO_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
@@ -363,6 +446,26 @@ export let MISTRAL_ENABLED = false;
 export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
+export let GEMINI_ENABLED = false;
+export let GEMINI_BASE_URL =
+  'https://generativelanguage.googleapis.com/v1beta/openai';
+export let DEEPSEEK_ENABLED = false;
+export let DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+export let XAI_ENABLED = false;
+export let XAI_BASE_URL = 'https://api.x.ai/v1';
+export let ZAI_ENABLED = false;
+export let ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+export let KIMI_ENABLED = false;
+export let KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
+export let MINIMAX_ENABLED = false;
+export let MINIMAX_BASE_URL = 'https://api.minimax.io/v1';
+export let DASHSCOPE_ENABLED = false;
+export let DASHSCOPE_BASE_URL =
+  'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+export let XIAOMI_ENABLED = false;
+export let XIAOMI_BASE_URL = 'https://api.xiaomimimo.com/v1';
+export let KILO_ENABLED = false;
+export let KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_LMSTUDIO_ENABLED = false;
@@ -730,6 +833,24 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MISTRAL_BASE_URL = config.mistral.baseUrl;
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
+  GEMINI_ENABLED = config.gemini.enabled;
+  GEMINI_BASE_URL = config.gemini.baseUrl;
+  DEEPSEEK_ENABLED = config.deepseek.enabled;
+  DEEPSEEK_BASE_URL = config.deepseek.baseUrl;
+  XAI_ENABLED = config.xai.enabled;
+  XAI_BASE_URL = config.xai.baseUrl;
+  ZAI_ENABLED = config.zai.enabled;
+  ZAI_BASE_URL = config.zai.baseUrl;
+  KIMI_ENABLED = config.kimi.enabled;
+  KIMI_BASE_URL = config.kimi.baseUrl;
+  MINIMAX_ENABLED = config.minimax.enabled;
+  MINIMAX_BASE_URL = config.minimax.baseUrl;
+  DASHSCOPE_ENABLED = config.dashscope.enabled;
+  DASHSCOPE_BASE_URL = config.dashscope.baseUrl;
+  XIAOMI_ENABLED = config.xiaomi.enabled;
+  XIAOMI_BASE_URL = config.xiaomi.baseUrl;
+  KILO_ENABLED = config.kilo.enabled;
+  KILO_BASE_URL = config.kilo.baseUrl;
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;

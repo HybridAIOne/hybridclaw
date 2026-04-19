@@ -152,12 +152,10 @@ export function ChatPage() {
     refetchOnWindowFocus: false,
   });
 
-  // Apply loaded history when session changes; flush queued edit if pending
   useEffect(() => {
     const data = historyQuery.data;
     if (!sessionId || !data) return;
 
-    // Only update sessionId if the server returned a different one
     if (data.sessionId && data.sessionId !== sessionId) {
       setSessionId(data.sessionId);
     }
@@ -232,8 +230,6 @@ export function ChatPage() {
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
   }, []);
-
-  /* ── Handlers ───────────────────────────────────────────── */
 
   const resetChatState = useCallback(() => {
     setMessages([]);
@@ -354,8 +350,6 @@ export function ChatPage() {
     },
     [branchFamilies, handleOpenSession],
   );
-
-  /* ── Render ─────────────────────────────────────────────── */
 
   const isEmpty = messages.length === 0;
 

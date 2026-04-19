@@ -46,6 +46,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
@@ -60,6 +61,7 @@ import type {
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
+import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -120,6 +122,7 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
+const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
@@ -470,7 +473,6 @@ function getOrSpawnContainer(
     return existing;
   }
 
-  // Clean up stale entry
   if (existing) {
     pool.delete(sessionId);
   }
@@ -482,6 +484,11 @@ function getOrSpawnContainer(
     sessionId,
     agentId,
     workspacePathOverride: params.workspacePathOverride,
+  });
+  fs.mkdirSync(workspacePath, { recursive: true });
+  ensureWorkspaceNodeModulesLink(workspacePath, CONTAINER_APP_NODE_MODULES, {
+    allowMissingSource: true,
+    replaceExistingSymlink: true,
   });
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
@@ -711,6 +718,20 @@ function getOrSpawnContainer(
 export async function runContainer(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.container.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runContainerInner(params),
+  );
+}
+
+async function runContainerInner(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -752,7 +773,6 @@ export async function runContainer(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
-  // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',
@@ -764,7 +784,6 @@ export async function runContainer(
 
   const startTime = Date.now();
 
-  // Clean any stale output from previous request
   cleanupIpc(sessionId);
   ensureSessionDirs(sessionId);
 
@@ -908,7 +927,6 @@ export async function runContainer(
       writeInput(sessionId, input, { omitApiKey: true });
     }
 
-    // Wait for the container to produce output
     const output = await readOutput(
       sessionId,
       inactivityTimeoutMs === undefined

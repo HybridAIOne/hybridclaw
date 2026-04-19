@@ -66,6 +66,11 @@ Important distinction:
 
 ## Before You Activate It
 
+[MemPalace](https://github.com/milla-jovovich/mempalace) is a free,
+open-source local memory system that uses ChromaDB and SQLite for storage with
+zero API costs. See the [MemPalace setup guide](https://www.mempalace.tech/guides/setup)
+for detailed instructions.
+
 You need an initialized palace before the plugin can do anything useful.
 HybridClaw can install the `mempalace` Python package into a plugin-local
 environment during `plugin install` if you approve dependency setup, but it
@@ -78,6 +83,11 @@ pip install mempalace
 mempalace init ~/projects/myapp
 mempalace mine ~/projects/myapp
 ```
+
+> **Tip:** You can skip the manual `pip install`. Running
+> `hybridclaw plugin install ./plugins/mempalace-memory` will offer to install
+> `mempalace` into a plugin-local `.venv` automatically. You still need to run
+> `mempalace init` and `mempalace mine` yourself.
 
 The important invariant is:
 
@@ -142,14 +152,14 @@ sessions.
 
 ```text
 /plugin install ./plugins/mempalace-memory --yes
-/plugin reload
+/plugin enable mempalace-memory
+/mempalace status
 ```
 
 If needed, set the palace location explicitly:
 
 ```text
 /plugin config mempalace-memory palacePath ~/.mempalace/palace
-/plugin reload
 ```
 
 To avoid ambiguity, setting `palacePath` explicitly is recommended even when
@@ -505,6 +515,99 @@ Supported config keys:
 - `timeoutMs`: timeout for `status`, `wake-up`, and automatic search calls. The
   plugin gives `mine` a longer minimum timeout automatically.
 
+## Example Prompts and Use Cases
+
+### Recall past decisions
+
+```text
+Why did we switch from REST to GraphQL for the internal API?
+```
+
+If this decision was discussed in a prior session and mined into MemPalace,
+the plugin surfaces the relevant context before the model answers.
+
+### Store operational knowledge
+
+```text
+Remember that the staging deploy requires running database migrations
+first, and the deploy key is in the team 1Password vault.
+```
+
+The built-in memory stores this immediately, and the plugin mirrors the write
+into MemPalace so it is also available through MemPalace search.
+
+### Manual search for specific memories
+
+```text
+/mempalace search "auth provider migration"
+/mempalace wake-up --wing hybridclaw
+```
+
+Use the slash command to inspect raw MemPalace results or wake up context for
+a specific wing.
+
+### Full MCP tool access (with MCP server)
+
+```text
+Use MemPalace to show me the current taxonomy of wings and rooms.
+Use MemPalace to search the knowledge graph for connections between
+the auth service and the user service.
+```
+
+These require the MemPalace MCP server to be configured separately from the
+plugin.
+
+### Cross-tool memory
+
+After a long debugging session, the important conclusions are automatically
+mined into MemPalace. In a future session with a different project, those
+debugging patterns are still retrievable.
+
+## Tips and Tricks
+
+- **Zero cost, fully local.** MemPalace runs entirely offline after the
+  initial model download. No API keys, no cloud accounts, no usage fees.
+- **Pin ChromaDB on macOS ARM.** MemPalace can crash with segfaults when
+  ChromaDB 1.5.6 is installed on Apple Silicon. If you hit this, downgrade
+  with `pip install chromadb==0.6.3` and rebuild. Track upstream fixes in
+  [MemPalace issue #100](https://github.com/milla-jovovich/mempalace/issues/100).
+- **GPU acceleration.** If you have an NVIDIA GPU, install GPU-accelerated
+  `onnxruntime` with CUDA runtime to significantly speed up local embeddings.
+  The "GPU device discovery failed" warning from onnxruntime is cosmetic and
+  harmless with multi-GPU setups.
+- **Large vaults (40k+ drawers).** Unbounded `col.get()` calls can crash with
+  too many SQL variables. If your palace is very large, see
+  [MemPalace issue #211](https://github.com/milla-jovovich/mempalace/issues/211)
+  for batch workarounds.
+- **Split large exports.** If your conversation exports are huge concatenated
+  files, use `mempalace split` before mining to get better segmentation.
+- **Set `palacePath` explicitly.** Even if you use MemPalace's default palace
+  location, setting `palacePath` in plugin config avoids confusion when
+  multiple palaces exist on the system.
+- **Pair with an exclusive provider.** MemPalace is additive, so it can run
+  alongside Honcho or ByteRover. Use the exclusive provider for session
+  modeling and MemPalace for long-term local search.
+
+## Troubleshooting
+
+- `/mempalace status` works in your shell but the plugin still reports it as
+  missing:
+  point `plugin config mempalace-memory command /absolute/path/to/mempalace`
+  at the exact executable you tested manually.
+- Prompt recall is empty:
+  verify whether the plugin is using CLI fallback or an enabled MemPalace MCP
+  server, then test the corresponding path directly with `/mempalace search ...`
+  or `/mcp list`.
+- New chat turns are not appearing in MemPalace:
+  lower `saveEveryMessages`, confirm `sessionExportDir` is writable, and check
+  whether `mempalace mine ... --mode convos` succeeds for exported transcripts.
+- Retrieval seems to come from the wrong project:
+  tighten `wakeUpWing`, `searchWing`, `searchRoom`, or `updateWing` so the
+  plugin stops recalling across unrelated palace areas.
+- Repo edits do not affect the active plugin:
+  reinstall the repo-shipped copy with `/plugin reinstall ./plugins/mempalace-memory`
+  and then reload the plugin.
+
 ## What This Plugin Does Not Do
 
 This plugin is intentionally narrow. It does not:
@@ -521,3 +624,31 @@ This plugin is intentionally narrow. It does not:
 Use MemPalace itself for palace initialization, repair, reset, and other
 maintenance. Use this plugin when you want MemPalace to be the active recall
 and update path for HybridClaw chat memory.
+
+## Troubleshooting
+
+- **Plugin loads but `mempalace status` says "No palace found":**
+  The plugin is not pointed at an initialized palace. Set `palacePath`
+  explicitly to the directory where you ran `mempalace init`.
+
+- **Segfault on macOS ARM:**
+  ChromaDB version conflict. Run `pip install chromadb==0.6.3` in the plugin's
+  `.venv` or your global Python environment.
+
+- **Search returns no results for known facts:**
+  Check that you are searching the correct wing. Use
+  `/mempalace search "term" --wing <wing>` to narrow the search. Also verify
+  that mining has completed with `/mempalace status`.
+
+- **Auto-save is not working:**
+  Check `saveEveryMessages` in plugin config (default: 15). The plugin buffers
+  turns and only mines after the threshold is reached. Use a lower value for
+  testing or run `/mempalace mine` manually.
+
+- **Unicode crashes on Windows:**
+  MemPalace CLI uses Unicode characters that can crash on Windows cp1252
+  terminals. Use Windows Terminal or set your terminal to UTF-8 encoding.
+
+- **MCP tools not visible:**
+  The plugin does not expose MCP tools itself. Add the MemPalace MCP server
+  separately. See the "Optional: Add the MemPalace MCP Server" section above.

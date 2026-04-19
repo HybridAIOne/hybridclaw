@@ -19,6 +19,7 @@ import {
   type RuntimeSchedulerJob,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { runResourceHygieneMaintenance } from '../doctor/resource-hygiene.js';
 import { logger } from '../logger.js';
 import {
   deleteTask,
@@ -28,6 +29,7 @@ import {
   updateTaskLastRun,
 } from '../memory/db.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;
@@ -103,8 +105,6 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let taskRunner: TaskRunner | null = null;
 let ticking = false;
 const schedulerState: SchedulerStateFile = loadSchedulerState();
-
-// --- Prompt framing ---
 
 function resolveSchedulerTimeZone(timeZone: string | undefined): string {
   const trimmed = timeZone?.trim();
@@ -704,6 +704,14 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
 }
 
 async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
+  if (
+    job.action.kind === 'system_event' &&
+    job.action.message === RESOURCE_HYGIENE_SYSTEM_EVENT
+  ) {
+    await runResourceHygieneMaintenance();
+    return;
+  }
+
   if (!taskRunner) return;
   const jobLabel = resolveConfigJobLabel(job);
   const contextChannelId =
@@ -1294,8 +1302,6 @@ export function resetConfigJobRuntime(jobId: string): boolean {
   );
   return true;
 }
-
-// --- Public API ---
 
 export function startScheduler(runner: TaskRunner): void {
   logger.info('Scheduler started');

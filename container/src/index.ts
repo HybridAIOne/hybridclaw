@@ -28,8 +28,8 @@ import {
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
-  HybridAIRequestError,
   isHybridAIEmptyVisibleCompletion,
+  ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from './providers/shared.js';
 import {
@@ -1018,7 +1018,7 @@ async function processRequest(
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error:
-          err instanceof HybridAIRequestError
+          err instanceof ProviderRequestError
             ? err.message
             : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };

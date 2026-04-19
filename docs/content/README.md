@@ -26,18 +26,20 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- `/admin/agents` lets operators edit allowlisted bootstrap markdown files for
-  each registered agent, inspect saved revisions, and restore an earlier
-  version from the browser.
-- `hybridclaw tui` combines the startup banner, keyboard-driven approval
-  picker, and resumable exit summary into one local operator workflow.
-- If `~/.hybridclaw/config.json` becomes invalid JSON, interactive onboarding
-  can restore the last known-good saved snapshot or roll back to a tracked
-  config revision before setup continues.
-- Built-in transport behavior is more predictable: email seeds its first
-  mailbox cursor from the current head instead of replaying old inbox mail,
-  retry-aware transports honor `Retry-After`, and WhatsApp startup avoids
-  intermittent init-query bad-request failures.
+- Provider auth and model selection span HybridAI, Codex, OpenRouter, Mistral,
+  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi,
+  Kilo Code, and local backends. Several remote providers also discover model
+  catalogs at runtime.
+- Skills can be enabled or disabled globally or per channel from
+  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
+  `Skills` page.
+- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
+  MemPalace, QMD, and GBrain plugins. The
+  [Memory Plugins](./extensibility/memory-plugins.md) guide compares the main
+  tradeoffs.
+- HybridClaw can emit OpenTelemetry traces to OTLP backends when
+  `OTEL_ENABLED=true` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set, correlating
+  gateway and agent spans with structured logs.
 
 ## Browse By Section
 

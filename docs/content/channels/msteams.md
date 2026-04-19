@@ -76,7 +76,7 @@ hybridclaw gateway restart --foreground
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 By default, Teams messages are served from the gateway HTTP port at:
 

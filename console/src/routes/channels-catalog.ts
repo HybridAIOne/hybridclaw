@@ -54,7 +54,6 @@ export function countTeamsOverrides(config: AdminConfig): number {
   }, 0);
 }
 
-
 function describeDiscord(
   config: AdminConfig,
   options: ChannelCatalogOptions,

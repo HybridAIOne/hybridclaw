@@ -1,11 +1,12 @@
-/* ─── Animations ───────────────────────────────────────────────────────────── */
-
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.45; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
-
-/* ─── Panel shell ──────────────────────────────────────────────────────────── */
 
 .panel {
   border-radius: 10px;
@@ -28,8 +29,6 @@
   color: #111827;
   letter-spacing: -0.01em;
 }
-
-/* ─── Row ──────────────────────────────────────────────────────────────────── */
 
 .row {
   display: flex;
@@ -66,8 +65,6 @@
   background: rgba(239, 68, 68, 0.04);
 }
 
-/* ─── Row top: name line + meta ────────────────────────────────────────────── */
-
 .rowTop {
   display: flex;
   align-items: center;
@@ -82,8 +79,6 @@
   min-width: 0;
 }
 
-/* ─── Status dot ───────────────────────────────────────────────────────────── */
-
 .dot {
   width: 6px;
   height: 6px;
@@ -91,20 +86,23 @@
   flex-shrink: 0;
 }
 
-.dotHealthy  { background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15); }
-.dotWarning  {
+.dotHealthy {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+}
+.dotWarning {
   background: #f59e0b;
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
   animation: pulse 2s ease-in-out infinite;
 }
-.dotDown     {
+.dotDown {
   background: #ef4444;
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
   animation: pulse 1.6s ease-in-out infinite;
 }
-.dotInactive { background: #d1d5db; }
-
-/* ─── Name + badge ─────────────────────────────────────────────────────────── */
+.dotInactive {
+  background: #d1d5db;
+}
 
 .name {
   font-size: 12.5px;
@@ -141,8 +139,6 @@
   border: 1px solid rgba(22, 163, 74, 0.18);
 }
 
-/* ─── Meta (right side of name line) ──────────────────────────────────────── */
-
 .meta {
   display: flex;
   align-items: center;
@@ -164,8 +160,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ─── Warning inline action ────────────────────────────────────────────────── */
-
 .loginBtn {
   font-size: 11.5px;
   font-weight: 500;
@@ -177,7 +171,9 @@
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.5;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease;
   flex-shrink: 0;
 }
 
@@ -189,8 +185,6 @@
 .loginBtn:active {
   background: #fde68a;
 }
-
-/* ─── Inactive footer ──────────────────────────────────────────────────────── */
 
 .inactiveFooter {
   display: flex;
@@ -216,16 +210,12 @@
   color: #c4c9d4;
 }
 
-/* ─── Empty state ──────────────────────────────────────────────────────────── */
-
 .panelEmpty {
   padding: 20px 16px;
   font-size: 13px;
   color: #9ca3af;
   text-align: center;
 }
-
-/* ─── Dark mode ────────────────────────────────────────────────────────────── */
 
 :global(html[data-theme="dark"]) .panel {
   background: #111827;

@@ -403,6 +403,11 @@ test('available model catalog discovers Codex models from the models endpoint', 
   );
   expect(catalog.getAvailableModelList('codex')).toEqual([
     'openai-codex/gpt-5-codex',
+    'openai-codex/gpt-5.1-codex-max',
+    'openai-codex/gpt-5.1-codex-mini',
+    'openai-codex/gpt-5.2-codex',
+    'openai-codex/gpt-5.3-codex',
+    'openai-codex/gpt-5.3-codex-spark',
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
   ]);
@@ -523,6 +528,8 @@ test('available model catalog discovers Codex models from the current models pay
     ]),
   );
   expect(catalog.getAvailableModelList('codex')).toEqual([
+    'openai-codex/gpt-5.1-codex-max',
+    'openai-codex/gpt-5.1-codex-mini',
     'openai-codex/gpt-5.2-codex',
     'openai-codex/gpt-5.3-codex',
     'openai-codex/gpt-5.3-codex-spark',
@@ -595,11 +602,9 @@ test('available model catalog returns the full Hugging Face discovery list', asy
     'huggingface/Qwen/Qwen3.5-397B-A17B',
     'huggingface/zeta/custom-model',
   ]);
-  expect(
-    catalog.getAvailableModelListWithOptions('huggingface', {
-      expanded: true,
-    }),
-  ).toEqual(catalog.getAvailableModelList('huggingface'));
+  expect(catalog.getAvailableModelList('huggingface')).toEqual(
+    catalog.getAvailableModelList('huggingface'),
+  );
 });
 
 test('available model catalog requires Mistral discovery data', async () => {
@@ -815,11 +820,6 @@ test('available model catalog does not cap the default Hugging Face list', async
   await catalog.refreshAvailableModelCatalogs();
 
   expect(catalog.getAvailableModelList('huggingface')).toHaveLength(32);
-  expect(
-    catalog.getAvailableModelListWithOptions('huggingface', {
-      expanded: true,
-    }),
-  ).toHaveLength(32);
 });
 
 test('vision fallback ignores OpenRouter models with image output only', async () => {

@@ -19,6 +19,7 @@ export interface DiagFix {
   summary: string;
   apply: () => Promise<void>;
   rollback?: () => Promise<void>;
+  requiresApproval?: boolean;
 }
 
 export interface DiagResult {

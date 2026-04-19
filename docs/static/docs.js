@@ -3,6 +3,10 @@ const LEGACY_DOCS_BASE_PATH = '/development';
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
+const ICON_COPY =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+const ICON_CHECK =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
 const LEGACY_DOC_PATH_REWRITES = new Map([
   ['getting-started/channels', 'channels/overview'],
   ['getting-started/channels.md', 'channels/overview.md'],
@@ -76,25 +80,63 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
+    title: 'Skills Catalog',
+    pages: [
+      { title: 'Overview', path: 'guides/skills/README.md' },
+      { title: 'Office', path: 'guides/skills/office.md' },
+      { title: 'Development', path: 'guides/skills/development.md' },
+      { title: 'Communication', path: 'guides/skills/communication.md' },
+      { title: 'Apple', path: 'guides/skills/apple.md' },
+      { title: 'Productivity', path: 'guides/skills/productivity.md' },
+      {
+        title: 'Memory & Knowledge',
+        path: 'guides/skills/memory-knowledge.md',
+      },
+      { title: 'Publishing', path: 'guides/skills/publishing.md' },
+      {
+        title: 'Integrations & Utilities',
+        path: 'guides/skills/integrations.md',
+      },
+    ],
+  },
+  {
     title: 'Extensibility',
     pages: [
       { title: 'Extensibility', path: 'extensibility/README.md' },
       { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
       { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
       {
-        title: 'Honcho Memory Plugin',
-        path: 'extensibility/honcho-memory-plugin.md',
-      },
-      {
-        title: 'MemPalace Memory Plugin',
-        path: 'extensibility/mempalace-memory-plugin.md',
+        title: 'Memory Plugins',
+        path: 'extensibility/memory-plugins.md',
+        children: [
+          {
+            title: 'ByteRover Memory Plugin',
+            path: 'extensibility/byterover-memory-plugin.md',
+          },
+          {
+            title: 'GBrain Plugin',
+            path: 'extensibility/gbrain-plugin.md',
+          },
+          {
+            title: 'Honcho Memory Plugin',
+            path: 'extensibility/honcho-memory-plugin.md',
+          },
+          {
+            title: 'Mem0 Memory Plugin',
+            path: 'extensibility/mem0-memory-plugin.md',
+          },
+          {
+            title: 'MemPalace Memory Plugin',
+            path: 'extensibility/mempalace-memory-plugin.md',
+          },
+          {
+            title: 'QMD Memory Plugin',
+            path: 'extensibility/qmd-memory-plugin.md',
+          },
+        ],
       },
       { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
       { title: 'Plugins', path: 'extensibility/plugins.md' },
-      {
-        title: 'QMD Memory Plugin',
-        path: 'extensibility/qmd-memory-plugin.md',
-      },
       { title: 'Skills', path: 'extensibility/skills.md' },
     ],
   },
@@ -504,13 +546,71 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
 
   const html = [];
   let paragraphLines = [];
-  let openList = '';
+  // Stack of open list frames so nested indented lists render as children of
+  // their parent <li>. Each frame tracks its counter so a following <ol> at
+  // the same indent can continue numbering via a start= attribute (#320).
+  const listStack = [];
+  // Carries the next ordered-list counter across an interrupting <ul> when
+  // both lists share an indent. Cleared by any non-list block content.
+  let pendingOlStart = null;
 
-  const closeList = () => {
-    if (openList) {
-      html.push(openList === 'ul' ? '</ul>' : '</ol>');
-      openList = '';
+  const topFrame = () => listStack[listStack.length - 1] || null;
+
+  const closeOpenLi = (frame) => {
+    if (frame && frame.liOpen) {
+      html.push('</li>');
+      frame.liOpen = false;
     }
+  };
+
+  const closeTopList = () => {
+    const frame = listStack.pop();
+    if (!frame) return;
+    closeOpenLi(frame);
+    html.push(frame.type === 'ul' ? '</ul>' : '</ol>');
+    if (frame.type === 'ol') {
+      pendingOlStart = {
+        indent: frame.indent,
+        next: frame.startNum + frame.itemCount,
+      };
+    }
+  };
+
+  const closeAllLists = () => {
+    while (listStack.length > 0) closeTopList();
+  };
+
+  const closeListsDeeperThan = (indent) => {
+    while (listStack.length > 0 && topFrame().indent > indent) closeTopList();
+  };
+
+  const openList = (type, indent) => {
+    let startNum = 1;
+    let startAttr = '';
+    if (type === 'ol' && pendingOlStart && pendingOlStart.indent === indent) {
+      startNum = pendingOlStart.next;
+      if (startNum > 1) startAttr = ` start="${startNum}"`;
+    }
+    html.push(type === 'ul' ? '<ul>' : `<ol${startAttr}>`);
+    listStack.push({ type, indent, startNum, itemCount: 0, liOpen: false });
+    if (type === 'ol') pendingOlStart = null;
+  };
+
+  const pushListItem = (type, indent, inlineContent) => {
+    closeListsDeeperThan(indent);
+    const top = topFrame();
+    if (top && top.indent === indent && top.type !== type) {
+      closeTopList();
+    }
+    const current = topFrame();
+    const needsOpen =
+      !current || current.indent < indent || current.type !== type;
+    if (needsOpen) openList(type, indent);
+    const frame = topFrame();
+    closeOpenLi(frame);
+    html.push(`<li>${inlineContent}`);
+    frame.liOpen = true;
+    frame.itemCount += 1;
   };
 
   const flushParagraph = () => {
@@ -523,37 +623,53 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     paragraphLines = [];
   };
 
+  const endBlockBreak = () => {
+    flushParagraph();
+    closeAllLists();
+    pendingOlStart = null;
+  };
+
+  // Normalize lines like `**1. Heading**` (whole-line bold-wrapped numbered
+  // headings commonly emitted by LLMs) into `1. **Heading**` so they parse
+  // as real ordered-list items with bold content (#320).
+  for (let i = 0; i < lines.length; i += 1) {
+    const bolded = lines[i].match(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/);
+    if (bolded) {
+      lines[i] = `${bolded[1]}${bolded[2]}. **${bolded[3]}**`;
+    }
+  }
+
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] || '';
 
     const codeMatch = line.match(/^@@CB(\d+)@@$/);
     if (codeMatch) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       html.push(codeBlocks[Number(codeMatch[1])] || '');
       continue;
     }
 
     if (!line.trim()) {
       flushParagraph();
-      // Look ahead past blank lines: keep the list open when the next
-      // non-empty line continues the same list type (#206)
-      if (openList) {
+      // Blank line keeps open lists alive only if the next non-empty line is
+      // itself a list item (any type) — the ol→ul→ol counter continuity is
+      // handled by pendingOlStart, not by keeping the <ol> open (#206, #320).
+      if (listStack.length > 0) {
         let ahead = index + 1;
         while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
         const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
-        const continuesList =
-          (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
-          (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
-        if (!continuesList) closeList();
+        const nextIsListItem = /^\s*(?:[-*+]|\d+\.)\s+/.test(nextNonEmpty);
+        if (!nextIsListItem) {
+          closeAllLists();
+          pendingOlStart = null;
+        }
       }
       continue;
     }
 
     const heading = line.match(/^(#{1,3})\s+(.*)$/);
     if (heading) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       const textContent = heading[2];
       const level = heading[1].length;
       const slug = slugifyHeading(textContent, slugCounts);
@@ -569,8 +685,7 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
     }
 
     if (isTableSeparatorLine(lines[index + 1] || '')) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       const headerCells = splitTableRow(line);
       const bodyRows = [];
       index += 2;
@@ -599,54 +714,93 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
       continue;
     }
 
+    // Callout detection: mirrors src/gateway/docs.ts blockquote renderer.
+    // Gateway uses marked's native grouping; here we group manually and
+    // break on new callout types. Both detect 🎯 (try-it) and 💡 (tip).
     const quote = line.match(/^>\s?(.*)$/);
     if (quote) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
+      const quoteLines = [quote[1]];
+      while (index + 1 < lines.length) {
+        const nextLine = lines[index + 1] || '';
+        const nextQuote = nextLine.match(/^>\s?(.*)$/);
+        if (nextQuote) {
+          quoteLines.push(nextQuote[1]);
+          index += 1;
+        } else if (!nextLine.trim()) {
+          // blank line may continue blockquote if next non-blank is also >
+          // BUT stop if the next > line starts a new callout type
+          let ahead = index + 2;
+          while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+          const aheadLine = ahead < lines.length ? lines[ahead] || '' : '';
+          const aheadQuote = aheadLine.match(/^>\s?(.*)$/);
+          if (aheadQuote) {
+            const aheadContent = aheadQuote[1];
+            const isNewCallout =
+              aheadContent.includes('🎯') || aheadContent.includes('💡');
+            if (isNewCallout) {
+              break;
+            }
+            quoteLines.push('');
+            index += 1;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+      let bqClass = '';
+      const firstLine = quoteLines[0] || '';
+      if (firstLine.includes('🎯')) bqClass = 'docs-try-it';
+      else if (firstLine.includes('💡')) bqClass = 'docs-tip';
+      const inner = quoteLines
+        .map((l) =>
+          l.trim() ? `<p>${renderInlineMarkdown(l, context)}</p>` : '',
+        )
+        .join('');
       html.push(
-        `<blockquote>${renderInlineMarkdown(quote[1], context)}</blockquote>`,
+        `<blockquote${bqClass ? ` class="${bqClass}"` : ''}>${inner}</blockquote>`,
       );
       continue;
     }
 
     const divider = line.match(/^\s*((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/);
     if (divider) {
-      flushParagraph();
-      closeList();
+      endBlockBreak();
       html.push('<hr>');
       continue;
     }
 
-    const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+    const unordered = line.match(/^(\s*)[-*+]\s+(.*)$/);
     if (unordered) {
       flushParagraph();
-      if (openList !== 'ul') {
-        closeList();
-        html.push('<ul>');
-        openList = 'ul';
-      }
-      html.push(`<li>${renderInlineMarkdown(unordered[1], context)}</li>`);
+      pushListItem(
+        'ul',
+        unordered[1].length,
+        renderInlineMarkdown(unordered[2], context),
+      );
       continue;
     }
 
-    const ordered = line.match(/^\s*\d+\.\s+(.*)$/);
+    const ordered = line.match(/^(\s*)\d+\.\s+(.*)$/);
     if (ordered) {
       flushParagraph();
-      if (openList !== 'ol') {
-        closeList();
-        html.push('<ol>');
-        openList = 'ol';
-      }
-      html.push(`<li>${renderInlineMarkdown(ordered[1], context)}</li>`);
+      pushListItem(
+        'ol',
+        ordered[1].length,
+        renderInlineMarkdown(ordered[2], context),
+      );
       continue;
     }
 
-    closeList();
+    closeAllLists();
+    pendingOlStart = null;
     paragraphLines.push(line);
   }
 
   flushParagraph();
-  closeList();
+  closeAllLists();
 
   return {
     html: html.join(''),
@@ -716,14 +870,27 @@ function renderBreadcrumbs(docPath, basePath) {
     .join('');
 }
 
+function renderNavLink(page, currentDocPath, basePath, isChild) {
+  const activeClass = page.path === currentDocPath ? ' is-active' : '';
+  const childClass = isChild ? ' docs-nav-link-child' : '';
+  return `<a class="docs-nav-link${activeClass}${childClass}" href="${escapeHtml(
+    buildDocHtmlHref(page.path, basePath),
+  )}">${escapeHtml(page.title)}</a>`;
+}
+
 function renderSidebar(currentDocPath, basePath) {
   return DEVELOPMENT_DOCS_SECTIONS.map((section) => {
     const links = section.pages
       .map((page) => {
-        const activeClass = page.path === currentDocPath ? ' is-active' : '';
-        return `<a class="docs-nav-link${activeClass}" href="${escapeHtml(
-          buildDocHtmlHref(page.path, basePath),
-        )}">${escapeHtml(page.title)}</a>`;
+        let html = renderNavLink(page, currentDocPath, basePath, false);
+        if (page.children) {
+          html += page.children
+            .map((child) =>
+              renderNavLink(child, currentDocPath, basePath, true),
+            )
+            .join('');
+        }
+        return html;
       })
       .join('');
     return `<section class="docs-nav-group"><h2>${escapeHtml(
@@ -1107,6 +1274,29 @@ export async function mountDocsApp(options = {}) {
     ) {
       searchInput.blur();
     }
+  });
+
+  mount.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.innerHTML = ICON_COPY;
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await copyText((codeEl.textContent || '').replace(/^\d+\.\s*/, ''));
+        btn.innerHTML = ICON_CHECK;
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.innerHTML = ICON_COPY;
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {}
+    });
+    codeEl.appendChild(btn);
   });
 
   scrollToHash();
