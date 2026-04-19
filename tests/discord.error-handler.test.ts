@@ -70,7 +70,7 @@ describe('Discord client transport error handlers', () => {
 
     expect(loggerMocks.error).toHaveBeenCalledWith(
       { err: expect.any(Error) },
-      'Discord client transport error (will reconnect automatically)',
+      'Unexpected Discord client error (reconnect may not recover automatically)',
     );
   });
 
