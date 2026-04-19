@@ -33,6 +33,7 @@ import {
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
+import { getErrorMessage } from '../../lib/error-message';
 import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -287,11 +288,10 @@ export function ChatPage() {
   // would otherwise tear down ChatPage and lose composer/session state.
   useEffect(() => {
     if (!historyQuery.error) return;
-    const message =
-      historyQuery.error instanceof Error
-        ? historyQuery.error.message
-        : 'Failed to load chat history.';
-    dispatch({ type: 'ERROR_SET', error: message });
+    dispatch({
+      type: 'ERROR_SET',
+      error: getErrorMessage(historyQuery.error),
+    });
   }, [historyQuery.error]);
 
   useEffect(() => {
