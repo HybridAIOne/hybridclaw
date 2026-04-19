@@ -34,8 +34,7 @@ import {
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
-import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
+import { resolvePrimaryModelRoutingPlan } from '../providers/model-routing.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactSecrets } from '../security/redact.js';
@@ -78,16 +77,6 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
-
-function resolveExecutorMaxTokens(params: {
-  model: string;
-  discoveredMaxTokens?: number;
-}): number | undefined {
-  return resolveProviderRequestMaxTokens({
-    model: params.model,
-    discoveredMaxTokens: params.discoveredMaxTokens,
-  });
-}
 
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
@@ -656,15 +645,16 @@ async function runHostProcessInner(
     agentId,
     workspacePathOverride: params.workspacePathOverride,
   });
-  const modelRuntime = await resolveModelRuntimeCredentials({
+  const modelRouting = await resolvePrimaryModelRoutingPlan({
     model,
     chatbotId,
     enableRag,
     agentId,
   });
+  const primaryRoute = modelRouting.routes[0];
   const taskModels = await resolveTaskModelPolicies({
     agentId,
-    chatbotId: modelRuntime.chatbotId,
+    chatbotId: primaryRoute.chatbotId,
     sessionModel: model,
   });
 
@@ -689,15 +679,15 @@ async function runHostProcessInner(
   const input: ContainerInput = {
     sessionId,
     messages,
-    chatbotId: modelRuntime.chatbotId,
-    enableRag: modelRuntime.enableRag,
-    apiKey: modelRuntime.apiKey,
-    baseUrl: modelRuntime.baseUrl,
-    provider: modelRuntime.provider,
-    requestHeaders: modelRuntime.requestHeaders,
-    isLocal: modelRuntime.isLocal,
-    contextWindow: modelRuntime.contextWindow,
-    thinkingFormat: modelRuntime.thinkingFormat,
+    chatbotId: primaryRoute.chatbotId,
+    enableRag: primaryRoute.enableRag,
+    apiKey: primaryRoute.apiKey,
+    baseUrl: primaryRoute.baseUrl,
+    provider: primaryRoute.provider,
+    requestHeaders: primaryRoute.requestHeaders,
+    isLocal: primaryRoute.isLocal,
+    contextWindow: primaryRoute.contextWindow,
+    thinkingFormat: primaryRoute.thinkingFormat,
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
@@ -706,10 +696,7 @@ async function runHostProcessInner(
     fullAutoNeverApproveTools,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    maxTokens: resolveExecutorMaxTokens({
-      model,
-      discoveredMaxTokens: modelRuntime.maxTokens,
-    }),
+    maxTokens: primaryRoute.maxTokens,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map(
@@ -747,6 +734,33 @@ async function runHostProcessInner(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    modelRouting: {
+      routes: modelRouting.routes.map((route) => ({
+        provider: route.provider,
+        baseUrl: route.baseUrl,
+        apiKey: route.apiKey,
+        model: route.model,
+        chatbotId: route.chatbotId,
+        enableRag: route.enableRag,
+        requestHeaders: { ...route.requestHeaders },
+        isLocal: route.isLocal,
+        contextWindow: route.contextWindow,
+        thinkingFormat: route.thinkingFormat,
+        maxTokens: route.maxTokens,
+        credentialPool: route.credentialPool
+          ? {
+              rotation: route.credentialPool.rotation,
+              entries: route.credentialPool.entries.map((entry) => ({
+                id: entry.id,
+                label: entry.label,
+                apiKey: entry.apiKey,
+              })),
+            }
+          : undefined,
+      })),
+      adaptiveContextTierDowngradeOn429:
+        modelRouting.adaptiveContextTierDowngradeOn429,
+    },
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -755,6 +769,7 @@ async function runHostProcessInner(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    modelRouting: input.modelRouting,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,

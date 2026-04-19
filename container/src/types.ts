@@ -1,4 +1,5 @@
 import type { McpServerConfig } from './mcp/types.js';
+import type { RuntimeProvider } from './providers/provider-ids.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -112,16 +113,7 @@ export interface PluginRuntimeToolDefinition {
 }
 
 export interface TaskModelPolicy {
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+  provider?: RuntimeProvider;
   baseUrl?: string;
   apiKey?: string;
   requestHeaders?: Record<string, string>;
@@ -192,6 +184,37 @@ export interface WebSearchConfig {
   tavilySearchDepth: 'basic' | 'advanced';
 }
 
+export interface ProviderCredentialPoolEntryInput {
+  id: string;
+  label: string;
+  apiKey: string;
+}
+
+export interface ProviderCredentialPoolInput {
+  rotation: 'least_used';
+  entries: ProviderCredentialPoolEntryInput[];
+}
+
+export interface ModelRoutingRouteInput {
+  provider?: RuntimeProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+  requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
+  maxTokens?: number;
+  credentialPool?: ProviderCredentialPoolInput;
+}
+
+export interface ModelRoutingInput {
+  routes: ModelRoutingRouteInput[];
+  adaptiveContextTierDowngradeOn429?: boolean;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -199,16 +222,7 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+  provider?: RuntimeProvider;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
@@ -234,6 +248,7 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
+  modelRouting?: ModelRoutingInput;
 }
 
 export interface MediaContextItem {

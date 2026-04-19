@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -434,6 +434,10 @@
         "balanced": "gpt-5-mini",
         "noHurry": "gpt-5-nano"
       }
+    },
+    "primaryModel": {
+      "fallbackModels": [],
+      "adaptiveContextTierDowngradeOn429": true
     }
   },
   "heartbeat": {

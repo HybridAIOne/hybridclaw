@@ -42,6 +42,30 @@ function redactTaskModelSecrets(
   return Object.keys(redacted).length > 0 ? redacted : undefined;
 }
 
+function redactModelRoutingSecrets(
+  modelRouting: ContainerInput['modelRouting'],
+): ContainerInput['modelRouting'] | undefined {
+  if (!modelRouting) return undefined;
+  return {
+    routes: modelRouting.routes.map((route) => ({
+      ...route,
+      apiKey: '',
+      requestHeaders: {},
+      credentialPool: route.credentialPool
+        ? {
+            rotation: route.credentialPool.rotation,
+            entries: route.credentialPool.entries.map((entry) => ({
+              ...entry,
+              apiKey: '',
+            })),
+          }
+        : undefined,
+    })),
+    adaptiveContextTierDowngradeOn429:
+      modelRouting.adaptiveContextTierDowngradeOn429,
+  };
+}
+
 export function agentWorkspaceDir(agentId: string): string {
   return path.join(agentDir(agentId), 'workspace');
 }
@@ -78,6 +102,7 @@ export function writeInput(
         apiKey: '',
         requestHeaders: {},
         taskModels: redactTaskModelSecrets(input.taskModels),
+        modelRouting: redactModelRoutingSecrets(input.modelRouting),
       }
     : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));

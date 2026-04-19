@@ -14,6 +14,32 @@ interface WorkerSignatureTaskModel {
   error?: string;
 }
 
+interface WorkerSignatureCredentialPoolEntry {
+  id: string;
+  label: string;
+  apiKey: string;
+}
+
+interface WorkerSignatureCredentialPool {
+  rotation: 'least_used';
+  entries: WorkerSignatureCredentialPoolEntry[];
+}
+
+interface WorkerSignatureModelRoute {
+  provider?: string;
+  baseUrl: string;
+  apiKey: string;
+  requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: string;
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+  maxTokens?: number;
+  credentialPool?: WorkerSignatureCredentialPool;
+}
+
 export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
@@ -21,6 +47,10 @@ export interface WorkerSignatureInput {
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
+  modelRouting?: {
+    routes: WorkerSignatureModelRoute[];
+    adaptiveContextTierDowngradeOn429?: boolean;
+  };
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -66,6 +96,42 @@ function normalizeTaskModel(
   };
 }
 
+function normalizeModelRoute(
+  input: WorkerSignatureModelRoute,
+): Record<string, unknown> {
+  return {
+    provider: String(input.provider || '').trim(),
+    baseUrl: String(input.baseUrl || '')
+      .trim()
+      .replace(/\/+$/g, ''),
+    apiKey: String(input.apiKey || ''),
+    requestHeaders: normalizeHeaders(input.requestHeaders),
+    isLocal: input.isLocal === true,
+    contextWindow:
+      typeof input.contextWindow === 'number' ? input.contextWindow : null,
+    thinkingFormat: String(input.thinkingFormat || '').trim(),
+    model: String(input.model || '').trim(),
+    chatbotId: String(input.chatbotId || '').trim(),
+    enableRag: input.enableRag === true,
+    maxTokens:
+      typeof input.maxTokens === 'number' && Number.isFinite(input.maxTokens)
+        ? Math.floor(input.maxTokens)
+        : null,
+    credentialPool: input.credentialPool
+      ? {
+          rotation: input.credentialPool.rotation,
+          entries: input.credentialPool.entries
+            .map((entry) => ({
+              id: String(entry.id || '').trim(),
+              label: String(entry.label || '').trim(),
+              apiKey: String(entry.apiKey || ''),
+            }))
+            .sort((left, right) => left.id.localeCompare(right.id)),
+        }
+      : null,
+  };
+}
+
 export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = normalizeHeaders(input.requestHeaders);
   const taskModels = Object.fromEntries(
@@ -74,6 +140,13 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
       normalizeTaskModel(input.taskModels?.[key]),
     ]),
   );
+  const modelRouting = input.modelRouting
+    ? {
+        routes: input.modelRouting.routes.map(normalizeModelRoute),
+        adaptiveContextTierDowngradeOn429:
+          input.modelRouting.adaptiveContextTierDowngradeOn429 === true,
+      }
+    : null;
 
   return JSON.stringify({
     agentId: String(input.agentId || '').trim(),
@@ -84,6 +157,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
     taskModels,
+    modelRouting,
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',
