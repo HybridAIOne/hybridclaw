@@ -113,6 +113,9 @@ Once the gateway is running, open HybridClaw locally:
   Twilio voice settings, and per-channel instructions that are injected into
   prompts at runtime.
 - `/admin/approvals` manages approval policies from the browser.
+- `/admin/gateway` reloads runtime config and refreshes secrets from the
+  browser without tearing down the enclosing workspace container; keep
+  `hybridclaw gateway restart` for local/manual full restarts.
 - `hybridclaw tui` includes a keyboard-driven approval picker and prints a
   ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
 - `hybridclaw doctor` checks runtime health including resource hygiene
@@ -122,6 +125,9 @@ Once the gateway is running, open HybridClaw locally:
   `config.json` becomes invalid.
 - `hybridclaw skill import` supports community sources, local directories,
   and `.zip` archives.
+- `hybridclaw eval hybridai-skills` turns the bundled skills pages' "Try it
+  yourself" prompts into a local eval suite, and live summaries surface the
+  observed skill, artifact presence, and counted tool-call totals.
 - Channel delivery stays predictable: email seeds its first mailbox cursor from
   the current head instead of replaying old inbox mail, retry-aware transports
   honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent

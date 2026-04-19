@@ -52,6 +52,11 @@ same `resolveObservedSkillName` oracle the gateway uses, so "skill X was
 activated" means the same thing here as in production. See
 [Commands → Local Eval Workflows](../../reference/commands.md#local-eval-workflows)
 for the full surface.
+Use `hybridclaw eval hybridai-skills run --explicit ...` when you want the
+runner to rewrite each prompt as `/<skill> ...` and compare explicit
+invocation against the natural-language prompt path. Live summaries also show
+the observed skill, whether artifacts were produced, and counted tool-call
+totals for each prompt.
 
 ## Internal Skills
 

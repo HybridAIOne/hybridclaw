@@ -42,7 +42,7 @@ arrays, and objects. Use quoted strings for string values, for example:
   safest fallback:
   `hybridclaw gateway restart --foreground`
 - if the gateway is already running and the admin UI is open, the browser-side
-  equivalent is `/admin/gateway` -> `Restart Gateway`
+  equivalent is `/admin/gateway` -> `Reload Gateway`
 
 ## CLI-Only Gaps
 

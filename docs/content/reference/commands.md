@@ -109,11 +109,15 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
   each prompt to the local OpenAI endpoint and grades the tool trace with
   the same `resolveObservedSkillName` oracle the gateway uses
 - filter `hybridai-skills` runs with `--skill <name>`, `--kind
-  try-it|conversation`, and `--max N`; results
-  land at `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and
-  are also shown via `/eval hybridai-skills results`
-- for `hybridai-skills run`, `--explicit` rewrites each prompt to start with
-  `/<skill>` to force invocation
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics

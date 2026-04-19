@@ -215,9 +215,9 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (getRuntimeConfig() as unknown as Record<string, unknown>)[
-        filter
-      ] as { enabled: boolean; models: string[] } | undefined;
+      const section = (
+        getRuntimeConfig() as unknown as Record<string, unknown>
+      )[filter] as { enabled: boolean; models: string[] } | undefined;
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
         ...(section?.enabled ? section.models : []),
