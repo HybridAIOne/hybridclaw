@@ -7,6 +7,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
+import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -136,10 +137,6 @@ export class CodexAuthError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
 }
 
 function normalizeTimestamp(value: unknown): number {

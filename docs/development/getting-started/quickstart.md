@@ -71,6 +71,9 @@ If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
+The `/chat` sidebar keeps recent conversations and can search session titles
+with contextual snippets, so you can jump back into older browser sessions
+without paging through the default recent list.
 
 ## Ground A Prompt With Files Or Repo Context
 

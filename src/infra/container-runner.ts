@@ -362,23 +362,32 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
+  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
 ): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
   const workspaceRoot = path.resolve(workspacePath);
+  const displayRoot = path.posix.normalize(
+    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
+  );
 
   if (path.posix.isAbsolute(normalized)) {
     const cleanAbs = path.posix.normalize(normalized);
-    if (
-      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
-      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
-    ) {
+    const allowedRoots =
+      displayRoot === CONTAINER_WORKSPACE_ROOT
+        ? [CONTAINER_WORKSPACE_ROOT]
+        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
+            (left, right) => right.length - left.length,
+          );
+    const matchedRoot =
+      allowedRoots.find(
+        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
+      ) ?? null;
+    if (!matchedRoot) {
       return null;
     }
-    const rel = cleanAbs
-      .slice(CONTAINER_WORKSPACE_ROOT.length)
-      .replace(/^\/+/, '');
+    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
     if (
       resolved === workspaceRoot ||
@@ -404,6 +413,7 @@ function resolveArtifactHostPath(
 export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
+  workspaceDisplayRoot?: string,
 ): void {
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
@@ -412,6 +422,7 @@ export function remapOutputArtifacts(
     const hostPath = resolveArtifactHostPath(
       String(raw.path || ''),
       workspacePath,
+      workspaceDisplayRoot,
     );
     if (!hostPath) continue;
     const filename =
@@ -946,7 +957,11 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')
