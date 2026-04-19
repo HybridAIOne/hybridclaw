@@ -25,7 +25,9 @@ import {
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
+import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { cx } from '../../lib/cx';
+import { useDebouncedValue } from '../../lib/use-debounced-value';
 import css from './chat-page.module.css';
 import { ChatSidebar } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -92,7 +94,11 @@ export function ChatPage() {
     content: string;
     media: MediaItem[];
   } | null>(null);
-  const trimmedSessionSearchQuery = sessionSearchQuery.trim();
+  const debouncedSessionSearchQuery = useDebouncedValue(
+    sessionSearchQuery,
+    160,
+  );
+  const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -146,7 +152,9 @@ export function ChatPage() {
         auth.token,
         userId,
         'web',
-        trimmedSessionSearchQuery ? 50 : 10,
+        trimmedSessionSearchQuery
+          ? CHAT_UI_CONFIG.maxSearchResults
+          : CHAT_UI_CONFIG.maxRecentSessions,
         trimmedSessionSearchQuery || undefined,
       ),
     staleTime: 10_000,

@@ -1439,8 +1439,7 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
-    const MAX_RECENT_SESSIONS = 10;
-    const MAX_SEARCH_RESULTS = 50;
+    const CHAT_UI_CONFIG_URL = '/static/chat-ui-config.json';
     const SEND_ICON = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 19V5"></path>
@@ -1540,6 +1539,20 @@
       };
     }
 
+    async function loadChatUiConfig() {
+      if (!chatUiConfigPromise) {
+        chatUiConfigPromise = fetch(CHAT_UI_CONFIG_URL, {
+          cache: 'no-store',
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to load chat UI config (${response.status})`);
+          }
+          return response.json();
+        });
+      }
+      return chatUiConfigPromise;
+    }
+
     const initialStoredSessionId = localStorage.getItem('hybridclaw_session');
     let activeSessionId = resolveStoredSessionId(initialStoredSessionId, {
       allowGenerate: false,
@@ -1558,6 +1571,7 @@
     let recentSessions = [];
     let recentSearchQuery = '';
     let recentSearchTimer = 0;
+    let chatUiConfigPromise = null;
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
     let pendingMedia = [];
     let pendingUploadCount = 0;
@@ -2191,11 +2205,16 @@
 
     async function refreshRecentSessions() {
       try {
+        const chatUiConfig = await loadChatUiConfig();
         const trimmedQuery = String(recentSearchQuery || '').trim();
         const params = new URLSearchParams({
           userId: activeUserId,
           channelId: 'web',
-          limit: String(trimmedQuery ? MAX_SEARCH_RESULTS : MAX_RECENT_SESSIONS),
+          limit: String(
+            trimmedQuery
+              ? chatUiConfig.maxSearchResults
+              : chatUiConfig.maxRecentSessions,
+          ),
         });
         if (trimmedQuery) {
           params.set('q', trimmedQuery);

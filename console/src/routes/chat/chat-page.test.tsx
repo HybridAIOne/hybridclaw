@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BranchResponse,
   ChatHistoryResponse,
@@ -93,6 +94,10 @@ function renderChatPage() {
 }
 
 describe('ChatPage', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
     localStorage.clear();
@@ -299,6 +304,103 @@ describe('ChatPage', () => {
         'test-token',
         'session-search',
       ),
+    );
+  });
+
+  it('renders title-only search matches without a snippet', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: sessionId === 'session-title-only' ? 401 : 101,
+            role: 'assistant',
+            content:
+              sessionId === 'session-title-only'
+                ? 'Opened title-only deployment thread'
+                : 'Opened session A',
+          },
+        ],
+      }),
+    );
+    fetchChatRecentMock.mockImplementation(
+      async (_token, _userId, _channelId, _limit, query) => ({
+        sessions: query
+          ? [
+              {
+                sessionId: 'session-title-only',
+                title: 'Deployment checklist',
+                lastActive: '2026-04-13T09:30:00.000Z',
+                messageCount: 1,
+              },
+            ]
+          : [
+              {
+                sessionId: 'session-a',
+                title: 'Session A',
+                lastActive: '2026-04-14T10:00:00.000Z',
+                messageCount: 2,
+              },
+            ],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'deploy' },
+    });
+
+    expect(await screen.findByText('Deployment checklist')).not.toBeNull();
+    expect(
+      screen.queryByText('...deployment rollback steps from yesterday...'),
+    ).toBeNull();
+  });
+
+  it('debounces recent-session searches while typing', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 101,
+          role: 'assistant',
+          content: 'Opened session A',
+        },
+      ],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    const searchInput = screen.getByLabelText('Search conversations');
+    for (const value of ['d', 'de', 'dep', 'depl', 'deplo', 'deploy']) {
+      fireEvent.change(searchInput, { target: { value } });
+    }
+
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(159);
+    });
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
+    expect(fetchChatRecentMock).toHaveBeenLastCalledWith(
+      'test-token',
+      'web-user-1',
+      'web',
+      50,
+      'deploy',
     );
   });
 

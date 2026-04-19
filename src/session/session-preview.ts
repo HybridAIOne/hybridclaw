@@ -75,7 +75,32 @@ export function buildSessionSearchSnippet(
   if (!snippet) return null;
   if (start > 0) snippet = `...${snippet}`;
   if (end < compact.length) snippet = `${snippet}...`;
-  return snippet;
+  return trimSessionPreviewText(snippet, maxLength);
+}
+
+function normalizeSessionPreviewComparisonText(
+  raw: string | null | undefined,
+): string {
+  return String(raw || '')
+    .replace(/^\.\.\./, '')
+    .replace(/\.\.\.$/, '')
+    .replace(/"/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function shouldIncludeSessionSearchSnippet(
+  title: string | null | undefined,
+  snippet: string | null | undefined,
+): boolean {
+  const normalizedSnippet = normalizeSessionPreviewComparisonText(snippet);
+  if (!normalizedSnippet) return false;
+
+  const normalizedTitle = normalizeSessionPreviewComparisonText(title);
+  if (!normalizedTitle) return true;
+
+  return !normalizedTitle.includes(normalizedSnippet);
 }
 
 export function buildSessionConversationPreview(

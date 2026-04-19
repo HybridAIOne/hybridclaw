@@ -12,6 +12,12 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  buildRecentChatSearchMatchQuery,
+  MAX_RECENT_CHAT_SESSION_LIMIT,
+  normalizeRecentChatSearchQuery,
+  normalizeRecentChatSessionLimit,
+} from '../session/recent-chat-search.js';
+import {
   buildSessionKey,
   classifySessionKeyShape,
   inspectSessionKeyMigration,
@@ -23,6 +29,7 @@ import {
   buildSessionBoundaryPreview,
   buildSessionSearchSnippet,
   RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+  shouldIncludeSessionSearchSnippet,
 } from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
@@ -99,8 +106,15 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 18;
+export const DATABASE_SCHEMA_VERSION = 19;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
+const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
+  'messages_recent_chat_search_ai';
+const RECENT_CHAT_MESSAGE_SEARCH_DELETE_TRIGGER =
+  'messages_recent_chat_search_ad';
+const RECENT_CHAT_MESSAGE_SEARCH_UPDATE_TRIGGER =
+  'messages_recent_chat_search_au';
 const STRUCTURED_AUDIT_SELECT_COLUMNS = [
   'id',
   'session_id',
@@ -257,6 +271,73 @@ function ensureSessionBranchesTable(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_branches_parent
       ON session_branches(parent_session_id, parent_message_id);
+  `);
+}
+
+function ensureRecentChatMessageSearchIndex(database: Database.Database): void {
+  if (!tableExists(database, 'messages')) {
+    return;
+  }
+
+  const needsBackfill = !tableExists(
+    database,
+    RECENT_CHAT_MESSAGE_SEARCH_TABLE,
+  );
+
+  try {
+    database.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+      USING fts5(
+        session_id UNINDEXED,
+        content,
+        tokenize='unicode61 remove_diacritics 2'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER}
+      AFTER INSERT ON messages
+      BEGIN
+        INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (
+          rowid,
+          session_id,
+          content
+        )
+        VALUES (new.id, new.session_id, new.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_DELETE_TRIGGER}
+      AFTER DELETE ON messages
+      BEGIN
+        DELETE FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+        WHERE rowid = old.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_UPDATE_TRIGGER}
+      AFTER UPDATE ON messages
+      BEGIN
+        DELETE FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+        WHERE rowid = old.id;
+        INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (
+          rowid,
+          session_id,
+          content
+        )
+        VALUES (new.id, new.session_id, new.content);
+      END;
+    `);
+  } catch (error) {
+    throw new Error(
+      `Recent chat content search requires SQLite FTS5 support: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!needsBackfill) {
+    return;
+  }
+
+  database.exec(`
+    INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (rowid, session_id, content)
+    SELECT id, session_id, content
+    FROM messages;
   `);
 }
 
@@ -1623,6 +1704,15 @@ function migrateV18(
   recordMigration(database, 18, 'Persist per-agent skill allowlists');
 }
 
+function migrateV19(database: Database.Database): void {
+  ensureRecentChatMessageSearchIndex(database);
+  recordMigration(
+    database,
+    19,
+    'Index recent chat content search with SQLite FTS5',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1662,6 +1752,7 @@ function runMigrations(
   if (currentVersion < 16) migrateV16(database);
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
+  if (currentVersion < 19) migrateV19(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -4134,11 +4225,11 @@ interface RecentSessionContentMatchRow {
 
 const RECENT_SESSION_BOUNDARY_BATCH_SIZE = 400;
 
-function getRecentSessionBoundaryRows(
+function batchQueryAllBySessionIds<Row>(
   sessionIds: string[],
-  userId: string,
-): RecentSessionBoundaryRow[] {
-  const rows: RecentSessionBoundaryRow[] = [];
+  queryBatch: (batch: string[], placeholders: string) => Row[],
+): Row[] {
+  const rows: Row[] = [];
 
   for (
     let index = 0;
@@ -4150,83 +4241,79 @@ function getRecentSessionBoundaryRows(
       index + RECENT_SESSION_BOUNDARY_BATCH_SIZE,
     );
     const placeholders = batch.map(() => '?').join(', ');
-    rows.push(
-      ...queryAll<RecentSessionBoundaryRow>(
-        db,
-        `WITH ranked AS (
-           SELECT
-             session_id,
-             role,
-             content,
-             CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
-             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
-             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
-             ROW_NUMBER() OVER (
-               PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
-               ORDER BY id ASC
-             ) AS rn_target_group
-           FROM messages
-           WHERE session_id IN (${placeholders})
-         )
-         SELECT
-           session_id,
-           MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
-           MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
-           MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
-           MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
-         FROM ranked
-         GROUP BY session_id`,
-        userId,
-        userId,
-        ...batch,
-      ),
-    );
+    rows.push(...queryBatch(batch, placeholders));
   }
 
   return rows;
 }
 
+function getRecentSessionBoundaryRows(
+  sessionIds: string[],
+  userId: string,
+): RecentSessionBoundaryRow[] {
+  return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
+    queryAll<RecentSessionBoundaryRow>(
+      db,
+      `WITH ranked AS (
+         SELECT
+           session_id,
+           role,
+           content,
+           CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
+           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
+           ROW_NUMBER() OVER (
+             PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+             ORDER BY id ASC
+           ) AS rn_target_group
+         FROM messages
+         WHERE session_id IN (${placeholders})
+       )
+       SELECT
+         session_id,
+         MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
+         MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
+         MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
+         MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
+       FROM ranked
+       GROUP BY session_id`,
+      userId,
+      userId,
+      ...batch,
+    ),
+  );
+}
+
 function getRecentSessionContentMatches(
   sessionIds: string[],
-  query: string,
+  normalizedQuery: string,
 ): Map<string, string> {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery || sessionIds.length === 0) {
+  const matchQuery = buildRecentChatSearchMatchQuery(normalizedQuery);
+  if (!normalizedQuery || !matchQuery || sessionIds.length === 0) {
     return new Map();
   }
 
-  const rows: RecentSessionContentMatchRow[] = [];
-
-  for (
-    let index = 0;
-    index < sessionIds.length;
-    index += RECENT_SESSION_BOUNDARY_BATCH_SIZE
-  ) {
-    const batch = sessionIds.slice(
-      index,
-      index + RECENT_SESSION_BOUNDARY_BATCH_SIZE,
-    );
-    const placeholders = batch.map(() => '?').join(', ');
-    rows.push(
-      ...queryAll<RecentSessionContentMatchRow>(
-        db,
-        `WITH ranked_matches AS (
+  const rows = batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
+    queryAll<RecentSessionContentMatchRow>(
+      db,
+      `WITH ranked_matches AS (
            SELECT
              session_id,
              content,
-             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn
-           FROM messages
-           WHERE session_id IN (${placeholders})
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY rowid DESC) AS rn
+           FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+           WHERE ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} MATCH ?
+             AND session_id IN (${placeholders})
              AND instr(lower(content), ?) > 0
          )
          SELECT session_id, content
          FROM ranked_matches
          WHERE rn = 1`,
-        ...batch,
-        normalizedQuery,
-      ),
-    );
-  }
+      matchQuery,
+      ...batch,
+      normalizedQuery,
+    ),
+  );
 
   return new Map(
     rows
@@ -4244,13 +4331,10 @@ export function getRecentSessionsForUser(params: {
   const userId = params.userId.trim();
   if (!userId) return [];
   const channelId = String(params.channelId || '').trim();
-  const searchQuery = String(params.query || '')
-    .trim()
-    .toLowerCase();
-  const limit =
-    typeof params.limit === 'number' && Number.isFinite(params.limit)
-      ? Math.max(1, Math.floor(params.limit))
-      : 10;
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
 
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
@@ -4282,7 +4366,9 @@ export function getRecentSessionsForUser(params: {
     }
     return right.id.localeCompare(left.id);
   });
-  const targetRows = searchQuery ? sortedRows : sortedRows.slice(0, limit);
+  const targetRows = searchQuery
+    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
+    : sortedRows.slice(0, limit);
   if (targetRows.length === 0) return [];
 
   const boundaryRows = getRecentSessionBoundaryRows(
@@ -4328,7 +4414,7 @@ export function getRecentSessionsForUser(params: {
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
       title,
-      ...(rawSearchSnippet && !String(title || '').includes(rawSearchSnippet)
+      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
         ? { searchSnippet: rawSearchSnippet }
         : {}),
     };

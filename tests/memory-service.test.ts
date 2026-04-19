@@ -928,14 +928,14 @@ describe.sequential('schema migrations', () => {
     updateSession.run(1, '2026-03-24T10:00:00.000Z', 'web-session-3');
     inspect.close();
 
-    expect(
-      getRecentSessionsForUser({
-        userId: 'web-user-a',
-        channelId: 'web',
-        limit: 1,
-        query: 'deploy',
-      }),
-    ).toEqual([
+    const sessions = getRecentSessionsForUser({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 1,
+      query: 'deploy',
+    });
+
+    expect(sessions).toEqual([
       {
         sessionId: 'web-session-2',
         lastActive: '2026-03-24T09:00:00.000Z',
@@ -943,6 +943,7 @@ describe.sequential('schema migrations', () => {
         title: '"Review deployment rollback plan"',
       },
     ]);
+    expect(sessions[0]).not.toHaveProperty('searchSnippet');
   });
 
   test('getRecentSessionsForUser matches content outside the derived title', () => {
@@ -1006,6 +1007,197 @@ describe.sequential('schema migrations', () => {
         title: '"Discuss the release checklist" ... "Thanks, that helps."',
       },
     ]);
+  });
+
+  test('getRecentSessionsForUser suppresses duplicated search snippets when the title already shows the match', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-duplicate-snippet', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    const longContent =
+      'Deployment rollback planning notes stay visible in the title while additional context continues here so the snippet builder adds trailing ellipsis for search results.';
+
+    insertMessage.run(
+      'web-session-duplicate-snippet',
+      'web-user-a',
+      'web',
+      'user',
+      longContent,
+      '2026-03-24T11:05:00.000Z',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T11:05:00.000Z',
+      'web-session-duplicate-snippet',
+    );
+    inspect.close();
+
+    const sessions = getRecentSessionsForUser({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+      query: 'deploy',
+    });
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId: 'web-session-duplicate-snippet',
+      lastActive: '2026-03-24T11:05:00.000Z',
+      messageCount: 1,
+    });
+    expect(sessions[0]?.title).toContain(
+      'Deployment rollback planning notes stay visible in the title',
+    );
+    expect(sessions[0]).not.toHaveProperty('searchSnippet');
+  });
+
+  test('getRecentSessionsForUser backfills the message search index on schema upgrade', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-upgrade-search', null, 'web');
+    storeMessage(
+      'web-session-upgrade-search',
+      'web-user-a',
+      'web',
+      'user',
+      'Discuss the release checklist',
+    );
+    storeMessage(
+      'web-session-upgrade-search',
+      'assistant',
+      null,
+      'assistant',
+      'Deployment rollback steps are documented here.',
+    );
+
+    const inspect = new Database(dbPath);
+    inspect.exec(`
+      DROP TRIGGER IF EXISTS messages_recent_chat_search_ai;
+      DROP TRIGGER IF EXISTS messages_recent_chat_search_ad;
+      DROP TRIGGER IF EXISTS messages_recent_chat_search_au;
+      DROP TABLE IF EXISTS recent_chat_message_search;
+      PRAGMA user_version = 18;
+    `);
+    inspect.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+        query: 'deploy',
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-upgrade-search',
+        lastActive: expect.any(String),
+        messageCount: 2,
+        title:
+          '"Discuss the release checklist" ... "Deployment rollback steps are documented here."',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForUser truncates long search queries before content matching', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-long-query', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    const longContent = 'a'.repeat(210);
+
+    insertMessage.run(
+      'web-session-long-query',
+      'web-user-a',
+      'web',
+      'user',
+      'Keep this title unrelated',
+      '2026-03-24T11:10:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-long-query',
+      'assistant',
+      null,
+      'assistant',
+      longContent,
+      '2026-03-24T11:11:00.000Z',
+    );
+    updateSession.run(2, '2026-03-24T11:11:00.000Z', 'web-session-long-query');
+    inspect.close();
+
+    const sessions = getRecentSessionsForUser({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+      query: 'a'.repeat(250),
+    });
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId: 'web-session-long-query',
+      lastActive: '2026-03-24T11:11:00.000Z',
+      messageCount: 2,
+      searchSnippet: longContent,
+    });
+    expect(sessions[0]?.title).toContain('Keep this title unrelated');
+  });
+
+  test('getRecentSessionsForUser only scans the capped recent search window', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+
+    for (let index = 0; index < 201; index += 1) {
+      const sessionId = `web-session-cap-${String(index + 1).padStart(3, '0')}`;
+      getOrCreateSession(sessionId, null, 'web');
+      const timestamp = new Date(
+        Date.UTC(2026, 2, 24, 0, index, 0),
+      ).toISOString();
+      insertMessage.run(
+        sessionId,
+        'web-user-a',
+        'web',
+        'user',
+        index === 0 ? 'This old session mentions deploy' : 'General note',
+        timestamp,
+      );
+      updateSession.run(1, timestamp, sessionId);
+    }
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 9999,
+        query: 'deploy',
+      }),
+    ).toEqual([]);
   });
 
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
