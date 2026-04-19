@@ -6,6 +6,8 @@ import path from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { openPdfDocument } from '../skills/pdf/scripts/_pdf_runtime.mjs';
+
 const repoRoot = process.cwd();
 const tempDirs = [];
 
@@ -70,6 +72,25 @@ async function createPlainPdf(outputPath) {
   fs.writeFileSync(outputPath, await pdfDoc.save());
 }
 
+async function readPageTextItems(outputPath, pageNumber = 1) {
+  const pdf = await openPdfDocument(outputPath);
+  const page = await pdf.getPage(pageNumber);
+  const textContent = await page.getTextContent();
+
+  return textContent.items
+    .map((item) => {
+      if (!('str' in item)) return null;
+      const text = String(item.str || '').trim();
+      if (!text) return null;
+      const transform = Array.isArray(item.transform) ? item.transform : [];
+      return {
+        text,
+        y: Number(transform[5] || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
@@ -93,6 +114,57 @@ describe('PDF skill docs', () => {
 });
 
 describe('PDF skill Node scripts', () => {
+  test('wraps escaped newline paragraphs without overlapping later baselines', async () => {
+    const dir = makeTempDir();
+    const outputPdf = path.join(dir, 'wrapped.pdf');
+
+    runNodeScript([
+      'skills/pdf/scripts/create_pdf.mjs',
+      outputPdf,
+      '--title',
+      'Lorem Ipsum',
+      '--font-size',
+      '24',
+      '--text',
+      [
+        'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
+        'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+        'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+        'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+        'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+      ].join('\\n'),
+    ]);
+
+    const items = await readPageTextItems(outputPdf);
+    expect(items.length).toBeGreaterThan(8);
+    for (let index = 1; index < items.length; index += 1) {
+      expect(items[index].y).toBeLessThan(items[index - 1].y);
+    }
+  });
+
+  test('adds new pages when wrapped body text exceeds the first page', async () => {
+    const dir = makeTempDir();
+    const outputPdf = path.join(dir, 'multi-page.pdf');
+
+    runNodeScript([
+      'skills/pdf/scripts/create_pdf.mjs',
+      outputPdf,
+      '--title',
+      'Long Document',
+      '--font-size',
+      '24',
+      '--text',
+      new Array(80)
+        .fill(
+          'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+        )
+        .join('\\n'),
+    ]);
+
+    const generated = await PDFDocument.load(fs.readFileSync(outputPdf));
+    expect(generated.getPageCount()).toBeGreaterThan(1);
+  });
+
   test('supports the fillable-form workflow end to end', async () => {
     const dir = makeTempDir();
     const inputPdf = path.join(dir, 'fillable.pdf');
