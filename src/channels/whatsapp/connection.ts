@@ -343,10 +343,13 @@ async function waitForPendingCredsSave(
   target: WhatsAppLogger,
   pendingSave: Promise<void>,
 ): Promise<void> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let timeoutHandle!: ReturnType<typeof setTimeout>;
   try {
     const outcome = await Promise.race([
-      pendingSave.then(() => 'saved' as const),
+      pendingSave.then(
+        () => 'done' as const,
+        () => 'done' as const,
+      ),
       new Promise<'timeout'>((resolve) => {
         timeoutHandle = setTimeout(
           () => resolve('timeout'),
@@ -360,7 +363,7 @@ async function waitForPendingCredsSave(
       );
     }
   } finally {
-    if (timeoutHandle) clearTimeout(timeoutHandle);
+    clearTimeout(timeoutHandle);
   }
 }
 
@@ -651,7 +654,7 @@ export function createWhatsAppConnectionManager(params?: {
       }
       await waitForPendingCredsSave(
         childLogger,
-        credsSaveQueue.catch(() => undefined),
+        credsSaveQueue,
       );
       releaseAuthLock?.();
       releaseAuthLock = null;
