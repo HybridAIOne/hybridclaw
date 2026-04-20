@@ -85,27 +85,65 @@ function getDiscoveryEntries(payload: unknown): unknown[] {
   return [];
 }
 
+interface HybridAIModelKeyLookup {
+  byExactUpstream: Map<string, string | null>;
+  byTail: Map<string, string | null>;
+}
+
+function recordHybridAIModelLookupEntry(
+  lookup: Map<string, string | null>,
+  alias: string,
+  modelKey: string,
+): void {
+  const normalizedAlias = alias.toLowerCase();
+  if (!normalizedAlias) return;
+  const existing = lookup.get(normalizedAlias);
+  if (existing === undefined) {
+    lookup.set(normalizedAlias, modelKey);
+    return;
+  }
+  if (existing !== modelKey) {
+    lookup.set(normalizedAlias, null);
+  }
+}
+
+function buildHybridAIModelKeyLookup(
+  modelKeys: Iterable<string>,
+): HybridAIModelKeyLookup {
+  const byExactUpstream = new Map<string, string | null>();
+  const byTail = new Map<string, string | null>();
+  for (const modelKey of modelKeys) {
+    const upstream = stripHybridAIModelPrefix(modelKey);
+    recordHybridAIModelLookupEntry(byExactUpstream, upstream, modelKey);
+    const tail = upstream.split('/').at(-1) ?? '';
+    recordHybridAIModelLookupEntry(byTail, tail, modelKey);
+  }
+  return { byExactUpstream, byTail };
+}
+
 function resolveCachedHybridAIModelKey(
   model: string,
-  cachedKeys: Iterable<string>,
+  cachedValues: ReadonlyMap<string, number>,
+  lookup: HybridAIModelKeyLookup,
 ): string {
   const requested = String(model || '').trim();
   const normalized = normalizeHybridAIModelName(requested);
-  const keys = [...cachedKeys];
-  if (keys.includes(normalized)) return normalized;
+  if (cachedValues.has(normalized)) return normalized;
 
   const requestedTail = requested.split('/').at(-1)?.toLowerCase() || '';
   if (!requestedTail) return normalized;
 
-  const matchingKeys = keys.filter((key) => {
-    const upstream = stripHybridAIModelPrefix(key);
-    const upstreamTail = upstream.split('/').at(-1)?.toLowerCase() || '';
-    return (
-      upstream.toLowerCase() === requested.toLowerCase() ||
-      upstreamTail === requestedTail
-    );
-  });
-  return matchingKeys.length === 1 ? matchingKeys[0] : normalized;
+  const exactUpstreamMatch = lookup.byExactUpstream.get(
+    requested.toLowerCase(),
+  );
+  const tailMatch = lookup.byTail.get(requestedTail);
+  if (exactUpstreamMatch === null || tailMatch === null) {
+    return normalized;
+  }
+  if (exactUpstreamMatch && tailMatch && exactUpstreamMatch !== tailMatch) {
+    return normalized;
+  }
+  return exactUpstreamMatch ?? tailMatch ?? normalized;
 }
 
 export interface HybridAIDiscoveryStore {
@@ -118,13 +156,17 @@ export interface HybridAIDiscoveryStore {
 interface HybridAIDiscoveryState {
   discoveredModelNames: string[];
   contextWindowByModel: Map<string, number>;
+  contextWindowModelKeyLookup: HybridAIModelKeyLookup;
   maxTokensByModel: Map<string, number>;
+  maxTokensModelKeyLookup: HybridAIModelKeyLookup;
 }
 
 const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   discoveredModelNames: [],
   contextWindowByModel: new Map(),
+  contextWindowModelKeyLookup: buildHybridAIModelKeyLookup([]),
   maxTokensByModel: new Map(),
+  maxTokensModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
 
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
@@ -186,7 +228,11 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     return {
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
+      contextWindowModelKeyLookup: buildHybridAIModelKeyLookup(
+        contextWindows.keys(),
+      ),
       maxTokensByModel: maxTokens,
+      maxTokensModelKeyLookup: buildHybridAIModelKeyLookup(maxTokens.keys()),
     };
   }
 
@@ -227,7 +273,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
         model,
-        state.contextWindowByModel.keys(),
+        state.contextWindowByModel,
+        state.contextWindowModelKeyLookup,
       );
       return state.contextWindowByModel.get(normalized) ?? null;
     },
@@ -235,7 +282,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
         model,
-        state.maxTokensByModel.keys(),
+        state.maxTokensByModel,
+        state.maxTokensModelKeyLookup,
       );
       return state.maxTokensByModel.get(normalized) ?? null;
     },

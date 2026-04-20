@@ -135,6 +135,7 @@ describe('hybridai discovery', () => {
                   id: 'mistral-small',
                   provider: 'mistral',
                   context_length: 128_000,
+                  max_output_tokens: 16_000,
                 },
               ],
             }),
@@ -156,6 +157,42 @@ describe('hybridai discovery', () => {
       128_000,
     );
     expect(store.getModelContextWindow('mistral-small')).toBe(128_000);
+    expect(store.getModelMaxTokens('mistral-small')).toBe(16_000);
+  });
+
+  test('keeps ambiguous unprefixed HybridAI tail lookups unresolved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'mistral/small',
+                  context_length: 128_000,
+                },
+                {
+                  id: 'anthropic/small',
+                  context_length: 256_000,
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createHybridAIDiscoveryStore();
+
+    await store.discoverModels({ force: true });
+
+    expect(store.getModelContextWindow('small')).toBeNull();
+    expect(store.getModelContextWindow('mistral/small')).toBe(128_000);
   });
 
   test('logs a warning and returns stale models when discovery refresh fails', async () => {
