@@ -1,0 +1,113 @@
+---
+title: Tutorial: Proposal Generator From Discovery Notes
+description: Convert raw meeting notes into a polished proposal with editable and PDF-friendly outputs.
+sidebar_position: 9
+---
+
+# Tutorial: Proposal Generator From Discovery Notes
+
+In this tutorial, you'll turn rough discovery notes into a clean proposal
+workflow. HybridClaw takes your raw notes, structures the offer, writes the
+document, and can save it as an editable `.docx` plus a client-friendly PDF.
+
+## What We're Building
+
+Here's the flow:
+
+1. you paste notes, a transcript, or a discovery summary
+2. HybridClaw extracts scope, pain points, deliverables, timeline, and pricing
+3. it drafts a proposal in a business-ready structure
+4. it saves the result as a document you can review and send
+
+This works well for agencies, consultants, MSPs, freelancers, and other
+service businesses.
+
+## Prerequisites
+
+Before starting, make sure you have:
+
+- HybridClaw installed and the gateway running
+- your notes, transcript, or workshop summary
+- optional office tooling if you want better PDF export paths
+
+See:
+
+- [Office Skills](../skills/office.md)
+- [Optional Office Dependencies](../office-dependencies.md)
+
+## Step 1: Bring The Discovery Notes In
+
+Paste a short note block or upload a transcript. A rough input is fine:
+
+```text
+Client: Horizon Dental Group
+Locations: 4
+Need: replace manual reporting, unify appointment analytics, and improve recall campaigns
+Main pain:
+- no single dashboard
+- front desk staff exporting CSVs by hand
+- owner wants weekly visibility by location
+
+Timeline:
+- wants rollout before September
+
+Budget:
+- likely 18k to 25k setup plus monthly support
+```
+
+## Step 2: Draft The Proposal
+
+Ask HybridClaw:
+
+```text
+Draft a client proposal for this discovery summary.
+Use these sections:
+1. Executive Summary
+2. Current Situation
+3. Proposed Solution
+4. Scope
+5. Implementation Timeline
+6. Investment
+7. Next Steps
+
+Keep the tone clear and commercial, not academic.
+Call out assumptions where information is missing.
+```
+
+## Step 3: Generate The Files
+
+Once the structure looks right, ask for deliverables:
+
+```text
+Create:
+- a polished docx proposal
+- a shorter one-page executive summary in PDF
+
+Use the same pricing and timeline from the draft unless explicitly marked as an assumption.
+```
+
+If you have a standard proposal template, attach it and tell HybridClaw to
+reuse that tone and structure.
+
+## Step 4: Tighten Before Sending
+
+Good last-mile edits:
+
+- replace assumptions with confirmed numbers
+- shorten the scope if the first draft feels too broad
+- add a named project owner or kickoff date
+- ask for a version with and without pricing if you sell in stages
+
+## Production Tips
+
+- a strong proposal starts with cleaner notes, not better phrasing
+- tell HybridClaw what you do not want, such as buzzwords or inflated promises
+- save your best prompt and reuse it for future deals
+- keep the executive summary, scope, timeline, investment, and next steps near
+  the front; move long credentials into an appendix
+- use plain language and call out assumptions and exclusions explicitly
+
+## Going Further
+
+- [Office Skills](../skills/office.md)
+- [Optional Office Dependencies](../office-dependencies.md)
