@@ -46,6 +46,10 @@ hybridclaw gateway start --foreground --sandbox=host
 Use `--sandbox=host` for stdio MCP servers that depend on host binaries such
 as `docker`, `node`, or `npx`.
 
+Use `hybridclaw gateway status` to confirm the active sandbox and runtime
+metadata. In container mode it also shows the configured image name, resolved
+version, and short image id.
+
 ## Start The TUI
 
 In a second terminal:
@@ -71,6 +75,9 @@ If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
+The `/chat` sidebar keeps recent conversations and can search session titles
+with contextual snippets, so you can jump back into older browser sessions
+without scrolling through the default recent list.
 
 Use `/admin/channels` for transport setup, per-channel instructions, and
 managed channel secrets, and `/admin/agents` when you need to edit an agent's

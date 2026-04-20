@@ -5853,11 +5853,13 @@ export function getGatewayRecentChatSessions(params: {
   userId: string;
   channelId?: string | null;
   limit?: number;
+  query?: string | null;
 }): GatewayRecentChatSession[] {
   return getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
+    query: params.query,
   });
 }
 

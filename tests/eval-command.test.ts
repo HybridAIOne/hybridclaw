@@ -681,7 +681,9 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
   expect(options.detached).toBe(true);
   expect(options.env.OPENAI_BASE_URL).toBe('http://127.0.0.1:9090/v1');
   expect(options.env.OPENAI_API_KEY).toBe('hybridclaw-local');
-  expect(options.env.HYBRIDCLAW_EVAL_MODEL).toBe('hybridai/gpt-4.1-mini');
+  expect(options.env.HYBRIDCLAW_EVAL_MODEL).toBe(
+    'hybridai/gpt-4.1-mini__hc_eval=current-agent',
+  );
 
   const evalDir = path.join(dataDir, 'evals');
   const runDirs = fs.readdirSync(evalDir);
@@ -698,7 +700,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
   expect(meta.pid).toBe(4321);
   expect(meta.authMode).toBe('loopback');
   expect(meta.openaiBaseUrl).toBe('http://127.0.0.1:9090/v1');
-  expect(meta.model).toBe('hybridai/gpt-4.1-mini');
+  expect(meta.model).toBe('hybridai/gpt-4.1-mini__hc_eval=current-agent');
   expect(meta.command).toBe('python -m swebench.harness.run_evaluation');
 });
 

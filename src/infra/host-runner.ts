@@ -851,7 +851,11 @@ async function runHostProcessInner(
       );
       stopSessionHostProcess(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')

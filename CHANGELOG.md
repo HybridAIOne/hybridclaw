@@ -2,6 +2,105 @@
 
 ## Unreleased
 
+## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
+
+### Added
+
+- **Web chat conversation search**: The built-in `/chat` sidebar can now search
+  recent sessions by title and show contextual match snippets, making it much
+  easier to jump back into older browser conversations without paging through
+  the default recent list.
+
+### Changed
+
+- **Bundled PDF creation handles longer documents cleanly**:
+  `skills/pdf/scripts/create_pdf.mjs` now wraps long lines, respects explicit
+  `\n` line breaks, and adds pages automatically when content exceeds the
+  first page. The bundled PDF skill guidance and office-skills docs now call
+  out the improved layout behavior.
+
+### Fixed
+
+- **Browser chat stays keyboard-ready between turns**: Both the built-in web
+  chat and the console chat now restore focus to the composer after streamed
+  replies finish, so back-to-back prompts no longer require clicking back into
+  the input field.
+- **Artifact downloads survive custom workspace display roots**: Container
+  output artifacts are remapped against the active workspace path even when the
+  runtime exposes a different display root such as `/app`, keeping generated
+  files downloadable and attachable from chat surfaces.
+
+## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
+
+### Added
+
+- **HybridAI skills eval suite**: Added `hybridclaw eval hybridai-skills
+  [setup|list|run|results]` plus local `/eval hybridai-skills ...` flows that
+  harvest the "Try it yourself" prompts from the bundled skills guides into a
+  fixture set and grade which documented skill actually fired from the model's
+  tool trace. It also includes `--explicit` for
+  forced `/<skill> ...` invocation, richer result traces with observed skill,
+  artifact presence, and counted tool-call totals, and fresh-agent cleanup so
+  temporary eval workspaces, sessions, and audit trails do not accumulate after
+  grading.
+
+### Changed
+
+- **`/admin/gateway` now reloads config instead of restarting the runtime**:
+  The browser action now uses `Reload Gateway`, which refreshes runtime config
+  and secrets through the admin API without tearing down the enclosing
+  workspace container. Local/manual `hybridclaw gateway restart` stays
+  available when a full restart is still required.
+
+### Fixed
+
+- **Unattended eval runs no longer stop on tool approvals**: Eval-profiled
+  loopback requests now auto-approve tools end to end, expose execution-session
+  and artifact-count response headers for correlation, and let detached local
+  eval runs finish without manual approval interruptions.
+- **Agent image builds are quieter in CI**: The container Dockerfile now sets
+  `DEBIAN_FRONTEND=noninteractive` for the apt-based image layers and
+  Playwright's `install-deps chromium` step, eliminating repeated `debconf`
+  frontend fallback warnings during release and snapshot builds without
+  changing the installed package set or runtime behavior.
+
+## [0.12.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.8)
+
+### Changed
+
+- **`hybridclaw update` can restart the gateway automatically**: After a
+  successful global npm upgrade, HybridClaw now attempts to restart a running
+  local gateway with its recorded launch command and flags. If no running
+  gateway is found, or the recorded process cannot be replayed or signalled,
+  the CLI falls back to manual `hybridclaw gateway restart` instructions.
+- **Container status is more informative**: `hybridclaw gateway status` and
+  `!claw status` now include the configured container image name plus the
+  resolved image version and short image id when sandbox mode is `container`.
+- **Release-built agent images carry version metadata**: `npm run
+  build:container` now passes the container package version into the image's
+  OCI labels so runtime status output can report the actual image version when
+  available.
+- **Bundled deliverable guidance now prefers workspace-relative outputs**:
+  Built-in prompt hooks and the PDF skill now reserve `/tmp` for scratch files
+  and direct final PDFs, reports, and similar user-visible outputs into the
+  workspace so they persist and can be attached.
+
+### Fixed
+
+- **Source-checkout Docker workspaces bootstrap `node_modules` correctly**:
+  Container launches now pre-stage or repair the workspace `node_modules`
+  symlink to `/app/node_modules`, so bundled JS skills can import repo-managed
+  dependencies reliably inside Docker even when a stale host symlink already
+  exists.
+- **Default agent image release and pull flow no longer depends on GHCR**:
+  The packaged runtime now pulls the default `hybridclaw-agent` image from
+  Docker Hub only, and the release workflow stops publishing the private GHCR
+  agent image or advertising a dead fallback path.
+- **Ordered-list rendering is restored across chat and docs surfaces**: Web
+  chat, docs pages, and console markdown rendering now preserve ordered-list
+  numbering across intervening bullets, support nested list indentation, and
+  handle LLM-emitted `**1. Heading**` list items correctly.
+
 ## [0.12.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.7)
 
 ### Added

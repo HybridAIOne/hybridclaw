@@ -40,6 +40,8 @@ and delete the current workspace network policy rules for a selected agent.
   `deny` and `allow`
 - `/admin/approvals` can apply bundled network policy templates from the
   browser
+- `/admin/gateway` can reload runtime config and refresh secrets from the
+  browser without tearing down the enclosing workspace container
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
@@ -65,7 +67,7 @@ scoped to the built-in allowlist and is not a general workspace file browser.
   network policy without switching to `/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser
 - you want explicit browser confirmation before destructive operator actions
-- you want to restart a running gateway from `/admin/gateway` without
+- you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI
 
 ## Related Pages
