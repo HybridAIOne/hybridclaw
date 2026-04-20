@@ -78,11 +78,13 @@ import {
   getMessageToolDescription,
   getPendingSideEffects,
   getPluginToolDefinitions,
+  resetPersistentBashSessions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
+  setPersistentBashStateEnabled,
   setPluginTools,
   setScheduledTasks,
   setSessionContext,
@@ -245,6 +247,7 @@ async function shutdownAgentProcess(
 
   shutdownPromise = (async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
@@ -1546,6 +1549,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -1694,6 +1698,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,
