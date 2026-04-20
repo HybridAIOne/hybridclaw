@@ -62,7 +62,10 @@ describe.sequential('container bash tool persistence', () => {
       'bash',
       bashCommand('cd nested && printf %s "$(basename "$PWD")"'),
     );
-    const second = await executeTool('bash', bashCommand('printf %s "$(basename "$PWD")"'));
+    const second = await executeTool(
+      'bash',
+      bashCommand('printf %s "$(basename "$PWD")"'),
+    );
 
     expect(first).toBe('nested');
     expect(second).toBe('nested');
@@ -73,7 +76,10 @@ describe.sequential('container bash tool persistence', () => {
       sessionId: `bash-session-env-${Date.now()}`,
     });
 
-    await executeTool('bash', bashCommand('export HYBRIDCLAW_TEST_VAR=persisted'));
+    await executeTool(
+      'bash',
+      bashCommand('export HYBRIDCLAW_TEST_VAR=persisted'),
+    );
     const result = await executeTool(
       'bash',
       bashCommand('printf %s "$HYBRIDCLAW_TEST_VAR"'),

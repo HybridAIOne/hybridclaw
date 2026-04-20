@@ -120,7 +120,9 @@ describe('config reload integration', () => {
     });
 
     // Verify the change persisted to disk.
-    const diskConfig = readConfigFromDisk() as { discord?: { prefix?: string } };
+    const diskConfig = readConfigFromDisk() as {
+      discord?: { prefix?: string };
+    };
     expect(diskConfig.discord?.prefix).toBe('!!updated');
 
     // And is reflected in the in-memory config.
