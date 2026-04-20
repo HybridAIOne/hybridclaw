@@ -275,7 +275,10 @@ test('waitForSocket does not revive the manager after stop during implicit start
 
 test('transport-level WhatsApp emitters are handled without throwing', async () => {
   const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
-    await importFreshConnectionModule();
+    await importFreshConnectionModule({
+      logLevel: 'debug',
+      rootLevel: 'debug',
+    });
 
   const manager = createWhatsAppConnectionManager();
   await manager.start();
@@ -286,13 +289,130 @@ test('transport-level WhatsApp emitters are handled without throwing', async () 
   expect(() =>
     transport?.rawSocketEmitter.emit(
       'error',
-      new Error('Opening handshake has timed out'),
+      Object.assign(new Error('getaddrinfo ENOTFOUND web.whatsapp.com'), {
+        code: 'ENOTFOUND',
+        hostname: 'web.whatsapp.com',
+      }),
     ),
   ).not.toThrow();
 
-  expect(whatsappLogger.warn).toHaveBeenCalledWith(
-    'WhatsApp raw websocket error',
+  expect(whatsappLogger.debug).toHaveBeenCalledWith(
+    'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
   );
+});
+
+test('rate-limits repeated expected WhatsApp transport sink logs', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-20T08:00:00Z'));
+
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule({
+      logLevel: 'debug',
+      rootLevel: 'debug',
+    });
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const transport = sockets[0];
+  expect(transport).toBeDefined();
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    transport?.rawSocketEmitter.emit(
+      'error',
+      Object.assign(new Error('getaddrinfo ENOTFOUND web.whatsapp.com'), {
+        code: 'ENOTFOUND',
+        hostname: 'web.whatsapp.com',
+      }),
+    );
+  }
+
+  expect(
+    whatsappLogger.debug.mock.calls.filter(
+      ([message]) =>
+        message ===
+        'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
+    ),
+  ).toHaveLength(1);
+
+  vi.setSystemTime(new Date('2026-04-20T08:01:01Z'));
+  transport?.rawSocketEmitter.emit(
+    'error',
+    Object.assign(new Error('getaddrinfo ENOTFOUND web.whatsapp.com'), {
+      code: 'ENOTFOUND',
+      hostname: 'web.whatsapp.com',
+    }),
+  );
+
+  expect(
+    whatsappLogger.debug.mock.calls.filter(
+      ([message]) =>
+        message ===
+        'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
+    ),
+  ).toHaveLength(2);
+});
+
+test('reconnect warnings use human-readable wording for lost connections', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
+  expect(updateHandlers).toHaveLength(1);
+
+  updateHandlers?.[0]?.({
+    connection: 'close',
+    lastDisconnect: {
+      error: { output: { statusCode: 408 } },
+      date: new Date(),
+    },
+  });
+
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'WhatsApp connection was lost. Retrying connection in 1s.',
+  );
+
+  await manager.stop();
+});
+
+test('suppresses buffer flush noise while WhatsApp is offline', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule({
+      logLevel: 'debug',
+      rootLevel: 'debug',
+    });
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  sockets[0]?.rawSocketEmitter.emit(
+    'error',
+    Object.assign(new Error('getaddrinfo ENOTFOUND web.whatsapp.com'), {
+      code: 'ENOTFOUND',
+      hostname: 'web.whatsapp.com',
+    }),
+  );
+
+  sockets[0]?.config.logger.warn({}, 'Buffer timeout reached, auto-flushing');
+  sockets[0]?.config.logger.debug({ bufferCount: 1 }, 'Flushing event buffer');
+  sockets[0]?.config.logger.debug({}, 'Event buffer activated');
+
+  expect(whatsappLogger.warn).not.toHaveBeenCalledWith(
+    'Buffer timeout reached, auto-flushing',
+  );
+  expect(whatsappLogger.debug).not.toHaveBeenCalledWith(
+    { bufferCount: 1 },
+    'Flushing event buffer',
+  );
+  expect(whatsappLogger.debug).not.toHaveBeenCalledWith(
+    {},
+    'Event buffer activated',
+  );
+
+  await manager.stop();
 });
 
 test('info-level WhatsApp logs omit structured metadata', async () => {

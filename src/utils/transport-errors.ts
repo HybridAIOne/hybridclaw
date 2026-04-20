@@ -25,12 +25,149 @@ const EXPECTED_TRANSPORT_ERROR_MESSAGE_RE =
 interface ErrorLike {
   cause?: unknown;
   code?: unknown;
+  hostname?: unknown;
   // Keep the standard AggregateError shape, but avoid speculative wrappers.
   errors?: unknown;
   message?: unknown;
 }
 
 const MAX_EXPECTED_TRANSPORT_ERROR_DEPTH = 3;
+
+interface TransportErrorDetails {
+  code: string;
+  host: string;
+  message: string;
+}
+
+function getOwnTransportErrorDetails(error: unknown): TransportErrorDetails {
+  if (typeof error === 'string') {
+    return {
+      code: '',
+      host: '',
+      message: error,
+    };
+  }
+  if (!error || typeof error !== 'object') {
+    return {
+      code: '',
+      host: '',
+      message: '',
+    };
+  }
+
+  const candidate = error as ErrorLike;
+  return {
+    code:
+      typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '',
+    host:
+      typeof candidate.hostname === 'string' ? candidate.hostname.trim() : '',
+    message: typeof candidate.message === 'string' ? candidate.message : '',
+  };
+}
+
+function findTransportErrorDetails(
+  error: unknown,
+  depth = 0,
+): TransportErrorDetails {
+  if (depth > MAX_EXPECTED_TRANSPORT_ERROR_DEPTH || error == null) {
+    return {
+      code: '',
+      host: '',
+      message: '',
+    };
+  }
+
+  const details = getOwnTransportErrorDetails(error);
+  if (details.code || details.host) {
+    return details;
+  }
+
+  if (error && typeof error === 'object') {
+    const candidate = error as ErrorLike;
+    if (Array.isArray(candidate.errors)) {
+      for (const nested of candidate.errors) {
+        const nestedDetails = findTransportErrorDetails(nested, depth + 1);
+        if (nestedDetails.code || nestedDetails.host || nestedDetails.message) {
+          return nestedDetails;
+        }
+      }
+    }
+
+    const causeDetails = findTransportErrorDetails(candidate.cause, depth + 1);
+    if (causeDetails.code || causeDetails.host || causeDetails.message) {
+      return causeDetails;
+    }
+  }
+
+  return details;
+}
+
+function getTransportErrorCode(error: unknown): string {
+  return findTransportErrorDetails(error).code;
+}
+
+function getTransportErrorHost(
+  error: unknown,
+  fallbackHost?: string | null,
+): string {
+  const host = findTransportErrorDetails(error).host;
+  return host || String(fallbackHost || '').trim();
+}
+
+function hasMeaningfulHost(host: string): boolean {
+  return host.length > 0;
+}
+
+function formatTransportEndpoint(subject: string, host: string): string {
+  if (hasMeaningfulHost(host)) {
+    return `${subject} connection to ${host}`;
+  }
+  return `${subject} connection`;
+}
+
+export function describeExpectedTransportError(
+  error: unknown,
+  subject: string,
+  fallbackHost?: string | null,
+): string {
+  const code = getTransportErrorCode(error);
+  const host = getTransportErrorHost(error, fallbackHost);
+
+  switch (code) {
+    case 'ENOTFOUND':
+      return hasMeaningfulHost(host)
+        ? `${subject} DNS lookup failed for ${host}.`
+        : `${subject} DNS lookup failed.`;
+    case 'EAI_AGAIN':
+      return hasMeaningfulHost(host)
+        ? `${subject} DNS lookup for ${host} is temporarily unavailable.`
+        : `${subject} DNS lookup is temporarily unavailable.`;
+    case 'ETIMEDOUT':
+    case 'ESOCKETTIMEDOUT':
+    case 'UND_ERR_CONNECT_TIMEOUT':
+    case 'UND_ERR_HEADERS_TIMEOUT':
+    case 'UND_ERR_BODY_TIMEOUT':
+      return `${formatTransportEndpoint(subject, host)} timed out.`;
+    case 'ECONNREFUSED':
+      return `${formatTransportEndpoint(subject, host)} was refused.`;
+    case 'ECONNRESET':
+      return `${formatTransportEndpoint(subject, host)} was reset.`;
+    case 'EHOSTUNREACH':
+    case 'ENETUNREACH':
+      return hasMeaningfulHost(host)
+        ? `${subject} host ${host} is unreachable.`
+        : `${subject} network is unreachable.`;
+    case 'ERR_SOCKET_CLOSED':
+    case 'UND_ERR_SOCKET':
+    case 'EPIPE':
+      return `${subject} socket closed unexpectedly.`;
+    default:
+      if (hasMeaningfulHost(host)) {
+        return `${subject} is temporarily unavailable at ${host}.`;
+      }
+      return `${subject} is temporarily unavailable.`;
+  }
+}
 
 function hasExpectedTransportSignature(code: string, message: string): boolean {
   return (

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { isExpectedTransportError } from '../src/utils/transport-errors.ts';
+import {
+  describeExpectedTransportError,
+  isExpectedTransportError,
+} from '../src/utils/transport-errors.ts';
 
 describe('isExpectedTransportError', () => {
   test('matches websocket handshake timeouts', () => {
@@ -45,5 +48,30 @@ describe('isExpectedTransportError', () => {
     expect(
       isExpectedTransportError(new Error("Cannot read properties of undefined")),
     ).toBe(false);
+  });
+});
+
+describe('describeExpectedTransportError', () => {
+  test('uses nested cause codes and hosts when the top-level error is generic', () => {
+    const error = new Error('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND discord.com'), {
+        code: 'ENOTFOUND',
+        hostname: 'discord.com',
+      }),
+    });
+
+    expect(describeExpectedTransportError(error, 'Discord API')).toBe(
+      'Discord API DNS lookup failed for discord.com.',
+    );
+  });
+
+  test('falls back to the provided host for generic transient fetch failures', () => {
+    expect(
+      describeExpectedTransportError(
+        new Error('fetch failed'),
+        'Observability ingest',
+        'hybridai.one',
+      ),
+    ).toBe('Observability ingest is temporarily unavailable at hybridai.one.');
   });
 });

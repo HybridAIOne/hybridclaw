@@ -3,6 +3,7 @@ import type { Client } from 'discord.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
   error: vi.fn(),
   warn: vi.fn(),
 }));
@@ -11,7 +12,10 @@ vi.mock('../src/logger.ts', () => ({
   logger: loggerMocks,
 }));
 
-import { attachDiscordTransportErrorHandlers } from '../src/channels/discord/transport-errors.ts';
+import {
+  attachDiscordTransportErrorHandlers,
+  logDiscordApiError,
+} from '../src/channels/discord/transport-errors.ts';
 
 /**
  * Regression tests for transport errors bubbling out of Discord websocket
@@ -22,6 +26,7 @@ import { attachDiscordTransportErrorHandlers } from '../src/channels/discord/tra
 class FakeDiscordClient extends EventEmitter {}
 
 afterEach(() => {
+  loggerMocks.debug.mockReset();
   loggerMocks.error.mockReset();
   loggerMocks.warn.mockReset();
   vi.useRealTimers();
@@ -85,11 +90,31 @@ describe('Discord client transport error handlers', () => {
       client.emit('error', new Error('socket hang up'));
     }
 
-    expect(loggerMocks.warn).toHaveBeenCalledTimes(5);
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(2);
 
     vi.setSystemTime(new Date('2026-04-19T17:01:01Z'));
     client.emit('error', new Error('socket hang up'));
 
-    expect(loggerMocks.warn).toHaveBeenCalledTimes(6);
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(3);
+  });
+
+  test('formats expected Discord API failures with user-readable wording', () => {
+    logDiscordApiError({
+      error: Object.assign(new Error('lookup failed'), {
+        code: 'ENOTFOUND',
+        hostname: 'discord.com',
+      }),
+      expectedAction: 'Typing indicator was not sent.',
+      unexpectedMessage: 'Failed to send typing indicator',
+      metadata: { channelId: '123' },
+      level: 'debug',
+    });
+
+    expect(loggerMocks.warn).not.toHaveBeenCalled();
+    expect(loggerMocks.error).not.toHaveBeenCalled();
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      { channelId: '123' },
+      'Discord API DNS lookup failed for discord.com. Typing indicator was not sent.',
+    );
   });
 });

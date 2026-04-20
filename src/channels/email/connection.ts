@@ -4,7 +4,10 @@ import { ImapFlow } from 'imapflow';
 import { DATA_DIR } from '../../config/config.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
-import { isExpectedTransportError } from '../../utils/transport-errors.js';
+import {
+  describeExpectedTransportError,
+  isExpectedTransportError,
+} from '../../utils/transport-errors.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
@@ -29,8 +32,6 @@ interface PersistedFolderCursorState {
 
 interface EmailConnectionErrorLike {
   code?: unknown;
-  hostname?: unknown;
-  message?: unknown;
 }
 
 function resolveFolders(folders: string[]): string[] {
@@ -87,44 +88,8 @@ function getEmailConnectionErrorCode(error: unknown): string {
   return typeof code === 'string' ? code.toUpperCase() : '';
 }
 
-function getEmailConnectionErrorHost(
-  error: unknown,
-  fallbackHost: string,
-): string {
-  if (error && typeof error === 'object') {
-    const hostname = (error as EmailConnectionErrorLike).hostname;
-    if (typeof hostname === 'string' && hostname.trim()) {
-      return hostname.trim();
-    }
-  }
-  return fallbackHost;
-}
-
 function formatReconnectDelay(delayMs: number): string {
   return `${Math.max(1, Math.ceil(delayMs / 1_000))}s`;
-}
-
-function describeExpectedEmailTransportError(
-  error: unknown,
-  fallbackHost: string,
-): string {
-  const host = getEmailConnectionErrorHost(error, fallbackHost);
-  switch (getEmailConnectionErrorCode(error)) {
-    case 'ENOTFOUND':
-      return `Email IMAP DNS lookup failed for ${host}.`;
-    case 'ETIMEDOUT':
-    case 'ESOCKETTIMEDOUT':
-      return `Email IMAP connection to ${host} timed out.`;
-    case 'ECONNREFUSED':
-      return `Email IMAP connection to ${host} was refused.`;
-    case 'ECONNRESET':
-      return `Email IMAP connection to ${host} was reset.`;
-    case 'EHOSTUNREACH':
-    case 'ENETUNREACH':
-      return `Email IMAP host ${host} is unreachable.`;
-    default:
-      return `Email IMAP connection to ${host} is temporarily unavailable.`;
-  }
 }
 
 async function loadPersistedFolderCursorState(
@@ -225,6 +190,14 @@ export function createEmailConnectionManager(
     if (!activeClient) return;
     activeClient.removeAllListeners();
     await activeClient.logout().catch((error) => {
+      if (
+        error &&
+        typeof error === 'object' &&
+        String((error as EmailConnectionErrorLike).code || '') ===
+          'NoConnection'
+      ) {
+        return;
+      }
       childLogger.debug({ error }, 'Email IMAP logout failed');
     });
   };
@@ -242,9 +215,9 @@ export function createEmailConnectionManager(
           delayMs,
           reason,
           code: getEmailConnectionErrorCode(error) || undefined,
-          host: getEmailConnectionErrorHost(error, config.imapHost),
+          host: config.imapHost,
         },
-        `${describeExpectedEmailTransportError(error, config.imapHost)} Retrying connection in ${formatReconnectDelay(delayMs)}.`,
+        `${describeExpectedTransportError(error, 'Email IMAP', config.imapHost)} Retrying connection in ${formatReconnectDelay(delayMs)}.`,
       );
     } else if (error) {
       childLogger.error(
