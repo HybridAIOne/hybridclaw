@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
+
 ### Added
 
 - **Ephemeral `/btw` side-question command**: Added `/btw <question>` across
