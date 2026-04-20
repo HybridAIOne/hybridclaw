@@ -23,16 +23,21 @@ export function createChannelRuntime<
 >(options: RuntimeOptions<Handler, Config, Args>) {
   let initialized = false;
   let initializing: Promise<void> | undefined;
+  let generation = 0;
+  let shutdownArgs: Args | undefined;
 
   return {
     init: (handler: Handler): Promise<void> => {
       if (initialized) return Promise.resolve();
       if (!initializing) {
-        initializing = (async () => {
+        const initGeneration = generation;
+        const initPromise = (async () => {
           const config = await options.resolveConfig?.();
+          if (initGeneration !== generation) return;
           const registration = await options.resolveRegistration?.(
             config as Config,
           );
+          if (initGeneration !== generation) return;
           const resolved =
             typeof registration === 'string'
               ? { id: registration }
@@ -43,14 +48,25 @@ export function createChannelRuntime<
             capabilities: resolved?.capabilities || options.capabilities,
           });
           await options.start({ handler, config: config as Config });
+          if (initGeneration !== generation) {
+            if (shutdownArgs) {
+              await options.cleanup?.(...shutdownArgs);
+            }
+            return;
+          }
           initialized = true;
         })().finally(() => {
-          initializing = undefined;
+          if (initializing === initPromise) {
+            initializing = undefined;
+          }
         });
+        initializing = initPromise;
       }
       return initializing;
     },
     shutdown: async (...args: Args): Promise<void> => {
+      generation += 1;
+      shutdownArgs = args;
       try {
         await options.cleanup?.(...args);
       } finally {
