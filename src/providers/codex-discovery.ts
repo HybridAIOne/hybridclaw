@@ -189,7 +189,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     const auth = getCodexAuthStatus();
     if (!auth.authenticated || auth.reloginRequired) {
       discoveryStore.replaceState(buildEmptyCodexDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }

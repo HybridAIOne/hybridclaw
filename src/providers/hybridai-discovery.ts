@@ -200,7 +200,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
         discoveryStore.replaceState(buildEmptyHybridAIDiscoveryState(), {
-          cacheResult: false,
+          skipCache: true,
         });
         return [];
       }

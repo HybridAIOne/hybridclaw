@@ -97,7 +97,7 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!HUGGINGFACE_ENABLED) {
       discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }
@@ -107,7 +107,7 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
     });
     if (!apiKey) {
       discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }

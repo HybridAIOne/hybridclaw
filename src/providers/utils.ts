@@ -24,9 +24,9 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<T> | null = null;
 
-  const replaceState = (nextState: T, opts?: { cacheResult?: boolean }) => {
+  const replaceState = (nextState: T, opts?: { skipCache?: boolean }) => {
     state = nextState;
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
+    discoveredAtMs = opts?.skipCache ? 0 : Date.now();
   };
 
   const discover = async (

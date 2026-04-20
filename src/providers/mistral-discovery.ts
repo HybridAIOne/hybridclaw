@@ -150,7 +150,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!MISTRAL_ENABLED) {
       discoveryStore.replaceState(buildEmptyMistralDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }
@@ -160,7 +160,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
     });
     if (!apiKey) {
       discoveryStore.replaceState(buildEmptyMistralDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }

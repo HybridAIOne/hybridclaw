@@ -144,7 +144,7 @@ export function createOpenAICompatDiscoveryStore(
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!readEnabled()) {
       discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }
@@ -152,7 +152,7 @@ export function createOpenAICompatDiscoveryStore(
     const apiKey = def.readApiKey({ required: false });
     if (!apiKey) {
       discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }

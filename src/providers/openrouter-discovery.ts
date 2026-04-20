@@ -190,7 +190,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!OPENROUTER_ENABLED) {
       discoveryStore.replaceState(buildEmptyOpenRouterDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }
@@ -200,7 +200,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     });
     if (!apiKey) {
       discoveryStore.replaceState(buildEmptyOpenRouterDiscoveryState(), {
-        cacheResult: false,
+        skipCache: true,
       });
       return [];
     }
