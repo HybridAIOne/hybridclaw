@@ -42,11 +42,11 @@ function getOwnErrorDetails(error: unknown): ErrorDetails {
 
   const candidate = error as ErrorLike;
   return {
-    code: typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '',
+    code:
+      typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '',
     host:
       typeof candidate.hostname === 'string' ? candidate.hostname.trim() : '',
-    message:
-      typeof candidate.message === 'string' ? candidate.message : '',
+    message: typeof candidate.message === 'string' ? candidate.message : '',
   };
 }
 
@@ -111,9 +111,7 @@ export function formatModelErrorForLog(
 
   switch (code) {
     case 'ENOTFOUND':
-      return host
-        ? `DNS lookup failed for ${host}`
-        : 'DNS lookup failed';
+      return host ? `DNS lookup failed for ${host}` : 'DNS lookup failed';
     case 'EAI_AGAIN':
       return host
         ? `DNS lookup for ${host} is temporarily unavailable`

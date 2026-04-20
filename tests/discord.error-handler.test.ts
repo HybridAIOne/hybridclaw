@@ -51,7 +51,11 @@ describe('Discord client transport error handlers', () => {
       client.emit('error', new Error('Opening handshake has timed out')),
     ).not.toThrow();
     expect(() =>
-      client.emit('shardError', new Error('Opening handshake has timed out'), 7),
+      client.emit(
+        'shardError',
+        new Error('Opening handshake has timed out'),
+        7,
+      ),
     ).not.toThrow();
 
     expect(loggerMocks.warn).toHaveBeenCalledWith(

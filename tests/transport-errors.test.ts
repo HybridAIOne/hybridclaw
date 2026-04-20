@@ -46,7 +46,9 @@ describe('isExpectedTransportError', () => {
 
   test('ignores unrelated application errors', () => {
     expect(
-      isExpectedTransportError(new Error("Cannot read properties of undefined")),
+      isExpectedTransportError(
+        new Error('Cannot read properties of undefined'),
+      ),
     ).toBe(false);
   });
 });

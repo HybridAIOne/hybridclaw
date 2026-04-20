@@ -162,15 +162,18 @@ describe('isRetryableModelError', () => {
 describe('formatModelErrorForLog', () => {
   test('uses nested transport causes to describe fetch failures', () => {
     const error = new Error('fetch failed', {
-      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.hybridai.one'), {
-        code: 'ENOTFOUND',
-        hostname: 'api.hybridai.one',
-      }),
+      cause: Object.assign(
+        new Error('getaddrinfo ENOTFOUND api.hybridai.one'),
+        {
+          code: 'ENOTFOUND',
+          hostname: 'api.hybridai.one',
+        },
+      ),
     });
 
-    expect(formatModelErrorForLog(error, 'https://api.hybridai.one/v1/chat')).toBe(
-      'DNS lookup failed for api.hybridai.one',
-    );
+    expect(
+      formatModelErrorForLog(error, 'https://api.hybridai.one/v1/chat'),
+    ).toBe('DNS lookup failed for api.hybridai.one');
   });
 
   test('falls back to the model API host for generic network failures', () => {
