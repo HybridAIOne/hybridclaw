@@ -80,7 +80,11 @@ saved revision history directly.
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,
-  `memorySwap`, `cpus`, `network`, `binds`, and additional mounts
+  `memorySwap`, `cpus`, `network`, `binds`, additional mounts, and
+  `persistBashState`
+- `container.persistBashState` controls whether `bash` tool calls reuse shell
+  state (`cd`, exported env vars, aliases) for the active runtime session
+  (`true`, default) or start fresh on each call (`false`)
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`

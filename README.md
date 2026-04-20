@@ -95,6 +95,9 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Web Chat keeps a recent-session sidebar and can search conversation titles
   with contextual snippets before you reopen an older browser session
+- Web Chat accepts `/btw <question>` side questions while a primary run is
+  active, so you can ask an ephemeral follow-up without interrupting the
+  current run
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
@@ -118,6 +121,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser without tearing down the enclosing workspace container; keep
   `hybridclaw gateway restart` for local/manual full restarts.
+- `container.persistBashState` controls whether bash tool calls share shell
+  state (`cd`, exported env vars, aliases) across turns in the same active
+  runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
 - Generated artifacts remain downloadable and attachable even when the sandbox
   exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes a keyboard-driven approval picker and prints a
@@ -134,8 +140,9 @@ Once the gateway is running, open HybridClaw locally:
   observed skill, artifact presence, and counted tool-call totals.
 - Channel delivery stays predictable: email seeds its first mailbox cursor from
   the current head instead of replaying old inbox mail, retry-aware transports
-  honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
-  init-query bad-request failures.
+  honor server `Retry-After` backoff, expected transient Discord/Email/WhatsApp
+  transport outages stay local with rate-limited logging, and WhatsApp startup
+  avoids intermittent init-query bad-request failures.
 
 ## Models, Skills, and Memory
 
