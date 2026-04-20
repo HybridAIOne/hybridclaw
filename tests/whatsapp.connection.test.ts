@@ -411,7 +411,9 @@ test('suppresses buffer flush noise while WhatsApp is offline', async () => {
     { bufferCount: 1 },
     'Flushing event buffer',
   );
-  expect(whatsappLogger.debug).not.toHaveBeenCalledWith('Event buffer activated');
+  expect(whatsappLogger.debug).not.toHaveBeenCalledWith(
+    'Event buffer activated',
+  );
 
   await manager.stop();
 });
