@@ -2,39 +2,28 @@ import type { ChannelInfo, ChannelKind } from './channel.js';
 import { registerChannel } from './channel-registry.js';
 
 type MaybePromise<T> = T | Promise<T>;
-type Registration =
-  | string
-  | { id?: string | null; capabilities?: ChannelInfo['capabilities'] }
-  | null
-  | undefined;
-type BaseRuntimeOptions<Args extends unknown[]> = {
+type Registration = string | null | undefined;
+type BaseRuntimeOptions = {
   kind: ChannelKind;
   capabilities: ChannelInfo['capabilities'];
-  cleanup?: (...args: Args) => MaybePromise<void>;
+  cleanup?: () => MaybePromise<void>;
 };
-type RuntimeOptionsWithoutConfig<
-  Handler,
-  Args extends unknown[],
-> = BaseRuntimeOptions<Args> & {
+type RuntimeOptionsWithoutConfig<Handler> = BaseRuntimeOptions & {
   resolveConfig?: undefined;
   resolveRegistration?: () => MaybePromise<Registration>;
   start: (params: { handler: Handler }) => MaybePromise<void>;
 };
-type RuntimeOptionsWithConfig<
-  Handler,
-  Config,
-  Args extends unknown[],
-> = BaseRuntimeOptions<Args> & {
+type RuntimeOptionsWithConfig<Handler, Config> = BaseRuntimeOptions & {
   resolveConfig: () => MaybePromise<Config>;
   resolveRegistration?: (config: Config) => MaybePromise<Registration>;
   start: (params: { handler: Handler; config: Config }) => MaybePromise<void>;
 };
-type RuntimeOptions<Handler, Config, Args extends unknown[]> =
-  | RuntimeOptionsWithoutConfig<Handler, Args>
-  | RuntimeOptionsWithConfig<Handler, Config, Args>;
-type RuntimeLifecycle<Handler, Args extends unknown[]> = {
+type RuntimeOptions<Handler, Config> =
+  | RuntimeOptionsWithoutConfig<Handler>
+  | RuntimeOptionsWithConfig<Handler, Config>;
+type RuntimeLifecycle<Handler> = {
   init: (handler: Handler) => Promise<void>;
-  shutdown: (...args: Args) => Promise<void>;
+  shutdown: () => Promise<void>;
 };
 
 function registerResolvedChannel(
@@ -42,44 +31,32 @@ function registerResolvedChannel(
   capabilities: ChannelInfo['capabilities'],
   registration: Registration,
 ): void {
-  const resolved =
-    typeof registration === 'string' ? { id: registration } : registration;
   registerChannel({
     kind,
-    id: String(resolved?.id || kind).trim() || kind,
-    capabilities: resolved?.capabilities || capabilities,
+    id: String(registration || kind).trim() || kind,
+    capabilities,
   });
 }
 
-function hasResolvedConfig<Handler, Config, Args extends unknown[]>(
-  options: RuntimeOptions<Handler, Config, Args>,
-): options is RuntimeOptionsWithConfig<Handler, Config, Args> {
+function hasResolvedConfig<Handler, Config>(
+  options: RuntimeOptions<Handler, Config>,
+): options is RuntimeOptionsWithConfig<Handler, Config> {
   return typeof options.resolveConfig === 'function';
 }
 
-export function createChannelRuntime<
-  Handler = void,
-  Args extends unknown[] = [],
->(
-  options: RuntimeOptionsWithoutConfig<Handler, Args>,
-): RuntimeLifecycle<Handler, Args>;
-export function createChannelRuntime<
-  Handler,
-  Config,
-  Args extends unknown[] = [],
->(
-  options: RuntimeOptionsWithConfig<Handler, Config, Args>,
-): RuntimeLifecycle<Handler, Args>;
+export function createChannelRuntime<Handler = void>(
+  options: RuntimeOptionsWithoutConfig<Handler>,
+): RuntimeLifecycle<Handler>;
+export function createChannelRuntime<Handler, Config>(
+  options: RuntimeOptionsWithConfig<Handler, Config>,
+): RuntimeLifecycle<Handler>;
 
-export function createChannelRuntime<
-  Handler = void,
-  Config = void,
-  Args extends unknown[] = [],
->(options: RuntimeOptions<Handler, Config, Args>) {
+export function createChannelRuntime<Handler = void, Config = void>(
+  options: RuntimeOptions<Handler, Config>,
+) {
   let initialized = false;
   let initializing: Promise<void> | undefined;
   let generation = 0;
-  let shutdownArgs: Args | undefined;
 
   return {
     init: (handler: Handler): Promise<void> => {
@@ -109,9 +86,7 @@ export function createChannelRuntime<
             await options.start({ handler });
           }
           if (initGeneration !== generation) {
-            if (shutdownArgs) {
-              await options.cleanup?.(...shutdownArgs);
-            }
+            await options.cleanup?.();
             return;
           }
           initialized = true;
@@ -124,11 +99,10 @@ export function createChannelRuntime<
       }
       return initializing;
     },
-    shutdown: async (...args: Args): Promise<void> => {
+    shutdown: async (): Promise<void> => {
       generation += 1;
-      shutdownArgs = args;
       try {
-        await options.cleanup?.(...args);
+        await options.cleanup?.();
       } finally {
         initialized = false;
         initializing = undefined;
