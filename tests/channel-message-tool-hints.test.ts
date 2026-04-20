@@ -178,6 +178,20 @@ test('resolves email hints with read support from explicit email context', () =>
   expect(hints.some((entry) => entry.includes('`IDENTITY.md`'))).toBe(true);
 });
 
+test('falls back to matching channelId inference when explicit channel type is unregistered', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'email',
+      channelId: 'peer@example.com',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+    true,
+  );
+});
+
 test('resolves Teams hints from explicit Teams context', () => {
   registerChannel({
     kind: 'msteams',

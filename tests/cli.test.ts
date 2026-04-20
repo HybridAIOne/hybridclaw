@@ -1,11 +1,14 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
+const ORIGINAL_HYBRIDCLAW_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
+const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISABLE_CONFIG_WATCHER =
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
 const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
@@ -25,11 +28,7 @@ const REPO_VERSION = (
   ) as { version: string }
 ).version;
 
-function createTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir('hybridclaw-cli-');
 
 async function importFreshAgentMigrationCommand(options?: {
   sourceRoot?: string | null;
@@ -63,6 +62,10 @@ async function importFreshAgentMigrationCommand(options?: {
 }) {
   vi.resetModules();
   vi.doUnmock('../src/cli/agent-migration-command.js');
+  const runtimeHomeDir = createTempDir();
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHomeDir;
+  process.env.HOME = runtimeHomeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
     value: true,
@@ -431,6 +434,10 @@ async function importFreshCli(options?: {
   };
 }) {
   vi.resetModules();
+  const runtimeHomeDir = createTempDir();
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHomeDir;
+  process.env.HOME = runtimeHomeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   delete process.env.CI;
   Object.defineProperty(process.stdin, 'isTTY', {
@@ -1344,101 +1351,116 @@ async function importFreshCli(options?: {
   };
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/auth/hybridai-auth.ts');
-  vi.doUnmock('../src/auth/codex-auth.ts');
-  vi.doUnmock('../src/config/cli-flags.ts');
-  vi.doUnmock('../src/config/config.ts');
-  vi.doUnmock('../src/config/runtime-config.ts');
-  vi.doUnmock('../src/gateway/gateway-client.ts');
-  vi.doUnmock('../src/gateway/gateway-lifecycle.ts');
-  vi.doUnmock('../src/gateway/gateway.ts');
-  vi.doUnmock('../src/infra/container-setup.ts');
-  vi.doUnmock('../src/channels/whatsapp/auth.ts');
-  vi.doUnmock('node:readline/promises');
-  vi.doUnmock('../src/onboarding.ts');
-  vi.doUnmock('../src/skills/skills.ts');
-  vi.doUnmock('../src/skills/skills-import.ts');
-  vi.doUnmock('../src/skills/skills-import.js');
-  vi.doUnmock('../src/security/instruction-approval-audit.ts');
-  vi.doUnmock('../src/security/instruction-integrity.ts');
-  vi.doUnmock('../src/security/runtime-secrets.ts');
-  vi.doUnmock('../src/tui.ts');
-  vi.doUnmock('../src/memory/db.js');
-  vi.doUnmock('../src/agents/agent-registry.js');
-  vi.doUnmock('../src/agents/claw-archive.js');
-  vi.doUnmock('../src/plugins/plugin-install.ts');
-  vi.doUnmock('../src/plugins/plugin-install.js');
-  vi.doUnmock('../src/plugins/plugin-config.js');
-  vi.doUnmock('../src/plugins/plugin-manager.js');
-  vi.doUnmock('../src/update.ts');
-  vi.resetModules();
-  if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
-    delete process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
-  } else {
-    process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
-      ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
-  }
-  if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
-    delete process.env.OPENROUTER_API_KEY;
-  } else {
-    process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
-  }
-  if (ORIGINAL_MISTRAL_API_KEY === undefined) {
-    delete process.env.MISTRAL_API_KEY;
-  } else {
-    process.env.MISTRAL_API_KEY = ORIGINAL_MISTRAL_API_KEY;
-  }
-  if (ORIGINAL_HF_TOKEN === undefined) {
-    delete process.env.HF_TOKEN;
-  } else {
-    process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
-  }
-  if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
-    delete process.env.HYBRIDCLAW_LOG_REQUESTS;
-  } else {
-    process.env.HYBRIDCLAW_LOG_REQUESTS = ORIGINAL_HYBRIDCLAW_LOG_REQUESTS;
-  }
-  if (ORIGINAL_EMAIL_PASSWORD === undefined) {
-    delete process.env.EMAIL_PASSWORD;
-  } else {
-    process.env.EMAIL_PASSWORD = ORIGINAL_EMAIL_PASSWORD;
-  }
-  if (ORIGINAL_MSTEAMS_APP_ID === undefined) {
-    delete process.env.MSTEAMS_APP_ID;
-  } else {
-    process.env.MSTEAMS_APP_ID = ORIGINAL_MSTEAMS_APP_ID;
-  }
-  if (ORIGINAL_MSTEAMS_APP_PASSWORD === undefined) {
-    delete process.env.MSTEAMS_APP_PASSWORD;
-  } else {
-    process.env.MSTEAMS_APP_PASSWORD = ORIGINAL_MSTEAMS_APP_PASSWORD;
-  }
-  if (ORIGINAL_MSTEAMS_TENANT_ID === undefined) {
-    delete process.env.MSTEAMS_TENANT_ID;
-  } else {
-    process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
-  }
-  if (ORIGINAL_CI === undefined) {
-    delete process.env.CI;
-  } else {
-    process.env.CI = ORIGINAL_CI;
-  }
-  Object.defineProperty(process.stdin, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDIN_IS_TTY,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDOUT_IS_TTY,
-  });
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
+      delete process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
+    } else {
+      process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
+        ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
+    }
+    if (ORIGINAL_HYBRIDCLAW_DATA_DIR === undefined) {
+      delete process.env.HYBRIDCLAW_DATA_DIR;
+    } else {
+      process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_HYBRIDCLAW_DATA_DIR;
+    }
+    if (ORIGINAL_HOME === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = ORIGINAL_HOME;
+    }
+    if (ORIGINAL_DISABLE_CONFIG_WATCHER === undefined) {
+      delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    } else {
+      process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
+        ORIGINAL_DISABLE_CONFIG_WATCHER;
+    }
+    if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
+      delete process.env.OPENROUTER_API_KEY;
+    } else {
+      process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+    }
+    if (ORIGINAL_MISTRAL_API_KEY === undefined) {
+      delete process.env.MISTRAL_API_KEY;
+    } else {
+      process.env.MISTRAL_API_KEY = ORIGINAL_MISTRAL_API_KEY;
+    }
+    if (ORIGINAL_HF_TOKEN === undefined) {
+      delete process.env.HF_TOKEN;
+    } else {
+      process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
+    }
+    if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
+      delete process.env.HYBRIDCLAW_LOG_REQUESTS;
+    } else {
+      process.env.HYBRIDCLAW_LOG_REQUESTS = ORIGINAL_HYBRIDCLAW_LOG_REQUESTS;
+    }
+    if (ORIGINAL_EMAIL_PASSWORD === undefined) {
+      delete process.env.EMAIL_PASSWORD;
+    } else {
+      process.env.EMAIL_PASSWORD = ORIGINAL_EMAIL_PASSWORD;
+    }
+    if (ORIGINAL_MSTEAMS_APP_ID === undefined) {
+      delete process.env.MSTEAMS_APP_ID;
+    } else {
+      process.env.MSTEAMS_APP_ID = ORIGINAL_MSTEAMS_APP_ID;
+    }
+    if (ORIGINAL_MSTEAMS_APP_PASSWORD === undefined) {
+      delete process.env.MSTEAMS_APP_PASSWORD;
+    } else {
+      process.env.MSTEAMS_APP_PASSWORD = ORIGINAL_MSTEAMS_APP_PASSWORD;
+    }
+    if (ORIGINAL_MSTEAMS_TENANT_ID === undefined) {
+      delete process.env.MSTEAMS_TENANT_ID;
+    } else {
+      process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
+    }
+    if (ORIGINAL_CI === undefined) {
+      delete process.env.CI;
+    } else {
+      process.env.CI = ORIGINAL_CI;
+    }
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDIN_IS_TTY,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDOUT_IS_TTY,
+    });
+  },
+  resetModules: true,
+  unstubAllGlobals: true,
+  unmock: [
+    '../src/auth/hybridai-auth.ts',
+    '../src/auth/codex-auth.ts',
+    '../src/config/cli-flags.ts',
+    '../src/config/config.ts',
+    '../src/config/runtime-config.ts',
+    '../src/gateway/gateway-client.ts',
+    '../src/gateway/gateway-lifecycle.ts',
+    '../src/gateway/gateway.ts',
+    '../src/infra/container-setup.ts',
+    '../src/channels/whatsapp/auth.ts',
+    'node:readline/promises',
+    '../src/onboarding.ts',
+    '../src/skills/skills.ts',
+    '../src/skills/skills-import.ts',
+    '../src/skills/skills-import.js',
+    '../src/security/instruction-approval-audit.ts',
+    '../src/security/instruction-integrity.ts',
+    '../src/security/runtime-secrets.ts',
+    '../src/tui.ts',
+    '../src/memory/db.js',
+    '../src/agents/agent-registry.js',
+    '../src/agents/claw-archive.js',
+    '../src/plugins/plugin-install.ts',
+    '../src/plugins/plugin-install.js',
+    '../src/plugins/plugin-config.js',
+    '../src/plugins/plugin-manager.js',
+    '../src/update.ts',
+  ],
 });
 
 describe('CLI hybridai commands', () => {
@@ -2858,10 +2880,15 @@ describe('CLI hybridai commands', () => {
 
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
-      { approveDependencyInstall: true },
+      {
+        approveDependencyInstall: true,
+        onDependenciesAlreadySatisfied: expect.any(Function),
+      },
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      expect.stringContaining(
+        'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      ),
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
@@ -3037,9 +3064,12 @@ describe('CLI hybridai commands', () => {
 
     expect(reinstallPlugin).toHaveBeenCalledWith('./plugins/example-plugin', {
       approveDependencyInstall: true,
+      onDependenciesAlreadySatisfied: expect.any(Function),
     });
     expect(logSpy).toHaveBeenCalledWith(
-      'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      expect.stringContaining(
+        'Reinstalled plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+      ),
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',

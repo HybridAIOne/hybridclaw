@@ -13,6 +13,7 @@ import {
   LOGGER_PRETTY_OPTIONS,
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
+import { getTraceContext } from './observability/otel.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -75,6 +76,11 @@ function createLogger() {
     errorKey: LOGGER_ERROR_KEY,
     level: initialLevel,
     serializers: LOGGER_SERIALIZERS,
+    mixin() {
+      const { traceId, spanId } = getTraceContext();
+      if (traceId) return { traceId, spanId };
+      return {};
+    },
   };
   const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
     {
@@ -143,11 +149,100 @@ onRuntimeConfigChange((next, prev) => {
   }
 });
 
-process.on('uncaughtException', (err) => {
+// Keep registration state on `process` so module reloads in tests
+// (vi.resetModules + dynamic import) do not append duplicate listeners.
+const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
+  'hybridclaw.logger.process-handler-registration',
+);
+const UNCAUGHT_EXCEPTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.uncaught-exception-handler',
+);
+const UNHANDLED_REJECTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.unhandled-rejection-handler',
+);
+
+interface ProcessHandlerRegistrationState {
+  uncaughtException: boolean;
+  unhandledRejection: boolean;
+}
+
+function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
+  const target = process as NodeJS.Process & {
+    [PROCESS_HANDLER_REGISTRATION_KEY]?: ProcessHandlerRegistrationState;
+  };
+  if (target[PROCESS_HANDLER_REGISTRATION_KEY]) {
+    return target[PROCESS_HANDLER_REGISTRATION_KEY];
+  }
+  const state: ProcessHandlerRegistrationState = {
+    uncaughtException: false,
+    unhandledRejection: false,
+  };
+  target[PROCESS_HANDLER_REGISTRATION_KEY] = state;
+  return state;
+}
+
+function uncaughtExceptionHandler(err: Error) {
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
-});
+}
+(
+  uncaughtExceptionHandler as typeof uncaughtExceptionHandler & {
+    [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true;
+  }
+)[UNCAUGHT_EXCEPTION_HANDLER_TAG] = true;
 
-process.on('unhandledRejection', (reason) => {
+function unhandledRejectionHandler(reason: unknown) {
   logger.error({ err: reason }, 'Unhandled rejection');
-});
+}
+(
+  unhandledRejectionHandler as typeof unhandledRejectionHandler & {
+    [UNHANDLED_REJECTION_HANDLER_TAG]?: true;
+  }
+)[UNHANDLED_REJECTION_HANDLER_TAG] = true;
+
+const processHandlerRegistrationState = getProcessHandlerRegistrationState();
+
+if (!processHandlerRegistrationState.uncaughtException) {
+  process.on('uncaughtException', uncaughtExceptionHandler);
+  processHandlerRegistrationState.uncaughtException = true;
+}
+
+if (!processHandlerRegistrationState.unhandledRejection) {
+  process.on('unhandledRejection', unhandledRejectionHandler);
+  processHandlerRegistrationState.unhandledRejection = true;
+}
+
+export function removeLoggerProcessHandlersForTests(): void {
+  for (const listener of process.listeners('uncaughtException')) {
+    if (
+      (listener as { [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true })[
+        UNCAUGHT_EXCEPTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'uncaughtException',
+        listener as (error: Error) => void,
+      );
+    }
+  }
+
+  for (const listener of process.listeners('unhandledRejection')) {
+    if (
+      (listener as { [UNHANDLED_REJECTION_HANDLER_TAG]?: true })[
+        UNHANDLED_REJECTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'unhandledRejection',
+        listener as (reason: unknown) => void,
+      );
+    }
+  }
+
+  const state = getProcessHandlerRegistrationState();
+  state.uncaughtException = false;
+  state.unhandledRejection = false;
+}
+
+export const handleUncaughtExceptionForTests = uncaughtExceptionHandler;
+export const handleUnhandledRejectionForTests = unhandledRejectionHandler;

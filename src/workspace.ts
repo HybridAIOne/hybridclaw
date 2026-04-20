@@ -14,7 +14,7 @@ import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
 
-const BOOTSTRAP_FILES = [
+export const WORKSPACE_BOOTSTRAP_FILES = [
   'AGENTS.md',
   'SOUL.md',
   'IDENTITY.md',
@@ -36,11 +36,20 @@ const DEFAULT_POLICY_TEMPLATE = `approval:
     - pattern: "rm -rf /"
     - paths: ["~/.ssh/**", "/etc/**", ".env*"]
     - tools: ["force_push"]
-  trusted_network_hosts: ["hybridclaw.io"]
-
   workspace_fence: true
   max_pending_approvals: 3
   approval_timeout_secs: 120
+
+network:
+  default: deny
+  rules:
+    - action: allow
+      host: "hybridclaw.io"
+      port: 443
+      methods: ["*"]
+      paths: ["/**"]
+      agent: "*"
+  presets: []
 
 audit:
   log_all_red: true
@@ -49,6 +58,14 @@ audit:
 
 const MAX_FILE_CHARS = 20_000;
 const TEMPLATES_DIR = resolveInstallPath('templates');
+
+/**
+ * Directory (inside the agent container image) where runtime node_modules
+ * are installed. Skill scripts that run from `/workspace/...` need ESM
+ * resolution to walk up into this directory; Node's ESM loader ignores
+ * NODE_PATH, so we symlink `<workspace>/node_modules` at bootstrap time.
+ */
+const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 
 export interface ContextFile {
   name: string;
@@ -63,6 +80,11 @@ export interface EnsureBootstrapFilesResult {
 export interface ResetWorkspaceResult {
   workspacePath: string;
   removed: boolean;
+}
+
+export interface WorkspaceNodeModulesLinkOptions {
+  allowMissingSource?: boolean;
+  replaceExistingSymlink?: boolean;
 }
 
 interface WorkspaceOnboardingState {
@@ -133,7 +155,9 @@ function writeWorkspaceOnboardingState(
   fs.renameSync(tempPath, statePath);
 }
 
-function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
+function readTemplateFile(
+  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
+): string {
   const templatePath = path.join(TEMPLATES_DIR, filename);
   return fs.readFileSync(templatePath, 'utf-8');
 }
@@ -176,7 +200,7 @@ function normalizeContextFileContent(params: {
 
 function isWorkspaceFileCustomized(
   wsDir: string,
-  filename: (typeof BOOTSTRAP_FILES)[number],
+  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
 ): boolean {
   const filePath = path.join(wsDir, filename);
   if (!fs.existsSync(filePath)) return false;
@@ -231,7 +255,7 @@ function hasOnboardingEvidenceAfterBootstrap(params: {
   const transcriptPath = path.join(params.wsDir, '.session-transcripts');
   if (hasPathChangedAfter(referenceMs, transcriptPath)) return true;
 
-  const customizedFiles: Array<(typeof BOOTSTRAP_FILES)[number]> = [
+  const customizedFiles: Array<(typeof WORKSPACE_BOOTSTRAP_FILES)[number]> = [
     'USER.md',
     'MEMORY.md',
     'IDENTITY.md',
@@ -300,6 +324,84 @@ function looksLikeCompletedWorkspace(
 }
 
 /**
+ * Symlink `<wsDir>/node_modules` to the container's `/app/node_modules` so
+ * Node's ESM loader can resolve dependencies from skill scripts that live
+ * under the workspace. Node's ESM resolver walks up the filesystem looking
+ * for `node_modules` and — unlike CommonJS `require()` — ignores `NODE_PATH`,
+ * which is why ESM imports fail even though the deps are installed in
+ * `/app/node_modules`.
+ *
+ * Only creates the symlink when nothing exists at the destination; a
+ * pre-existing `node_modules` directory is left untouched so user-installed
+ * deps aren't clobbered. Callers can opt into replacing an existing symlink
+ * when they need to repair a stale runtime link before launching Docker.
+ *
+ * When the source `/app/node_modules` doesn't exist (e.g. outside the
+ * container) this is normally a silent no-op. Docker launch paths can opt into
+ * creating the symlink anyway so the bind-mounted workspace is already correct
+ * when the container starts.
+ *
+ * Exported for tests.
+ */
+export function ensureWorkspaceNodeModulesLink(
+  wsDir: string,
+  source: string = CONTAINER_APP_NODE_MODULES,
+  options: WorkspaceNodeModulesLinkOptions = {},
+): void {
+  const target = path.join(wsDir, 'node_modules');
+  const resolvedSource = path.resolve(source);
+  let replaceExistingSymlink = false;
+
+  // `lstat` so we detect a broken symlink at `target` too.
+  try {
+    const stat = fs.lstatSync(target);
+    if (!stat.isSymbolicLink()) {
+      // A real directory/file already exists — leave it alone.
+      return;
+    }
+
+    if (!options.replaceExistingSymlink) return;
+
+    const existingTarget = fs.readlinkSync(target);
+    const resolvedExisting = path.resolve(path.dirname(target), existingTarget);
+    if (resolvedExisting === resolvedSource) return;
+    replaceExistingSymlink = true;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== 'ENOENT') {
+      logger.warn(
+        { wsDir, target, error },
+        'Failed to inspect workspace node_modules path',
+      );
+      return;
+    }
+  }
+
+  // Only create the link if the source actually exists unless the caller is
+  // deliberately staging a dangling container-path symlink before `docker run`.
+  if (!fs.existsSync(source) && !options.allowMissingSource) return;
+
+  try {
+    if (replaceExistingSymlink) {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+    fs.symlinkSync(source, target, 'dir');
+    logger.debug(
+      { wsDir, source, target },
+      'Linked workspace node_modules to container app deps',
+    );
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    // Benign race: another bootstrap pass created it first.
+    if (err?.code === 'EEXIST') return;
+    logger.warn(
+      { wsDir, source, target, error },
+      'Failed to symlink workspace node_modules',
+    );
+  }
+}
+
+/**
  * Ensure workspace has bootstrap files, copying from templates if missing.
  */
 export function ensureBootstrapFiles(
@@ -318,7 +420,7 @@ export function ensureBootstrapFiles(
   };
   const nowIso = () => new Date().toISOString();
 
-  for (const filename of BOOTSTRAP_FILES) {
+  for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     if (ONE_TIME_BOOTSTRAP_FILES.has(filename)) continue;
     const destPath = path.join(wsDir, filename);
     if (fs.existsSync(destPath)) continue;
@@ -400,6 +502,8 @@ export function ensureBootstrapFiles(
     }
   }
 
+  ensureWorkspaceNodeModulesLink(wsDir);
+
   return {
     workspacePath: wsDir,
     workspaceInitialized,
@@ -424,7 +528,7 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
 
-  for (const filename of BOOTSTRAP_FILES) {
+  for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     const filePath = path.join(wsDir, filename);
     if (!fs.existsSync(filePath)) continue;
 

@@ -10,6 +10,7 @@ import {
 import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { getProviderAliasesFor } from '../providers/provider-aliases.js';
 import {
   isLocalBackendType,
   LOCAL_BACKEND_IDS,
@@ -353,10 +354,44 @@ async function resolveHuggingFaceApiKey(
   );
 }
 
+async function resolveGenericProviderApiKey(
+  providerLabel: string,
+  envVarNames: string[],
+  explicitApiKey: string | undefined,
+): Promise<string> {
+  const configuredApiKey =
+    explicitApiKey?.trim() ||
+    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) ||
+    '';
+  if (configuredApiKey) return configuredApiKey;
+
+  const promptedApiKey = await promptForSecretInput({
+    prompt: `🔒 Paste ${providerLabel} API key: `,
+    missingMessage: `Missing ${providerLabel} API key. Pass \`--api-key <key>\`, set the appropriate environment variable, or run this command in an interactive terminal to paste it.`,
+  });
+  if (promptedApiKey) return promptedApiKey;
+
+  throw new Error(
+    `${providerLabel} API key cannot be empty. Pass \`--api-key <key>\` or paste it when prompted.`,
+  );
+}
+
 interface RouterProviderConfigFlowOptions {
   args: string[];
-  providerId: 'openrouter' | 'mistral' | 'huggingface';
-  providerLabel: 'OpenRouter' | 'Mistral' | 'Hugging Face';
+  providerId:
+    | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo';
+  providerLabel: string;
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
   getCurrentProviderConfig: () => { baseUrl: string };
   defaultModel: string;
@@ -490,12 +525,203 @@ async function configureHuggingFace(args: string[]): Promise<void> {
   });
 }
 
+interface GenericProviderAuthDef {
+  /** Provider ID used in CLI and config. */
+  id:
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo';
+  /** Human-readable label shown in status/error output. */
+  label: string;
+  /** Default model used when none is specified. */
+  defaultModel: string;
+  /** Default base URL for the API. */
+  defaultBaseUrl: string;
+  /** Regex to detect the URL path suffix that should be present. */
+  baseUrlSuffixPattern: RegExp;
+  /** Suffix appended to the base URL if the pattern doesn't match. */
+  baseUrlSuffix: string;
+  /** Canonical secret key name used for encrypted storage. */
+  secretKey: string;
+  /** All env var names checked for this provider (order matters). */
+  envVarNames: string[];
+  /** CLI aliases that resolve to this provider. */
+  aliases: string[];
+}
+
+const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    defaultModel: 'gemini/gemini-2.5-pro',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    baseUrlSuffixPattern: /\/openai$/i,
+    baseUrlSuffix: '/openai',
+    secretKey: 'GEMINI_API_KEY',
+    envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+    aliases: getProviderAliasesFor('gemini'),
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    defaultModel: 'deepseek/deepseek-chat',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'DEEPSEEK_API_KEY',
+    envVarNames: ['DEEPSEEK_API_KEY'],
+    aliases: getProviderAliasesFor('deepseek'),
+  },
+  {
+    id: 'xai',
+    label: 'xAI',
+    defaultModel: 'xai/grok-3',
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'XAI_API_KEY',
+    envVarNames: ['XAI_API_KEY'],
+    aliases: getProviderAliasesFor('xai'),
+  },
+  {
+    id: 'zai',
+    label: 'Z.AI / GLM',
+    defaultModel: 'zai/glm-5.1',
+    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
+    baseUrlSuffixPattern: /\/v4$/i,
+    baseUrlSuffix: '/v4',
+    secretKey: 'ZAI_API_KEY',
+    envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
+    aliases: getProviderAliasesFor('zai'),
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi / Moonshot',
+    defaultModel: 'kimi/kimi-k2.5',
+    defaultBaseUrl: 'https://api.moonshot.ai/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'KIMI_API_KEY',
+    envVarNames: ['KIMI_API_KEY'],
+    aliases: getProviderAliasesFor('kimi'),
+  },
+  {
+    id: 'minimax',
+    label: 'MiniMax',
+    defaultModel: 'minimax/MiniMax-M2',
+    defaultBaseUrl: 'https://api.minimax.io/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'MINIMAX_API_KEY',
+    envVarNames: ['MINIMAX_API_KEY'],
+    aliases: getProviderAliasesFor('minimax'),
+  },
+  {
+    id: 'dashscope',
+    label: 'DashScope / Qwen',
+    defaultModel: 'dashscope/qwen3-coder-plus',
+    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'DASHSCOPE_API_KEY',
+    envVarNames: ['DASHSCOPE_API_KEY'],
+    aliases: getProviderAliasesFor('dashscope'),
+  },
+  {
+    id: 'xiaomi',
+    label: 'Xiaomi MiMo',
+    defaultModel: 'xiaomi/MiMo-7B-RL',
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'XIAOMI_API_KEY',
+    envVarNames: ['XIAOMI_API_KEY'],
+    aliases: getProviderAliasesFor('xiaomi'),
+  },
+  {
+    id: 'kilo',
+    label: 'Kilo Code',
+    defaultModel: 'kilo/anthropic/claude-sonnet-4.6',
+    defaultBaseUrl: 'https://api.kilo.ai/api/gateway',
+    baseUrlSuffixPattern: /\/api\/gateway$/i,
+    baseUrlSuffix: '/api/gateway',
+    secretKey: 'KILO_API_KEY',
+    envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
+    aliases: getProviderAliasesFor('kilo'),
+  },
+] as const;
+
+const GENERIC_PROVIDER_BY_ID = new Map(
+  GENERIC_PROVIDER_AUTH_DEFS.map((def) => [def.id, def]),
+);
+
+function findGenericProviderDef(
+  id: string,
+): GenericProviderAuthDef | undefined {
+  return GENERIC_PROVIDER_BY_ID.get(id as GenericProviderAuthDef['id']);
+}
+
+async function configureGenericProvider(
+  def: GenericProviderAuthDef,
+  args: string[],
+): Promise<void> {
+  const prefix = `${def.id}/`;
+  await configureRouterProvider({
+    args,
+    providerId: def.id,
+    providerLabel: def.label,
+    parseArgs: parseOpenRouterLoginArgs,
+    getCurrentProviderConfig: () =>
+      getRuntimeConfig()[def.id] as { baseUrl: string },
+    defaultModel: def.defaultModel,
+    normalizeModelId: (id) => normalizeProviderModelId(prefix, id),
+    normalizeBaseUrl: (url) =>
+      normalizeProviderBaseUrl(
+        def.defaultBaseUrl,
+        def.baseUrlSuffixPattern,
+        def.baseUrlSuffix,
+        url,
+      ),
+    resolveApiKey: (key) =>
+      resolveGenericProviderApiKey(def.label, def.envVarNames, key),
+    saveSecrets: (apiKey) => saveRuntimeSecrets({ [def.secretKey]: apiKey }),
+    applyApiKeyToEnv: () => {},
+    updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
+      updateRuntimeConfig((draft) => {
+        const section = draft[def.id] as {
+          enabled: boolean;
+          baseUrl: string;
+        };
+        section.enabled = true;
+        section.baseUrl = normalizedBaseUrl;
+        if (parsed.setDefault) {
+          draft.hybridai.defaultModel = fullModelName;
+        }
+      }),
+  });
+}
+
 type UnifiedProvider =
   | 'hybridai'
   | 'codex'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
+  | 'gemini'
+  | 'deepseek'
+  | 'xai'
+  | 'zai'
+  | 'kimi'
+  | 'minimax'
+  | 'dashscope'
+  | 'xiaomi'
+  | 'kilo'
   | 'local'
   | 'msteams'
   | 'slack';
@@ -530,6 +756,12 @@ function normalizeUnifiedProvider(
     normalized === 'huggingface-hub'
   ) {
     return 'huggingface';
+  }
+  // Check data-driven generic providers by id or alias.
+  for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
+    if (normalized === def.id || def.aliases.includes(normalized)) {
+      return def.id;
+    }
   }
   if (normalized === 'local') {
     return 'local';
@@ -567,7 +799,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -581,7 +813,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -718,6 +950,65 @@ function clearHuggingFaceCredentials(): void {
   console.log(`Cleared Hugging Face credentials in ${filePath}.`);
   console.log(
     'If HF_TOKEN is still exported in your shell, unset it separately.',
+  );
+}
+
+function printGenericProviderStatus(
+  providerLabel: string,
+  configKey:
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo',
+  secretKey: string,
+  envVarNames: string[],
+): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedApiKey = readStoredRuntimeSecret(secretKey);
+  const envApiKey =
+    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) || '';
+  const source = envApiKey
+    ? storedApiKey && envApiKey === storedApiKey
+      ? 'runtime-secrets'
+      : 'env'
+    : storedApiKey
+      ? 'runtime-secrets'
+      : null;
+  const apiKey = envApiKey || storedApiKey || '';
+
+  console.log(`Provider: ${providerLabel}`);
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
+  if (source) {
+    console.log(`Source: ${source}`);
+  }
+  if (apiKey) {
+    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config[configKey].enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config[configKey].baseUrl}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
+}
+
+function clearGenericProviderCredentials(
+  providerLabel: string,
+  secretKey: string,
+  envVarNames: string[],
+): void {
+  const filePath = saveRuntimeSecrets({ [secretKey]: null });
+  console.log(`Cleared ${providerLabel} credentials in ${filePath}.`);
+  const hint = envVarNames.join('`, `');
+  console.log(
+    `If \`${hint}\` is still exported in your shell, unset it separately.`,
   );
 }
 
@@ -941,6 +1232,12 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'huggingface') {
     printHuggingFaceUsage();
+    return;
+  }
+  if (findGenericProviderDef(provider)) {
+    console.log(
+      `Usage: hybridclaw auth login ${provider} [--api-key <key>] [--base-url <url>] [--model <model>] [--no-default]`,
+    );
     return;
   }
   if (provider === 'msteams') {
@@ -1191,7 +1488,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1217,6 +1514,11 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'huggingface') {
     await configureHuggingFace(parsed.remaining);
+    return;
+  }
+  const genericLoginDef = findGenericProviderDef(parsed.provider);
+  if (genericLoginDef) {
+    await configureGenericProvider(genericLoginDef, parsed.remaining);
     return;
   }
   if (parsed.provider === 'msteams') {
@@ -1350,6 +1652,24 @@ async function dispatchProviderAction(
     clearHuggingFaceCredentials();
     return;
   }
+  const genericDef = findGenericProviderDef(provider);
+  if (genericDef) {
+    if (action === 'status') {
+      printGenericProviderStatus(
+        genericDef.label,
+        genericDef.id,
+        genericDef.secretKey,
+        genericDef.envVarNames,
+      );
+      return;
+    }
+    clearGenericProviderCredentials(
+      genericDef.label,
+      genericDef.secretKey,
+      genericDef.envVarNames,
+    );
+    return;
+  }
   if (provider === 'msteams') {
     if (action === 'status') {
       printMSTeamsStatus();
@@ -1386,7 +1706,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

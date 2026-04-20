@@ -1,19 +1,20 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
-const tempDirs: string[] = [];
 
-function createTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir();
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Timestamps within the 30-day unused-activity window; computed at runtime so
+// fixtures don't drift stale as the wall clock advances past a hardcoded date.
+const recentIso = () => new Date(Date.now() - 5 * DAY_MS).toISOString();
+const staleIso = () => new Date(Date.now() - 90 * DAY_MS).toISOString();
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -23,24 +24,21 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.doUnmock('node:child_process');
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  Object.defineProperty(process.stdin, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDIN_IS_TTY,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    configurable: true,
-    value: ORIGINAL_STDOUT_IS_TTY,
-  });
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDIN_IS_TTY,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: ORIGINAL_STDOUT_IS_TTY,
+    });
+  },
+  resetModules: true,
+  unmock: ['node:child_process'],
 });
 
 test('runDoctor fixes insecure credentials permissions and reruns the check', async () => {
@@ -203,12 +201,12 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
       {
         toolName: 'github__search',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-21T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -286,12 +284,12 @@ test('checkConfig does not flag a single unused browser subtool when other brows
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
       {
         toolName: 'browser_navigate',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-21T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -338,7 +336,7 @@ test('checkConfig describes a grouped browser warning as a toolset when singular
       {
         toolName: 'read',
         callsSinceCutoff: 2,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -391,7 +389,7 @@ test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () =>
       {
         toolName: 'read',
         callsSinceCutoff: 1,
-        lastUsedAt: '2026-03-20T10:00:00.000Z',
+        lastUsedAt: recentIso(),
       },
     ],
   }));
@@ -947,7 +945,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: '2026-03-20T10:00:00.000Z',
+        last_observed_at: recentIso(),
       },
       {
         skill_name: 'stale-skill',
@@ -961,7 +959,7 @@ test('checkSkills warns on enabled skills unused in the last 30 days', async () 
         positive_feedback_count: 0,
         negative_feedback_count: 0,
         error_clusters: [],
-        last_observed_at: '2026-01-20T10:00:00.000Z',
+        last_observed_at: staleIso(),
       },
     ],
   }));

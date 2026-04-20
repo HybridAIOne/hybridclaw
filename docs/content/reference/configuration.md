@@ -62,10 +62,29 @@ through the CLI, gateway commands, or background reload paths.
 Tracked routes are sanitized before storage so host-specific home paths do not
 leak into the saved revision metadata.
 
+## Recovery From Invalid Config Files
+
+If `~/.hybridclaw/config.json` becomes invalid JSON, HybridClaw records the
+load error and falls back to in-memory defaults until the file is repaired.
+
+Interactive `hybridclaw onboarding` and related local setup flows can then:
+
+- restore the last known-good saved config snapshot when one exists
+- otherwise roll back to the newest saved config revision from
+  `~/.hybridclaw/data/config-revisions.db`
+- otherwise tell you to repair `config.json` manually before rerunning setup
+
+Use `hybridclaw config revisions` any time you want to inspect or restore the
+saved revision history directly.
+
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,
-  `memorySwap`, `cpus`, `network`, `binds`, and additional mounts
+  `memorySwap`, `cpus`, `network`, `binds`, additional mounts, and
+  `persistBashState`
+- `container.persistBashState` controls whether `bash` tool calls reuse shell
+  state (`cd`, exported env vars, aliases) for the active runtime session
+  (`true`, default) or start fresh on each call (`false`)
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
@@ -74,6 +93,10 @@ leak into the saved revision metadata.
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
   runtime status reporting, including the target base URL, bot and agent ids,
   flush interval, and batch size
+- `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
+  distributed tracing export to OTLP collectors; see
+  [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped
@@ -105,6 +128,9 @@ leak into the saved revision metadata.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `channelInstructions.*` for transport-specific prompt guidance injected into
+  the runtime prompt; `channelInstructions.voice` is the right place for
+  spoken-style rules such as "no markdown" or "keep replies short"
 - `skills.disabled` and `skills.channelDisabled.*` for skill availability
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
@@ -121,6 +147,11 @@ leak into the saved revision metadata.
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
+- `voice.*` for the Twilio ConversationRelay channel, including webhook path,
+  concurrency, relay voice/STT options, and Twilio number/account settings;
+  the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
+  in the encrypted runtime secret store or use a SecretRef-backed
+  `voice.twilio.authToken`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
@@ -169,7 +200,8 @@ native model audio input for supported sessions. Today that path is enabled for
 `vllm` and attaches the original current-turn audio when no transcript block
 was prepended already.
 
-For the full speech and fallback workflow, see
+For the Twilio phone channel, see [Twilio Voice](../guides/twilio-voice.md).
+For the local speech and fallback workflow, see
 [Voice And TTS](../guides/voice-tts.md).
 
 ## Secrets And Trust
@@ -177,12 +209,25 @@ For the full speech and fallback workflow, see
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
-`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `VLLM_API_KEY`,
+`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`,
+`XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
+`DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`, `VLLM_API_KEY`,
 `BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
-`MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
+`TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
+`GATEWAY_API_TOKEN`.
 
-Local TUI and local web chat sessions manage this store through:
+Local TUI/web sessions and the local CLI manage this store through:
+
+```bash
+hybridclaw secret list
+hybridclaw secret set <NAME> <VALUE>
+hybridclaw secret show <NAME>
+hybridclaw secret unset <NAME>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
 
 ```text
 /secret list
@@ -194,7 +239,6 @@ Local TUI and local web chat sessions manage this store through:
 /secret route remove <url-prefix> [header]
 ```
 
-- there is no top-level `hybridclaw secret ...` CLI yet
 - secret names must use uppercase letters, digits, and underscores
 - built-in runtime keys and arbitrary named secrets share the same encrypted
   store
@@ -214,8 +258,8 @@ credential checks run.
   `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
   plaintext values
 - current built-in SecretRef surfaces include `ops.webApiToken`,
-  `ops.gatewayApiToken`, `email.password`, `imessage.password`, and
-  `local.backends.vllm.apiKey`
+  `ops.gatewayApiToken`, `email.password`, `imessage.password`,
+  `voice.twilio.authToken`, and `local.backends.vllm.apiKey`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the

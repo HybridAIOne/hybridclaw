@@ -1,4 +1,5 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,8 +45,6 @@ import {
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
-// --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
-
 const DENY_PATTERNS: RegExp[] = [
   /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
   /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
@@ -76,8 +75,6 @@ function guardCommand(command: string): string | null {
   }
   return null;
 }
-
-// --- Side-effect accumulator for host-processed actions ---
 
 type ScheduledTaskInfo = {
   id: number;
@@ -183,6 +180,14 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
+let persistentBashStateEnabled = true;
+type PersistentBashSession = {
+  sessionDir: string;
+  snapshotPath: string;
+  cwdPath: string;
+  defaultCwd: string;
+  initialized: boolean;
+};
 const BASH_DOCKER_CONTAINER = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
 ).trim();
@@ -190,6 +195,251 @@ const BASH_DOCKER_CWD = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
 ).trim();
 const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
+let persistentBashSession: PersistentBashSession | null = null;
+const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
+const PERSISTENT_BASH_WRAPPER_SCRIPT = `
+__hybridclaw_session_dir=$1
+__hybridclaw_snapshot=$2
+__hybridclaw_cwd_file=$3
+__hybridclaw_default_cwd=$4
+__hybridclaw_command=$5
+__hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
+__hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
+umask 077
+mkdir -p -- "$__hybridclaw_session_dir" || exit 125
+chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
+__hybridclaw_write_snapshot() {
+  {
+    export -p
+    alias -p
+    echo 'shopt -s expand_aliases'
+    echo 'set +e'
+    echo 'set +u'
+  } > "$__hybridclaw_snapshot_tmp" &&
+    mv -f -- "$__hybridclaw_snapshot_tmp" "$__hybridclaw_snapshot"
+}
+__hybridclaw_write_cwd() {
+  pwd -P > "$__hybridclaw_cwd_tmp" 2>/dev/null &&
+    mv -f -- "$__hybridclaw_cwd_tmp" "$__hybridclaw_cwd_file"
+}
+if [ -f "$__hybridclaw_snapshot" ]; then
+  source "$__hybridclaw_snapshot" 2>/dev/null || true
+else
+  shopt -s expand_aliases
+  set +e
+  set +u
+fi
+__hybridclaw_cwd="$__hybridclaw_default_cwd"
+if [ -f "$__hybridclaw_cwd_file" ]; then
+  __hybridclaw_saved_cwd="$(cat "$__hybridclaw_cwd_file" 2>/dev/null)"
+  if [ -n "$__hybridclaw_saved_cwd" ]; then
+    __hybridclaw_cwd="$__hybridclaw_saved_cwd"
+  fi
+fi
+if ! cd -- "$__hybridclaw_cwd"; then
+  if [ "$__hybridclaw_cwd" != "$__hybridclaw_default_cwd" ] &&
+    cd -- "$__hybridclaw_default_cwd"; then
+    __hybridclaw_write_cwd || true
+  else
+    exit 126
+  fi
+fi
+eval "$__hybridclaw_command"
+__hybridclaw_ec=$?
+__hybridclaw_write_snapshot || true
+__hybridclaw_write_cwd || true
+exit $__hybridclaw_ec
+`.trim();
+
+function getPersistentBashTempRoot(): string {
+  if (TASK_SANDBOX_FS_ENABLED) return '/tmp';
+  const resolved = String(os.tmpdir() || '').trim();
+  return resolved ? path.resolve(resolved) : '/tmp';
+}
+
+function cleanupPersistentBashSessionArtifacts(
+  session: PersistentBashSession | undefined,
+): void {
+  if (!session) return;
+  try {
+    if (TASK_SANDBOX_FS_ENABLED) {
+      spawnSync(
+        'docker',
+        [
+          'exec',
+          '-i',
+          BASH_DOCKER_CONTAINER,
+          'rm',
+          '-rf',
+          '--',
+          session.sessionDir,
+        ],
+        {
+          encoding: 'utf-8',
+          timeout: 5_000,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env },
+        },
+      );
+      return;
+    }
+    fs.rmSync(session.sessionDir, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best-effort; execution should not fail if temp artifacts linger.
+  }
+}
+
+export function resetPersistentBashSessions(): void {
+  cleanupPersistentBashSessionArtifacts(persistentBashSession || undefined);
+  persistentBashSession = null;
+}
+
+function buildBashToolDescription(): string {
+  const sessionBehavior = persistentBashStateEnabled
+    ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
+    : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
+  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
+}
+
+export function setPersistentBashStateEnabled(enabled: boolean): void {
+  const normalized = enabled !== false;
+  if (normalized !== persistentBashStateEnabled) {
+    persistentBashStateEnabled = normalized;
+    resetPersistentBashSessions();
+    BASH_TOOL_DEFINITION.function.description = buildBashToolDescription();
+  }
+}
+
+function getPersistentBashSession(): PersistentBashSession {
+  if (persistentBashSession) {
+    return persistentBashSession;
+  }
+
+  const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${randomUUID()}`;
+  const tempRoot = getPersistentBashTempRoot();
+  const joinPath = TASK_SANDBOX_FS_ENABLED ? path.posix.join : path.join;
+  const sessionDir = joinPath(tempRoot, prefix);
+  persistentBashSession = {
+    sessionDir,
+    snapshotPath: joinPath(sessionDir, 'state.snapshot'),
+    cwdPath: joinPath(sessionDir, 'state.cwd'),
+    defaultCwd: TASK_SANDBOX_FS_ENABLED
+      ? BASH_DOCKER_CWD || '/app'
+      : WORKSPACE_ROOT,
+    initialized: false,
+  };
+  return persistentBashSession;
+}
+
+function buildPersistentBashWrapperArgs(
+  session: PersistentBashSession,
+  command: string,
+): string[] {
+  return [
+    session.initialized ? '-c' : '-lc',
+    PERSISTENT_BASH_WRAPPER_SCRIPT,
+    'hybridclaw-bash-wrapper',
+    session.sessionDir,
+    session.snapshotPath,
+    session.cwdPath,
+    session.defaultCwd,
+    command,
+  ];
+}
+
+function runPersistentBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const session = getPersistentBashSession();
+  const wrapperArgs = buildPersistentBashWrapperArgs(session, params.command);
+  const result = TASK_SANDBOX_FS_ENABLED
+    ? runDockerExecBash(wrapperArgs, params.timeoutMs)
+    : runHostBash(wrapperArgs, params.timeoutMs);
+  if (result.error === undefined || result.status !== null) {
+    session.initialized = true;
+  }
+
+  return formatBashExecutionResult(result, params.timeoutMs);
+}
+
+function runDockerExecBash(
+  args: string[],
+  timeoutMs: number,
+): SpawnSyncReturns<string> {
+  return spawnSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-w',
+      BASH_DOCKER_CWD || '/app',
+      BASH_DOCKER_CONTAINER,
+      'bash',
+      ...args,
+    ],
+    {
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+      env: { ...process.env },
+    },
+  );
+}
+
+function runHostBash(
+  args: string[],
+  timeoutMs: number,
+): SpawnSyncReturns<string> {
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.HYBRIDAI_API_KEY;
+  return spawnSync('bash', args, {
+    timeout: timeoutMs,
+    encoding: 'utf-8',
+    cwd: WORKSPACE_ROOT,
+    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+    env: cleanEnv,
+  });
+}
+
+function formatBashExecutionResult(
+  result: SpawnSyncReturns<string>,
+  timeoutMs: number,
+): string {
+  const stdout = result.stdout || '';
+  const stderr = result.stderr || '';
+  const formattedStdout = formatBashOutput(
+    replaceWorkspaceRootInOutput(stdout || '(no output)'),
+  );
+
+  if (result.status === 0) {
+    return formattedStdout;
+  }
+
+  const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
+  const timeoutLikely =
+    result.error?.name === 'Error' &&
+    /ETIMEDOUT|timed out/i.test(result.error.message || '');
+  const summary = timeoutLikely
+    ? `Command timed out after ${timeoutMs}ms`
+    : result.error?.message ||
+      `${TASK_SANDBOX_FS_ENABLED ? 'docker exec' : 'bash'} failed with exit code ${result.status ?? 'unknown'}`;
+  if (!combinedOutput) return failTool(`Error: ${summary}`);
+  return failTool(
+    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+  );
+}
+
+function runStatelessBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const args = ['-lc', params.command];
+  const result = TASK_SANDBOX_FS_ENABLED
+    ? runDockerExecBash(args, params.timeoutMs)
+    : runHostBash(args, params.timeoutMs);
+  return formatBashExecutionResult(result, params.timeoutMs);
+}
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -204,53 +454,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
     out.push(id);
   }
   return out;
-}
-
-function runDockerExecBash(params: {
-  command: string;
-  timeoutMs: number;
-}): string {
-  const result = spawnSync(
-    'docker',
-    [
-      'exec',
-      '-i',
-      '-w',
-      BASH_DOCKER_CWD || '/app',
-      BASH_DOCKER_CONTAINER,
-      'bash',
-      '-lc',
-      params.command,
-    ],
-    {
-      timeout: params.timeoutMs,
-      encoding: 'utf-8',
-      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-      env: { ...process.env },
-    },
-  );
-
-  if (result.status === 0) {
-    return formatBashOutput(
-      replaceWorkspaceRootInOutput(result.stdout || '(no output)'),
-    );
-  }
-
-  const combinedOutput = [result.stdout, result.stderr]
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-  const timeoutLikely =
-    result.error?.name === 'Error' &&
-    /ETIMEDOUT|timed out/i.test(result.error.message || '');
-  const summary = timeoutLikely
-    ? `Command timed out after ${params.timeoutMs}ms`
-    : result.error?.message ||
-      `docker exec failed with exit code ${result.status ?? 'unknown'}`;
-  if (!combinedOutput) return failTool(`Error: ${summary}`);
-  return failTool(
-    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
-  );
 }
 
 function shellEscape(value: string): string {
@@ -473,7 +676,11 @@ export function setScheduledTasks(
 }
 
 export function setSessionContext(sessionId: string): void {
-  currentSessionId = String(sessionId || '');
+  const normalized = String(sessionId || '');
+  if (normalized !== currentSessionId) {
+    resetPersistentBashSessions();
+  }
+  currentSessionId = normalized;
 }
 
 export function setGatewayContext(
@@ -2182,66 +2389,13 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
-      if (BASH_DOCKER_CONTAINER) {
-        return runDockerExecBash({
-          command: args.command,
-          timeoutMs,
-        });
-      }
-      try {
-        // Strip secrets from subprocess environment (belt-and-suspenders)
-        const cleanEnv = { ...process.env };
-        delete cleanEnv.HYBRIDAI_API_KEY;
-        const result = execSync(args.command, {
-          timeout: timeoutMs,
-          encoding: 'utf-8',
-          cwd: WORKSPACE_ROOT,
-          maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-          env: cleanEnv,
-        });
-        return formatBashOutput(
-          replaceWorkspaceRootInOutput(result || '(no output)'),
-        );
-      } catch (err: unknown) {
-        const execErr = err as {
-          code?: string | number;
-          signal?: string;
-          stdout?: string | Buffer;
-          stderr?: string | Buffer;
-          message?: string;
-        };
-
-        const stdout =
-          typeof execErr.stdout === 'string'
-            ? execErr.stdout
-            : Buffer.isBuffer(execErr.stdout)
-              ? execErr.stdout.toString('utf-8')
-              : '';
-        const stderr =
-          typeof execErr.stderr === 'string'
-            ? execErr.stderr
-            : Buffer.isBuffer(execErr.stderr)
-              ? execErr.stderr.toString('utf-8')
-              : '';
-        const combinedOutput = [stdout, stderr]
-          .filter(Boolean)
-          .join('\n')
-          .trim();
-
-        const errorMessage = execErr.message || 'Command failed';
-        const timeoutLikely =
-          execErr.code === 'ETIMEDOUT' ||
-          /ETIMEDOUT|timed out/i.test(errorMessage) ||
-          (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
-        const summary = timeoutLikely
-          ? `Command timed out after ${timeoutMs}ms`
-          : errorMessage;
-
-        if (!combinedOutput) return failTool(`Error: ${summary}`);
-        return failTool(
-          `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
-        );
-      }
+      const runBash = persistentBashStateEnabled
+        ? runPersistentBash
+        : runStatelessBash;
+      return runBash({
+        command: args.command,
+        timeoutMs,
+      });
     }
 
     case 'memory': {
@@ -3119,6 +3273,31 @@ export async function executeTool(
   return result.output;
 }
 
+const BASH_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'bash',
+    description: buildBashToolDescription(),
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Shell command to execute' },
+        timeoutMs: {
+          type: 'number',
+          description:
+            'Optional command timeout in milliseconds (default 240000, max 900000)',
+        },
+        timeoutSeconds: {
+          type: 'number',
+          description:
+            'Optional command timeout in seconds (used when timeoutMs is omitted)',
+        },
+      },
+      required: ['command'],
+    },
+  },
+};
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
@@ -3197,30 +3376,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   ...SEARCH_TOOL_DEFINITIONS,
-  {
-    type: 'function',
-    function: {
-      name: 'bash',
-      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Shell command to execute' },
-          timeoutMs: {
-            type: 'number',
-            description:
-              'Optional command timeout in milliseconds (default 240000, max 900000)',
-          },
-          timeoutSeconds: {
-            type: 'number',
-            description:
-              'Optional command timeout in seconds (used when timeoutMs is omitted)',
-          },
-        },
-        required: ['command'],
-      },
-    },
-  },
+  BASH_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

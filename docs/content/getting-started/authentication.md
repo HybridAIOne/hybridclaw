@@ -20,6 +20,15 @@ hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+hybridclaw auth login gemini gemini-2.5-pro --api-key AIza...
+hybridclaw auth login deepseek deepseek-chat --api-key sk-...
+hybridclaw auth login xai grok-3 --api-key xai-...
+hybridclaw auth login zai glm-5 --api-key ...
+hybridclaw auth login kimi kimi-k2.5 --api-key ...
+hybridclaw auth login minimax MiniMax-M2.5 --api-key ...
+hybridclaw auth login dashscope qwen3-coder-plus --api-key ...
+hybridclaw auth login xiaomi mimo-v2-pro --api-key ...
+hybridclaw auth login kilo anthropic/claude-sonnet-4.6 --api-key ...
 hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
@@ -30,6 +39,15 @@ hybridclaw auth status codex
 hybridclaw auth status openrouter
 hybridclaw auth status mistral
 hybridclaw auth status huggingface
+hybridclaw auth status gemini
+hybridclaw auth status deepseek
+hybridclaw auth status xai
+hybridclaw auth status zai
+hybridclaw auth status kimi
+hybridclaw auth status minimax
+hybridclaw auth status dashscope
+hybridclaw auth status xiaomi
+hybridclaw auth status kilo
 hybridclaw auth status local
 hybridclaw auth status msteams
 hybridclaw auth status slack
@@ -38,6 +56,15 @@ hybridclaw auth logout codex
 hybridclaw auth logout openrouter
 hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
+hybridclaw auth logout gemini
+hybridclaw auth logout deepseek
+hybridclaw auth logout xai
+hybridclaw auth logout zai
+hybridclaw auth logout kimi
+hybridclaw auth logout minimax
+hybridclaw auth logout dashscope
+hybridclaw auth logout xiaomi
+hybridclaw auth logout kilo
 hybridclaw auth logout local
 hybridclaw auth logout msteams
 hybridclaw auth logout slack
@@ -53,10 +80,14 @@ hybridclaw auth whatsapp reset
   and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
-- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`, and
-  `hybridclaw auth login huggingface` can take `--api-key`, otherwise they fall
-  back to `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, or `HF_TOKEN`, or prompt
-  interactively.
+- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`,
+  `hybridclaw auth login huggingface`, and the other API-key providers
+  (`gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`, `dashscope`,
+  `xiaomi`, `kilo`) can take `--api-key`, otherwise they fall back to the
+  matching environment variable (e.g. `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
+  `HF_TOKEN`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`,
+  `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`,
+  `XIAOMI_API_KEY`, `KILO_API_KEY`), or prompt interactively.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
   vLLM in `~/.hybridclaw/config.json`.
 - The local backend model id is optional. If omitted, HybridClaw enables the
@@ -96,6 +127,16 @@ hybridclaw auth whatsapp reset
 The encrypted runtime store also supports arbitrary named secrets and
 gateway-side auth routing from local TUI and local web chat sessions:
 
+```bash
+hybridclaw secret list
+hybridclaw secret set <NAME> <VALUE>
+hybridclaw secret show <NAME>
+hybridclaw secret unset <NAME>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
+
 ```text
 /secret list
 /secret set <NAME> <VALUE>
@@ -106,8 +147,8 @@ gateway-side auth routing from local TUI and local web chat sessions:
 /secret route remove <url-prefix> [header]
 ```
 
-- there is no top-level `hybridclaw secret ...` CLI yet; this surface is
-  currently local-session-only
+- `/secret ...` remains local-session-only; use `hybridclaw secret ...` from a
+  shell when you want the same secret-store workflow outside the chat surface
 - secret names must use uppercase letters, digits, and underscores only
 - built-in runtime keys such as `HYBRIDAI_API_KEY` and arbitrary names such as
   `STAGING_API_KEY` share the same encrypted store
@@ -121,8 +162,9 @@ gateway-side auth routing from local TUI and local web chat sessions:
 ## Where Credentials Live
 
 - `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Mistral,
-  Hugging Face, Discord, Slack, Telegram, email, Teams, BlueBubbles iMessage,
-  vLLM, web/gateway auth tokens, related runtime secrets, and named
+  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope,
+  Xiaomi, Kilo Code, Discord, Slack, Telegram, email, Teams, BlueBubbles
+  iMessage, vLLM, web/gateway auth tokens, related runtime secrets, and named
   `/secret set` values in encrypted form
 - `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
   `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt

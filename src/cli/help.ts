@@ -9,6 +9,8 @@ export function printMainUsage(): void {
   agent      Export, inspect, install, or uninstall portable agent archives
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
+  secret     Manage encrypted runtime secrets and HTTP auth routes
+  policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
@@ -40,6 +42,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]
   hybridclaw gateway bot info
+  hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
@@ -142,6 +145,7 @@ Interactive slash commands inside TUI:
   /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
+  /policy [status|list|allow|deny|delete|preset|default|reset]
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
   /rag [on|off]
   /ralph [info|on|off|set n]
@@ -153,7 +157,8 @@ Interactive slash commands inside TUI:
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /voice [info|call <e164-number>]`);
 }
 
 export function printOnboardingUsage(): void {
@@ -501,6 +506,29 @@ Notes:
   - \`--json\` prints a machine-readable report and still uses exit code 1 when any errors remain.`);
 }
 
+export function printPolicyUsage(): void {
+  console.log(`Usage: hybridclaw policy <subcommand>
+
+Commands:
+  hybridclaw policy status
+  hybridclaw policy list [--agent <id>] [--json]
+  hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+  hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+  hybridclaw policy delete <number|host>
+  hybridclaw policy reset
+  hybridclaw policy preset list
+  hybridclaw policy preset add <name> [--dry-run]
+  hybridclaw policy preset remove <name>
+  hybridclaw policy default <allow|deny>
+
+Notes:
+  - Rules are evaluated in order; first match wins.
+  - Rule fields default to \`port=*\`, \`methods=*\`, \`paths=/**\`, and \`agent=*\`.
+  - Bare site-scope hosts like \`github.com\` also match subdomains like \`api.github.com\`.
+  - \`list --agent <id>\` shows both global (\`*\`) rules and rules scoped to that agent.
+  - \`preset add --dry-run\` previews bundled endpoints without modifying policy.yaml.`);
+}
+
 export function printSkillUsage(): void {
   console.log(`Usage: hybridclaw skill <command>
 
@@ -531,8 +559,8 @@ Notes:
   - \`learn\` stages, applies, rejects, or rolls back skill amendments.
   - \`history\` shows amendment versions for one skill, not execution runs.
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
-  - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
-  - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
+  - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
+  - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
   - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
 }
@@ -570,6 +598,7 @@ Examples:
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
   hybridclaw plugin install ./plugins/example-plugin --yes
+  hybridclaw plugin install mem0-memory --yes
   hybridclaw plugin install mempalace-memory --yes
   hybridclaw plugin install @scope/hybridclaw-plugin-example --yes
   hybridclaw plugin reinstall ./plugins/example-plugin --yes
@@ -617,6 +646,33 @@ Notes:
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
   - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
+}
+
+export function printSecretUsage(): void {
+  console.log(`Usage: hybridclaw secret <command>
+
+Commands:
+  hybridclaw secret list
+  hybridclaw secret set <name> <value>
+  hybridclaw secret show <name>
+  hybridclaw secret unset <name>
+  hybridclaw secret route list
+  hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+  hybridclaw secret route remove <url-prefix> [header]
+
+Examples:
+  hybridclaw secret list
+  hybridclaw secret set SF_FULL_USERNAME you@example.com
+  hybridclaw secret show SF_FULL_USERNAME
+  hybridclaw secret unset SF_FULL_USERNAME
+  hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+
+Notes:
+  - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
+  - Secret names must use uppercase letters, digits, and underscores.
+  - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref.
+  - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
 export function printAgentUsage(): void {
@@ -668,6 +724,8 @@ Topics:
   openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
+  secret      Help for encrypted secret-store commands
+  policy      Help for workspace network policy commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   slack       Help for Slack auth/setup commands
@@ -746,6 +804,12 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'config':
       printConfigUsage();
+      return true;
+    case 'secret':
+      printSecretUsage();
+      return true;
+    case 'policy':
+      printPolicyUsage();
       return true;
     case 'plugin':
       printPluginUsage();

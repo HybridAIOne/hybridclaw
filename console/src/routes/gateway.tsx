@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { restartGateway, validateToken } from '../api/client';
+import { useNavigate } from '@tanstack/react-router';
+import { useState } from 'react';
+import { reloadGateway } from '../api/client';
 import { useAuth } from '../auth';
 import {
   Dialog,
@@ -11,83 +12,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { ProviderHealthPanel } from '../components/provider-health';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 
-const GATEWAY_RESTART_POLL_MS = 1000;
-
 export function GatewayPage() {
   const auth = useAuth();
   const toast = useToast();
   const live = useLiveEvents(auth.token);
-  const [polledStatus, setPolledStatus] =
-    useState<typeof auth.gatewayStatus>(null);
-  const [isRestarting, setIsRestarting] = useState(false);
-  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
-  const status = live.status || polledStatus || auth.gatewayStatus;
+  const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
+  const status = live.status || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
   );
   const schedulerJobs = status?.scheduler?.jobs || [];
-  const restartMutation = useMutation({
-    mutationFn: () => restartGateway(auth.token),
-    onMutate: () => {
-      setIsRestarting(false);
-      setPolledStatus(null);
-    },
+  const reloadMutation = useMutation({
+    mutationFn: () => reloadGateway(auth.token),
     onSuccess: () => {
-      setIsRestarting(true);
+      toast.success('Gateway reloaded.');
     },
     onError: (error) => {
-      toast.error('Gateway restart failed', getErrorMessage(error));
+      toast.error('Gateway reload failed', getErrorMessage(error));
     },
   });
 
-  useEffect(() => {
-    if (!isRestarting) return;
-
-    let cancelled = false;
-    let timeoutId: number | null = null;
-
-    const schedulePoll = () => {
-      timeoutId = window.setTimeout(() => {
-        void pollStatus();
-      }, GATEWAY_RESTART_POLL_MS);
-    };
-
-    const pollStatus = async () => {
-      try {
-        const nextStatus = await validateToken(auth.token);
-        if (cancelled) return;
-        setPolledStatus(nextStatus);
-        setIsRestarting(false);
-      } catch {
-        if (cancelled) return;
-        schedulePoll();
-      }
-    };
-
-    schedulePoll();
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [auth.token, isRestarting]);
+  const navigate = useNavigate();
 
   if (!status) {
     return <div className="empty-state">Gateway status is unavailable.</div>;
   }
 
-  const restartSupported = Boolean(status.lifecycle?.restartSupported);
-  const restartBusy = restartMutation.isPending || isRestarting;
-  const restartReason =
-    status.lifecycle?.restartReason ||
-    'Gateway restart is unavailable in the current launch mode.';
+  const reloadBusy = reloadMutation.isPending;
   const sandboxWarning =
     status.sandbox?.mode === 'host' ? null : status.sandbox?.warning || null;
   return (
@@ -106,29 +64,23 @@ export function GatewayPage() {
             </div>
             <button
               type="button"
-              className="danger-button"
-              disabled={!restartSupported || restartBusy}
-              onClick={() => setRestartConfirmOpen(true)}
-              title={
-                !restartSupported && !restartBusy ? restartReason : undefined
-              }
-              aria-busy={restartBusy}
+              className="primary-button"
+              disabled={reloadBusy}
+              onClick={() => setReloadConfirmOpen(true)}
+              aria-busy={reloadBusy}
             >
-              {restartBusy ? (
+              {reloadBusy ? (
                 <span className="button-with-spinner">
                   <span aria-hidden="true" className="button-spinner" />
-                  Restarting Gateway
+                  Reloading Gateway
                 </span>
               ) : (
-                'Restart Gateway'
+                'Reload Gateway'
               )}
             </button>
           </div>
         }
       />
-      {!restartSupported ? (
-        <p className="supporting-text">{restartReason}</p>
-      ) : null}
       <div className="metric-grid">
         <MetricCard label="Uptime" value={formatUptime(status.uptime)} />
         <MetricCard label="Sessions" value={String(status.sessions)} />
@@ -220,37 +172,11 @@ export function GatewayPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Provider health">
-          {providerEntries.length === 0 ? (
-            <div className="empty-state">
-              No provider health data is available.
-            </div>
-          ) : (
-            <div className="list-stack">
-              {providerEntries.map(([name, provider]) => (
-                <div className="list-row" key={name}>
-                  <div>
-                    <strong>{name}</strong>
-                    <small>
-                      {provider.detail ||
-                        (provider.reachable
-                          ? `${provider.latencyMs ?? 0}ms`
-                          : provider.error || 'unreachable')}
-                    </small>
-                  </div>
-                  <div className="row-status-stack">
-                    <BooleanPill
-                      value={provider.reachable}
-                      trueLabel="healthy"
-                      falseLabel="down"
-                    />
-                    <small>{provider.modelCount ?? 0} models</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+        <ProviderHealthPanel
+          title="Provider health"
+          entries={providerEntries}
+          onLogin={() => void navigate({ to: '/config' })}
+        />
 
         <Panel title="Scheduler snapshot" accent="warm">
           {schedulerJobs.length === 0 ? (
@@ -281,22 +207,22 @@ export function GatewayPage() {
           )}
         </Panel>
       </div>
-      <Dialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+      <Dialog open={reloadConfirmOpen} onOpenChange={setReloadConfirmOpen}>
         <DialogContent size="sm" role="alertdialog">
           <DialogHeader>
-            <DialogTitle>Restart Gateway?</DialogTitle>
+            <DialogTitle>Reload Gateway?</DialogTitle>
             <DialogDescription>
-              This will interrupt all active sessions. The gateway will be
-              unavailable for a few seconds.
+              This reloads runtime config and refreshes secrets without
+              restarting the workspace container.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose className="ghost-button">Cancel</DialogClose>
             <DialogClose
-              className="danger-button"
-              onClick={() => restartMutation.mutate()}
+              className="primary-button"
+              onClick={() => reloadMutation.mutate()}
             >
-              Restart
+              Reload
             </DialogClose>
           </DialogFooter>
         </DialogContent>

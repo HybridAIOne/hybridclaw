@@ -12,6 +12,12 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  buildRecentChatSearchMatchQuery,
+  MAX_RECENT_CHAT_SESSION_LIMIT,
+  normalizeRecentChatSearchQuery,
+  normalizeRecentChatSessionLimit,
+} from '../session/recent-chat-search.js';
+import {
   buildSessionKey,
   classifySessionKeyShape,
   inspectSessionKeyMigration,
@@ -21,7 +27,9 @@ import {
 } from '../session/session-key.js';
 import {
   buildSessionBoundaryPreview,
+  buildSessionSearchSnippet,
   RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+  shouldIncludeSessionSearchSnippet,
 } from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
@@ -98,8 +106,15 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 18;
+export const DATABASE_SCHEMA_VERSION = 19;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
+const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
+  'messages_recent_chat_search_ai';
+const RECENT_CHAT_MESSAGE_SEARCH_DELETE_TRIGGER =
+  'messages_recent_chat_search_ad';
+const RECENT_CHAT_MESSAGE_SEARCH_UPDATE_TRIGGER =
+  'messages_recent_chat_search_au';
 const STRUCTURED_AUDIT_SELECT_COLUMNS = [
   'id',
   'session_id',
@@ -256,6 +271,73 @@ function ensureSessionBranchesTable(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_branches_parent
       ON session_branches(parent_session_id, parent_message_id);
+  `);
+}
+
+function ensureRecentChatMessageSearchIndex(database: Database.Database): void {
+  if (!tableExists(database, 'messages')) {
+    return;
+  }
+
+  const needsBackfill = !tableExists(
+    database,
+    RECENT_CHAT_MESSAGE_SEARCH_TABLE,
+  );
+
+  try {
+    database.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+      USING fts5(
+        session_id UNINDEXED,
+        content,
+        tokenize='unicode61 remove_diacritics 2'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER}
+      AFTER INSERT ON messages
+      BEGIN
+        INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (
+          rowid,
+          session_id,
+          content
+        )
+        VALUES (new.id, new.session_id, new.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_DELETE_TRIGGER}
+      AFTER DELETE ON messages
+      BEGIN
+        DELETE FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+        WHERE rowid = old.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS ${RECENT_CHAT_MESSAGE_SEARCH_UPDATE_TRIGGER}
+      AFTER UPDATE ON messages
+      BEGIN
+        DELETE FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+        WHERE rowid = old.id;
+        INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (
+          rowid,
+          session_id,
+          content
+        )
+        VALUES (new.id, new.session_id, new.content);
+      END;
+    `);
+  } catch (error) {
+    throw new Error(
+      `Recent chat content search requires SQLite FTS5 support: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!needsBackfill) {
+    return;
+  }
+
+  database.exec(`
+    INSERT INTO ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} (rowid, session_id, content)
+    SELECT id, session_id, content
+    FROM messages;
   `);
 }
 
@@ -1622,6 +1704,15 @@ function migrateV18(
   recordMigration(database, 18, 'Persist per-agent skill allowlists');
 }
 
+function migrateV19(database: Database.Database): void {
+  ensureRecentChatMessageSearchIndex(database);
+  recordMigration(
+    database,
+    19,
+    'Index recent chat content search with SQLite FTS5',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1661,6 +1752,7 @@ function runMigrations(
   if (currentVersion < 16) migrateV16(database);
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
+  if (currentVersion < 19) migrateV19(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1894,8 +1986,6 @@ export function deleteAgent(agentId: string): boolean {
   );
 }
 
-// --- Structured Memory (KV) ---
-
 type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {
   value: Buffer | Uint8Array | string;
 };
@@ -2021,8 +2111,6 @@ export function listMemoryValues(
     updated_at: row.updated_at,
   }));
 }
-
-// --- Canonical Sessions (Cross-Channel Memory) ---
 
 const DEFAULT_CANONICAL_WINDOW = 50;
 const DEFAULT_CANONICAL_COMPACTION_THRESHOLD = 100;
@@ -2318,8 +2406,6 @@ export function clearCanonicalContext(params: {
     )
     .run(agentId, userId).changes;
 }
-
-// --- Usage Tracking / Aggregation ---
 
 function normalizeUsageWindow(window: UsageWindow | undefined): UsageWindow {
   if (window === 'daily' || window === 'monthly' || window === 'all') {
@@ -2971,8 +3057,6 @@ export function listUsageDailyBreakdown(params?: {
   }));
 }
 
-// --- Knowledge Graph ---
-
 type RawKnowledgeGraphRow = {
   s_id: KnowledgeEntity['id'];
   s_type: string;
@@ -3354,8 +3438,6 @@ export function queryKnowledgeGraph(
   const rows = queryAll<RawKnowledgeGraphRow>(db, sql.join('\n'), ...args);
   return rows.map(mapKnowledgeMatchRow);
 }
-
-// --- Sessions ---
 
 export function resetSessionIfExpired(
   sessionId: string,
@@ -4120,6 +4202,7 @@ export interface RecentUserSessionSummary {
   lastActive: string;
   messageCount: number;
   title: string | null;
+  searchSnippet?: string | null;
 }
 
 type RecentUserSessionRow = Pick<
@@ -4135,18 +4218,123 @@ interface RecentSessionBoundaryRow {
   last_role: string | null;
 }
 
+interface RecentSessionContentMatchRow {
+  session_id: string;
+  content: string | null;
+}
+
+const RECENT_SESSION_BOUNDARY_BATCH_SIZE = 400;
+
+function batchQueryAllBySessionIds<Row>(
+  sessionIds: string[],
+  queryBatch: (batch: string[], placeholders: string) => Row[],
+): Row[] {
+  const rows: Row[] = [];
+
+  for (
+    let index = 0;
+    index < sessionIds.length;
+    index += RECENT_SESSION_BOUNDARY_BATCH_SIZE
+  ) {
+    const batch = sessionIds.slice(
+      index,
+      index + RECENT_SESSION_BOUNDARY_BATCH_SIZE,
+    );
+    const placeholders = batch.map(() => '?').join(', ');
+    rows.push(...queryBatch(batch, placeholders));
+  }
+
+  return rows;
+}
+
+function getRecentSessionBoundaryRows(
+  sessionIds: string[],
+  userId: string,
+): RecentSessionBoundaryRow[] {
+  return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
+    queryAll<RecentSessionBoundaryRow>(
+      db,
+      `WITH ranked AS (
+         SELECT
+           session_id,
+           role,
+           content,
+           CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
+           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
+           ROW_NUMBER() OVER (
+             PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+             ORDER BY id ASC
+           ) AS rn_target_group
+         FROM messages
+         WHERE session_id IN (${placeholders})
+       )
+       SELECT
+         session_id,
+         MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
+         MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
+         MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
+         MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
+       FROM ranked
+       GROUP BY session_id`,
+      userId,
+      userId,
+      ...batch,
+    ),
+  );
+}
+
+function getRecentSessionContentMatches(
+  sessionIds: string[],
+  normalizedQuery: string,
+): Map<string, string> {
+  const matchQuery = buildRecentChatSearchMatchQuery(normalizedQuery);
+  if (!normalizedQuery || !matchQuery || sessionIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
+    queryAll<RecentSessionContentMatchRow>(
+      db,
+      `WITH ranked_matches AS (
+           SELECT
+             session_id,
+             content,
+             ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY rowid DESC) AS rn
+           FROM ${RECENT_CHAT_MESSAGE_SEARCH_TABLE}
+           WHERE ${RECENT_CHAT_MESSAGE_SEARCH_TABLE} MATCH ?
+             AND session_id IN (${placeholders})
+             AND instr(lower(content), ?) > 0
+         )
+         SELECT session_id, content
+         FROM ranked_matches
+         WHERE rn = 1`,
+      matchQuery,
+      ...batch,
+      normalizedQuery,
+    ),
+  );
+
+  return new Map(
+    rows
+      .filter((row) => row.session_id && row.content)
+      .map((row) => [row.session_id, row.content as string] as const),
+  );
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
   limit?: number;
+  query?: string | null;
 }): RecentUserSessionSummary[] {
   const userId = params.userId.trim();
   if (!userId) return [];
   const channelId = String(params.channelId || '').trim();
-  const limit =
-    typeof params.limit === 'number' && Number.isFinite(params.limit)
-      ? Math.max(1, Math.floor(params.limit))
-      : 10;
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
 
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
@@ -4170,53 +4358,32 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const targetRows = rows
-    .sort((left, right) => {
-      const rightTimestamp = parseTimestamp(right.last_active);
-      const leftTimestamp = parseTimestamp(left.last_active);
-      if (rightTimestamp !== leftTimestamp) {
-        return rightTimestamp - leftTimestamp;
-      }
-      return right.id.localeCompare(left.id);
-    })
-    .slice(0, limit);
+  const sortedRows = rows.sort((left, right) => {
+    const rightTimestamp = parseTimestamp(right.last_active);
+    const leftTimestamp = parseTimestamp(left.last_active);
+    if (rightTimestamp !== leftTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+    return right.id.localeCompare(left.id);
+  });
+  const targetRows = searchQuery
+    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
+    : sortedRows.slice(0, limit);
   if (targetRows.length === 0) return [];
 
-  const placeholders = targetRows.map(() => '?').join(', ');
-  const boundaryRows = queryAll<RecentSessionBoundaryRow>(
-    db,
-    `WITH ranked AS (
-       SELECT
-         session_id,
-         role,
-         content,
-         CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
-         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
-         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
-         ROW_NUMBER() OVER (
-           PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
-           ORDER BY id ASC
-         ) AS rn_target_group
-       FROM messages
-       WHERE session_id IN (${placeholders})
-     )
-     SELECT
-       session_id,
-       MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
-       MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
-       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
-       MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
-     FROM ranked
-     GROUP BY session_id`,
+  const boundaryRows = getRecentSessionBoundaryRows(
+    targetRows.map((row) => row.id),
     userId,
-    userId,
-    ...targetRows.map((row) => row.id),
+  );
+  const contentMatchesBySessionId = getRecentSessionContentMatches(
+    targetRows.map((row) => row.id),
+    searchQuery,
   );
   const boundariesBySessionId = new Map(
     boundaryRows.map((row) => [row.session_id, row] as const),
   );
 
-  return targetRows.map((row) => {
+  const sessions = targetRows.map((row) => {
     const boundary = boundariesBySessionId.get(row.id);
     const firstMessage =
       boundary?.first_user_content || boundary?.first_content || null;
@@ -4230,18 +4397,38 @@ export function getRecentSessionsForUser(params: {
       boundary?.last_content && !shouldHideApprovalPrompt
         ? boundary.last_content
         : null;
+    const title = buildSessionBoundaryPreview({
+      firstMessage,
+      lastMessage,
+      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+    });
+    const rawSearchSnippet = searchQuery
+      ? buildSessionSearchSnippet(
+          contentMatchesBySessionId.get(row.id) || null,
+          searchQuery,
+        )
+      : null;
 
     return {
       sessionId: row.id,
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
-      title: buildSessionBoundaryPreview({
-        firstMessage,
-        lastMessage,
-        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-      }),
+      title,
+      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
+        ? { searchSnippet: rawSearchSnippet }
+        : {}),
     };
   });
+
+  if (!searchQuery) return sessions;
+  return sessions
+    .filter((session) => {
+      const titleMatches = String(session.title || '')
+        .toLowerCase()
+        .includes(searchQuery);
+      return titleMatches || Boolean(session.searchSnippet);
+    })
+    .slice(0, limit);
 }
 
 export function getFullAutoSessionCount(): number {
@@ -4352,8 +4539,6 @@ export function deleteSessionData(sessionId: string): {
 
   return transaction(resolvedSessionId);
 }
-
-// --- Messages ---
 
 export function storeMessage(
   sessionId: string,
@@ -5711,8 +5896,6 @@ export function markSessionMemoryFlush(sessionId: string): void {
   ).run(resolvedSessionId);
 }
 
-// --- Tasks ---
-
 export function createTask(
   sessionId: string,
   channelId: string,
@@ -6003,8 +6186,6 @@ function mapSkillObservationSummaries(params: {
     last_observed_at: row.last_observed_at,
   }));
 }
-
-// --- Adaptive Skills ---
 
 export function recordSkillObservation(input: {
   skillName: string;
@@ -6455,8 +6636,6 @@ export function getAmendmentHistory(skillName: string): SkillAmendment[] {
   ).map(mapSkillAmendmentRow);
 }
 
-// --- Audit ---
-
 export function logAudit(
   event: string,
   sessionId?: string,
@@ -6806,8 +6985,6 @@ export function deleteObservabilityIngestToken(tokenKey: string): void {
     normalized,
   );
 }
-
-// --- Proactive Message Queue ---
 
 export interface QueuedProactiveMessage {
   id: number;

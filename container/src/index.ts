@@ -17,6 +17,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -28,8 +29,8 @@ import {
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
-  HybridAIRequestError,
   isHybridAIEmptyVisibleCompletion,
+  ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from './providers/shared.js';
 import {
@@ -77,11 +78,13 @@ import {
   getMessageToolDescription,
   getPendingSideEffects,
   getPluginToolDefinitions,
+  resetPersistentBashSessions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
+  setPersistentBashStateEnabled,
   setPluginTools,
   setScheduledTasks,
   setSessionContext,
@@ -244,6 +247,7 @@ async function shutdownAgentProcess(
 
   shutdownPromise = (async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
@@ -809,6 +813,7 @@ async function callHybridAIWithRetry(params: {
       });
       return response;
     } catch (err) {
+      const formattedError = formatModelErrorForLog(err, baseUrl);
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
@@ -817,10 +822,10 @@ async function callHybridAIWithRetry(params: {
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
         retryable,
-        error: err instanceof Error ? err.message : String(err),
+        error: formattedError,
       });
       console.error(
-        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${err instanceof Error ? err.message : String(err)}`,
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
       if (!retryable) throw err;
       await sleep(delayMs);
@@ -857,6 +862,7 @@ async function processRequest(
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
+  channelId: string,
   skipContainerSystemPrompt = false,
   streamTextDeltas = false,
   maxTokens?: number,
@@ -1017,7 +1023,7 @@ async function processRequest(
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error:
-          err instanceof HybridAIRequestError
+          err instanceof ProviderRequestError
             ? err.message
             : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
@@ -1239,6 +1245,7 @@ async function processRequest(
             toolName: candidate.function.name,
             argsJson: candidate.function.arguments,
             latestUserPrompt: effectiveUserPrompt,
+            channelId,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1326,6 +1333,7 @@ async function processRequest(
           toolName,
           argsJson: call.function.arguments,
           latestUserPrompt: effectiveUserPrompt,
+          channelId,
         });
       logToolCallStart(toolName, call.function.arguments, approval);
 
@@ -1541,6 +1549,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -1608,6 +1617,7 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
+      firstInput.channelId,
       firstInput.skipContainerSystemPrompt === true,
       firstInput.streamTextDeltas === true,
       firstInput.maxTokens,
@@ -1642,6 +1652,7 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
+        firstInput.channelId,
         firstInput.skipContainerSystemPrompt === true,
         firstInput.streamTextDeltas === true,
         firstInput.maxTokens,
@@ -1687,6 +1698,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,
@@ -1758,6 +1770,7 @@ async function main(): Promise<void> {
       resolveTools(input),
       taskModels,
       input.contextGuard,
+      input.channelId,
       input.skipContainerSystemPrompt === true,
       input.streamTextDeltas === true,
       input.maxTokens,
@@ -1791,6 +1804,7 @@ async function main(): Promise<void> {
         resolveTools(input),
         taskModels,
         input.contextGuard,
+        input.channelId,
         input.skipContainerSystemPrompt === true,
         input.streamTextDeltas === true,
         input.maxTokens,

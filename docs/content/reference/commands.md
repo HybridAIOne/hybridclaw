@@ -14,6 +14,8 @@ hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=co
 hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway memory inspect [sessionId]
@@ -22,6 +24,7 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
@@ -50,8 +53,14 @@ current workspace after confirmation.
 current built-in memory layers for a session: `MEMORY.md`, today's daily note,
 recent raw history, compacted `session_summary`, recent semantic-memory rows,
 and canonical cross-session recall state.
+`hybridclaw gateway status` reports the current sandbox/runtime state; in
+container mode it also shows the configured image name, resolved image
+version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
+`gateway voice info` reports the current local Twilio voice setup, and
+`gateway voice call <number>` places an outbound call through the configured
+Twilio account.
 
 ## Local Eval Workflows
 
@@ -80,12 +89,35 @@ hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
+  `hybridai-skills`
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--kind
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics
@@ -143,6 +175,15 @@ hybridclaw auth login codex [--device-code|--browser|--import]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
+hybridclaw auth login gemini [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login deepseek [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login zai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kimi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login minimax [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login dashscope [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login xiaomi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+hybridclaw auth login kilo [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
@@ -156,6 +197,15 @@ hybridclaw help codex
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 hybridclaw help msteams
 hybridclaw help slack
 hybridclaw help local
@@ -163,7 +213,8 @@ hybridclaw help auth
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
@@ -173,8 +224,18 @@ the secret values themselves.
 
 ## Secrets And Routes
 
-Named secrets and gateway-side auth routes currently live on the local TUI/web
-slash-command surface:
+Named secrets and gateway-side auth routes are available from both the local
+CLI and local TUI/web slash-command surface:
+
+```bash
+hybridclaw secret list
+hybridclaw secret set <name> <value>
+hybridclaw secret show <name>
+hybridclaw secret unset <name>
+hybridclaw secret route list
+hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route remove <url-prefix> [header]
+```
 
 ```text
 /secret list
@@ -188,7 +249,9 @@ slash-command surface:
 
 - local-only surface: `/secret ...` is available from local TUI and local web
   chat sessions, not from Discord or other remote channels
-- there is no top-level `hybridclaw secret ...` CLI yet
+- `hybridclaw secret show <name>` reports whether the secret is stored; it
+  never outputs decrypted values. Secrets are only resolved gateway-side via
+  `<secret:NAME>` placeholders or auth rules
 - stored secret names must use uppercase letters, digits, and underscores
 - built-in provider keys and custom names share the same encrypted
   `~/.hybridclaw/credentials.json` store
@@ -206,6 +269,8 @@ hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@use
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
@@ -214,6 +279,9 @@ Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
 because they need app credentials rather than a local pairing flow. For the
 step-by-step setup guides, see [Channels: Overview](../channels/overview.md)
 and [Connect Your First Channel](../getting-started/first-channel.md).
+Twilio voice is configured through `/admin/channels` or direct `voice.*`
+config keys, then inspected or used for outbound dialing with
+`hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see
 [Channels: Local Config And Secrets](../channels/local-config-and-secrets.md)
@@ -284,12 +352,17 @@ hybridclaw audit instructions [--sync]
 
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
-`claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
+`claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
+directories, and `.zip` archives. Locally-imported skills receive personal
+trust and persist their import-source marker across restarts.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.
 `update` checks for a newer installed release and can upgrade a global npm
-install; source checkouts receive git-based update instructions instead.
+install. When `--yes` completes successfully and a local gateway is already
+running with a replayable launch command, HybridClaw restarts it automatically
+with the original parameters; otherwise it falls back to manual restart
+instructions. Source checkouts receive git-based update instructions instead.
 
 ## Discord And Session Commands
 
@@ -299,6 +372,7 @@ actions. Common examples:
 ```text
 !claw <message>
 /agent
+/btw <question>
 /agent list
 /agent switch <id>
 /agent create <id> [--model <model>]
@@ -325,8 +399,8 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, and related slash commands route through
-the same gateway command surface used by TUI and web chat.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
+through the same gateway command surface used by TUI and web chat.
 
 ## In Session
 
@@ -334,8 +408,15 @@ the same gateway command surface used by TUI and web chat.
   chat, filtered per surface and kept in a consistent alphabetical order
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id
+- local TUI/web sessions support `/btw <question>` for ephemeral side
+  questions that use recent conversation context, return a tool-less answer,
+  and do not persist the side exchange to session history
+- in built-in web chat, `/btw` is the only slash command accepted while the
+  current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
+  for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`,

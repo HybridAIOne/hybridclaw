@@ -9,13 +9,10 @@ import {
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
+import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
-import { readMistralApiKey } from '../providers/mistral-utils.js';
-import {
-  buildOpenRouterAttributionHeaders,
-  readOpenRouterApiKey,
-} from '../providers/openrouter-utils.js';
+import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
+import { buildOpenRouterAttributionHeaders } from '../providers/openrouter-utils.js';
 import { isRecord, normalizeBaseUrl } from '../providers/utils.js';
 
 export interface ProviderProbeResult {
@@ -51,7 +48,9 @@ export async function probeOpenRouter(): Promise<ProviderProbeResult> {
     };
   }
 
-  const apiKey = readOpenRouterApiKey({ required: false });
+  const apiKey = readApiKeyForOpenAICompatProvider('openrouter', {
+    required: false,
+  });
   if (!apiKey) {
     return {
       reachable: false,
@@ -90,7 +89,9 @@ export async function probeHuggingFace(): Promise<ProviderProbeResult> {
     };
   }
 
-  const apiKey = readHuggingFaceApiKey({ required: false });
+  const apiKey = readApiKeyForOpenAICompatProvider('huggingface', {
+    required: false,
+  });
   if (!apiKey) {
     return {
       reachable: false,
@@ -128,7 +129,9 @@ export async function probeMistral(): Promise<ProviderProbeResult> {
     };
   }
 
-  const apiKey = readMistralApiKey({ required: false });
+  const apiKey = readApiKeyForOpenAICompatProvider('mistral', {
+    required: false,
+  });
   if (!apiKey) {
     return {
       reachable: false,
@@ -165,7 +168,9 @@ export async function probeCodex(): Promise<ProviderProbeResult> {
     .trim()
     .replace(/\/+$/g, '');
   const startedAt = Date.now();
-  const response = await fetch(`${baseUrl}/models`, {
+  const url = new URL(`${baseUrl}/models`);
+  url.searchParams.set('client_version', CODEX_CLIENT_VERSION);
+  const response = await fetch(url, {
     headers: credentials.headers,
     signal: AbortSignal.timeout(5_000),
   });

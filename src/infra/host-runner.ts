@@ -7,6 +7,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -33,6 +34,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
@@ -473,6 +475,7 @@ function getOrSpawnHostProcess(
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',
@@ -609,6 +612,20 @@ export function stopSessionHostProcess(sessionId: string): boolean {
 export async function runHostProcess(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.host.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runHostProcessInner(params),
+  );
+}
+
+async function runHostProcessInner(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -731,6 +748,7 @@ export async function runHostProcess(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -835,7 +853,11 @@ export async function runHostProcess(
       );
       stopSessionHostProcess(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')

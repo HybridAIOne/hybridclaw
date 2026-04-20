@@ -26,6 +26,10 @@ If you plan to run only on Ollama, LM Studio, llama.cpp, or vLLM, onboarding
 can skip the remote-provider steps and you can configure the backend later with
 `hybridclaw auth login local <backend> [model-id] ...`.
 
+If onboarding finds invalid JSON in `~/.hybridclaw/config.json`, it can offer
+to restore the last known-good saved config snapshot or roll back to a tracked
+revision before continuing.
+
 ## Start The Gateway
 
 ```bash
@@ -42,6 +46,10 @@ hybridclaw gateway start --foreground --sandbox=host
 Use `--sandbox=host` for stdio MCP servers that depend on host binaries such
 as `docker`, `node`, or `npx`.
 
+Use `hybridclaw gateway status` to confirm the active sandbox and runtime
+metadata. In container mode it also shows the configured image name, resolved
+version, and short image id.
+
 ## Start The TUI
 
 In a second terminal:
@@ -52,7 +60,7 @@ hybridclaw tui
 
 The local TUI shows a startup banner before the first prompt, opens an
 interactive approval picker for pending approvals, and prints a resumable
-session summary on exit.
+session summary with `hybridclaw tui --resume <sessionId>` on exit.
 
 ## Open The Built-In Web Surfaces
 
@@ -67,6 +75,14 @@ If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
+The `/chat` sidebar keeps recent conversations and can search session titles
+with contextual snippets, so you can jump back into older browser sessions
+without scrolling through the default recent list.
+
+Use `/admin/channels` for transport setup, per-channel instructions, and
+managed channel secrets, and `/admin/agents` when you need to edit an agent's
+allowlisted workspace markdown files, inspect saved revisions, or restore an
+earlier version.
 
 ## Ground A Prompt With Files Or Repo Context
 

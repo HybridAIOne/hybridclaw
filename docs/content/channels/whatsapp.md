@@ -51,6 +51,9 @@ What this does:
 - switches to allowlisted DMs when one or more `--allow-from` values are
   provided
 - opens a temporary QR pairing session and prints the QR code in the terminal
+- disables Baileys init queries that can trigger intermittent
+  `400`/`bad-request` responses during startup while keeping normal message
+  delivery and pairing intact
 
 Local TUI or web chat can update the policy after pairing, but not perform the
 pairing itself:
@@ -86,7 +89,7 @@ hybridclaw gateway status
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 ## Step 5: Verify The Setup
 

@@ -25,8 +25,7 @@ HybridClaw currently ships with 33 bundled skills. A few notable categories:
 
 ```bash
 hybridclaw skill list
-hybridclaw skill install pdf brew-poppler
-hybridclaw skill install pdf brew-qpdf
+hybridclaw skill install 1password brew
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
 hybridclaw skill inspect <name>
@@ -38,6 +37,9 @@ Skills can be disabled globally or per channel kind (`discord`, `msteams`,
 `whatsapp`, `email`) through `hybridclaw skill enable|disable ...` or the
 TUI `/skill config` screen. The admin `Skills` page uses the same category
 metadata for filtering, review, and local skill authoring.
+
+For per-skill descriptions, prerequisites, example prompts, and
+troubleshooting, see the [Skills Catalog](./skills/README.md).
 
 For the underlying resolution rules and runtime behavior, see
 [Skills Internals](../extensibility/skills.md).

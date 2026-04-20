@@ -7,6 +7,7 @@ import {
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
 import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
+import * as runtimeConfig from '../src/config/runtime-config.js';
 import * as providerFactory from '../src/providers/factory.js';
 import type { Skill } from '../src/skills/skills.js';
 
@@ -98,6 +99,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   );
   expect(prompt).toContain(
+    'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
+  );
+  expect(prompt).toContain(
     'Do not claim a listed skill is unavailable when the user named it.',
   );
   expect(prompt).toContain(
@@ -145,6 +149,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
+  );
+  expect(prompt).toContain(
+    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
   );
   expect(prompt).toContain(
     'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',
@@ -379,6 +386,63 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
   expect(prompt).toContain(
     'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
   );
+});
+
+test('buildSystemPromptFromHooks includes spoken-output guidance for voice context without channel registration', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      channelType: 'voice',
+      channelId: 'voice:CA1234567890',
+    },
+  });
+
+  expect(prompt).toContain('## Channel Instructions');
+  expect(prompt).toContain(
+    'This is a live phone call. Produce plain spoken text only.',
+  );
+  expect(prompt).toContain(
+    'Keep each reply short and conversational, usually one or two short sentences.',
+  );
+  expect(prompt).toContain(
+    'Absolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.',
+  );
+  expect(prompt).toContain(
+    'Do not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.',
+  );
+});
+
+test('buildSystemPromptFromHooks uses saved channel instructions for the active channel', () => {
+  const originalConfig = runtimeConfig.getRuntimeConfig();
+  const nextConfig = {
+    ...originalConfig,
+    channelInstructions: {
+      ...originalConfig.channelInstructions,
+      voice: 'Answer in one short sentence. No formatting.',
+    },
+  };
+  const getRuntimeConfigSpy = vi.spyOn(runtimeConfig, 'getRuntimeConfig');
+  getRuntimeConfigSpy.mockReturnValue(nextConfig);
+
+  try {
+    const prompt = buildSystemPromptFromHooks({
+      agentId: 'test-agent',
+      skills: [],
+      runtimeInfo: {
+        channelType: 'voice',
+        channelId: 'voice:CA1234567890',
+      },
+    });
+
+    expect(prompt).toContain('## Channel Instructions');
+    expect(prompt).toContain('Answer in one short sentence. No formatting.');
+    expect(prompt).not.toContain(
+      'This is a live phone call. Produce plain spoken text only.',
+    );
+  } finally {
+    getRuntimeConfigSpy.mockRestore();
+  }
 });
 
 test('buildSystemPromptFromHooks keeps retrieved context separate from session memory', () => {

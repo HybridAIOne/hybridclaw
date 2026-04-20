@@ -54,6 +54,10 @@ Notes:
 - outbound replies preserve thread context automatically, and tool or API
   callers can pass explicit `inReplyTo` and `references` Message-ID headers
   when they need to reply into an existing external thread
+- on the first successful poll with no saved cursor, HybridClaw seeds each
+  folder cursor from the current mailbox head so older messages are not
+  replayed as new inbound mail; later restarts still process mail that arrived
+  while the gateway was offline
 
 The same settings can also be edited from `/admin/channels`.
 
@@ -89,7 +93,7 @@ hybridclaw gateway status
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 ## Step 3: Verify The Setup
 

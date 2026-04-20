@@ -26,21 +26,21 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- The admin console's Channels page centralizes transport status and
-  browser-based setup across Discord, Telegram, WhatsApp, email, Microsoft
-  Teams, and iMessage, including managed secrets and live WhatsApp pairing QR
-  display.
-- The gateway exposes a loopback OpenAI-compatible API at `/v1/models` and
-  `/v1/chat/completions` for local eval harnesses and OpenAI-compatible tools.
-- Built-in email delivery and the repo-shipped `brevo-email` plugin can
-  continue existing mail threads by forwarding explicit `inReplyTo` and
-  `references` Message-ID headers on outbound replies.
-- Provider and channel setup flows keep secrets hidden during interactive
-  prompts, and local `auth status` commands report sensitive credentials as
-  `configured` instead of echoing partial values.
-- `hybridclaw tui` follows the active sandbox mode from a reachable gateway
-  during preflight, which keeps host-mode MCP and containerized deployments
-  aligned.
+- `/btw <question>` is available across local and Discord slash-command
+  surfaces for ephemeral side questions that use recent conversation context
+  without persisting the side exchange to session history.
+- The built-in browser chat accepts `/btw` while a primary run is active and
+  renders those replies in a dedicated side-thread style.
+- Bash tool calls preserve shell state (`cd`, exported env vars, aliases)
+  across calls for the active runtime session by default, with
+  `container.persistBashState` and a matching admin toggle to switch back to
+  stateless behavior.
+- Discord, Email, and WhatsApp classify expected transient transport outages
+  locally and rate-limit repetitive outage warnings, which reduces noise during
+  reconnect storms.
+- Artifact remapping preserves host-resolved workspace paths even when display
+  and runtime workspace roots differ, keeping generated files downloadable in
+  cloud-backed sessions.
 
 ## Browse By Section
 

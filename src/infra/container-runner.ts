@@ -16,6 +16,7 @@ import {
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -46,6 +47,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
@@ -60,6 +62,7 @@ import type {
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
+import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -120,6 +123,7 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
+const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
@@ -356,31 +360,46 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
+  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
 ): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
   const workspaceRoot = path.resolve(workspacePath);
+  const displayRoot = path.posix.normalize(
+    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
+  );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
-    if (
-      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
-      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
-    ) {
+    const allowedRoots =
+      displayRoot === CONTAINER_WORKSPACE_ROOT
+        ? [CONTAINER_WORKSPACE_ROOT]
+        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
+            (left, right) => right.length - left.length,
+          );
+    const matchedRoot =
+      allowedRoots.find(
+        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
+      ) ?? null;
+    if (!matchedRoot) {
       return null;
     }
-    const rel = cleanAbs
-      .slice(CONTAINER_WORKSPACE_ROOT.length)
-      .replace(/^\/+/, '');
+    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (
-      resolved === workspaceRoot ||
-      resolved.startsWith(`${workspaceRoot}${path.sep}`)
-    ) {
+    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
     }
     return null;
@@ -389,10 +408,7 @@ function resolveArtifactHostPath(
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (
-    resolved === workspaceRoot ||
-    resolved.startsWith(`${workspaceRoot}${path.sep}`)
-  ) {
+  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
     return resolved;
   }
   return null;
@@ -401,6 +417,7 @@ function resolveArtifactHostPath(
 export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
+  workspaceDisplayRoot?: string,
 ): void {
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
@@ -409,6 +426,7 @@ export function remapOutputArtifacts(
     const hostPath = resolveArtifactHostPath(
       String(raw.path || ''),
       workspacePath,
+      workspaceDisplayRoot,
     );
     if (!hostPath) continue;
     const filename =
@@ -470,7 +488,6 @@ function getOrSpawnContainer(
     return existing;
   }
 
-  // Clean up stale entry
   if (existing) {
     pool.delete(sessionId);
   }
@@ -482,6 +499,11 @@ function getOrSpawnContainer(
     sessionId,
     agentId,
     workspacePathOverride: params.workspacePathOverride,
+  });
+  fs.mkdirSync(workspacePath, { recursive: true });
+  ensureWorkspaceNodeModulesLink(workspacePath, CONTAINER_APP_NODE_MODULES, {
+    allowMissingSource: true,
+    replaceExistingSymlink: true,
   });
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
@@ -530,6 +552,8 @@ function getOrSpawnContainer(
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-e',
     `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
+    '-e',
+    `HYBRIDCLAW_AGENT_ID=${agentId}`,
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
     '-e',
@@ -709,6 +733,20 @@ function getOrSpawnContainer(
 export async function runContainer(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.container.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runContainerInner(params),
+  );
+}
+
+async function runContainerInner(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -750,7 +788,6 @@ export async function runContainer(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
-  // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',
@@ -762,7 +799,6 @@ export async function runContainer(
 
   const startTime = Date.now();
 
-  // Clean any stale output from previous request
   cleanupIpc(sessionId);
   ensureSessionDirs(sessionId);
 
@@ -827,6 +863,7 @@ export async function runContainer(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -906,7 +943,6 @@ export async function runContainer(
       writeInput(sessionId, input, { omitApiKey: true });
     }
 
-    // Wait for the container to produce output
     const output = await readOutput(
       sessionId,
       inactivityTimeoutMs === undefined
@@ -926,7 +962,11 @@ export async function runContainer(
       );
       stopSessionContainer(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')

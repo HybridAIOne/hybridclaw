@@ -1,14 +1,20 @@
 import os from 'node:os';
-import type { ChannelInfo } from '../channels/channel.js';
+import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
+import {
+  getChannelByContextId,
+  normalizeChannelKind,
+} from '../channels/channel-registry.js';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
   APP_VERSION,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_SANDBOX_MODE,
   HYBRIDAI_MODEL,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
+  type RuntimeChannelInstructionsConfig,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -218,10 +224,11 @@ function buildSkillsSection(skillsPrompt: string): string {
 
   return [
     '## Skills (mandatory)',
-    'Before replying: scan `<available_skills>` `<description>` entries.',
+    'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
     '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
+    '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',
     '- Do not claim a listed skill is unavailable when the user named it.',
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
@@ -320,9 +327,14 @@ function buildSafetyHook(context: PromptHookContext): string {
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
     CONTAINER_SANDBOX_MODE === 'host'
-      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, prefer `/tmp` for temporary artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
-      : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
+      ? CONTAINER_PERSIST_BASH_STATE
+        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
+        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
+      : CONTAINER_PERSIST_BASH_STATE
+        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.'
+        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.',
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
+    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
@@ -545,6 +557,7 @@ function buildProactivityHook(context: PromptHookContext): string {
 
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
+  const runtimeConfig = getRuntimeConfig();
   const model = sanitizePromptInlineValue(runtimeInfo.model) || HYBRIDAI_MODEL;
   const provider = sanitizePromptInlineValue(resolveModelProvider(model));
   if (!provider) {
@@ -560,6 +573,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
     formatRuntimeModelForPrompt(model, provider),
   );
   const modelSentence = `Model: ${formattedModel} served through ${provider}`;
+  const channelInstructions = buildChannelInstructions(
+    runtimeInfo,
+    runtimeConfig.channelInstructions,
+  );
 
   const lines = [
     '## Runtime Metadata',
@@ -583,9 +600,51 @@ function buildRuntimeHook(context: PromptHookContext): string {
     'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
+    ...(channelInstructions
+      ? ['', '## Channel Instructions', channelInstructions]
+      : []),
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function resolvePromptChannelKind(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+): ChannelKind | undefined {
+  if (runtimeInfo?.channel?.kind) {
+    return runtimeInfo.channel.kind;
+  }
+  const explicitKind = normalizeChannelKind(runtimeInfo?.channelType);
+  if (explicitKind) {
+    return explicitKind;
+  }
+  return getChannelByContextId(runtimeInfo?.channelId)?.kind;
+}
+
+function isChannelInstructionKind(
+  kind: ChannelKind | undefined,
+): kind is keyof RuntimeChannelInstructionsConfig {
+  return (
+    kind === 'discord' ||
+    kind === 'msteams' ||
+    kind === 'slack' ||
+    kind === 'telegram' ||
+    kind === 'voice' ||
+    kind === 'whatsapp' ||
+    kind === 'email' ||
+    kind === 'imessage'
+  );
+}
+
+function buildChannelInstructions(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+  config: RuntimeChannelInstructionsConfig,
+): string {
+  const kind = resolvePromptChannelKind(runtimeInfo);
+  if (!isChannelInstructionKind(kind)) {
+    return '';
+  }
+  return String(config[kind] || '').trim();
 }
 
 function formatRuntimeModelForPrompt(model: string, provider: string): string {

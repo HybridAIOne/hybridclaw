@@ -6,6 +6,8 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentFilesPage } from './routes/agents';
+import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
@@ -34,6 +36,19 @@ function TerminalRouteComponent() {
   );
 }
 
+const LazyChatPage = lazy(async () => {
+  const mod = await import('./routes/chat');
+  return { default: mod.ChatPage };
+});
+
+function ChatRouteComponent() {
+  return (
+    <Suspense fallback={<div className="empty-state">Loading chat…</div>}>
+      <LazyChatPage />
+    </Suspense>
+  );
+}
+
 function RootLayout() {
   return (
     <AppShell>
@@ -50,6 +65,18 @@ const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
+});
+
+const approvalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/approvals',
+  component: ApprovalsPage,
+});
+
+const agentFilesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agents',
+  component: AgentFilesPage,
 });
 
 const terminalRoute = createRoute({
@@ -136,8 +163,16 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat',
+  component: ChatRouteComponent,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  approvalsRoute,
+  agentFilesRoute,
   terminalRoute,
   gatewayRoute,
   sessionsRoute,
@@ -152,6 +187,7 @@ const routeTree = rootRoute.addChildren([
   skillsRoute,
   pluginsRoute,
   toolsRoute,
+  chatRoute,
 ]);
 
 export const router = createRouter({

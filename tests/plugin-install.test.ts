@@ -1,17 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function writePluginDir(
   dir: string,
@@ -169,6 +163,38 @@ function writePipPluginDir(dir: string): void {
   );
 }
 
+function writeNodeDepPluginDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: node-dep-plugin',
+      'name: Node Dep Plugin',
+      'version: 1.0.0',
+      'kind: tool',
+      'requires:',
+      '  bins:',
+      '    - name: node',
+      '      configKey: command',
+      'nodeDependencies:',
+      '  - some-cli-package',
+      'configSchema:',
+      '  type: object',
+      '  properties:',
+      '    command:',
+      '      type: string',
+      '      default: node',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'index.js'),
+    "export default { id: 'node-dep-plugin', register() {} };\n",
+    'utf-8',
+  );
+}
+
 function createRuntimeConfigState(initial?: RuntimeConfig): {
   getRuntimeConfig: () => RuntimeConfig;
   updateRuntimeConfig: ReturnType<typeof vi.fn>;
@@ -196,14 +222,6 @@ function createRuntimeConfigState(initial?: RuntimeConfig): {
     read: () => structuredClone(config),
   };
 }
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 describe('plugin install', () => {
   test('installs a local plugin directory into homeDir/plugins', async () => {
@@ -500,6 +518,39 @@ describe('plugin install', () => {
       }),
     ).rejects.toBeInstanceOf(PluginDependencyApprovalRequiredError);
     expect(runCommand).not.toHaveBeenCalled();
+  });
+
+  test('skips dependency install when required binaries are already on PATH', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'node-dep-plugin');
+    const runtimeConfig = createRuntimeConfigState();
+    writeNodeDepPluginDir(sourceDir);
+
+    const runCommand = vi.fn();
+    const satisfiedCallback = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+
+    // node is on PATH, so nodeDependencies should be skipped
+    const result = await installPlugin(sourceDir, {
+      homeDir,
+      cwd,
+      runCommand,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+      onDependenciesAlreadySatisfied: satisfiedCallback,
+    });
+
+    expect(satisfiedCallback).toHaveBeenCalledTimes(1);
+    expect(satisfiedCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nodePackages: ['some-cli-package'],
+      }),
+    );
+    // runCommand should NOT be called for npm install
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.pluginId).toBe('node-dep-plugin');
+    expect(result.dependenciesInstalled).toBe(false);
   });
 
   test('installs pip dependencies, auto-configures local binaries, and checks the plugin', async () => {

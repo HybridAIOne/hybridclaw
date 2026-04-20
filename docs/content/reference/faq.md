@@ -94,9 +94,11 @@ including a persistent macOS LaunchAgent tunnel, see
 
 ## What AI models does it support?
 
-HybridClaw supports HybridAI models, OpenAI Codex models, OpenRouter models,
-Hugging Face router models, and local backends including Ollama, LM Studio,
-llama.cpp, and vLLM.
+HybridClaw supports HybridAI models, OpenAI Codex models, and external API
+providers including OpenRouter, Mistral, Hugging Face, Google Gemini, DeepSeek,
+xAI / Grok, Z.AI / GLM, Kimi / Moonshot, MiniMax, DashScope / Qwen, Xiaomi
+MiMo, and Kilo Code. It also supports local backends including Ollama, LM
+Studio, llama.cpp, and vLLM.
 
 ## Can I migrate an existing OpenClaw or Hermes Agent home?
 
@@ -118,10 +120,13 @@ with linked-identity routing available when operators want shared continuity.
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
 chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
-Gateway, Sessions, Jobs, Channels, Bindings, Models, Scheduler, MCP, Audit,
-Skills, Plugins, Tools, and Config pages. The Channels page centralizes
-transport status, managed secrets, and setup controls for Discord, Telegram,
-WhatsApp, email, Microsoft Teams, and iMessage.
+Gateway, Sessions, Jobs, Channels, Email, Models, Scheduler, MCP, Audit,
+Agent Files, Skills, Plugins, Tools, and Config pages. The Channels page
+centralizes transport status, managed secrets, and setup controls for Discord,
+Telegram, WhatsApp, email, Microsoft Teams, and iMessage. The Agent Files page
+at `/admin/agents` lets operators edit the allowlisted workspace markdown
+files for a registered agent, inspect saved revisions, and restore an earlier
+version.
 
 ## Can I extend HybridClaw with plugins?
 

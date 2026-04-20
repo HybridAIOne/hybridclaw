@@ -28,6 +28,9 @@ jobs:
       ref: ${{ steps.check.outputs.ref }}
       publish_dockerhub: ${{ steps.check.outputs.publish_dockerhub }}
       labels: ${{ steps.check.outputs.labels }}
+      owner_lc: ${{ steps.check.outputs.owner_lc }}
+      sha: ${{ steps.check.outputs.sha }}
+      sha_short: ${{ steps.check.outputs.sha_short }}
     steps:
       - name: Resolve target ref
         id: resolve
@@ -79,14 +82,20 @@ jobs:
           if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
             PUBLISH_DOCKERHUB=true
           fi
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          SHA="$(git rev-parse HEAD)"
+          SHA_SHORT="${SHA::7}"
 
           {
             echo "tag=${TAG}"
             echo "ref=${{ steps.resolve.outputs.ref }}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
+            echo "owner_lc=${OWNER_LC}"
+            echo "sha=${SHA}"
+            echo "sha_short=${SHA_SHORT}"
             echo "labels<<EOF"
             echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
-            echo "org.opencontainers.image.revision=${GITHUB_SHA}"
+            echo "org.opencontainers.image.revision=${SHA}"
             echo "org.opencontainers.image.version=${TAG}"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
@@ -96,6 +105,13 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
+      - name: Require Docker Hub credentials for agent image publishing
+        if: needs.validate.outputs.publish_dockerhub != 'true'
+        shell: bash
+        run: |
+          echo "DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are required to publish the hybridclaw-agent release image." >&2
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -106,21 +122,12 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
-          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
         run: |
           set -euo pipefail
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
           DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
-          TAGS="${GHCR_IMAGE}:${TAG}"
+          TAGS="${DOCKERHUB_IMAGE}:${TAG}"
           if [[ "${TAG}" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
-          fi
-          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
-            if [[ "${TAG}" != *-* ]]; then
-              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
-            fi
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
           fi
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
@@ -131,7 +138,6 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
-        if: needs.validate.outputs.publish_dockerhub == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -144,7 +150,15 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME || github.actor }}
           password: ${{ secrets.GHCR_TOKEN || github.token }}
 
+      - name: Promote agent image from main build
+        id: promote
+        uses: ./.github/actions/promote-image
+        with:
+          source: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-agent:sha-${{ needs.validate.outputs.sha_short }}
+          target-tags: ${{ steps.meta.outputs.tags }}
+
       - name: Build and push agent image
+        if: steps.promote.outputs.promoted != 'true'
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -156,8 +170,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
-          cache-from: type=gha,scope=agent-release
-          cache-to: type=gha,mode=max,scope=agent-release
+          cache-from: type=gha,scope=hybridclaw-agent
+          cache-to: type=gha,mode=max,scope=hybridclaw-agent
 
       - name: Verify published agent tags
         uses: ./.github/actions/verify-published-tags
@@ -217,7 +231,15 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME || github.actor }}
           password: ${{ secrets.GHCR_TOKEN || github.token }}
 
+      - name: Promote gateway image from main build
+        id: promote
+        uses: ./.github/actions/promote-image
+        with:
+          source: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-gateway:sha-${{ needs.validate.outputs.sha_short }}
+          target-tags: ${{ steps.meta.outputs.tags }}
+
       - name: Build and push gateway image
+        if: steps.promote.outputs.promoted != 'true'
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -229,8 +251,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
-          cache-from: type=gha,scope=gateway-release
-          cache-to: type=gha,mode=max,scope=gateway-release
+          cache-from: type=gha,scope=hybridclaw-gateway
+          cache-to: type=gha,mode=max,scope=hybridclaw-gateway
 
       - name: Verify published gateway tags
         uses: ./.github/actions/verify-published-tags
@@ -250,7 +272,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
+          # npm trusted publishing requires npm 11+, which GitHub-hosted Node 24
+          # provides out of the box on the release runner image.
           node-version: 24
+          cache: npm
 
       - name: Install dependencies
         run: npm ci

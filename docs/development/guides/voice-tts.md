@@ -1,7 +1,7 @@
 ---
 title: Voice And TTS
 description: Voice-reply setup, speech backend expectations, and the current audio delivery path for HybridClaw.
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Voice And TTS
@@ -9,6 +9,10 @@ sidebar_position: 5
 HybridClaw has shared inbound audio transcription, but it does not currently
 ship a first-party `tts.*` runtime config or a built-in speech-synthesis
 provider.
+
+If you are looking for the Twilio phone channel, inbound and outbound call
+setup, or ConversationRelay webhooks, see
+[Twilio Voice](./twilio-voice.md).
 
 To make voice replies work today, use the supported delivery path that already
 exists:

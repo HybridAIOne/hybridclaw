@@ -43,6 +43,7 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import {
   isSecretRefInput,
   parseSecretInput,
@@ -80,13 +81,30 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
 } from './runtime-config-revisions.js';
-
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 21;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
+export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
+const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
+  'This is a live phone call. Produce plain spoken text only.',
+  'Keep each reply short and conversational, usually one or two short sentences.',
+  'Absolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.',
+  'Do not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.',
+  'Do not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.',
+].join('\n');
+const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
+  discord: '',
+  msteams: '',
+  slack: '',
+  telegram: '',
+  voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
+  whatsapp: '',
+  email: '',
+  imessage: '',
+};
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -353,6 +371,37 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export type RuntimeVoiceProvider = 'twilio';
+export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
+export type RuntimeVoiceRelayTranscriptionProvider =
+  | 'deepgram'
+  | 'default'
+  | 'google';
+
+export interface RuntimeVoiceTwilioConfig {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+}
+
+export interface RuntimeVoiceRelayConfig {
+  ttsProvider: RuntimeVoiceRelayTtsProvider;
+  voice: string;
+  transcriptionProvider: RuntimeVoiceRelayTranscriptionProvider;
+  language: string;
+  interruptible: boolean;
+  welcomeGreeting: string;
+}
+
+export interface RuntimeVoiceConfig {
+  enabled: boolean;
+  provider: RuntimeVoiceProvider;
+  twilio: RuntimeVoiceTwilioConfig;
+  relay: RuntimeVoiceRelayConfig;
+  webhookPath: string;
+  maxConcurrentCalls: number;
+}
+
 export interface RuntimeSlackConfig {
   enabled: boolean;
   groupPolicy: SlackGroupPolicy;
@@ -412,6 +461,17 @@ export interface RuntimeEmailConfig {
   allowFrom: string[];
   textChunkLimit: number;
   mediaMaxMb: number;
+}
+
+export interface RuntimeChannelInstructionsConfig {
+  discord: string;
+  msteams: string;
+  slack: string;
+  telegram: string;
+  voice: string;
+  whatsapp: string;
+  email: string;
+  imessage: string;
 }
 
 export interface RuntimeSchedulerJob {
@@ -476,6 +536,7 @@ export interface RuntimeConfig {
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
+  channelInstructions: RuntimeChannelInstructionsConfig;
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -510,6 +571,7 @@ export interface RuntimeConfig {
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
+  voice: RuntimeVoiceConfig;
   imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
   hybridai: {
@@ -538,6 +600,51 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  gemini: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  deepseek: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  xai: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  zai: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  kimi: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  minimax: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  dashscope: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  xiaomi: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  kilo: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   local: LocalProviderConfig;
   auxiliaryModels: {
     vision: RuntimeAuxiliaryModelPolicyConfig;
@@ -560,6 +667,7 @@ export interface RuntimeConfig {
     additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
+    persistBashState: boolean;
   };
   mcpServers: Record<string, McpServerConfig>;
   web: {
@@ -740,6 +848,21 @@ const DEFAULT_MISTRAL_MODEL_LIST = ['mistral/mistral-large-latest'] as const;
 const DEFAULT_HUGGINGFACE_MODEL_LIST = [
   'huggingface/meta-llama/Llama-3.1-8B-Instruct',
 ] as const;
+const DEFAULT_GEMINI_MODEL_LIST = [
+  'gemini/gemini-2.5-pro',
+  'gemini/gemini-2.5-flash',
+] as const;
+const DEFAULT_DEEPSEEK_MODEL_LIST = [
+  'deepseek/deepseek-chat',
+  'deepseek/deepseek-reasoner',
+] as const;
+const DEFAULT_XAI_MODEL_LIST = ['xai/grok-3'] as const;
+const DEFAULT_ZAI_MODEL_LIST = ['zai/glm-5.1'] as const;
+const DEFAULT_KIMI_MODEL_LIST = ['kimi/kimi-k2.5'] as const;
+const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
+const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
+const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
+const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -764,6 +887,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     httpRequest: {
       authRules: [],
     },
+  },
+  channelInstructions: {
+    ...DEFAULT_CHANNEL_INSTRUCTIONS,
   },
   plugins: {
     list: [],
@@ -910,6 +1036,25 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     ackReaction: '👀',
     mediaMaxMb: 20,
   },
+  voice: {
+    enabled: false,
+    provider: 'twilio',
+    twilio: {
+      accountSid: '',
+      authToken: '',
+      fromNumber: '',
+    },
+    relay: {
+      ttsProvider: 'default',
+      voice: '',
+      transcriptionProvider: 'default',
+      language: 'en-US',
+      interruptible: true,
+      welcomeGreeting: 'Hello! How can I help you today?',
+    },
+    webhookPath: '/voice',
+    maxConcurrentCalls: 8,
+  },
   imessage: {
     enabled: false,
     backend: 'local',
@@ -946,7 +1091,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
-    defaultModel: 'gpt-4.1-mini',
+    defaultModel: DEFAULT_HYBRIDAI_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
@@ -969,6 +1114,51 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     baseUrl: 'https://router.huggingface.co/v1',
     models: [...DEFAULT_HUGGINGFACE_MODEL_LIST],
+  },
+  gemini: {
+    enabled: false,
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    models: [...DEFAULT_GEMINI_MODEL_LIST],
+  },
+  deepseek: {
+    enabled: false,
+    baseUrl: 'https://api.deepseek.com/v1',
+    models: [...DEFAULT_DEEPSEEK_MODEL_LIST],
+  },
+  xai: {
+    enabled: false,
+    baseUrl: 'https://api.x.ai/v1',
+    models: [...DEFAULT_XAI_MODEL_LIST],
+  },
+  zai: {
+    enabled: false,
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    models: [...DEFAULT_ZAI_MODEL_LIST],
+  },
+  kimi: {
+    enabled: false,
+    baseUrl: 'https://api.moonshot.ai/v1',
+    models: [...DEFAULT_KIMI_MODEL_LIST],
+  },
+  minimax: {
+    enabled: false,
+    baseUrl: 'https://api.minimax.io/v1',
+    models: [...DEFAULT_MINIMAX_MODEL_LIST],
+  },
+  dashscope: {
+    enabled: false,
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    models: [...DEFAULT_DASHSCOPE_MODEL_LIST],
+  },
+  xiaomi: {
+    enabled: false,
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    models: [...DEFAULT_XIAOMI_MODEL_LIST],
+  },
+  kilo: {
+    enabled: false,
+    baseUrl: 'https://api.kilo.ai/api/gateway',
+    models: [...DEFAULT_KILO_MODEL_LIST],
   },
   local: {
     backends: {
@@ -1053,6 +1243,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
+    persistBashState: true,
   },
   mcpServers: {},
   web: {
@@ -1187,7 +1378,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   scheduler: {
-    jobs: [],
+    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
   },
 };
 
@@ -1198,6 +1389,7 @@ const SECRET_INPUT_PATHS = [
   'email.password',
   'imessage.password',
   'telegram.botToken',
+  'voice.twilio.authToken',
   'local.backends.vllm.apiKey',
 ] as const;
 type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
@@ -1949,6 +2141,50 @@ function normalizeIMessageBackend(
   return fallback;
 }
 
+function normalizeVoiceProvider(
+  value: unknown,
+  fallback: RuntimeVoiceProvider,
+): RuntimeVoiceProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'twilio') {
+    return 'twilio';
+  }
+  return fallback;
+}
+
+function normalizeVoiceRelayTtsProvider(
+  value: unknown,
+  fallback: RuntimeVoiceRelayTtsProvider,
+): RuntimeVoiceRelayTtsProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'default' ||
+    normalized === 'google' ||
+    normalized === 'amazon'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeVoiceRelayTranscriptionProvider(
+  value: unknown,
+  fallback: RuntimeVoiceRelayTranscriptionProvider,
+): RuntimeVoiceRelayTranscriptionProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'default' ||
+    normalized === 'google' ||
+    normalized === 'deepgram'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeIMessageDmPolicy(
   value: unknown,
   fallback: IMessageDmPolicy,
@@ -2107,6 +2343,100 @@ function normalizeSlackConfig(
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,
+    }),
+  };
+}
+
+function normalizeVoiceConfig(
+  value: unknown,
+  fallback: RuntimeVoiceConfig,
+  opts?: {
+    authToken?: unknown;
+  },
+): RuntimeVoiceConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
+  const rawRelay = isRecord(raw.relay) ? raw.relay : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    provider: normalizeVoiceProvider(raw.provider, fallback.provider),
+    twilio: {
+      accountSid: normalizeString(
+        rawTwilio.accountSid,
+        fallback.twilio.accountSid,
+        { allowEmpty: true },
+      ),
+      authToken: normalizeString(
+        opts?.authToken ?? rawTwilio.authToken,
+        fallback.twilio.authToken,
+        { allowEmpty: true },
+      ),
+      fromNumber: normalizeString(
+        rawTwilio.fromNumber,
+        fallback.twilio.fromNumber,
+        { allowEmpty: true },
+      ),
+    },
+    relay: {
+      ttsProvider: normalizeVoiceRelayTtsProvider(
+        rawRelay.ttsProvider,
+        fallback.relay.ttsProvider,
+      ),
+      voice: normalizeString(rawRelay.voice, fallback.relay.voice, {
+        allowEmpty: true,
+      }),
+      transcriptionProvider: normalizeVoiceRelayTranscriptionProvider(
+        rawRelay.transcriptionProvider,
+        fallback.relay.transcriptionProvider,
+      ),
+      language: normalizeString(rawRelay.language, fallback.relay.language, {
+        allowEmpty: false,
+      }),
+      interruptible: normalizeBoolean(
+        rawRelay.interruptible,
+        fallback.relay.interruptible,
+      ),
+      welcomeGreeting: normalizeString(
+        rawRelay.welcomeGreeting,
+        fallback.relay.welcomeGreeting,
+        { allowEmpty: false },
+      ),
+    },
+    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
+    maxConcurrentCalls: normalizeInteger(
+      raw.maxConcurrentCalls,
+      fallback.maxConcurrentCalls,
+      {
+        min: 1,
+        max: 128,
+      },
+    ),
+  };
+}
+
+function normalizeChannelInstructionsConfig(
+  value: unknown,
+  fallback: RuntimeChannelInstructionsConfig,
+): RuntimeChannelInstructionsConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    discord: normalizeString(raw.discord, fallback.discord, {
+      allowEmpty: true,
+    }),
+    msteams: normalizeString(raw.msteams, fallback.msteams, {
+      allowEmpty: true,
+    }),
+    slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
+    telegram: normalizeString(raw.telegram, fallback.telegram, {
+      allowEmpty: true,
+    }),
+    voice: normalizeString(raw.voice, fallback.voice, { allowEmpty: true }),
+    whatsapp: normalizeString(raw.whatsapp, fallback.whatsapp, {
+      allowEmpty: true,
+    }),
+    email: normalizeString(raw.email, fallback.email, { allowEmpty: true }),
+    imessage: normalizeString(raw.imessage, fallback.imessage, {
+      allowEmpty: true,
     }),
   };
 }
@@ -2981,6 +3311,54 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+function migrateProviderBaseUrl(params: {
+  provider: string;
+  baseUrl: string;
+  retired: ReadonlySet<string>;
+  nextDefault: string;
+}): string {
+  if (params.retired.has(params.baseUrl)) {
+    console.warn(
+      `[runtime-config] migrating ${params.provider} baseUrl ${params.baseUrl} -> ${params.nextDefault}`,
+    );
+    return params.nextDefault;
+  }
+  return params.baseUrl;
+}
+
+const RETIRED_KILO_BASE_URLS = new Set<string>([
+  'https://api.kilocode.ai/v1',
+  'https://api.kilocode.ai',
+  'http://api.kilocode.ai/v1',
+  'http://api.kilocode.ai',
+]);
+
+function migrateKiloBaseUrl(baseUrl: string): string {
+  return migrateProviderBaseUrl({
+    provider: 'kilo',
+    baseUrl,
+    retired: RETIRED_KILO_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kilo.baseUrl,
+  });
+}
+
+const RETIRED_KIMI_BASE_URLS = new Set<string>([
+  'https://api.kimi.com/coding/v1',
+  'https://api.kimi.com/coding',
+  'https://api.kimi.com/v1',
+  'https://api.kimi.com',
+  'http://api.kimi.com/coding/v1',
+]);
+
+function migrateKimiBaseUrl(baseUrl: string): string {
+  return migrateProviderBaseUrl({
+    provider: 'kimi',
+    baseUrl,
+    retired: RETIRED_KIMI_BASE_URLS,
+    nextDefault: DEFAULT_RUNTIME_CONFIG.kimi.baseUrl,
+  });
+}
+
 function normalizeApiPath(value: unknown, fallback: string): string {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
@@ -3027,6 +3405,11 @@ function getSecretInputFromSource(
       ? telegram.botToken
       : undefined;
   }
+  if (secretPath === 'voice.twilio.authToken') {
+    const voice = isRecord(source.voice) ? source.voice : null;
+    const twilio = voice && isRecord(voice.twilio) ? voice.twilio : null;
+    return twilio && hasOwn(twilio, 'authToken') ? twilio.authToken : undefined;
+  }
 
   const local = isRecord(source.local) ? source.local : null;
   const backends = local && isRecord(local.backends) ? local.backends : null;
@@ -3065,6 +3448,14 @@ function setSecretInputOnSource(
     const telegram = isRecord(source.telegram) ? source.telegram : {};
     source.telegram = telegram;
     telegram.botToken = value;
+    return;
+  }
+  if (secretPath === 'voice.twilio.authToken') {
+    const voice = isRecord(source.voice) ? source.voice : {};
+    source.voice = voice;
+    const twilio = isRecord(voice.twilio) ? voice.twilio : {};
+    voice.twilio = twilio;
+    twilio.authToken = value;
     return;
   }
 
@@ -3467,11 +3858,15 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawChannelInstructions = isRecord(raw.channelInstructions)
+    ? raw.channelInstructions
+    : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawVoice = isRecord(raw.voice) ? raw.voice : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
@@ -3479,6 +3874,15 @@ function normalizeRuntimeConfig(
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
+  const rawGemini = isRecord(raw.gemini) ? raw.gemini : {};
+  const rawDeepSeek = isRecord(raw.deepseek) ? raw.deepseek : {};
+  const rawXai = isRecord(raw.xai) ? raw.xai : {};
+  const rawZai = isRecord(raw.zai) ? raw.zai : {};
+  const rawKimi = isRecord(raw.kimi) ? raw.kimi : {};
+  const rawMiniMax = isRecord(raw.minimax) ? raw.minimax : {};
+  const rawDashScope = isRecord(raw.dashscope) ? raw.dashscope : {};
+  const rawXiaomi = isRecord(raw.xiaomi) ? raw.xiaomi : {};
+  const rawKilo = isRecord(raw.kilo) ? raw.kilo : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
@@ -3575,6 +3979,10 @@ function normalizeRuntimeConfig(
     rawEmail.enabled,
     DEFAULT_RUNTIME_CONFIG.email.enabled,
   );
+  const voiceEnabled = normalizeBoolean(
+    rawVoice.enabled,
+    DEFAULT_RUNTIME_CONFIG.voice.enabled,
+  );
   const imessageEnabled = normalizeBoolean(
     rawIMessage.enabled,
     DEFAULT_RUNTIME_CONFIG.imessage.enabled,
@@ -3613,6 +4021,14 @@ function normalizeRuntimeConfig(
     {
       path: 'email.password',
       required: isSecretRefInput(rawEmail.password) && emailEnabled,
+    },
+  );
+  const rawVoiceTwilio = isRecord(rawVoice.twilio) ? rawVoice.twilio : {};
+  const resolvedVoiceAuthToken = resolveConfiguredSecretInput(
+    rawVoiceTwilio.authToken,
+    {
+      path: 'voice.twilio.authToken',
+      required: isSecretRefInput(rawVoiceTwilio.authToken) && voiceEnabled,
     },
   );
   const resolvedVllmApiKey = resolveConfiguredSecretInput(
@@ -3689,6 +4105,42 @@ function normalizeRuntimeConfig(
     rawHuggingFace.models,
     DEFAULT_RUNTIME_CONFIG.huggingface.models,
   );
+  const geminiModelList = normalizeStringArray(
+    rawGemini.models,
+    DEFAULT_RUNTIME_CONFIG.gemini.models,
+  );
+  const deepSeekModelList = normalizeStringArray(
+    rawDeepSeek.models,
+    DEFAULT_RUNTIME_CONFIG.deepseek.models,
+  );
+  const xaiModelList = normalizeStringArray(
+    rawXai.models,
+    DEFAULT_RUNTIME_CONFIG.xai.models,
+  );
+  const zaiModelList = normalizeStringArray(
+    rawZai.models,
+    DEFAULT_RUNTIME_CONFIG.zai.models,
+  );
+  const kimiModelList = normalizeStringArray(
+    rawKimi.models,
+    DEFAULT_RUNTIME_CONFIG.kimi.models,
+  );
+  const miniMaxModelList = normalizeStringArray(
+    rawMiniMax.models,
+    DEFAULT_RUNTIME_CONFIG.minimax.models,
+  );
+  const dashScopeModelList = normalizeStringArray(
+    rawDashScope.models,
+    DEFAULT_RUNTIME_CONFIG.dashscope.models,
+  );
+  const xiaomiModelList = normalizeStringArray(
+    rawXiaomi.models,
+    DEFAULT_RUNTIME_CONFIG.xiaomi.models,
+  );
+  const kiloModelList = normalizeStringArray(
+    rawKilo.models,
+    DEFAULT_RUNTIME_CONFIG.kilo.models,
+  );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
     DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
@@ -3755,6 +4207,10 @@ function normalizeRuntimeConfig(
         ),
       },
     },
+    channelInstructions: normalizeChannelInstructionsConfig(
+      rawChannelInstructions,
+      DEFAULT_RUNTIME_CONFIG.channelInstructions,
+    ),
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
       DEFAULT_RUNTIME_CONFIG.plugins,
@@ -3930,6 +4386,9 @@ function normalizeRuntimeConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
     ),
+    voice: normalizeVoiceConfig(rawVoice, DEFAULT_RUNTIME_CONFIG.voice, {
+      authToken: resolvedVoiceAuthToken,
+    }),
     imessage: normalizeIMessageConfig(
       rawIMessage,
       DEFAULT_RUNTIME_CONFIG.imessage,
@@ -3997,6 +4456,103 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl,
       ),
       models: huggingFaceModelList,
+    },
+    gemini: {
+      enabled: normalizeBoolean(
+        rawGemini.enabled,
+        DEFAULT_RUNTIME_CONFIG.gemini.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawGemini.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.gemini.baseUrl,
+      ),
+      models: geminiModelList,
+    },
+    deepseek: {
+      enabled: normalizeBoolean(
+        rawDeepSeek.enabled,
+        DEFAULT_RUNTIME_CONFIG.deepseek.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawDeepSeek.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.deepseek.baseUrl,
+      ),
+      models: deepSeekModelList,
+    },
+    xai: {
+      enabled: normalizeBoolean(
+        rawXai.enabled,
+        DEFAULT_RUNTIME_CONFIG.xai.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawXai.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.xai.baseUrl,
+      ),
+      models: xaiModelList,
+    },
+    zai: {
+      enabled: normalizeBoolean(
+        rawZai.enabled,
+        DEFAULT_RUNTIME_CONFIG.zai.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawZai.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.zai.baseUrl,
+      ),
+      models: zaiModelList,
+    },
+    kimi: {
+      enabled: normalizeBoolean(
+        rawKimi.enabled,
+        DEFAULT_RUNTIME_CONFIG.kimi.enabled,
+      ),
+      baseUrl: migrateKimiBaseUrl(
+        normalizeBaseUrl(rawKimi.baseUrl, DEFAULT_RUNTIME_CONFIG.kimi.baseUrl),
+      ),
+      models: kimiModelList,
+    },
+    minimax: {
+      enabled: normalizeBoolean(
+        rawMiniMax.enabled,
+        DEFAULT_RUNTIME_CONFIG.minimax.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawMiniMax.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.minimax.baseUrl,
+      ),
+      models: miniMaxModelList,
+    },
+    dashscope: {
+      enabled: normalizeBoolean(
+        rawDashScope.enabled,
+        DEFAULT_RUNTIME_CONFIG.dashscope.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawDashScope.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.dashscope.baseUrl,
+      ),
+      models: dashScopeModelList,
+    },
+    xiaomi: {
+      enabled: normalizeBoolean(
+        rawXiaomi.enabled,
+        DEFAULT_RUNTIME_CONFIG.xiaomi.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawXiaomi.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.xiaomi.baseUrl,
+      ),
+      models: xiaomiModelList,
+    },
+    kilo: {
+      enabled: normalizeBoolean(
+        rawKilo.enabled,
+        DEFAULT_RUNTIME_CONFIG.kilo.enabled,
+      ),
+      baseUrl: migrateKiloBaseUrl(
+        normalizeBaseUrl(rawKilo.baseUrl, DEFAULT_RUNTIME_CONFIG.kilo.baseUrl),
+      ),
+      models: kiloModelList,
     },
     local: {
       backends: {
@@ -4258,6 +4814,10 @@ function normalizeRuntimeConfig(
         rawContainer.maxConcurrent,
         DEFAULT_RUNTIME_CONFIG.container.maxConcurrent,
         { min: 1 },
+      ),
+      persistBashState: normalizeBoolean(
+        rawContainer.persistBashState,
+        DEFAULT_RUNTIME_CONFIG.container.persistBashState,
       ),
     },
     mcpServers: normalizeMcpServers(rawMcpServers),

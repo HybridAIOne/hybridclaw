@@ -54,6 +54,7 @@ import {
 } from './model-selection.js';
 import {
   formatHybridAIModelForCatalog,
+  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
 } from './providers/model-names.js';
@@ -389,9 +390,7 @@ function mapApprovalSelectionToCommand(
   if (
     options.includes('session') &&
     (normalized === 'session' ||
-      normalized === 'always' ||
       normalized === 'yes for session' ||
-      normalized === 'yes for always' ||
       normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
@@ -421,10 +420,8 @@ function mapApprovalSelectionToCommand(
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
   return (
-    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|always|agent))?$/.test(
-      normalized,
-    ) ||
-    /^\/approve\s+(yes|once|always|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
+    /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|agent))?$/.test(normalized) ||
+    /^\/approve\s+(yes|once|session|agent|all|no|deny|skip|[1-5])(?:\s+\S+)?$/u.test(
       normalized,
     )
   );
@@ -435,12 +432,13 @@ function normalizeApprovalReplayForGateway(content: string): string {
   if (normalized.startsWith('/approve')) {
     return normalized;
   }
-  const allowMatch =
-    /^yes\s+(\S+)(?:\s+for\s+(session|always|agent|all))?$/iu.exec(normalized);
+  const allowMatch = /^yes\s+(\S+)(?:\s+for\s+(session|agent|all))?$/iu.exec(
+    normalized,
+  );
   if (allowMatch) {
     const approvalId = allowMatch[1];
     const mode = (allowMatch[2] || '').toLowerCase();
-    if (mode === 'session' || mode === 'always') {
+    if (mode === 'session') {
       return `/approve session ${approvalId}`;
     }
     if (mode === 'agent') {
@@ -1187,6 +1185,10 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
       console.log(`  ${marker}${color}${entry.label}${RESET}`);
     }
     console.log();
+    console.log(
+      `  ${MUTED}${formatModelCountSuffix(result.modelCatalog.length)}${RESET}`,
+    );
+    console.log();
     return;
   }
   for (const line of result.text.split('\n')) {
@@ -1195,20 +1197,24 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   console.log();
 }
 
-function printToolUsage(tools: string[]): void {
-  if (tools.length === 0) return;
+function printUsageFooter(
+  tools: string[],
+  plugins: string[],
+  skill: string | undefined,
+): void {
+  const parts: string[] = [];
+  if (tools.length > 0) {
+    parts.push(`🔧 ${GREEN}${tools.join(', ')}${RESET}`);
+  }
+  if (plugins.length > 0) {
+    parts.push(`🔌 ${GREEN}${plugins.join(', ')}${RESET}`);
+  }
+  if (skill) {
+    parts.push(`⚡ ${GREEN}${skill}${RESET}`);
+  }
+  if (parts.length === 0) return;
   clearTuiSlashMenu();
-  console.log(
-    `  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`,
-  );
-}
-
-function printPluginUsage(plugins: string[]): void {
-  if (plugins.length === 0) return;
-  clearTuiSlashMenu();
-  console.log(
-    `  ${MUTED}${JELLYFISH} plugins:${RESET} ${GREEN}${plugins.join(', ')}${RESET}`,
-  );
+  console.log(`  ${MUTED}${JELLYFISH}${RESET} ${parts.join(`  `)}`);
 }
 
 function terminalColumns(): number {
@@ -2232,7 +2238,9 @@ async function processMessage(
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
     const pluginNames = collectPluginNames(result);
-    const hasUsageFooters = toolNames.length > 0 || pluginNames.length > 0;
+    const skillName = result.skillUsed;
+    const hasUsageFooters =
+      toolNames.length > 0 || pluginNames.length > 0 || !!skillName;
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(
@@ -2253,8 +2261,7 @@ async function processMessage(
       } else {
         process.stdout.write(streamedResponseTrailingNewlines);
       }
-      printToolUsage(toolNames);
-      printPluginUsage(pluginNames);
+      printUsageFooter(toolNames, pluginNames, skillName);
     }
 
     if (isInterruptedResult(result)) {

@@ -12,6 +12,15 @@ const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
+const ORIGINAL_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ORIGINAL_DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const ORIGINAL_XAI_API_KEY = process.env.XAI_API_KEY;
+const ORIGINAL_ZAI_API_KEY = process.env.ZAI_API_KEY;
+const ORIGINAL_KIMI_API_KEY = process.env.KIMI_API_KEY;
+const ORIGINAL_MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
+const ORIGINAL_DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
+const ORIGINAL_XIAOMI_API_KEY = process.env.XIAOMI_API_KEY;
+const ORIGINAL_KILO_API_KEY = process.env.KILO_API_KEY;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-providers-'));
@@ -73,6 +82,15 @@ afterEach(() => {
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
+  restoreEnvVar('GEMINI_API_KEY', ORIGINAL_GEMINI_API_KEY);
+  restoreEnvVar('DEEPSEEK_API_KEY', ORIGINAL_DEEPSEEK_API_KEY);
+  restoreEnvVar('XAI_API_KEY', ORIGINAL_XAI_API_KEY);
+  restoreEnvVar('ZAI_API_KEY', ORIGINAL_ZAI_API_KEY);
+  restoreEnvVar('KIMI_API_KEY', ORIGINAL_KIMI_API_KEY);
+  restoreEnvVar('MINIMAX_API_KEY', ORIGINAL_MINIMAX_API_KEY);
+  restoreEnvVar('DASHSCOPE_API_KEY', ORIGINAL_DASHSCOPE_API_KEY);
+  restoreEnvVar('XIAOMI_API_KEY', ORIGINAL_XIAOMI_API_KEY);
+  restoreEnvVar('KILO_API_KEY', ORIGINAL_KILO_API_KEY);
 });
 
 test('provider factory resolves adapters by model family', async () => {
@@ -81,6 +99,15 @@ test('provider factory resolves adapters by model family', async () => {
     config.openrouter.enabled = true;
     config.mistral.enabled = true;
     config.huggingface.enabled = true;
+    config.gemini.enabled = true;
+    config.deepseek.enabled = true;
+    config.xai.enabled = true;
+    config.zai.enabled = true;
+    config.kimi.enabled = true;
+    config.minimax.enabled = true;
+    config.dashscope.enabled = true;
+    config.xiaomi.enabled = true;
+    config.kilo.enabled = true;
   });
   const factory = await importFreshFactory(homeDir);
 
@@ -102,6 +129,21 @@ test('provider factory resolves adapters by model family', async () => {
   expect(factory.resolveModelProvider('anthropic/claude-3-7-sonnet')).toBe(
     'anthropic',
   );
+  expect(factory.resolveModelProvider('gemini/gemini-2.5-pro')).toBe('gemini');
+  expect(factory.resolveModelProvider('deepseek/deepseek-chat')).toBe(
+    'deepseek',
+  );
+  expect(factory.resolveModelProvider('xai/grok-3')).toBe('xai');
+  expect(factory.resolveModelProvider('zai/glm-5')).toBe('zai');
+  expect(factory.resolveModelProvider('kimi/kimi-k2.5')).toBe('kimi');
+  expect(factory.resolveModelProvider('minimax/MiniMax-M2.5')).toBe('minimax');
+  expect(factory.resolveModelProvider('dashscope/qwen3-coder-plus')).toBe(
+    'dashscope',
+  );
+  expect(factory.resolveModelProvider('xiaomi/mimo-v2-pro')).toBe('xiaomi');
+  expect(factory.resolveModelProvider('kilo/anthropic/claude-sonnet-4.6')).toBe(
+    'kilo',
+  );
 
   expect(factory.modelRequiresChatbotId('gpt-5-nano')).toBe(true);
   expect(factory.modelRequiresChatbotId('openai-codex/gpt-5-codex')).toBe(
@@ -121,6 +163,19 @@ test('provider factory resolves adapters by model family', async () => {
   expect(factory.modelRequiresChatbotId('anthropic/claude-3-7-sonnet')).toBe(
     false,
   );
+  expect(factory.modelRequiresChatbotId('gemini/gemini-2.5-pro')).toBe(false);
+  expect(factory.modelRequiresChatbotId('deepseek/deepseek-chat')).toBe(false);
+  expect(factory.modelRequiresChatbotId('xai/grok-3')).toBe(false);
+  expect(factory.modelRequiresChatbotId('zai/glm-5')).toBe(false);
+  expect(factory.modelRequiresChatbotId('kimi/kimi-k2.5')).toBe(false);
+  expect(factory.modelRequiresChatbotId('minimax/MiniMax-M2.5')).toBe(false);
+  expect(factory.modelRequiresChatbotId('dashscope/qwen3-coder-plus')).toBe(
+    false,
+  );
+  expect(factory.modelRequiresChatbotId('xiaomi/mimo-v2-pro')).toBe(false);
+  expect(
+    factory.modelRequiresChatbotId('kilo/anthropic/claude-sonnet-4.6'),
+  ).toBe(false);
 });
 
 test('provider factory resolves HybridAI runtime credentials', async () => {
@@ -304,6 +359,94 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
   expect(second).toMatchObject({
     provider: 'huggingface',
     apiKey: 'hf-new-token',
+  });
+});
+
+test.each([
+  {
+    providerId: 'gemini',
+    model: 'gemini/gemini-2.5-pro',
+    envVar: 'GEMINI_API_KEY',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  },
+  {
+    providerId: 'deepseek',
+    model: 'deepseek/deepseek-chat',
+    envVar: 'DEEPSEEK_API_KEY',
+    baseUrl: 'https://api.deepseek.com/v1',
+  },
+  {
+    providerId: 'xai',
+    model: 'xai/grok-3',
+    envVar: 'XAI_API_KEY',
+    baseUrl: 'https://api.x.ai/v1',
+  },
+  {
+    providerId: 'zai',
+    model: 'zai/glm-5',
+    envVar: 'ZAI_API_KEY',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+  },
+  {
+    providerId: 'kimi',
+    model: 'kimi/kimi-k2.5',
+    envVar: 'KIMI_API_KEY',
+    baseUrl: 'https://api.moonshot.ai/v1',
+  },
+  {
+    providerId: 'minimax',
+    model: 'minimax/MiniMax-M2.5',
+    envVar: 'MINIMAX_API_KEY',
+    baseUrl: 'https://api.minimax.io/v1',
+  },
+  {
+    providerId: 'dashscope',
+    model: 'dashscope/qwen3-coder-plus',
+    envVar: 'DASHSCOPE_API_KEY',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+  },
+  {
+    providerId: 'xiaomi',
+    model: 'xiaomi/mimo-v2-pro',
+    envVar: 'XIAOMI_API_KEY',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+  },
+  {
+    providerId: 'kilo',
+    model: 'kilo/anthropic/claude-sonnet-4.6',
+    envVar: 'KILO_API_KEY',
+    baseUrl: 'https://api.kilo.ai/api/gateway',
+  },
+] as const)('provider factory resolves $providerId runtime credentials', async ({
+  providerId,
+  model,
+  envVar,
+  baseUrl,
+}) => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    (config as Record<string, unknown>)[providerId] = {
+      enabled: true,
+      baseUrl,
+      models: [model],
+    };
+  });
+  process.env[envVar] = `${providerId}-test-key`;
+  const factory = await importFreshFactory(homeDir);
+
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model,
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: providerId,
+    apiKey: `${providerId}-test-key`,
+    baseUrl,
+    chatbotId: '',
+    enableRag: false,
+    agentId: 'main',
+    isLocal: false,
   });
 });
 

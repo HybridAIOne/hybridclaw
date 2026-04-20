@@ -1,6 +1,6 @@
 import type { Message as DiscordMessage } from 'discord.js';
 
-import { logger } from '../../logger.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 export type DiscordTypingPhase =
   | 'received'
@@ -69,10 +69,13 @@ export function createTypingController(
     try {
       await message.channel.sendTyping();
     } catch (error) {
-      logger.debug(
-        { error, channelId: message.channelId },
-        'Failed to send typing indicator',
-      );
+      logDiscordApiError({
+        error,
+        expectedAction: 'Typing indicator was not sent.',
+        unexpectedMessage: 'Failed to send typing indicator',
+        metadata: { channelId: message.channelId },
+        level: 'debug',
+      });
     }
   };
 

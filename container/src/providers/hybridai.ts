@@ -2,10 +2,11 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
-  HybridAIRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface StreamToolCallDelta {
   index?: number;
@@ -120,7 +121,7 @@ export async function callHybridAIProvider(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   return (await response.json()) as ChatCompletionResponse;
@@ -148,7 +149,7 @@ export async function callHybridAIProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   const contentType = (
@@ -259,7 +260,10 @@ export async function callHybridAIProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });

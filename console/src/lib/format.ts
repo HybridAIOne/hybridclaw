@@ -57,6 +57,14 @@ export function formatUptime(totalSeconds: number): string {
   return parts.join(' ');
 }
 
+export function pluralize(
+  n: number,
+  word: string,
+  plural = `${word}s`,
+): string {
+  return `${n} ${n === 1 ? word : plural}`;
+}
+
 export function parseStringList(value: string): string[] {
   return value
     .split(/[\n,]/g)

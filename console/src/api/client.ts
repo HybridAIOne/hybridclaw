@@ -1,6 +1,11 @@
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthResponse,
+  AdminAgent,
+  AdminAgentMarkdownFileResponse,
+  AdminAgentMarkdownRevisionResponse,
+  AdminAgentsResponse,
+  AdminApprovalsResponse,
   AdminAuditResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
@@ -19,6 +24,8 @@ import type {
   AdminModelsResponse,
   AdminOverview,
   AdminPluginsResponse,
+  AdminPolicyRuleInput,
+  AdminPolicyState,
   AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
@@ -36,7 +43,16 @@ import type {
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
 export const AUTH_REQUIRED_EVENT = 'hybridclaw:auth-required';
 
-function requestHeaders(token: string, body?: unknown): HeadersInit {
+export interface WebCommandRequestBody {
+  sessionId: string;
+  guildId: null;
+  channelId: 'web';
+  args: string[];
+  userId?: string;
+  username?: string;
+}
+
+export function requestHeaders(token: string, body?: unknown): HeadersInit {
   const trimmed = token.trim();
   return {
     ...(trimmed ? { Authorization: `Bearer ${trimmed}` } : {}),
@@ -48,7 +64,23 @@ function requestHeaders(token: string, body?: unknown): HeadersInit {
   };
 }
 
-function dispatchAuthRequired(message: string): void {
+export function buildWebCommandRequestBody(options: {
+  sessionId: string;
+  args: string[];
+  userId?: string;
+  username?: string;
+}): WebCommandRequestBody {
+  return {
+    sessionId: options.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: options.args,
+    ...(options.userId ? { userId: options.userId } : {}),
+    ...(options.username ? { username: options.username } : {}),
+  };
+}
+
+export function dispatchAuthRequired(message: string): void {
   clearStoredToken();
   window.dispatchEvent(
     new CustomEvent(AUTH_REQUIRED_EVENT, {
@@ -57,35 +89,67 @@ function dispatchAuthRequired(message: string): void {
   );
 }
 
-async function requestJson<T>(
+export async function readErrorResponseMessage(
+  response: Response,
+): Promise<string> {
+  const fallback = `${response.status} ${response.statusText}`;
+  const text = (await response.text().catch(() => '')).trim();
+  if (!text) return fallback;
+
+  try {
+    const payload = JSON.parse(text) as {
+      error?: string;
+      text?: string;
+    };
+    return payload.error || payload.text || text;
+  } catch {
+    return text;
+  }
+}
+
+export async function throwResponseError(
+  response: Response,
+  options?: { onAuthError?: 'dispatch' | 'ignore' },
+): Promise<never> {
+  const message = await readErrorResponseMessage(response);
+  if (response.status === 401 && options?.onAuthError !== 'ignore') {
+    dispatchAuthRequired(message);
+  }
+  throw new Error(message);
+}
+
+export async function requestJson<T>(
   pathname: string,
   options: {
     token: string;
     method?: 'GET' | 'PUT' | 'DELETE' | 'POST';
     body?: unknown;
+    rawBody?: BodyInit;
+    extraHeaders?: HeadersInit;
     onAuthError?: 'dispatch' | 'ignore';
   },
 ): Promise<T> {
   const response = await fetch(pathname, {
     method: options.method || 'GET',
-    headers: requestHeaders(options.token, options.body),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    headers: {
+      ...requestHeaders(options.token, options.body),
+      ...options.extraHeaders,
+    },
+    body:
+      options.body !== undefined
+        ? JSON.stringify(options.body)
+        : (options.rawBody ?? undefined),
   });
 
+  if (!response.ok) {
+    await throwResponseError(response, {
+      onAuthError: options.onAuthError,
+    });
+  }
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;
     text?: string;
   };
-  if (!response.ok) {
-    const message =
-      payload.error ||
-      payload.text ||
-      `${response.status} ${response.statusText}`;
-    if (response.status === 401 && options.onAuthError !== 'ignore') {
-      dispatchAuthRequired(message);
-    }
-    throw new Error(message);
-  }
   return payload as T;
 }
 
@@ -132,13 +196,16 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
-export function restartGateway(
+export function reloadGateway(
   token: string,
 ): Promise<{ status: 'ok'; message: string }> {
-  return requestJson<{ status: 'ok'; message: string }>('/api/admin/restart', {
-    token,
-    method: 'POST',
-  });
+  return requestJson<{ status: 'ok'; message: string }>(
+    '/api/admin/config/reload',
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function startAdminTerminal(
@@ -181,6 +248,75 @@ export function adminTerminalSocketUrl(
 
 export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
+}
+
+export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
+  const payload = await requestJson<AdminAgentsResponse>('/api/admin/agents', {
+    token,
+  });
+  return payload.agents;
+}
+
+export function fetchAdminAgentMarkdownFile(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}`,
+    { token },
+  );
+}
+
+export function saveAdminAgentMarkdownFile(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    content: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { content: params.content },
+    },
+  );
+}
+
+export function fetchAdminAgentMarkdownRevision(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<AdminAgentMarkdownRevisionResponse> {
+  return requestJson<AdminAgentMarkdownRevisionResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}/revisions/${encodeURIComponent(params.revisionId)}`,
+    { token },
+  );
+}
+
+export function restoreAdminAgentMarkdownRevision(
+  token: string,
+  params: {
+    agentId: string;
+    fileName: string;
+    revisionId: string;
+  },
+): Promise<AdminAgentMarkdownFileResponse> {
+  return requestJson<AdminAgentMarkdownFileResponse>(
+    `/api/admin/agents/${encodeURIComponent(params.agentId)}/files/${encodeURIComponent(params.fileName)}/revisions/${encodeURIComponent(params.revisionId)}/restore`,
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function fetchJobsContext(
@@ -321,6 +457,10 @@ export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
 }
 
+export function fetchEmailConfig(token: string): Promise<unknown> {
+  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+}
+
 export function saveConfig(
   token: string,
   config: AdminConfig,
@@ -339,12 +479,10 @@ function runAdminCommand(
   return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
-    body: {
+    body: buildWebCommandRequestBody({
       sessionId: 'web-admin-secrets',
-      guildId: null,
-      channelId: 'web',
       args,
-    },
+    }),
   });
 }
 
@@ -491,6 +629,86 @@ export function fetchAudit(
   );
 }
 
+export function fetchAdminApprovals(
+  token: string,
+  params?: {
+    agentId?: string;
+  },
+): Promise<AdminApprovalsResponse> {
+  const queryParams = new URLSearchParams();
+  if (params?.agentId) {
+    queryParams.set('agentId', params.agentId);
+  }
+  const suffix = queryParams.toString();
+  return requestJson<AdminApprovalsResponse>(
+    suffix ? `/api/admin/approvals?${suffix}` : '/api/admin/approvals',
+    { token },
+  );
+}
+
+export function saveAdminPolicyRule(
+  token: string,
+  params: {
+    agentId: string;
+    index?: number;
+    rule: AdminPolicyRuleInput;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function saveAdminPolicyDefault(
+  token: string,
+  params: {
+    agentId: string;
+    defaultAction: 'allow' | 'deny';
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function saveAdminPolicyPreset(
+  token: string,
+  params: {
+    agentId: string;
+    presetName: string;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: params,
+  });
+}
+
+export function deleteAdminPolicyRule(
+  token: string,
+  params: {
+    agentId: string;
+    index: number;
+  },
+): Promise<AdminPolicyState> {
+  const query = new URLSearchParams({
+    agentId: params.agentId,
+    index: String(params.index),
+  });
+  return requestJson<AdminPolicyState>(
+    `/api/admin/policy?${query.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
 export function fetchSkills(token: string): Promise<AdminSkillsResponse> {
   return requestJson<AdminSkillsResponse>('/api/admin/skills', { token });
 }
@@ -506,30 +724,18 @@ export function createSkill(
   });
 }
 
-export async function uploadSkillZip(
+export function uploadSkillZip(
   token: string,
   file: File,
 ): Promise<AdminSkillsResponse> {
-  const response = await fetch('/api/admin/skills/upload', {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills/upload', {
+    token,
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token.trim()}`,
+    rawBody: file,
+    extraHeaders: {
       'Content-Type': 'application/zip',
     },
-    body: file,
   });
-  const payload = (await response.json().catch(() => ({}))) as {
-    error?: string;
-  };
-  if (!response.ok) {
-    const message =
-      payload.error || `${response.status} ${response.statusText}`;
-    if (response.status === 401) {
-      dispatchAuthRequired(message);
-    }
-    throw new Error(message);
-  }
-  return payload as AdminSkillsResponse;
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

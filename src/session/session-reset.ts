@@ -2,6 +2,7 @@ import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
+import { isVoiceChannelId } from '../channels/voice/channel-id.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
@@ -42,6 +43,7 @@ export function resolveSessionResetChannelKind(
   if (!normalized) return undefined;
   if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
   if (isWhatsAppJid(normalized)) return 'whatsapp';
+  if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';

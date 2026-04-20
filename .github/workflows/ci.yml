@@ -6,13 +6,17 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Build Docker images (no push) to catch Dockerfile regressions before merge.
   docker-preflight:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       HAS_HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY != '' }}
@@ -24,18 +28,20 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
+            cache_scope: hybridclaw-agent
           - name: gateway
             context: .
             file: ./Dockerfile
+            cache_scope: hybridclaw-gateway
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
       - name: Build ${{ matrix.name }} image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -43,17 +49,11 @@ jobs:
           push: false
           load: true
           tags: hybridclaw-${{ matrix.name }}:preflight
-          cache-from: type=gha,scope=${{ matrix.name }}-preflight
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-preflight
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 
-      - name: Setup Node.js (e2e)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install test dependencies (e2e)
-        run: npm install
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Gateway e2e tests (local, no API key)
         if: matrix.name == 'gateway'
@@ -77,23 +77,14 @@ jobs:
           HYBRIDCLAW_E2E_AGENT_IMAGE: hybridclaw-agent:preflight
         run: npx vitest run --config vitest.e2e.config.ts tests/agent-container.e2e.test.ts
 
-  unit-tests:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install container dependencies
-        run: npm run setup
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Biome check (changed files)
         shell: bash
@@ -139,6 +130,17 @@ jobs:
       - name: TypeScript lint (console)
         run: npm --prefix console run typecheck
 
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+
       - name: Build release artifacts
         run: npm run build
 
@@ -175,7 +177,7 @@ jobs:
 
       - name: Publish coverage badge to gh-pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e  # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./badge
@@ -183,20 +185,14 @@ jobs:
           keep_files: true
 
   npm-e2e:
-    needs: unit-tests
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
 
       - name: Build release artifacts
         run: npm run build

@@ -19,6 +19,7 @@ import {
   printMainUsage,
   printMigrationUsage,
   printOnboardingUsage,
+  printPolicyUsage,
   printTuiUsage,
 } from './cli/help.js';
 import { ensureOnboardingApi } from './cli/onboarding-api.js';
@@ -1286,6 +1287,16 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   await runRuntimeConfigFileCheck();
 }
 
+async function handlePolicyCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (isHelpRequest(normalized)) {
+    printPolicyUsage();
+    return;
+  }
+  const policyCli = await import('./policy/policy-cli.js');
+  await policyCli.handlePolicyCommand(normalized);
+}
+
 async function handleLocalCommand(args: string[]): Promise<void> {
   const cliAuth = await import('./cli/auth-command.js');
   await cliAuth.handleLocalCommand(args);
@@ -1408,6 +1419,11 @@ async function handleToolCommand(args: string[]): Promise<void> {
   await cliTool.handleToolCommand(args);
 }
 
+async function handleSecretCommand(args: string[]): Promise<void> {
+  const cliSecret = await import('./cli/secret-command.js');
+  await cliSecret.handleSecretCommand(args);
+}
+
 async function handlePluginCommand(args: string[]): Promise<void> {
   const cliPlugin = await import('./cli/plugin-command.js');
   await cliPlugin.handlePluginCommand(args);
@@ -1478,6 +1494,12 @@ export async function main(
       break;
     case 'config':
       await handleConfigCommand(subargs);
+      break;
+    case 'secret':
+      await handleSecretCommand(subargs);
+      break;
+    case 'policy':
+      await handlePolicyCommand(subargs);
       break;
     case 'gateway':
       await handleGatewayCommand(subargs);

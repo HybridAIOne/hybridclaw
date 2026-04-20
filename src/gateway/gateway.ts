@@ -63,6 +63,15 @@ import {
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import {
+  initVoice,
+  isVoiceRelayDisconnectedError,
+  shutdownVoice,
+} from '../channels/voice/runtime.js';
+import {
+  createVoiceTextStreamFormatter,
+  normalizeVoiceUserTextForGateway,
+} from '../channels/voice/text.js';
+import {
   getWhatsAppAuthStatus,
   WhatsAppAuthLockError,
 } from '../channels/whatsapp/auth.js';
@@ -85,6 +94,7 @@ import {
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
+  TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
@@ -96,6 +106,7 @@ import {
   listQueuedProactiveMessages,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { initOtel, shutdownOtel } from '../observability/otel.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -138,6 +149,7 @@ import {
   handleGatewayCommand,
   resumeEnabledFullAutoSessions,
 } from './gateway-service.js';
+import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   getDreamTimezone,
@@ -228,6 +240,27 @@ function hasSlackConfigChanged(
     next.mediaMaxMb !== prev.mediaMaxMb
   );
 }
+
+function hasVoiceConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['voice'],
+  prev: ReturnType<typeof getConfigSnapshot>['voice'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.provider !== prev.provider ||
+    next.twilio.accountSid !== prev.twilio.accountSid ||
+    next.twilio.authToken !== prev.twilio.authToken ||
+    next.twilio.fromNumber !== prev.twilio.fromNumber ||
+    next.relay.ttsProvider !== prev.relay.ttsProvider ||
+    next.relay.voice !== prev.relay.voice ||
+    next.relay.transcriptionProvider !== prev.relay.transcriptionProvider ||
+    next.relay.language !== prev.relay.language ||
+    next.relay.interruptible !== prev.relay.interruptible ||
+    next.relay.welcomeGreeting !== prev.relay.welcomeGreeting ||
+    next.webhookPath !== prev.webhookPath ||
+    next.maxConcurrentCalls !== prev.maxConcurrentCalls
+  );
+}
 const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
@@ -270,6 +303,7 @@ function logGatewayStartup(params: {
     email: boolean;
     imessage: boolean;
     telegram: boolean;
+    voice: boolean;
     whatsapp: boolean;
   };
 }): void {
@@ -518,6 +552,86 @@ async function handleTextChannelCommand(params: {
     return;
   }
   await reply(text);
+}
+
+async function runTextChannelSlashCommands(params: {
+  sessionId: string;
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+  username: string;
+  content: string;
+  reply: ReplyFn;
+}): Promise<boolean> {
+  const slashCommands = resolveTextChannelSlashCommands(params.content);
+  if (!slashCommands) {
+    return false;
+  }
+
+  for (const args of slashCommands) {
+    await handleTextChannelCommand({
+      sessionId: params.sessionId,
+      guildId: params.guildId,
+      channelId: params.channelId,
+      userId: params.userId,
+      username: params.username,
+      args,
+      reply: params.reply,
+    });
+  }
+  return true;
+}
+
+async function executeTextChannelGatewayTurn(params: {
+  sessionId: string;
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+  username: string;
+  content: string;
+  media: GatewayChatRequest['media'];
+  source: string;
+  reply: ReplyFn;
+  abortSignal?: GatewayChatRequest['abortSignal'];
+  onTextDelta?: GatewayChatRequest['onTextDelta'];
+  onToolProgress?: GatewayChatRequest['onToolProgress'];
+  onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
+  resultTransform?: (result: GatewayChatResult) => GatewayChatResult;
+}): Promise<GatewayChatResult | null> {
+  const normalizedContent =
+    params.source === 'voice'
+      ? normalizeVoiceUserTextForGateway(params.content)
+      : params.content;
+  const handledSlashCommands = await runTextChannelSlashCommands({
+    sessionId: params.sessionId,
+    guildId: params.guildId,
+    channelId: params.channelId,
+    userId: params.userId,
+    username: params.username,
+    content: normalizedContent,
+    reply: params.reply,
+  });
+  if (handledSlashCommands) {
+    return null;
+  }
+
+  const result = normalizePlaceholderToolReply(
+    await handleGatewayMessage({
+      sessionId: params.sessionId,
+      guildId: params.guildId,
+      channelId: params.channelId,
+      userId: params.userId,
+      username: params.username,
+      content: normalizedContent,
+      media: params.media,
+      abortSignal: params.abortSignal,
+      onTextDelta: params.onTextDelta,
+      onToolProgress: params.onToolProgress,
+      onProactiveMessage: params.onProactiveMessage,
+      source: params.source,
+    }),
+  );
+  return params.resultTransform ? params.resultTransform(result) : result;
 }
 
 async function deliverProactiveMessage(
@@ -1793,59 +1907,45 @@ async function startSlackIntegration(): Promise<boolean> {
         context,
       ) => {
         try {
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const textReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
-              await handleTextChannelCommand({
-                sessionId,
-                guildId,
+          const textReply: ReplyFn = async (message) => {
+            await reply(message);
+          };
+          let sawTextDelta = false;
+          const result = await executeTextChannelGatewayTurn({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            content,
+            media,
+            source: 'slack',
+            reply: textReply,
+            onProactiveMessage: async (message) => {
+              await deliverProactiveMessage(
                 channelId,
-                userId,
-                username,
-                args,
-                reply: textReply,
-              });
-            }
+                message.text,
+                'delegate',
+                message.artifacts,
+              );
+            },
+            onTextDelta: (delta) => {
+              if (!delta || sawTextDelta) return;
+              sawTextDelta = true;
+              context.emitLifecyclePhase?.('streaming');
+            },
+            onToolProgress: (event) => {
+              if (sawTextDelta) return;
+              if (event.phase === 'start') {
+                context.emitLifecyclePhase?.('toolUse');
+              } else {
+                context.emitLifecyclePhase?.('thinking');
+              }
+            },
+          });
+          if (!result) {
             return;
           }
-
-          let sawTextDelta = false;
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              onTextDelta: (delta) => {
-                if (!delta || sawTextDelta) return;
-                sawTextDelta = true;
-                context.emitLifecyclePhase?.('streaming');
-              },
-              onToolProgress: (event) => {
-                if (sawTextDelta) return;
-                if (event.phase === 'start') {
-                  context.emitLifecyclePhase?.('toolUse');
-                } else {
-                  context.emitLifecyclePhase?.('thinking');
-                }
-              },
-              source: 'slack',
-            }),
-          );
           if (result.status === 'error') {
             await reply(
               formatError('Agent Error', result.error || 'Unknown error'),
@@ -2030,6 +2130,231 @@ async function refreshSlackIntegrationForConfigChange(
   await startSlackIntegration();
 }
 
+async function startVoiceIntegration(): Promise<boolean> {
+  const voiceConfig = getConfigSnapshot().voice;
+  const twilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
+  if (!voiceConfig.enabled) {
+    logger.info('Voice integration disabled in config');
+    return false;
+  }
+  if (
+    !voiceConfig.twilio.accountSid.trim() ||
+    !twilioAuthToken ||
+    !voiceConfig.twilio.fromNumber.trim()
+  ) {
+    logger.warn(
+      {
+        accountSidConfigured: Boolean(voiceConfig.twilio.accountSid.trim()),
+        authTokenConfigured: Boolean(twilioAuthToken),
+        fromNumberConfigured: Boolean(voiceConfig.twilio.fromNumber.trim()),
+      },
+      'Voice integration disabled: Twilio credentials are incomplete',
+    );
+    return false;
+  }
+
+  try {
+    await initVoice(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const textReply: ReplyFn = async (message) => {
+            await reply(message);
+          };
+          let sawTextDelta = false;
+          const streamFilter = createSilentReplyStreamFilter();
+          const voiceTextStream = createVoiceTextStreamFormatter();
+          const result = await executeTextChannelGatewayTurn({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            content,
+            media,
+            source: 'voice',
+            reply: textReply,
+            abortSignal: context.abortSignal,
+            onTextDelta: (delta) => {
+              const filteredDelta = streamFilter.push(delta);
+              if (!filteredDelta) return;
+              for (const voiceDelta of voiceTextStream.push(filteredDelta)) {
+                sawTextDelta = true;
+                void context.responseStream.push(voiceDelta).catch((error) => {
+                  if (
+                    context.abortSignal.aborted ||
+                    isVoiceRelayDisconnectedError(error)
+                  ) {
+                    return;
+                  }
+                  logger.debug(
+                    { error, callSid: context.callSid, channelId },
+                    'Voice text delta streaming failed',
+                  );
+                });
+              }
+            },
+            onProactiveMessage: async (message) => {
+              logger.debug(
+                {
+                  callSid: context.callSid,
+                  artifactCount: message.artifacts?.length || 0,
+                },
+                'Skipping proactive voice follow-up',
+              );
+            },
+            resultTransform: (result) => normalizePendingApprovalReply(result),
+          });
+          if (!result) {
+            return;
+          }
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayFailure(result.error));
+            return;
+          }
+
+          const trailingDelta = streamFilter.flush();
+          if (trailingDelta) {
+            for (const voiceDelta of voiceTextStream.push(trailingDelta)) {
+              sawTextDelta = true;
+              await context.responseStream.push(voiceDelta).catch((error) => {
+                if (
+                  context.abortSignal.aborted ||
+                  isVoiceRelayDisconnectedError(error)
+                ) {
+                  return;
+                }
+                throw error;
+              });
+            }
+          }
+
+          for (const voiceDelta of voiceTextStream.flush()) {
+            sawTextDelta = true;
+            await context.responseStream.push(voiceDelta).catch((error) => {
+              if (
+                context.abortSignal.aborted ||
+                isVoiceRelayDisconnectedError(error)
+              ) {
+                return;
+              }
+              throw error;
+            });
+          }
+
+          if (isSilentReply(result.result)) {
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          if (!sawTextDelta && cleanedResultText.trim()) {
+            await reply(cleanedResultText);
+          }
+        } catch (error) {
+          if (
+            context.abortSignal.aborted ||
+            isVoiceRelayDisconnectedError(error)
+          ) {
+            logger.debug(
+              { sessionId, channelId, callSid: context.callSid },
+              'Voice message handling aborted after relay disconnect',
+            );
+            return;
+          }
+          logger.error(
+            { error, sessionId, channelId, callSid: context.callSid },
+            'Voice message handling failed',
+          );
+          try {
+            await reply(formatChannelGatewayFailure('Response interrupted.'));
+          } catch (replyError) {
+            if (
+              !context.abortSignal.aborted &&
+              !isVoiceRelayDisconnectedError(replyError)
+            ) {
+              throw replyError;
+            }
+          }
+        }
+      },
+    );
+    logger.info(
+      {
+        provider: voiceConfig.provider,
+        webhookPath: voiceConfig.webhookPath,
+        maxConcurrentCalls: voiceConfig.maxConcurrentCalls,
+      },
+      'Voice integration started inside gateway',
+    );
+    return true;
+  } catch (error) {
+    logger.warn({ error }, 'Voice integration failed to start');
+    return false;
+  }
+}
+
+async function refreshVoiceIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasVoiceConfigChanged(next.voice, prev.voice)) return;
+  const sharedTwilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
+  const configTwilioAuthToken = String(
+    next.voice.twilio.authToken || '',
+  ).trim();
+  const accountSidConfigured = Boolean(next.voice.twilio.accountSid.trim());
+  const fromNumberConfigured = Boolean(next.voice.twilio.fromNumber.trim());
+
+  logger.info(
+    {
+      enabled: next.voice.enabled,
+      provider: next.voice.provider,
+      webhookPath: next.voice.webhookPath,
+      maxConcurrentCalls: next.voice.maxConcurrentCalls,
+    },
+    'Config changed, restarting Voice integration',
+  );
+  await shutdownVoice().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Voice runtime during config-change restart',
+    );
+  });
+  if (
+    next.voice.enabled &&
+    next.voice.provider === 'twilio' &&
+    accountSidConfigured &&
+    fromNumberConfigured &&
+    !sharedTwilioAuthToken
+  ) {
+    logger.warn(
+      {
+        accountSidConfigured,
+        authTokenConfigured: false,
+        configAuthTokenConfigured: Boolean(configTwilioAuthToken),
+        fromNumberConfigured,
+        sharedAuthTokenConfigured: false,
+      },
+      configTwilioAuthToken
+        ? 'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes'
+        : 'Config changed, leaving Voice integration stopped: Twilio auth token missing after reload',
+    );
+    return;
+  }
+  await startVoiceIntegration();
+}
+
 async function startIMessageIntegration(): Promise<boolean> {
   const imessageConfig = getConfigSnapshot().imessage;
   if (!imessageConfig.enabled) {
@@ -2192,6 +2517,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
         'Failed to stop WhatsApp runtime during shutdown',
       );
     });
+    await shutdownVoice({ drain: opts?.drain }).catch((error) => {
+      logger.debug({ error }, 'Failed to stop Voice runtime during shutdown');
+    });
     await shutdownIMessage().catch((error) => {
       logger.debug(
         { error },
@@ -2219,6 +2547,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     });
     stopScheduler();
     stopMemoryConsolidationScheduler();
+    await shutdownOtel().catch((error) => {
+      logger.debug({ error }, 'Failed to shut down OTel during shutdown');
+    });
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -2403,6 +2734,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 }
 
 async function main(): Promise<void> {
+  await initOtel();
   logger.info('Starting HybridClaw gateway');
   initDatabase();
   listAgents();
@@ -2419,6 +2751,7 @@ async function main(): Promise<void> {
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
   const whatsappActive = await startWhatsAppIntegration();
+  const voiceActive = await startVoiceIntegration();
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
@@ -2449,6 +2782,12 @@ async function main(): Promise<void> {
       logger.warn(
         { error },
         'Slack integration restart failed after config change',
+      );
+    });
+    void refreshVoiceIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Voice integration restart failed after config change',
       );
     });
 
@@ -2535,6 +2874,7 @@ async function main(): Promise<void> {
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,
+      voice: voiceActive,
       whatsapp: whatsappActive,
     },
   });
