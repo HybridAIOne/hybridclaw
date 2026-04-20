@@ -72,6 +72,8 @@ test('prefers the longest matching workspace display root when remapping', () =>
 });
 
 test('preserves host artifact paths when the real workspace already lives under /workspace', () => {
+  // No filesystem setup is needed here because remapOutputArtifacts only
+  // normalizes and resolves the path string; it does not stat the workspace.
   const workspacePath = '/workspace/.data/data/agents/main/workspace';
   const output: ContainerOutput = {
     status: 'success',

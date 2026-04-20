@@ -197,7 +197,7 @@ function resolveRootBoundPath(
     if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
       return resolvedActual;
     }
-    return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;
+    return null;
   }
 
   let clean = path.posix.normalize(normalizedInput);
