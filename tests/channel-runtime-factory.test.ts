@@ -41,7 +41,7 @@ test('shutdown invalidates init before runtime side effects begin', async () => 
   const resolveConfigGate = createDeferred<void>();
   const start = vi.fn(async () => {});
 
-  const runtime = createChannelRuntime<void, void>({
+  const runtime = createChannelRuntime<void>({
     kind: 'email',
     capabilities: EMAIL_CAPABILITIES,
     resolveConfig: async () => {
@@ -71,7 +71,7 @@ test('shutdown prevents a late init completion from sticking', async () => {
     await releaseFirstStart.promise;
   });
 
-  const runtime = createChannelRuntime<void, void>({
+  const runtime = createChannelRuntime<void>({
     kind: 'email',
     capabilities: EMAIL_CAPABILITIES,
     start,

@@ -7,14 +7,69 @@ type Registration =
   | { id?: string | null; capabilities?: ChannelInfo['capabilities'] }
   | null
   | undefined;
-type RuntimeOptions<Handler, Config, Args extends unknown[]> = {
+type BaseRuntimeOptions<Args extends unknown[]> = {
   kind: ChannelKind;
   capabilities: ChannelInfo['capabilities'];
-  resolveConfig?: () => MaybePromise<Config>;
-  resolveRegistration?: (config: Config) => MaybePromise<Registration>;
-  start: (params: { handler: Handler; config: Config }) => MaybePromise<void>;
   cleanup?: (...args: Args) => MaybePromise<void>;
 };
+type RuntimeOptionsWithoutConfig<
+  Handler,
+  Args extends unknown[],
+> = BaseRuntimeOptions<Args> & {
+  resolveConfig?: undefined;
+  resolveRegistration?: () => MaybePromise<Registration>;
+  start: (params: { handler: Handler }) => MaybePromise<void>;
+};
+type RuntimeOptionsWithConfig<
+  Handler,
+  Config,
+  Args extends unknown[],
+> = BaseRuntimeOptions<Args> & {
+  resolveConfig: () => MaybePromise<Config>;
+  resolveRegistration?: (config: Config) => MaybePromise<Registration>;
+  start: (params: { handler: Handler; config: Config }) => MaybePromise<void>;
+};
+type RuntimeOptions<Handler, Config, Args extends unknown[]> =
+  | RuntimeOptionsWithoutConfig<Handler, Args>
+  | RuntimeOptionsWithConfig<Handler, Config, Args>;
+type RuntimeLifecycle<Handler, Args extends unknown[]> = {
+  init: (handler: Handler) => Promise<void>;
+  shutdown: (...args: Args) => Promise<void>;
+};
+
+function registerResolvedChannel(
+  kind: ChannelKind,
+  capabilities: ChannelInfo['capabilities'],
+  registration: Registration,
+): void {
+  const resolved =
+    typeof registration === 'string' ? { id: registration } : registration;
+  registerChannel({
+    kind,
+    id: String(resolved?.id || kind).trim() || kind,
+    capabilities: resolved?.capabilities || capabilities,
+  });
+}
+
+function hasResolvedConfig<Handler, Config, Args extends unknown[]>(
+  options: RuntimeOptions<Handler, Config, Args>,
+): options is RuntimeOptionsWithConfig<Handler, Config, Args> {
+  return typeof options.resolveConfig === 'function';
+}
+
+export function createChannelRuntime<
+  Handler = void,
+  Args extends unknown[] = [],
+>(
+  options: RuntimeOptionsWithoutConfig<Handler, Args>,
+): RuntimeLifecycle<Handler, Args>;
+export function createChannelRuntime<
+  Handler,
+  Config,
+  Args extends unknown[] = [],
+>(
+  options: RuntimeOptionsWithConfig<Handler, Config, Args>,
+): RuntimeLifecycle<Handler, Args>;
 
 export function createChannelRuntime<
   Handler = void,
@@ -32,22 +87,27 @@ export function createChannelRuntime<
       if (!initializing) {
         const initGeneration = generation;
         const initPromise = (async () => {
-          const config = await options.resolveConfig?.();
-          if (initGeneration !== generation) return;
-          const registration = await options.resolveRegistration?.(
-            config as Config,
-          );
-          if (initGeneration !== generation) return;
-          const resolved =
-            typeof registration === 'string'
-              ? { id: registration }
-              : registration;
-          registerChannel({
-            kind: options.kind,
-            id: String(resolved?.id || options.kind).trim() || options.kind,
-            capabilities: resolved?.capabilities || options.capabilities,
-          });
-          await options.start({ handler, config: config as Config });
+          if (hasResolvedConfig(options)) {
+            const config = await options.resolveConfig();
+            if (initGeneration !== generation) return;
+            const registration = await options.resolveRegistration?.(config);
+            if (initGeneration !== generation) return;
+            registerResolvedChannel(
+              options.kind,
+              options.capabilities,
+              registration,
+            );
+            await options.start({ handler, config });
+          } else {
+            const registration = await options.resolveRegistration?.();
+            if (initGeneration !== generation) return;
+            registerResolvedChannel(
+              options.kind,
+              options.capabilities,
+              registration,
+            );
+            await options.start({ handler });
+          }
           if (initGeneration !== generation) {
             if (shutdownArgs) {
               await options.cleanup?.(...shutdownArgs);
