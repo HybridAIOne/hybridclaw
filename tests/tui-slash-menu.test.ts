@@ -42,6 +42,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve session [approval_id]');
   expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
+  expect(labels).toContain('/steer <note>');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|plugin-id|npm-spec>');

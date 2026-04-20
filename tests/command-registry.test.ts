@@ -755,6 +755,39 @@ test('builds local session help entries from the registry with surface filtering
   );
 });
 
+test('registers steer as a canonical slash/text command and parses its note payload', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildLocalSessionSlashHelpEntries,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('steer')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'steer',
+    ),
+  ).toBe(true);
+  expect(
+    buildLocalSessionSlashHelpEntries('web').some(
+      (entry) => entry.command === '/steer <note>',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'steer',
+      getString: (name) =>
+        name === 'note' ? 'Use the smaller diff first.' : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['steer', 'Use the smaller diff first.']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['steer', 'use', 'smaller', 'diff']),
+  ).toEqual(['steer', 'use', 'smaller', 'diff']);
+});
+
 test('registers policy as a local-only slash command and parses slash args', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,

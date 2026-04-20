@@ -320,6 +320,7 @@ import {
 import {
   getFullAutoRuntimeState,
   isFullAutoEnabled,
+  noteFullAutoSupervisedIntervention,
   type ProactiveMessagePayload,
   resolveSessionRalphIterations,
 } from './fullauto-runtime.js';
@@ -345,7 +346,10 @@ import {
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
-import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
+import {
+  enqueueGatewaySessionSteeringNote,
+  interruptGatewaySessionExecution,
+} from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
@@ -7611,6 +7615,33 @@ export async function handleGatewayCommand(
           req,
           prompt,
         });
+      }
+
+      case 'steer': {
+        const note = req.args.slice(1).join(' ').trim();
+        if (!note) {
+          return badCommand('Usage', 'Usage: `steer <note>`');
+        }
+
+        const queued = enqueueGatewaySessionSteeringNote({
+          sessionId: req.sessionId,
+          note,
+        });
+        if (queued.queued === 0) {
+          return badCommand(
+            'No Active Run',
+            'No active session run to steer. Send a normal message or start a task first.',
+          );
+        }
+
+        noteFullAutoSupervisedIntervention({
+          session,
+          content: note,
+          source: 'steer',
+        });
+        return plainCommand(
+          `Queued steering note for ${queued.queued === 1 ? 'the active run' : `${queued.queued} active runs`}. It will be delivered at the next tool checkpoint or before the turn finishes.`,
+        );
       }
 
       case 'show': {

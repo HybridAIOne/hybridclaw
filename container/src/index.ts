@@ -13,7 +13,7 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { takePendingSteeringNotes, waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -49,6 +49,12 @@ import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
 } from './stalled-turns.js';
+import {
+  appendSteeringCheckpointMessage,
+  appendSteeringNotesToToolMessages,
+  buildSteeringCheckpointPrompt,
+  type QueuedSteeringNote,
+} from './steering.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -405,6 +411,16 @@ function replaceLatestUserPrompt(
   return [...messages, { role: 'user', content: prompt }];
 }
 
+function logQueuedSteeringDelivery(
+  notes: QueuedSteeringNote[],
+  mode: 'fallback' | 'tool',
+): void {
+  if (notes.length === 0) return;
+  console.error(
+    `[steer] injected ${notes.length} queued note${notes.length === 1 ? '' : 's'} via ${mode}`,
+  );
+}
+
 function normalizeRalphMaxExtraIterations(
   value: number | null | undefined,
 ): number {
@@ -530,6 +546,7 @@ interface PreparedToolCallExecution {
 }
 
 interface CompletedToolCallExecution {
+  callId: string;
   toolName: string;
   argsJson: string;
   result: string;
@@ -576,6 +593,17 @@ function appendCompletedToolCall(params: {
     params.completed.argsJson,
     params.completed.result,
     params.completed.isError,
+  );
+}
+
+function retainCompletedAssistantToolCalls(
+  assistantMessage: ChatMessage,
+  completedCallIds: string[],
+): void {
+  if (!assistantMessage.tool_calls?.length) return;
+  const completed = new Set(completedCallIds);
+  assistantMessage.tool_calls = assistantMessage.tool_calls.filter((call) =>
+    completed.has(call.id),
   );
 }
 
@@ -664,6 +692,7 @@ async function executePreparedToolCall(
   );
 
   return {
+    callId: call.id,
     toolName,
     argsJson,
     result,
@@ -885,13 +914,13 @@ async function processRequest(
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
   const tokenUsage = createTokenUsageStats();
-  const effectiveUserPrompt =
+  let effectiveUserPrompt =
     effectiveUserPromptOverride || latestUserPrompt(messages);
   const ralphMaxExtraIterations = normalizeRalphMaxExtraIterations(
     ralphMaxIterationsOverride,
   );
   const ralphEnabled = ralphMaxExtraIterations !== 0;
-  const ralphSeedPrompt = ralphEnabled ? effectiveUserPrompt : '';
+  let ralphSeedPrompt = ralphEnabled ? effectiveUserPrompt : '';
   const maxStalledTurns = resolveMaxStalledTurns(ralphMaxExtraIterations);
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
@@ -900,7 +929,58 @@ async function processRequest(
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
-  while (stalledTurns < maxStalledTurns) {
+  const updateSteeringState = (nextEffectiveUserPrompt: string): void => {
+    effectiveUserPrompt = nextEffectiveUserPrompt;
+    if (ralphEnabled) {
+      ralphSeedPrompt = effectiveUserPrompt;
+    }
+    stalledTurns = 0;
+  };
+
+  const applyQueuedSteeringFallback = (): boolean => {
+    const notes = takePendingSteeringNotes();
+    if (notes.length === 0) return false;
+    const steeringPrompt = appendSteeringCheckpointMessage({
+      history,
+      notes,
+    });
+    if (!steeringPrompt) return false;
+    logQueuedSteeringDelivery(notes, 'fallback');
+    updateSteeringState(latestUserPrompt(history));
+    return true;
+  };
+
+  const applyQueuedSteeringToRecentToolMessages = (
+    recentToolMessageCount: number,
+  ): boolean => {
+    const notes = takePendingSteeringNotes();
+    if (notes.length === 0) return false;
+    const marker = appendSteeringNotesToToolMessages({
+      history,
+      notes,
+      recentToolMessageCount,
+    });
+    if (!marker) {
+      const steeringPrompt = appendSteeringCheckpointMessage({
+        history,
+        notes,
+      });
+      if (!steeringPrompt) return false;
+      logQueuedSteeringDelivery(notes, 'fallback');
+      updateSteeringState(latestUserPrompt(history));
+      return true;
+    }
+    logQueuedSteeringDelivery(notes, 'tool');
+    const steeringPrompt = buildSteeringCheckpointPrompt(notes);
+    updateSteeringState(
+      steeringPrompt
+        ? `${effectiveUserPrompt}\n\n${steeringPrompt}`.trim()
+        : effectiveUserPrompt,
+    );
+    return true;
+  };
+
+  requestLoop: while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: contextWindow,
@@ -1066,6 +1146,7 @@ async function processRequest(
     }
 
     const toolCalls = choice.message.tool_calls || [];
+    const executedToolCallIds: string[] = [];
     const invalidToolCallError = validateStructuredToolCalls(toolCalls);
     if (invalidToolCallError) {
       console.error(
@@ -1130,6 +1211,9 @@ async function processRequest(
       return failed;
     }
     if (toolCalls.length === 0) {
+      if (applyQueuedSteeringFallback()) {
+        continue;
+      }
       if (ralphEnabled) {
         const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
@@ -1312,6 +1396,7 @@ async function processRequest(
             if (completed.succeeded) {
               successfulToolCallsThisTurn += 1;
             }
+            executedToolCallIds.push(completed.callId);
             appendCompletedToolCall({
               completed,
               toolsUsed,
@@ -1321,6 +1406,13 @@ async function processRequest(
               artifacts,
               artifactPaths,
             });
+          }
+          if (applyQueuedSteeringToRecentToolMessages(preparedBatch.length)) {
+            retainCompletedAssistantToolCalls(
+              assistantMessage,
+              executedToolCallIds,
+            );
+            continue requestLoop;
           }
           callIndex += preparedBatch.length;
           continue;
@@ -1447,6 +1539,7 @@ async function processRequest(
       if (completed.succeeded) {
         successfulToolCallsThisTurn += 1;
       }
+      executedToolCallIds.push(completed.callId);
       appendCompletedToolCall({
         completed,
         toolsUsed,
@@ -1456,6 +1549,13 @@ async function processRequest(
         artifacts,
         artifactPaths,
       });
+      if (applyQueuedSteeringToRecentToolMessages(1)) {
+        retainCompletedAssistantToolCalls(
+          assistantMessage,
+          executedToolCallIds,
+        );
+        continue requestLoop;
+      }
       callIndex += 1;
     }
     stalledTurns = advanceStalledTurnCount({

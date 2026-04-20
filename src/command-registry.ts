@@ -87,6 +87,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'status',
   'memory',
   'show',
+  'steer',
   'approve',
   'usage',
   'export',
@@ -271,6 +272,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   schedule: {
     command: '/schedule add "<cron>" <prompt>',
     description: 'Add a scheduled task',
+  },
+  steer: {
+    command: '/steer <note>',
+    description: 'Queue a steering note for the active run',
   },
   secret: {
     command: '/secret [list|set|show|unset|route]',
@@ -459,6 +464,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'show':
       return parts.length > 1 ? ['show', ...parts.slice(1)] : ['show'];
+
+    case 'steer':
+      return parts.length > 1 ? ['steer', ...parts.slice(1)] : ['steer'];
 
     case 'channel-mode':
       return ['channel', 'mode', ...parts.slice(1)];
@@ -691,6 +699,23 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'none',
           description: 'Hide thinking and tool activity',
+        },
+      ],
+    },
+    {
+      name: 'steer',
+      description:
+        'Queue a steering note for the active run without interrupting the turn',
+      tuiMenu: {
+        label: '/steer <note>',
+        insertText: '/steer ',
+      },
+      options: [
+        {
+          kind: 'string',
+          name: 'note',
+          description: 'Steering note to inject at the next safe checkpoint',
+          required: true,
         },
       ],
     },
@@ -2671,6 +2696,11 @@ export function parseCanonicalSlashCommandArgs(
         return ['show', subcommand];
       }
       return null;
+    }
+
+    case 'steer': {
+      const note = normalizeStringOption(interaction, 'note', true);
+      return note ? ['steer', note] : null;
     }
 
     case 'approve': {
