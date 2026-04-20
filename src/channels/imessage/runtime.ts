@@ -5,7 +5,7 @@ import { logger } from '../../logger.js';
 import { memoryService } from '../../memory/memory-service.js';
 import { parseSessionKey } from '../../session/session-key.js';
 import { IMESSAGE_CAPABILITIES } from '../channel.js';
-import { registerChannel } from '../channel-registry.js';
+import { createChannelRuntime } from '../channel-runtime-factory.js';
 import type { IMessageMediaSendParams } from './backend.js';
 import { createBlueBubblesIMessageBackend } from './backend-bluebubbles.js';
 import { createLocalIMessageBackend } from './backend-local.js';
@@ -20,17 +20,6 @@ import {
   type IMessageLocalSelfChatMetadata,
 } from './self-chat-guard.js';
 import type { IMessageMessageHandler, IMessageReplyFn } from './types.js';
-
-export interface IMessageRuntime {
-  initIMessage: (messageHandler: IMessageMessageHandler) => Promise<void>;
-  sendToIMessageChat: (target: string, text: string) => Promise<void>;
-  sendIMessageMediaToChat: (params: IMessageMediaSendParams) => Promise<void>;
-  handleIMessageWebhook: (
-    req: IncomingMessage,
-    res: ServerResponse,
-  ) => Promise<boolean>;
-  shutdownIMessage: () => Promise<void>;
-}
 
 const SELF_CHAT_REPLY_PREFIX_RE = /^\[[^\]]+\](?:\s|$)/i;
 const IMESSAGE_NOOP_ABORT_SIGNAL = new AbortController().signal;
@@ -64,7 +53,7 @@ function formatSelfChatReply(content: string, sessionId: string): string {
   return trimmed ? `${prefix} ${trimmed}` : prefix;
 }
 
-export function createIMessageRuntime(): IMessageRuntime {
+export function createIMessageRuntime() {
   let backend:
     | ReturnType<typeof createLocalIMessageBackend>
     | ReturnType<typeof createBlueBubblesIMessageBackend>
@@ -73,7 +62,6 @@ export function createIMessageRuntime(): IMessageRuntime {
     null;
   let selfChatGuard: ReturnType<typeof createIMessageSelfChatGuard> | null =
     null;
-  let runtimeInitialized = false;
 
   const readLocalSelfChatMetadata = (
     message: IMessageInboundBatch,
@@ -188,24 +176,30 @@ export function createIMessageRuntime(): IMessageRuntime {
       },
     );
   };
-
-  const runtime: IMessageRuntime = {
-    async initIMessage(messageHandler: IMessageMessageHandler): Promise<void> {
-      if (runtimeInitialized) return;
-      runtimeInitialized = true;
+  const runtimeLifecycle = createChannelRuntime<IMessageMessageHandler>({
+    kind: 'imessage',
+    capabilities: IMESSAGE_CAPABILITIES,
+    start: async ({ handler }) => {
       selfChatGuard = createIMessageSelfChatGuard({
         resolveReplyPrefix: resolveSelfChatReplyPrefix,
       });
       inboundDebouncer = createIMessageDebouncer(async (batch) => {
-        await dispatchInboundBatch(batch, messageHandler);
+        await dispatchInboundBatch(batch, handler);
       });
-      registerChannel({
-        kind: 'imessage',
-        id: 'imessage',
-        capabilities: IMESSAGE_CAPABILITIES,
-      });
-      await ensureBackend(messageHandler).start();
+      await ensureBackend(handler).start();
     },
+    cleanup: async () => {
+      await inboundDebouncer?.flushAll();
+      await backend?.shutdown();
+      inboundDebouncer = null;
+      selfChatGuard?.clear();
+      selfChatGuard = null;
+      backend = null;
+    },
+  });
+
+  const runtime = {
+    initIMessage: runtimeLifecycle.init,
     async sendToIMessageChat(target: string, text: string): Promise<void> {
       const refs = await ensureBackend().sendText(target, text);
       selfChatGuard?.rememberOutbound(refs);
@@ -232,15 +226,7 @@ export function createIMessageRuntime(): IMessageRuntime {
       }
       return await activeBackend.handleWebhook(req, res);
     },
-    async shutdownIMessage(): Promise<void> {
-      await inboundDebouncer?.flushAll();
-      await backend?.shutdown();
-      inboundDebouncer = null;
-      selfChatGuard?.clear();
-      selfChatGuard = null;
-      backend = null;
-      runtimeInitialized = false;
-    },
+    shutdownIMessage: runtimeLifecycle.shutdown,
   };
 
   return runtime;

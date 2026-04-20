@@ -3,7 +3,7 @@ import { getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { WHATSAPP_CAPABILITIES } from '../channel.js';
-import { registerChannel } from '../channel-registry.js';
+import { createChannelRuntime } from '../channel-runtime-factory.js';
 import {
   createWhatsAppConnectionManager,
   type WhatsAppConnectionManager,
@@ -58,13 +58,6 @@ export interface WhatsAppMediaSendParams {
   caption?: string;
 }
 
-export interface WhatsAppRuntime {
-  initWhatsApp: (messageHandler: WhatsAppMessageHandler) => Promise<void>;
-  sendToWhatsAppChat: (jid: string, text: string) => Promise<void>;
-  sendWhatsAppMediaToChat: (params: WhatsAppMediaSendParams) => Promise<void>;
-  shutdownWhatsApp: () => Promise<void>;
-}
-
 const SELF_CHAT_REPLY_PREFIX = '[hybridclaw]';
 const APPEND_RECENT_GRACE_MS = 60_000;
 const SELF_CHAT_REPLY_PREFIX_RE = new RegExp(
@@ -110,13 +103,12 @@ function buildReactionCleanupTargets(
   return targets;
 }
 
-export function createWhatsAppRuntime(): WhatsAppRuntime {
+export function createWhatsAppRuntime() {
   let connectionManager: WhatsAppConnectionManager | null = null;
   let inboundDebouncer: ReturnType<typeof createWhatsAppDebouncer> | null =
     null;
   let selfEchoCache: ReturnType<typeof createWhatsAppSelfEchoCache> | null =
     null;
-  let runtimeInitialized = false;
 
   const sendTextToChat = async (jid: string, text: string): Promise<void> => {
     const manager = ensureConnectionManager();
@@ -332,17 +324,28 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
 
     await dispatchInboundBatch(batch, messageHandler);
   };
-
-  return {
-    async initWhatsApp(messageHandler: WhatsAppMessageHandler): Promise<void> {
-      if (runtimeInitialized) return;
-      runtimeInitialized = true;
+  const runtimeLifecycle = createChannelRuntime<WhatsAppMessageHandler>({
+    kind: 'whatsapp',
+    capabilities: WHATSAPP_CAPABILITIES,
+    start: async ({ handler }) => {
       selfEchoCache = createWhatsAppSelfEchoCache();
       inboundDebouncer = createWhatsAppDebouncer(async (batch) => {
-        await dispatchInboundBatch(batch, messageHandler);
+        await dispatchInboundBatch(batch, handler);
       });
-      await ensureConnectionManager(messageHandler).start();
+      await ensureConnectionManager(handler).start();
     },
+    cleanup: async () => {
+      await inboundDebouncer?.flushAll();
+      await connectionManager?.stop();
+      selfEchoCache?.clear();
+      inboundDebouncer = null;
+      connectionManager = null;
+      selfEchoCache = null;
+    },
+  });
+
+  return {
+    initWhatsApp: runtimeLifecycle.init,
     async sendToWhatsAppChat(jid: string, text: string): Promise<void> {
       await sendTextToChat(jid, text);
     },
@@ -351,48 +354,27 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
     ): Promise<void> {
       await sendMediaToChat(params);
     },
-    async shutdownWhatsApp(): Promise<void> {
-      await inboundDebouncer?.flushAll();
-      await connectionManager?.stop();
-      selfEchoCache?.clear();
-      inboundDebouncer = null;
-      connectionManager = null;
-      selfEchoCache = null;
-      runtimeInitialized = false;
-    },
+    shutdownWhatsApp: runtimeLifecycle.shutdown,
   };
 }
 
-let defaultRuntime: WhatsAppRuntime | null = null;
+let defaultRuntime: ReturnType<typeof createWhatsAppRuntime> | null = null;
 
-function ensureDefaultRuntime(): WhatsAppRuntime {
+function ensureDefaultRuntime(): ReturnType<typeof createWhatsAppRuntime> {
   defaultRuntime ??= createWhatsAppRuntime();
   return defaultRuntime;
 }
 
-export async function initWhatsApp(
+export const initWhatsApp = (
   messageHandler: WhatsAppMessageHandler,
-): Promise<void> {
-  registerChannel({
-    kind: 'whatsapp',
-    id: 'whatsapp',
-    capabilities: WHATSAPP_CAPABILITIES,
-  });
-  await ensureDefaultRuntime().initWhatsApp(messageHandler);
-}
+): Promise<void> => ensureDefaultRuntime().initWhatsApp(messageHandler);
 
-export async function sendToWhatsAppChat(
-  jid: string,
-  text: string,
-): Promise<void> {
-  await ensureDefaultRuntime().sendToWhatsAppChat(jid, text);
-}
+export const sendToWhatsAppChat = (jid: string, text: string): Promise<void> =>
+  ensureDefaultRuntime().sendToWhatsAppChat(jid, text);
 
-export async function sendWhatsAppMediaToChat(
+export const sendWhatsAppMediaToChat = (
   params: WhatsAppMediaSendParams,
-): Promise<void> {
-  await ensureDefaultRuntime().sendWhatsAppMediaToChat(params);
-}
+): Promise<void> => ensureDefaultRuntime().sendWhatsAppMediaToChat(params);
 
 export async function shutdownWhatsApp(): Promise<void> {
   const runtime = defaultRuntime;
