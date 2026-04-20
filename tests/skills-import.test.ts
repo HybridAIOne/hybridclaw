@@ -417,6 +417,15 @@ description: Kubernetes helper skill.
     expect(arrayBufferSpy).not.toHaveBeenCalled();
   });
 
+  test('applies the shared file-count import budget', async () => {
+    const { assertImportBudget } = await import(
+      '../src/skills/skill-import-commons.ts'
+    );
+    expect(() =>
+      assertImportBudget({ fileCount: 256, totalBytes: 0 }, 1),
+    ).toThrow('Remote skill exceeds the 256-file import limit.');
+  });
+
   test('shares one budget across GitHub candidate retries', async () => {
     const { importSkill } = await import('../src/skills/skills-import.ts');
 

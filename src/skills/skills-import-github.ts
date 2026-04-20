@@ -5,11 +5,15 @@ import type { Readable } from 'node:stream';
 
 import * as yauzl from 'yauzl';
 import { SkillImportError, SkillImportNotFoundError } from './skill-errors.js';
+import {
+  assertImportBudget,
+  type ImportState,
+  MAX_IMPORT_TOTAL_BYTES,
+  recordImportedFile,
+} from './skill-import-commons.js';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const GITHUB_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
-const MAX_IMPORT_FILE_COUNT = 256;
-const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 512 * 1024;
 
 interface GitHubRepoMetadata {
@@ -21,11 +25,6 @@ interface GitHubContentsEntry {
   path?: unknown;
   type?: unknown;
   download_url?: unknown;
-}
-
-interface ImportState {
-  fileCount: number;
-  totalBytes: number;
 }
 
 interface GitHubArchiveEntryInfo {
@@ -177,25 +176,6 @@ function assertSafeRelativePath(relativePath: string): void {
   ) {
     throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
   }
-}
-
-function assertImportBudget(state: ImportState, bytes: number): void {
-  if (state.fileCount + 1 > MAX_IMPORT_FILE_COUNT) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_FILE_COUNT}-file import limit.`,
-    );
-  }
-  if (state.totalBytes + bytes > MAX_IMPORT_TOTAL_BYTES) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_TOTAL_BYTES} byte import limit.`,
-    );
-  }
-}
-
-function recordImportedFile(state: ImportState, bytes: number): void {
-  assertImportBudget(state, bytes);
-  state.fileCount += 1;
-  state.totalBytes += bytes;
 }
 
 async function downloadBytes(

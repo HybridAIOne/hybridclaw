@@ -7,6 +7,10 @@ import { logger } from '../logger.js';
 import { sleep } from '../utils/sleep.js';
 import { SkillImportError } from './skill-errors.js';
 import {
+  type ImportState,
+  recordImportedFile,
+} from './skill-import-commons.js';
+import {
   type GitHubSkillImportSource,
   normalizeImportedSkillRelativePath,
   populateFromGitHubSource,
@@ -20,8 +24,6 @@ const KNOWN_CLAUDE_MARKETPLACES = [
   'anthropics/skills',
   'aiskillstore/marketplace',
 ];
-const MAX_IMPORT_FILE_COUNT = 256;
-const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 
 const RETRY_MAX_RETRIES = 3;
 const RETRY_INITIAL_DELAY_MS = 1000;
@@ -52,11 +54,6 @@ function computeRetryBackoffMs(
   const jitterFactor = 1 + (Math.random() * 2 - 1) * RETRY_JITTER_RATIO;
   const jitteredBackoffMs = Math.round(cappedBackoffMs * jitterFactor);
   return Math.min(Math.max(jitteredBackoffMs, 0), RETRY_MAX_DELAY_MS);
-}
-
-interface ImportState {
-  fileCount: number;
-  totalBytes: number;
 }
 
 interface WellKnownSkillEntry {
@@ -267,21 +264,6 @@ function assertSafeRelativePath(relativePath: string): void {
   ) {
     throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
   }
-}
-
-function recordImportedFile(state: ImportState, bytes: number): void {
-  if (state.fileCount + 1 > MAX_IMPORT_FILE_COUNT) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_FILE_COUNT}-file import limit.`,
-    );
-  }
-  if (state.totalBytes + bytes > MAX_IMPORT_TOTAL_BYTES) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_TOTAL_BYTES} byte import limit.`,
-    );
-  }
-  state.fileCount += 1;
-  state.totalBytes += bytes;
 }
 
 function writeImportedFile(
