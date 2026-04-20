@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
+
+### Added
+
+- **Web chat conversation search**: The built-in `/chat` sidebar can now search
+  recent sessions by title and show contextual match snippets, making it much
+  easier to jump back into older browser conversations without paging through
+  the default recent list.
+
+### Changed
+
+- **Bundled PDF creation handles longer documents cleanly**:
+  `skills/pdf/scripts/create_pdf.mjs` now wraps long lines, respects explicit
+  `\n` line breaks, and adds pages automatically when content exceeds the
+  first page. The bundled PDF skill guidance and office-skills docs now call
+  out the improved layout behavior.
+
+### Fixed
+
+- **Browser chat stays keyboard-ready between turns**: Both the built-in web
+  chat and the console chat now restore focus to the composer after streamed
+  replies finish, so back-to-back prompts no longer require clicking back into
+  the input field.
+- **Artifact downloads survive custom workspace display roots**: Container
+  output artifacts are remapped against the active workspace path even when the
+  runtime exposes a different display root such as `/app`, keeping generated
+  files downloadable and attachable from chat surfaces.
+
 ## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
 
 ### Added

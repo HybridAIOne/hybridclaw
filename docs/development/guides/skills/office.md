@@ -28,6 +28,8 @@ with HybridClaw. No external CLI tools are required.
 >
 > Use `--json` on `extract_pdf_text.mjs` when you need structured downstream processing.
 >
+> The bundled `create_pdf.mjs` script wraps long lines, respects explicit `\n`, and adds pages automatically when content overflows the first page.
+>
 > When filling a fillable form, add `--flatten` so the values are baked into the page content and survive re-extraction.
 
 > 🎯 **Try it yourself**
