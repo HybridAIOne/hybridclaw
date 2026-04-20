@@ -16,6 +16,7 @@ describe.sequential('container bash tool persistence', () => {
 
   async function createBashTestRuntime(options?: {
     nested?: boolean;
+    persistBashState?: boolean;
     sessionId?: string;
   }): Promise<ToolsModule> {
     workspaceRoot = fs.mkdtempSync(
@@ -26,6 +27,9 @@ describe.sequential('container bash tool persistence', () => {
     }
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
     const loadedTools = await loadTools();
+    loadedTools.setPersistentBashStateEnabled(
+      options?.persistBashState !== false,
+    );
     if (options?.sessionId) {
       loadedTools.setSessionContext(options.sessionId);
     }
@@ -128,5 +132,28 @@ describe.sequential('container bash tool persistence', () => {
     );
 
     expect(result).toBe('(no output)');
+  });
+
+  test('starts each bash call fresh when persistent bash state is disabled', async () => {
+    const { executeTool } = await createBashTestRuntime({
+      nested: true,
+      persistBashState: false,
+      sessionId: `bash-session-stateless-${Date.now()}`,
+    });
+
+    await executeTool(
+      'bash',
+      bashCommand(
+        'cd nested && export HYBRIDCLAW_TEST_VAR=persisted && alias ll="printf alias-ok" && printf %s "$(basename "$PWD")"',
+      ),
+    );
+    const second = await executeTool(
+      'bash',
+      bashCommand('printf %s "$(basename "$PWD"):$HYBRIDCLAW_TEST_VAR"'),
+    );
+    const aliasResult = await executeTool('bash', bashCommand('ll'));
+
+    expect(second).toBe(`${path.basename(workspaceRoot)}:`);
+    expect(aliasResult).toContain('command not found');
   });
 });

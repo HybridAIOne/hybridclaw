@@ -80,6 +80,7 @@ import {
   getPluginToolDefinitions,
   resetPersistentBashSessions,
   resetSideEffects,
+  setPersistentBashStateEnabled,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
@@ -1548,6 +1549,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -1696,6 +1698,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,

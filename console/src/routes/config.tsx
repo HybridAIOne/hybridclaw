@@ -323,25 +323,6 @@ export function ConfigPage() {
                 </select>
               </label>
               <label className="field">
-                <span>Image</span>
-                <input
-                  value={draft.container.image}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            container: {
-                              ...current.container,
-                              image: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <label className="field">
                 <span>Memory</span>
                 <input
                   value={draft.container.memory}
@@ -360,6 +341,25 @@ export function ConfigPage() {
                   }
                 />
               </label>
+              <BooleanField
+                label="Persistent bash state"
+                value={draft.container.persistBashState}
+                trueLabel="on"
+                falseLabel="off"
+                onChange={(persistBashState) =>
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          container: {
+                            ...current.container,
+                            persistBashState,
+                          },
+                        }
+                      : current,
+                  )
+                }
+              />
             </section>
           </div>
         )}
