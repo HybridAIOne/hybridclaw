@@ -14,7 +14,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
-import { isExpectedTransportError } from './utils/transport-errors.js';
+import { isExpectedUncaughtTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -177,7 +177,7 @@ function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
 }
 
 function uncaughtExceptionHandler(err: Error) {
-  if (isExpectedTransportError(err)) {
+  if (isExpectedUncaughtTransportError(err)) {
     logger.warn(
       { err },
       'Handled expected transport exception without exiting',

@@ -22,6 +22,12 @@ const EXPECTED_TRANSPORT_ERROR_CODES = new Set([
 const EXPECTED_TRANSPORT_ERROR_MESSAGE_RE =
   /\b(opening handshake has timed out|client network socket disconnected|connect econnrefused|connect etimedout|connection reset|connection terminated|econnaborted|econnrefused|econnreset|ehostunreach|enetunreach|enotfound|eai_again|err_socket_closed|esockettimedout|etimedout|fetch failed|network error|opening handshake|read econnreset|socket hang up|und_err_body_timeout|und_err_connect_timeout|und_err_headers_timeout|und_err_socket|websocket (?:connection |client )?(?:closed|error|timed out))\b/i;
 
+// Keep the uncaught-exception matcher narrower than the general transport
+// classifier so process-level crash handling only suppresses highly specific
+// transient transport failures, not generic app errors mentioning "network".
+const EXPECTED_UNCAUGHT_TRANSPORT_ERROR_MESSAGE_RE =
+  /\b(opening handshake has timed out|client network socket disconnected|connect econnrefused|connect etimedout|connection reset|connection terminated|econnaborted|econnrefused|econnreset|ehostunreach|enetunreach|enotfound|eai_again|err_socket_closed|esockettimedout|etimedout|read econnreset|socket hang up|und_err_body_timeout|und_err_connect_timeout|und_err_headers_timeout|und_err_socket|websocket (?:connection |client )?(?:closed|timed out))\b/i;
+
 interface ErrorLike {
   cause?: unknown;
   code?: unknown;
@@ -169,19 +175,26 @@ export function describeExpectedTransportError(
   }
 }
 
-function hasExpectedTransportSignature(code: string, message: string): boolean {
+function hasExpectedTransportSignature(
+  code: string,
+  message: string,
+  messagePattern: RegExp,
+): boolean {
   return (
-    EXPECTED_TRANSPORT_ERROR_CODES.has(code) ||
-    EXPECTED_TRANSPORT_ERROR_MESSAGE_RE.test(message)
+    EXPECTED_TRANSPORT_ERROR_CODES.has(code) || messagePattern.test(message)
   );
 }
 
-export function isExpectedTransportError(error: unknown, depth = 0): boolean {
+function matchesExpectedTransportError(
+  error: unknown,
+  messagePattern: RegExp,
+  depth = 0,
+): boolean {
   if (depth > MAX_EXPECTED_TRANSPORT_ERROR_DEPTH || error == null) {
     return false;
   }
   if (typeof error === 'string') {
-    return hasExpectedTransportSignature('', error);
+    return hasExpectedTransportSignature('', error, messagePattern);
   }
   if (typeof error !== 'object') {
     return false;
@@ -193,18 +206,36 @@ export function isExpectedTransportError(error: unknown, depth = 0): boolean {
   const message =
     typeof candidate.message === 'string' ? candidate.message : '';
 
-  if (hasExpectedTransportSignature(code, message)) {
+  if (hasExpectedTransportSignature(code, message, messagePattern)) {
     return true;
   }
 
   if (
     Array.isArray(candidate.errors) &&
     candidate.errors.some((nested) =>
-      isExpectedTransportError(nested, depth + 1),
+      matchesExpectedTransportError(nested, messagePattern, depth + 1),
     )
   ) {
     return true;
   }
 
-  return isExpectedTransportError(candidate.cause, depth + 1);
+  return matchesExpectedTransportError(
+    candidate.cause,
+    messagePattern,
+    depth + 1,
+  );
+}
+
+export function isExpectedTransportError(error: unknown): boolean {
+  return matchesExpectedTransportError(
+    error,
+    EXPECTED_TRANSPORT_ERROR_MESSAGE_RE,
+  );
+}
+
+export function isExpectedUncaughtTransportError(error: unknown): boolean {
+  return matchesExpectedTransportError(
+    error,
+    EXPECTED_UNCAUGHT_TRANSPORT_ERROR_MESSAGE_RE,
+  );
 }

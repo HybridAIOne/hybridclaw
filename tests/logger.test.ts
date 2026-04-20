@@ -71,7 +71,8 @@ async function importFreshLogger() {
     onRuntimeConfigChange: vi.fn(),
   }));
   const module = await import('../src/logger.ts');
-  const listener = getHybridClawProcessListenerState()?.uncaughtExceptionHandler;
+  const listener =
+    getHybridClawProcessListenerState()?.uncaughtExceptionHandler;
   if (!listener) {
     throw new Error('Failed to register uncaughtExceptionHandler');
   }
@@ -213,7 +214,9 @@ describe('logger forced level override', () => {
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
     const fatalSpy = vi
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);
@@ -228,12 +231,36 @@ describe('logger forced level override', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
+  it('still exits on generic network errors in uncaughtException', async () => {
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    const fatalSpy = vi
+      .spyOn(logger, 'fatal')
+      .mockImplementation(() => undefined);
+
+    uncaughtExceptionHandler(new Error('network error'));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(fatalSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Uncaught exception',
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
   it('still exits on unexpected uncaught exceptions', async () => {
     const { logger, uncaughtExceptionHandler } = await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
     const fatalSpy = vi
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);

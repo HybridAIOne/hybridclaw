@@ -3,12 +3,18 @@ import { describe, expect, test } from 'vitest';
 import {
   describeExpectedTransportError,
   isExpectedTransportError,
+  isExpectedUncaughtTransportError,
 } from '../src/utils/transport-errors.ts';
 
 describe('isExpectedTransportError', () => {
   test('matches websocket handshake timeouts', () => {
     expect(
       isExpectedTransportError(new Error('Opening handshake has timed out')),
+    ).toBe(true);
+    expect(
+      isExpectedUncaughtTransportError(
+        new Error('Opening handshake has timed out'),
+      ),
     ).toBe(true);
   });
 
@@ -50,6 +56,13 @@ describe('isExpectedTransportError', () => {
         new Error('Cannot read properties of undefined'),
       ),
     ).toBe(false);
+  });
+
+  test('keeps the uncaught-exception matcher narrower than the general classifier', () => {
+    expect(isExpectedTransportError(new Error('network error'))).toBe(true);
+    expect(isExpectedUncaughtTransportError(new Error('network error'))).toBe(
+      false,
+    );
   });
 });
 
