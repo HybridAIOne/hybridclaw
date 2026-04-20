@@ -7163,14 +7163,17 @@ export async function handleGatewayCommand(
         if (!question) {
           return badCommand('Usage', 'Usage: `/btw <question>`');
         }
-        const output = await runBtwSideQuestion({ session, question });
-        if (output.kind === 'error') {
-          return badCommand(output.title || 'BTW Failed', output.text);
+        try {
+          return infoCommand(
+            'BTW',
+            await runBtwSideQuestion(session, question),
+          );
+        } catch (error) {
+          return badCommand(
+            'BTW Failed',
+            error instanceof Error ? error.message : String(error),
+          );
         }
-        if (output.kind === 'info') {
-          return infoCommand(output.title || 'BTW', output.text);
-        }
-        return plainCommand(output.text);
       }
 
       case 'model': {

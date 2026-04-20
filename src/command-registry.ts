@@ -113,6 +113,8 @@ const APPROVAL_ACTION_CHOICES = [
   { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
+const BTW_COMMAND_DESCRIPTION =
+  'Ask an ephemeral side question about the current session (no tools, not persisted)';
 
 const CHANNEL_MODE_CHOICES = [
   { name: 'off', value: 'off' },
@@ -212,8 +214,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   btw: {
     command: '/btw <question>',
-    description:
-      'Ask an ephemeral side question about the current session (no tools, not persisted)',
+    description: BTW_COMMAND_DESCRIPTION,
   },
   concierge: {
     command:
@@ -635,8 +636,7 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'btw',
-      description:
-        'Ask an ephemeral side question about the current session (no tools, not persisted)',
+      description: BTW_COMMAND_DESCRIPTION,
       options: [
         {
           kind: 'string',

@@ -5,6 +5,42 @@ import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-btw-',
 });
+const TEST_ACTOR = {
+  userId: 'test-user',
+  username: 'tester',
+} as const;
+
+async function loadGatewayFixture() {
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  return { memoryService, handleGatewayCommand };
+}
+
+function seedSession(
+  memoryService: typeof import('../src/memory/memory-service.ts').memoryService,
+  sessionId: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+) {
+  const session = memoryService.getOrCreateSession(
+    sessionId,
+    null,
+    'web',
+    undefined,
+  );
+  for (const message of messages) {
+    memoryService.storeMessage({
+      sessionId: session.id,
+      ...TEST_ACTOR,
+      ...message,
+    });
+  }
+  return session;
+}
 
 test('btw command answers side question using a tool-less model call', async () => {
   setupHome();
@@ -18,34 +54,17 @@ test('btw command answers side question using a tool-less model call', async () 
     callAuxiliaryModel: callAuxiliaryModelMock,
   }));
 
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { handleGatewayCommand } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
-
-  initDatabase({ quiet: true });
-
-  const session = memoryService.getOrCreateSession(
-    'session-btw',
-    null,
-    'web',
-    undefined,
-  );
-  memoryService.storeMessage({
-    sessionId: session.id,
-    userId: 'test-user',
-    username: 'tester',
-    role: 'user',
-    content: 'Please refactor src/foo.ts into smaller modules.',
-  });
-  memoryService.storeMessage({
-    sessionId: session.id,
-    userId: 'test-user',
-    username: 'tester',
-    role: 'assistant',
-    content: 'Working on the refactor now.',
-  });
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(memoryService, 'session-btw', [
+    {
+      role: 'user',
+      content: 'Please refactor src/foo.ts into smaller modules.',
+    },
+    {
+      role: 'assistant',
+      content: 'Working on the refactor now.',
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: session.id,
@@ -88,12 +107,7 @@ test('btw command answers side question using a tool-less model call', async () 
 test('btw command without a question returns a usage error', async () => {
   setupHome();
 
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { handleGatewayCommand } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
-
-  initDatabase({ quiet: true });
+  const { handleGatewayCommand } = await loadGatewayFixture();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-btw-empty',
@@ -116,27 +130,10 @@ test('btw command surfaces auxiliary model failures as errors', async () => {
     callAuxiliaryModel: callAuxiliaryModelMock,
   }));
 
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { handleGatewayCommand } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
-
-  initDatabase({ quiet: true });
-
-  const session = memoryService.getOrCreateSession(
-    'session-btw-err',
-    null,
-    'web',
-    undefined,
-  );
-  memoryService.storeMessage({
-    sessionId: session.id,
-    userId: 'test-user',
-    username: 'tester',
-    role: 'user',
-    content: 'Something earlier.',
-  });
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(memoryService, 'session-btw-err', [
+    { role: 'user', content: 'Something earlier.' },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: session.id,
