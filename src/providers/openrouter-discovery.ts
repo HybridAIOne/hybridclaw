@@ -221,8 +221,10 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
-    isModelFree: (model: string) =>
-      discoveryStore.getState().freeModelNames.has(String(model || '').trim()),
+    isModelFree: (model: string) => {
+      const normalized = normalizeOpenRouterModelName(model);
+      return discoveryStore.getState().freeModelNames.has(normalized);
+    },
     getModelContextWindow: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeOpenRouterModelName(model);

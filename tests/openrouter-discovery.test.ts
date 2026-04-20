@@ -27,6 +27,43 @@ afterEach(() => {
 });
 
 describe('openrouter discovery', () => {
+  test('normalizes model ids when checking whether a discovered model is free', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'anthropic/claude-3.5-sonnet',
+                  pricing: {
+                    prompt: '0',
+                    completion: '0',
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createOpenRouterDiscoveryStore();
+
+    await expect(store.discoverModels({ force: true })).resolves.toEqual([
+      'openrouter/anthropic/claude-3.5-sonnet',
+    ]);
+    expect(store.isModelFree('anthropic/claude-3.5-sonnet')).toBe(true);
+    expect(store.isModelFree('openrouter/anthropic/claude-3.5-sonnet')).toBe(
+      true,
+    );
+  });
+
   test('logs a warning and returns stale models when discovery refresh fails', async () => {
     const fetchMock = vi
       .fn(async () => {
