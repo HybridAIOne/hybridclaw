@@ -21,48 +21,19 @@ async function waitForFileText(
   throw new Error(`Timed out waiting for log file: ${filePath}`);
 }
 
-const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
-  'hybridclaw.logger.process-handler-registration',
-);
+type LoggerModule = typeof import('../src/logger.ts');
 
-interface ProcessWithRegistrationState extends NodeJS.Process {
-  [PROCESS_HANDLER_REGISTRATION_KEY]?: {
-    uncaughtExceptionHandler: ((err: Error) => void) | null;
-    unhandledRejectionHandler: ((reason: unknown) => void) | null;
-  };
-}
+let loadedLoggerModule: LoggerModule | null = null;
 
-function getHybridClawProcessListenerState() {
-  return (process as ProcessWithRegistrationState)[
-    PROCESS_HANDLER_REGISTRATION_KEY
-  ];
-}
-
-function removeHybridClawProcessListeners(): void {
-  const state = getHybridClawProcessListenerState();
-  if (state?.uncaughtExceptionHandler) {
-    process.removeListener(
-      'uncaughtException',
-      state.uncaughtExceptionHandler as (error: Error) => void,
-    );
-  }
-  if (state?.unhandledRejectionHandler) {
-    process.removeListener(
-      'unhandledRejection',
-      state.unhandledRejectionHandler as (reason: unknown) => void,
-    );
-  }
-}
-
-function resetHybridClawProcessListenerState(): void {
-  delete (process as ProcessWithRegistrationState)[
-    PROCESS_HANDLER_REGISTRATION_KEY
-  ];
+async function importLoggerModule(): Promise<LoggerModule> {
+  const module = await import('../src/logger.ts');
+  loadedLoggerModule = module;
+  return module;
 }
 
 async function importFreshLogger() {
-  removeHybridClawProcessListeners();
-  resetHybridClawProcessListenerState();
+  loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+  loadedLoggerModule = null;
   vi.resetModules();
   vi.doMock('../src/config/runtime-config.ts', () => ({
     getRuntimeConfig: () => ({
@@ -70,15 +41,10 @@ async function importFreshLogger() {
     }),
     onRuntimeConfigChange: vi.fn(),
   }));
-  const module = await import('../src/logger.ts');
-  const listener =
-    getHybridClawProcessListenerState()?.uncaughtExceptionHandler;
-  if (!listener) {
-    throw new Error('Failed to register uncaughtExceptionHandler');
-  }
+  const module = await importLoggerModule();
   return {
     ...module,
-    uncaughtExceptionHandler: listener as (error: Error) => void,
+    uncaughtExceptionHandler: module.handleUncaughtExceptionForTests,
   };
 }
 
@@ -89,8 +55,8 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
-    removeHybridClawProcessListeners();
-    resetHybridClawProcessListenerState();
+    loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+    loadedLoggerModule = null;
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
     if (tempDir) {
@@ -117,7 +83,7 @@ describe('logger forced level override', () => {
       }),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     expect(logger.level).toBe('debug');
     listener?.({ ops: { logLevel: 'error' } }, { ops: { logLevel: 'info' } });
@@ -136,7 +102,7 @@ describe('logger forced level override', () => {
       onRuntimeConfigChange: vi.fn(),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     logger.info('foreground log mirror test');
 
@@ -160,7 +126,7 @@ describe('logger forced level override', () => {
       onRuntimeConfigChange: vi.fn(),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     logger.debug('forced debug mirror test');
 
@@ -191,7 +157,7 @@ describe('logger forced level override', () => {
       }),
     }));
 
-    const { forceLoggerLevel, logger } = await import('../src/logger.ts');
+    const { forceLoggerLevel, logger } = await importLoggerModule();
 
     expect(logger.level).toBe('info');
     forceLoggerLevel('debug');
@@ -209,7 +175,7 @@ describe('logger forced level override', () => {
     expect(logText).toContain('late forced debug mirror test');
   });
 
-  it('keeps expected transport exceptions non-fatal', async () => {
+  it('still exits on uncaught transport exceptions', async () => {
     const { logger, uncaughtExceptionHandler } = await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
@@ -222,28 +188,6 @@ describe('logger forced level override', () => {
       .mockImplementation(() => undefined);
 
     uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      { err: expect.any(Error) },
-      'Handled expected transport exception without exiting',
-    );
-    expect(fatalSpy).not.toHaveBeenCalled();
-    expect(exitSpy).not.toHaveBeenCalled();
-  });
-
-  it('still exits on generic network errors in uncaughtException', async () => {
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((() => undefined) as never);
-    const warnSpy = vi
-      .spyOn(logger, 'warn')
-      .mockImplementation(() => undefined);
-    const fatalSpy = vi
-      .spyOn(logger, 'fatal')
-      .mockImplementation(() => undefined);
-
-    uncaughtExceptionHandler(new Error('network error'));
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(fatalSpy).toHaveBeenCalledWith(
@@ -276,8 +220,9 @@ describe('logger forced level override', () => {
   });
 
   it('registers process handlers only once across module reloads', async () => {
-    removeHybridClawProcessListeners();
-    resetHybridClawProcessListenerState();
+    loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+    loadedLoggerModule = null;
+    vi.resetModules();
 
     const mockRuntimeConfig = () =>
       vi.doMock('../src/config/runtime-config.ts', () => ({
@@ -288,25 +233,28 @@ describe('logger forced level override', () => {
       }));
 
     mockRuntimeConfig();
-    await import('../src/logger.ts');
+    const firstModule = await importLoggerModule();
     vi.resetModules();
     mockRuntimeConfig();
-    await import('../src/logger.ts');
-
-    const state = getHybridClawProcessListenerState();
-    if (!state?.uncaughtExceptionHandler || !state.unhandledRejectionHandler) {
-      throw new Error('Failed to register logger process handlers');
-    }
+    const secondModule = await importLoggerModule();
 
     expect(
       process
         .listeners('uncaughtException')
-        .filter((listener) => listener === state.uncaughtExceptionHandler),
+        .filter(
+          (listener) =>
+            listener === firstModule.handleUncaughtExceptionForTests ||
+            listener === secondModule.handleUncaughtExceptionForTests,
+        ),
     ).toHaveLength(1);
     expect(
       process
         .listeners('unhandledRejection')
-        .filter((listener) => listener === state.unhandledRejectionHandler),
+        .filter(
+          (listener) =>
+            listener === firstModule.handleUnhandledRejectionForTests ||
+            listener === secondModule.handleUnhandledRejectionForTests,
+        ),
     ).toHaveLength(1);
   });
 });
