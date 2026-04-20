@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import * as tg from '../src/utils/type-guards.js';
 import { cleanupTrackedTempDirs, useCleanMocks } from './test-utils.js';
 
 describe('cleanupTrackedTempDirs', () => {
@@ -11,6 +12,11 @@ describe('cleanupTrackedTempDirs', () => {
 
   afterEach(() => {
     process.chdir(originalCwd);
+  });
+
+  it('covers shared type guard helpers', () => {
+    expect([tg.isRecord({}), tg.ensureText(0)]).toEqual([true, '']);
+    expect(tg.normalizeBaseUrl(' https://x/// ')).toBe('https://x');
   });
 
   it('moves cwd out of a tracked directory before deleting it', () => {
