@@ -9,6 +9,8 @@ import {
   getSidebarStyleVars,
   SidebarInset,
   SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 import { ViewSwitchNav } from './view-switch';
@@ -57,6 +59,7 @@ export function AppShell(props: { children: ReactNode }) {
           <div className="topbar">
             <div className="topbar-title">
               <div className="topbar-heading">
+                <MobileTopbarTrigger />
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
@@ -67,6 +70,12 @@ export function AppShell(props: { children: ReactNode }) {
       </SidebarProvider>
     </AppShellConfigContext.Provider>
   );
+}
+
+function MobileTopbarTrigger() {
+  const { isMobile } = useSidebar();
+  if (!isMobile) return null;
+  return <SidebarTrigger />;
 }
 
 export function useAppShellConfig(): AppShellConfigContextValue {
