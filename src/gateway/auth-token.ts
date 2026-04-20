@@ -204,15 +204,22 @@ export function verifyLaunchToken(token: string): VerifiedAuthTokenPayload {
   return requireVerifiedToken(token);
 }
 
-export function hasSessionAuth(req: IncomingMessage): boolean {
+export function getSessionAuthPayload(
+  req: IncomingMessage,
+): VerifiedAuthTokenPayload | null {
   const token = extractCookieValue(req.headers.cookie, SESSION_COOKIE_NAME);
-  if (!token) return false;
+  if (!token) return null;
 
   try {
-    return requireVerifiedToken(token).typ === 'session';
+    const payload = requireVerifiedToken(token);
+    return payload.typ === 'session' ? payload : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function hasSessionAuth(req: IncomingMessage): boolean {
+  return getSessionAuthPayload(req) !== null;
 }
 
 export function setSessionCookie(

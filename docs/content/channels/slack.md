@@ -257,7 +257,7 @@ hybridclaw gateway status
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 ## Step 7: Verify The Setup
 
@@ -322,7 +322,7 @@ hybridclaw gateway restart --foreground
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 If the gateway was already running, restart it after saving the credentials or
 editing `slack.*` config values.

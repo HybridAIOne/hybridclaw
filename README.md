@@ -93,6 +93,8 @@ operator and maintainer manual lives at
 Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
+- Web Chat keeps a recent-session sidebar and can search conversation titles
+  with contextual snippets before you reopen an older browser session
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
@@ -113,6 +115,11 @@ Once the gateway is running, open HybridClaw locally:
   Twilio voice settings, and per-channel instructions that are injected into
   prompts at runtime.
 - `/admin/approvals` manages approval policies from the browser.
+- `/admin/gateway` reloads runtime config and refreshes secrets from the
+  browser without tearing down the enclosing workspace container; keep
+  `hybridclaw gateway restart` for local/manual full restarts.
+- Generated artifacts remain downloadable and attachable even when the sandbox
+  exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes a keyboard-driven approval picker and prints a
   ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
 - `hybridclaw doctor` checks runtime health including resource hygiene
@@ -122,6 +129,9 @@ Once the gateway is running, open HybridClaw locally:
   `config.json` becomes invalid.
 - `hybridclaw skill import` supports community sources, local directories,
   and `.zip` archives.
+- `hybridclaw eval hybridai-skills` turns the bundled skills pages' "Try it
+  yourself" prompts into a local eval suite, and live summaries surface the
+  observed skill, artifact presence, and counted tool-call totals.
 - Channel delivery stays predictable: email seeds its first mailbox cursor from
   the current head instead of replaying old inbox mail, retry-aware transports
   honor server `Retry-After` backoff, and WhatsApp startup avoids intermittent
@@ -137,6 +147,9 @@ Once the gateway is running, open HybridClaw locally:
 - Skills can be enabled or disabled globally or per channel from
   `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
   `Skills` page.
+- Built-in office skills handle longer PDF creation flows cleanly: the bundled
+  PDF creator wraps long lines, honors explicit `\n`, and adds pages
+  automatically when reports or invoices spill past the first page.
 - Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
   MemPalace, QMD, and GBrain plugins depending on whether you want
   local-first recall, hosted memory, or domain-specific retrieval.

@@ -3,6 +3,7 @@ import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
+import { normalizeOptionalTrimmedString as normalizeOptionalString } from '../utils/normalized-strings.js';
 import type {
   OpenAICompatibleToolChoice,
   OpenAICompatibleToolDefinition,
@@ -90,11 +91,6 @@ export class OpenAICompatibleRequestError extends Error {
     this.param = options?.param;
     this.code = options?.code;
   }
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  return normalized || undefined;
 }
 
 async function readRequestBody(req: IncomingMessage): Promise<Buffer> {

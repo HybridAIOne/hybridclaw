@@ -4,6 +4,10 @@ import { ImapFlow } from 'imapflow';
 import { DATA_DIR } from '../../config/config.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
+import {
+  describeExpectedTransportError,
+  isExpectedTransportError,
+} from '../../utils/transport-errors.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
@@ -24,6 +28,10 @@ export interface EmailConnectionManager {
 interface PersistedFolderCursorState {
   uidValidity: string | null;
   lastProcessedUid: number;
+}
+
+interface EmailConnectionErrorLike {
+  code?: unknown;
 }
 
 function resolveFolders(folders: string[]): string[] {
@@ -70,6 +78,18 @@ function normalizeUidValidity(
 function normalizeLastProcessedUid(value: unknown): number {
   const normalized = Math.max(0, Math.trunc(Number(value) || 0));
   return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function getEmailConnectionErrorCode(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+  const code = (error as EmailConnectionErrorLike).code;
+  return typeof code === 'string' ? code.toUpperCase() : '';
+}
+
+function formatReconnectDelay(delayMs: number): string {
+  return `${Math.max(1, Math.ceil(delayMs / 1_000))}s`;
 }
 
 async function loadPersistedFolderCursorState(
@@ -170,6 +190,14 @@ export function createEmailConnectionManager(
     if (!activeClient) return;
     activeClient.removeAllListeners();
     await activeClient.logout().catch((error) => {
+      if (
+        error &&
+        typeof error === 'object' &&
+        String((error as EmailConnectionErrorLike).code || '') ===
+          'NoConnection'
+      ) {
+        return;
+      }
       childLogger.debug({ error }, 'Email IMAP logout failed');
     });
   };
@@ -181,10 +209,40 @@ export function createEmailConnectionManager(
 
     const delayMs = reconnectDelayMs;
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
-    childLogger.warn({ delayMs, reason, error }, 'Email reconnect scheduled');
+    if (error && isExpectedTransportError(error)) {
+      childLogger.warn(
+        {
+          delayMs,
+          reason,
+          code: getEmailConnectionErrorCode(error) || undefined,
+          host: config.imapHost,
+        },
+        `${describeExpectedTransportError(error, 'Email IMAP', config.imapHost)} Retrying connection in ${formatReconnectDelay(delayMs)}.`,
+      );
+    } else if (error) {
+      childLogger.error(
+        { err: error, delayMs, reason },
+        `Email IMAP reconnect scheduled in ${formatReconnectDelay(delayMs)}.`,
+      );
+    } else if (reason === 'client-closed') {
+      childLogger.warn(
+        { delayMs, reason, host: config.imapHost },
+        `Email IMAP connection closed. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
+      );
+    } else if (reason === 'missing-client') {
+      childLogger.warn(
+        { delayMs, reason, host: config.imapHost },
+        `Email IMAP client is unavailable. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
+      );
+    } else {
+      childLogger.warn(
+        { delayMs, reason, host: config.imapHost },
+        `Email IMAP reconnect scheduled in ${formatReconnectDelay(delayMs)}.`,
+      );
+    }
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void connect();
+      void connect().catch(() => {});
     }, delayMs);
   };
 
@@ -373,7 +431,7 @@ export function createEmailConnectionManager(
           user: config.address,
           pass: password,
         },
-        logger: childLogger,
+        logger: false,
       });
 
       nextClient.on('close', () => {
@@ -398,7 +456,9 @@ export function createEmailConnectionManager(
     })()
       .catch((error) => {
         scheduleReconnect('connect-error', error);
-        throw error;
+        if (!isExpectedTransportError(error)) {
+          throw error;
+        }
       })
       .finally(() => {
         connectingPromise = null;
