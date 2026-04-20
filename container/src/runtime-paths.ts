@@ -180,6 +180,11 @@ function resolveRootBoundPath(
     const fromExtraMount = resolveExtraMountPath(normalizedInput, actualRoot);
     if (fromExtraMount) return fromExtraMount;
 
+    const resolvedActual = path.resolve(input);
+    if (isWithinRoot(resolvedActual, actualRoot)) {
+      return resolvedActual;
+    }
+
     const fromDisplay = resolveDisplayAbsoluteToActual(
       path.posix.normalize(normalizedInput),
       displayRoot,
@@ -189,11 +194,10 @@ function resolveRootBoundPath(
       return isWithinRoot(fromDisplay, actualRoot) ? fromDisplay : null;
     }
 
-    const resolvedActual = path.resolve(input);
     if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
       return resolvedActual;
     }
-    return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;
+    return null;
   }
 
   let clean = path.posix.normalize(normalizedInput);

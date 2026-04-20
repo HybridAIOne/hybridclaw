@@ -29,10 +29,6 @@
   output artifacts are remapped against the active workspace path even when the
   runtime exposes a different display root such as `/app`, keeping generated
   files downloadable and attachable from chat surfaces.
-- **Web chat history search respects authenticated session identity**:
-  `/api/chat/recent` title search now uses the signed session subject for
-  authenticated browser sessions, restoring recent-search access after the auth
-  regression in the initial chat-search rollout.
 
 ## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
 

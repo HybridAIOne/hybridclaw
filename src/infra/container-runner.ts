@@ -359,6 +359,10 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
@@ -373,6 +377,11 @@ function resolveArtifactHostPath(
   );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
     const allowedRoots =
       displayRoot === CONTAINER_WORKSPACE_ROOT
@@ -389,10 +398,7 @@ function resolveArtifactHostPath(
     }
     const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (
-      resolved === workspaceRoot ||
-      resolved.startsWith(`${workspaceRoot}${path.sep}`)
-    ) {
+    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
     }
     return null;
@@ -401,10 +407,7 @@ function resolveArtifactHostPath(
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (
-    resolved === workspaceRoot ||
-    resolved.startsWith(`${workspaceRoot}${path.sep}`)
-  ) {
+  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
     return resolved;
   }
   return null;
