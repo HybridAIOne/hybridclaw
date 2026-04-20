@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Campaign Pulse Digest From CSV Exports
+title: "Tutorial: Campaign Pulse Digest From CSV Exports"
 description: Turn raw ad-platform exports into a daily or weekly marketing digest with clear actions.
 sidebar_position: 7
 ---
@@ -51,28 +51,32 @@ advice.
 
 Upload the CSV files in web chat or use `/paste` in the TUI, then ask:
 
-```text
-Review the attached campaign exports for a small B2B services company.
-Compare channel performance and tell me:
-1. what improved
-2. what got worse
-3. which campaigns are wasting spend
-4. where I should shift budget this week
-
-Return:
-- a one-screen executive summary
-- a bullet list of actions
-- a table with the most important metrics by campaign
-
-If the data is messy, normalize it first before summarizing.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Review the attached campaign exports for a small B2B services company.
+> Compare channel performance and tell me:
+> 1. what improved
+> 2. what got worse
+> 3. which campaigns are wasting spend
+> 4. where I should shift budget this week
+> 
+> Return:
+> - a one-screen executive summary
+> - a bullet list of actions
+> - a table with the most important metrics by campaign
+> 
+> If the data is messy, normalize it first before summarizing.
+> ```
 
 If you want a spreadsheet output too:
 
-```text
-After the summary, create a cleaned xlsx file with one sheet per channel and a
-final summary sheet with spend, leads, cost per lead, and recommended action.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> After the summary, create a cleaned xlsx file with one sheet per channel and a
+> final summary sheet with spend, leads, cost per lead, and recommended action.
+> ```
 
 ## Step 3: Make The Output More Useful
 
@@ -86,19 +90,23 @@ campaigns. Good additions:
 
 Example:
 
-```text
-Treat anything above 120 EUR CPL as a problem unless lead quality is clearly
-higher. Protect branded search before cutting spend elsewhere.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Treat anything above 120 EUR CPL as a problem unless lead quality is clearly
+> higher. Protect branded search before cutting spend elsewhere.
+> ```
 
 ## Step 4: Add A Recurring Review Cadence
 
 If you run the same review every Monday, save a reusable prompt and schedule a
 reminder:
 
-```text
-/schedule add "0 9 * * 1" Remind me to upload the latest Meta Ads, Google Ads, and LinkedIn CSV exports for the weekly campaign pulse review.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add "0 9 * * 1" Remind me to upload the latest Meta Ads, Google Ads, and LinkedIn CSV exports for the weekly campaign pulse review.
+> ```
 
 The reminder is usually better than a fully automated digest when your data
 still comes from manual exports.

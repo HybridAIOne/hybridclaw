@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Mini Feature Manual From A One-Line Brief
+title: "Tutorial: Mini Feature Manual From A One-Line Brief"
 description: Turn a one-line feature note into a short user manual with verified screenshots and social-ready crops.
 sidebar_position: 17
 ---

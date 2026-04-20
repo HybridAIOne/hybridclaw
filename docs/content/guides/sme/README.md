@@ -1,10 +1,10 @@
 ---
-title: SME Tutorials
+title: Tutorials
 description: Sixteen practical workflows for small business owners, marketers, sales teams, and lean software GTM teams.
 sidebar_position: 1
 ---
 
-# SME Tutorials
+# Tutorials
 
 These tutorials are for small businesses that want useful automation with
 HybridClaw without a full engineering project. The focus is simple: pick one
@@ -35,9 +35,8 @@ This section uses three prompt formats:
 - items under `Conversation flow` are exact prompts too, but you send each
   numbered line as a separate message in order
 
-Some older pages still use fenced `text` blocks for prompt templates. When a
-page tells you to combine context first, build one prompt and then submit it as
-one message.
+When a page tells you to combine context first, build one prompt and then
+submit it as one message.
 
 ## Owner Workflows
 

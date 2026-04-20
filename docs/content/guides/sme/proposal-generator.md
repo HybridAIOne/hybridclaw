@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Proposal Generator From Discovery Notes
+title: "Tutorial: Proposal Generator From Discovery Notes"
 description: Convert raw meeting notes into a polished proposal with editable and PDF-friendly outputs.
 sidebar_position: 9
 ---
@@ -39,52 +39,58 @@ See:
 
 Paste a short note block or upload a transcript. A rough input is fine:
 
-```text
-Client: Horizon Dental Group
-Locations: 4
-Need: replace manual reporting, unify appointment analytics, and improve recall campaigns
-Main pain:
-- no single dashboard
-- front desk staff exporting CSVs by hand
-- owner wants weekly visibility by location
-
-Timeline:
-- wants rollout before September
-
-Budget:
-- likely 18k to 25k setup plus monthly support
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Client: Horizon Dental Group
+> Locations: 4
+> Need: replace manual reporting, unify appointment analytics, and improve recall campaigns
+> Main pain:
+> - no single dashboard
+> - front desk staff exporting CSVs by hand
+> - owner wants weekly visibility by location
+> 
+> Timeline:
+> - wants rollout before September
+> 
+> Budget:
+> - likely 18k to 25k setup plus monthly support
+> ```
 
 ## Step 2: Draft The Proposal
 
 Ask HybridClaw:
 
-```text
-Draft a client proposal for this discovery summary.
-Use these sections:
-1. Executive Summary
-2. Current Situation
-3. Proposed Solution
-4. Scope
-5. Implementation Timeline
-6. Investment
-7. Next Steps
-
-Keep the tone clear and commercial, not academic.
-Call out assumptions where information is missing.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Draft a client proposal for this discovery summary.
+> Use these sections:
+> 1. Executive Summary
+> 2. Current Situation
+> 3. Proposed Solution
+> 4. Scope
+> 5. Implementation Timeline
+> 6. Investment
+> 7. Next Steps
+> 
+> Keep the tone clear and commercial, not academic.
+> Call out assumptions where information is missing.
+> ```
 
 ## Step 3: Generate The Files
 
 Once the structure looks right, ask for deliverables:
 
-```text
-Create:
-- a polished docx proposal
-- a shorter one-page executive summary in PDF
-
-Use the same pricing and timeline from the draft unless explicitly marked as an assumption.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Create:
+> - a polished docx proposal
+> - a shorter one-page executive summary in PDF
+> 
+> Use the same pricing and timeline from the draft unless explicitly marked as an assumption.
+> ```
 
 If you have a standard proposal template, attach it and tell HybridClaw to
 reuse that tone and structure.

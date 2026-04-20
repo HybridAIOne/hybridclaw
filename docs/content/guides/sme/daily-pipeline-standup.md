@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Daily Pipeline Standup In Slack
+title: "Tutorial: Daily Pipeline Standup In Slack"
 description: Run a lightweight Slack-based sales standup with recurring prompts and concise manager summaries.
 sidebar_position: 6
 ---
@@ -44,14 +44,16 @@ See [Slack](../../channels/slack.md) for scopes and event setup.
 
 In your Slack channel, ask:
 
-```text
-Post a daily sales standup template for a 6-person B2B team. Keep it short.
-Ask each rep for:
-- top 2 active deals
-- biggest blocker
-- next action due today
-- any deal at risk
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Post a daily sales standup template for a 6-person B2B team. Keep it short.
+> Ask each rep for:
+> - top 2 active deals
+> - biggest blocker
+> - next action due today
+> - any deal at risk
+> ```
 
 Once the template looks right, ask HybridClaw to tighten the wording until the
 team can answer it in under two minutes.
@@ -60,16 +62,18 @@ team can answer it in under two minutes.
 
 From the same Slack channel, ask:
 
-```text
-Every weekday at 8:45am, post a short standup checklist for this sales channel.
-Ask each rep for:
-- top 2 active deals
-- biggest blocker
-- next action due today
-- any deal at risk
-
-Keep the message under 8 bullets total.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Every weekday at 8:45am, post a short standup checklist for this sales channel.
+> Ask each rep for:
+> - top 2 active deals
+> - biggest blocker
+> - next action due today
+> - any deal at risk
+> 
+> Keep the message under 8 bullets total.
+> ```
 
 Because the job runs fresh, keep all of the structure inside the prompt.
 
@@ -77,16 +81,18 @@ Because the job runs fresh, keep all of the structure inside the prompt.
 
 Then add a second job:
 
-```text
-Every weekday at 4:45pm, summarize today's pipeline updates in this channel.
-Return:
-- deals likely to close soon
-- deals at risk
-- blockers that need founder or manager help
-- tomorrow's most important follow-ups
-
-Keep it concise and useful for a sales manager.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Every weekday at 4:45pm, summarize today's pipeline updates in this channel.
+> Return:
+> - deals likely to close soon
+> - deals at risk
+> - blockers that need founder or manager help
+> - tomorrow's most important follow-ups
+> 
+> Keep it concise and useful for a sales manager.
+> ```
 
 ## Production Tips
 

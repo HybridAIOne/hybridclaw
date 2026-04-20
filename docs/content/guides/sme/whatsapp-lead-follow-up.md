@@ -1,5 +1,5 @@
 ---
-title: Tutorial: WhatsApp Lead Follow-Up Copilot
+title: "Tutorial: WhatsApp Lead Follow-Up Copilot"
 description: Use WhatsApp for mobile follow-up drafts, objection handling, and reminder nudges.
 sidebar_position: 5
 ---
@@ -49,39 +49,45 @@ See [WhatsApp](../../channels/whatsapp.md) for pairing details.
 
 Send yourself a rough note like this:
 
-```text
-Spoke to a restaurant owner. Two locations. Current POS is outdated. Biggest
-concern is downtime during migration. Budget seems tight but they are motivated
-to fix reporting before summer. Draft a follow-up WhatsApp message I can send
-today. Keep it short and confident, not pushy.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Spoke to a restaurant owner. Two locations. Current POS is outdated. Biggest
+> concern is downtime during migration. Budget seems tight but they are motivated
+> to fix reporting before summer. Draft a follow-up WhatsApp message I can send
+> today. Keep it short and confident, not pushy.
+> ```
 
 Then try an objection-handling version:
 
-```text
-The prospect said "we need to think about it". Give me 3 short follow-up
-messages:
-1. soft check-in
-2. value reminder
-3. concrete next step
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> The prospect said "we need to think about it". Give me 3 short follow-up
+> messages:
+> 1. soft check-in
+> 2. value reminder
+> 3. concrete next step
+> ```
 
 ## Step 2: Standardize Your Prompt Pattern
 
 When this works, keep one reusable pattern in your notes:
 
-```text
-Context:
-- what they sell
-- size of business
-- what they care about
-- what blocked the deal
-
-Task:
-Draft one WhatsApp follow-up message and one backup version.
-Add a next-step recommendation for me only.
-Keep each message under 90 words.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Context:
+> - what they sell
+> - size of business
+> - what they care about
+> - what blocked the deal
+> 
+> Task:
+> Draft one WhatsApp follow-up message and one backup version.
+> Add a next-step recommendation for me only.
+> Keep each message under 90 words.
+> ```
 
 Consistency beats cleverness here.
 
@@ -89,17 +95,21 @@ Consistency beats cleverness here.
 
 From the same WhatsApp chat, ask:
 
-```text
-In 2 days, remind me to follow up with the restaurant POS lead. Tell me to send
-the migration reassurance message and ask for a 15-minute technical review.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> In 2 days, remind me to follow up with the restaurant POS lead. Tell me to send
+> the migration reassurance message and ask for a 15-minute technical review.
+> ```
 
 Or use an explicit command from local TUI or web chat when you want tighter
 control:
 
-```text
-/schedule add at "2026-04-22T09:00:00+02:00" Remind me to follow up with the restaurant POS lead. Tell me to send the migration reassurance message and ask for a 15-minute technical review.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add at "2026-04-22T09:00:00+02:00" Remind me to follow up with the restaurant POS lead. Tell me to send the migration reassurance message and ask for a 15-minute technical review.
+> ```
 
 ## Production Tips
 

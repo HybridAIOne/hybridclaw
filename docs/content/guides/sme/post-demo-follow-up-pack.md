@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Post-Demo Follow-Up Pack
+title: "Tutorial: Post-Demo Follow-Up Pack"
 description: Turn meeting notes into a same-day follow-up email, recap summary, and clear next-step list.
 sidebar_position: 10
 ---
@@ -33,51 +33,57 @@ See [Email](../../channels/email.md) if you want mail-based operation.
 
 Do not clean them up first. Paste them while the context is fresh:
 
-```text
-Demo with Greenfield Legal.
-Attendees: founder, ops manager, office admin.
-Pain points:
-- intake forms are manual
-- follow-up reminders fall through the cracks
-- partner wants simple weekly reporting
-
-Objections:
-- worried about migration effort
-- wants to know if staff need training
-
-Likely next step:
-- send implementation outline and pricing options
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Demo with Greenfield Legal.
+> Attendees: founder, ops manager, office admin.
+> Pain points:
+> - intake forms are manual
+> - follow-up reminders fall through the cracks
+> - partner wants simple weekly reporting
+> 
+> Objections:
+> - worried about migration effort
+> - wants to know if staff need training
+> 
+> Likely next step:
+> - send implementation outline and pricing options
+> ```
 
 ## Step 2: Generate The Follow-Up Pack
 
 Ask:
 
-```text
-Create a same-day post-demo follow-up pack.
-
-Return:
-1. a customer-facing follow-up email
-2. an internal recap with:
-   - main pain points
-   - objections
-   - buying signals
-   - risks
-   - next steps
-3. a short checklist for what I should send next
-
-Keep the email warm, concise, and commercially clear.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Create a same-day post-demo follow-up pack.
+> 
+> Return:
+> 1. a customer-facing follow-up email
+> 2. an internal recap with:
+>    - main pain points
+>    - objections
+>    - buying signals
+>    - risks
+>    - next steps
+> 3. a short checklist for what I should send next
+> 
+> Keep the email warm, concise, and commercially clear.
+> ```
 
 ## Step 3: Add The Delayed Nudge
 
 If the lead often goes quiet after the first email, add a reminder in the same
 session:
 
-```text
-In 3 days, remind me to check whether Greenfield Legal replied to the demo
-follow-up. If not, tell me to send a short implementation-outline follow-up.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> In 3 days, remind me to check whether Greenfield Legal replied to the demo
+> follow-up. If not, tell me to send a short implementation-outline follow-up.
+> ```
 
 This works well in TUI, web chat, Telegram, or WhatsApp if that is where you
 manage your day.

@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Forwarded Lead Triage Inbox
+title: "Tutorial: Forwarded Lead Triage Inbox"
 description: Turn a dedicated inbox into an internal lead triage workflow with HybridClaw for founders and sales reps.
 sidebar_position: 4
 ---
@@ -57,13 +57,15 @@ See [Email](../../channels/email.md) for the full setup flow.
 Forward an actual contact-form lead, marketplace inquiry, or prospect note to
 the bot mailbox with a short instruction above it, for example:
 
-```text
-Please triage this lead. Tell me:
-- hot, warm, or cold
-- what they seem to want
-- missing qualification info
-- a reply draft in a calm B2B tone
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Please triage this lead. Tell me:
+> - hot, warm, or cold
+> - what they seem to want
+> - missing qualification info
+> - a reply draft in a calm B2B tone
+> ```
 
 The bot will reply in-thread to the internal sender, not the prospect.
 
@@ -72,16 +74,18 @@ The bot will reply in-thread to the internal sender, not the prospect.
 Once the first few replies look useful, tighten the format. Add a block like
 this to your forwarded instruction:
 
-```text
-Return exactly these sections:
-1. Lead Score
-2. Why They Reached Out
-3. Missing Info
-4. Recommended Next Step
-5. Draft Reply
-
-Keep the whole answer under 250 words.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Return exactly these sections:
+> 1. Lead Score
+> 2. Why They Reached Out
+> 3. Missing Info
+> 4. Recommended Next Step
+> 5. Draft Reply
+> 
+> Keep the whole answer under 250 words.
+> ```
 
 This is one of the easiest ways to make the workflow repeatable across a team.
 
@@ -89,12 +93,14 @@ This is one of the easiest ways to make the workflow repeatable across a team.
 
 In `/admin/channels`, add email channel instructions such as:
 
-```text
-You are HybridClaw acting as an internal lead-triage desk.
-Reply only to the internal sender.
-Do not claim a call is booked, a discount is approved, or a feature exists unless the email states it clearly.
-Prefer concise summaries and safe draft language.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> You are HybridClaw acting as an internal lead-triage desk.
+> Reply only to the internal sender.
+> Do not claim a call is booked, a discount is approved, or a feature exists unless the email states it clearly.
+> Prefer concise summaries and safe draft language.
+> ```
 
 That keeps the system useful without letting it over-commit.
 

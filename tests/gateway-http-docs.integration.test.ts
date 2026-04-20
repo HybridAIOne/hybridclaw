@@ -176,6 +176,8 @@ describe('gateway docs HTTP integration', () => {
       'getting-started',
       'channels',
       'guides',
+      'guides/sme',
+      'guides/skills',
       'reference',
       'extensibility',
       'developer-guide',
@@ -185,6 +187,8 @@ describe('gateway docs HTTP integration', () => {
         `/docs/${section}`,
       );
     }
+    expect(html).toContain('<summary>Tutorials</summary>');
+    expect(html).toContain('<summary>Skills</summary>');
   });
 
   // --- Internal doc links resolve ---

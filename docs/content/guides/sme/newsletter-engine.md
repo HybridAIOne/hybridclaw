@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Newsletter Engine With Substack Sections And Notes
+title: "Tutorial: Newsletter Engine With Substack Sections And Notes"
 description: Build a lightweight newsletter system that turns shipping notes, customer questions, and founder perspective into a weekly issue.
 sidebar_position: 13
 ---
@@ -66,46 +66,52 @@ same thing every week.
 
 At the end of the week, prompt HybridClaw with the raw inputs:
 
-```text
-Use @file:CHANGELOG.md plus the relevant issue notes and founder notes for this week.
-
-Draft a weekly product newsletter.
-
-Audience:
-- technical founders
-- operators
-- small teams evaluating automation or developer tools
-
-Sections:
-1. What we shipped
-2. Why it matters
-3. One founder observation
-4. What to try next
-
-Tone:
-- sharp
-- practical
-- mildly opinionated
-- no empty launch language
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use @file:CHANGELOG.md plus the relevant issue notes and founder notes for this week.
+> 
+> Draft a weekly product newsletter.
+> 
+> Audience:
+> - technical founders
+> - operators
+> - small teams evaluating automation or developer tools
+> 
+> Sections:
+> 1. What we shipped
+> 2. Why it matters
+> 3. One founder observation
+> 4. What to try next
+> 
+> Tone:
+> - sharp
+> - practical
+> - mildly opinionated
+> - no empty launch language
+> ```
 
 Then ask for supporting assets:
 
-```text
-Now create:
-- 3 subject line options
-- 1 short Substack Note
-- 1 LinkedIn post
-- 1 X post
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Now create:
+> - 3 subject line options
+> - 1 short Substack Note
+> - 1 LinkedIn post
+> - 1 X post
+> ```
 
 ## Step 3: Add A Weekly Reminder
 
 Use a simple reminder so the system does not depend on memory:
 
-```text
-/schedule add "0 9 * * 5" Remind the team to assemble this week’s newsletter inputs: release notes, customer questions, founder observations, and one thing worth trying.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add "0 9 * * 5" Remind the team to assemble this week’s newsletter inputs: release notes, customer questions, founder observations, and one thing worth trying.
+> ```
 
 ## Best Team Split
 

@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Customer Feedback Digest
+title: "Tutorial: Customer Feedback Digest"
 description: Roll customer emails, objections, and public feedback into a weekly owner digest with next actions.
 sidebar_position: 11
 ---
@@ -49,32 +49,38 @@ language.
 
 Upload or paste the material, then ask:
 
-```text
-Create a weekly customer feedback digest for the owner of a small business.
-Group the feedback into themes and return:
-1. what customers value most
-2. repeated complaints or friction points
-3. requests that could lead to upsell opportunities
-4. issues that look urgent
-5. 5 actions to take next week
-
-Keep it concise and decision-oriented.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Create a weekly customer feedback digest for the owner of a small business.
+> Group the feedback into themes and return:
+> 1. what customers value most
+> 2. repeated complaints or friction points
+> 3. requests that could lead to upsell opportunities
+> 4. issues that look urgent
+> 5. 5 actions to take next week
+> 
+> Keep it concise and decision-oriented.
+> ```
 
 If you also want public signals:
 
-```text
-Also search the public web for recent reviews or public feedback about our
-brand and include only relevant results with links.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Also search the public web for recent reviews or public feedback about our
+> brand and include only relevant results with links.
+> ```
 
 ## Step 3: Add A Weekly Reminder
 
 If the workflow is manual, schedule the collection step:
 
-```text
-/schedule add "0 8 * * 5" Remind me to assemble this week's customer feedback emails, review notes, and sales objections before running the weekly digest.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add "0 8 * * 5" Remind me to assemble this week's customer feedback emails, review notes, and sales objections before running the weekly digest.
+> ```
 
 That is often the missing step in small teams.
 

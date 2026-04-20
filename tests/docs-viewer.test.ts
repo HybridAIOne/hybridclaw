@@ -50,6 +50,24 @@ describe('docs viewer helpers', () => {
     ).toBe(true);
   });
 
+  test('exposes tutorials as a top-level docs section', () => {
+    const tutorials = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Tutorials',
+    );
+    expect(
+      tutorials?.pages.some((page) => page.path === 'guides/sme/README.md'),
+    ).toBe(true);
+  });
+
+  test('exposes skills as a top-level docs section', () => {
+    const skills = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Skills',
+    );
+    expect(
+      skills?.pages.some((page) => page.path === 'guides/skills/README.md'),
+    ).toBe(true);
+  });
+
   test('exposes the new channel IA in the docs section metadata', () => {
     const gettingStarted = DEVELOPMENT_DOCS_SECTIONS.find(
       (section) => section.title === 'Getting Started',

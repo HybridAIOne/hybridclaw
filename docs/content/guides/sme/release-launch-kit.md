@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Release Launch Kit For X, LinkedIn, And Newsletter
+title: "Tutorial: Release Launch Kit For X, LinkedIn, And Newsletter"
 description: Turn one release brief into a full launch kit for founder posts, company posts, newsletter copy, and follow-up content.
 sidebar_position: 12
 ---
@@ -46,16 +46,18 @@ Before starting, make sure you have:
 
 In web chat, ground the prompt with repo context:
 
-```text
-Use @diff @file:CHANGELOG.md and the relevant docs files for this release.
-
-Create a release source pack with:
-- the core user problem solved
-- the 3 most important changes
-- who should care
-- proof points or examples
-- anything that is still rough and should not be over-claimed
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use @diff @file:CHANGELOG.md and the relevant docs files for this release.
+> 
+> Create a release source pack with:
+> - the core user problem solved
+> - the 3 most important changes
+> - who should care
+> - proof points or examples
+> - anything that is still rough and should not be over-claimed
+> ```
 
 If you prefer the TUI, paste the relevant files or quote the same material
 manually.
@@ -64,28 +66,30 @@ manually.
 
 Once the release brief is accurate, ask HybridClaw for the asset bundle:
 
-```text
-Turn this release brief into a launch kit for a small developer-tool company.
-
-Return:
-1. Founder LinkedIn post from Founder A
-2. Founder LinkedIn post from Founder B with a more product/engineering angle
-3. One X thread
-4. One short company-page post
-5. A 120-word newsletter blurb
-6. A 30-second feature demo script
-7. 3 teaser lines for the 3 days before launch
-
-Rules:
-- no hype words unless the brief supports them
-- make the user benefit obvious in the first 2 lines
-- keep the X thread punchy
-- make LinkedIn feel human, not like a press release
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Turn this release brief into a launch kit for a small developer-tool company.
+> 
+> Return:
+> 1. Founder LinkedIn post from Founder A
+> 2. Founder LinkedIn post from Founder B with a more product/engineering angle
+> 3. One X thread
+> 4. One short company-page post
+> 5. A 120-word newsletter blurb
+> 6. A 30-second feature demo script
+> 7. 3 teaser lines for the 3 days before launch
+> 
+> Rules:
+> - no hype words unless the brief supports them
+> - make the user benefit obvious in the first 2 lines
+> - keep the X thread punchy
+> - make LinkedIn feel human, not like a press release
+> ```
 
 ## Step 3: Run A Small-Team Launch Cadence
 
-A practical cadence for `3 founders + 2 teammates`:
+A practical cadence for `small team`:
 
 - `T-3 days`: teaser post from one founder
 - `T-1 day`: short preview or screenshot post
@@ -94,9 +98,11 @@ A practical cadence for `3 founders + 2 teammates`:
 
 Use HybridClaw to create internal reminders:
 
-```text
-/schedule add "0 10 * * 1-5" Remind the team to review today’s release content queue: teaser, founder posts, company post, newsletter, or follow-up asset. Keep the reminder under 8 bullets.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add "0 10 * * 1-5" Remind the team to review today’s release content queue: teaser, founder posts, company post, newsletter, or follow-up asset. Keep the reminder under 8 bullets.
+> ```
 
 ## Best Team Split
 

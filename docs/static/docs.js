@@ -80,7 +80,77 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
-    title: 'Skills Catalog',
+    title: 'Tutorials',
+    pages: [
+      { title: 'Overview', path: 'guides/sme/README.md' },
+      {
+        title: 'Morning Competitor Briefing',
+        path: 'guides/sme/morning-competitor-briefing.md',
+      },
+      {
+        title: 'Customer Feedback Digest',
+        path: 'guides/sme/customer-feedback-digest.md',
+      },
+      {
+        title: 'Team Telegram Deal Desk',
+        path: 'guides/sme/team-telegram-deal-desk.md',
+      },
+      {
+        title: 'Forwarded Lead Triage Inbox',
+        path: 'guides/sme/forwarded-lead-triage.md',
+      },
+      {
+        title: 'WhatsApp Lead Follow-Up Copilot',
+        path: 'guides/sme/whatsapp-lead-follow-up.md',
+      },
+      {
+        title: 'Daily Pipeline Standup In Slack',
+        path: 'guides/sme/daily-pipeline-standup.md',
+      },
+      {
+        title: 'Post-Demo Follow-Up Pack',
+        path: 'guides/sme/post-demo-follow-up-pack.md',
+      },
+      {
+        title: 'Proposal Generator From Discovery Notes',
+        path: 'guides/sme/proposal-generator.md',
+      },
+      {
+        title: 'Campaign Pulse Digest From CSV Exports',
+        path: 'guides/sme/campaign-pulse-digest.md',
+      },
+      {
+        title: 'Weekly Content Calendar With HybridClaw',
+        path: 'guides/sme/weekly-content-calendar.md',
+      },
+      {
+        title: 'Release Launch Kit For X, LinkedIn, And Newsletter',
+        path: 'guides/sme/release-launch-kit.md',
+      },
+      {
+        title: 'Newsletter Engine With Substack Sections And Notes',
+        path: 'guides/sme/newsletter-engine.md',
+      },
+      {
+        title: 'Founder-Led Feature Explainer Videos',
+        path: 'guides/sme/feature-explainer-videos.md',
+      },
+      {
+        title: 'Mini Feature Manual From A One-Line Brief',
+        path: 'guides/sme/mini-feature-manual.md',
+      },
+      {
+        title: 'Developer Relations Engine For GitHub And X',
+        path: 'guides/sme/devrel-engine.md',
+      },
+      {
+        title: 'Webinar Prep And Nachfassen Machine',
+        path: 'guides/sme/webinar-machine.md',
+      },
+    ],
+  },
+  {
+    title: 'Skills',
     pages: [
       { title: 'Overview', path: 'guides/skills/README.md' },
       { title: 'Office', path: 'guides/skills/office.md' },

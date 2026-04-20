@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Developer Relations Engine For GitHub And X
+title: "Tutorial: Developer Relations Engine For GitHub And X"
 description: Build a weekly DevRel rhythm that improves docs, welcomes contributors, and earns real community traction.
 sidebar_position: 15
 ---
@@ -45,21 +45,23 @@ Before starting, make sure you have:
 
 Ask HybridClaw to review the repo from a contributor’s perspective:
 
-```text
-Review this repo like a new contributor.
-Use @file:README.md and the contributing and docs surfaces.
-
-Tell me:
-1. what is unclear
-2. what blocks first-time contributors
-3. what should become a good-first issue
-4. what docs or examples are missing
-
-Then draft:
-- a cleaner contributor quickstart
-- 5 candidate good-first issues
-- 3 docs improvements that would reduce friction immediately
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Review this repo like a new contributor.
+> Use @file:README.md and the contributing and docs surfaces.
+> 
+> Tell me:
+> 1. what is unclear
+> 2. what blocks first-time contributors
+> 3. what should become a good-first issue
+> 4. what docs or examples are missing
+> 
+> Then draft:
+> - a cleaner contributor quickstart
+> - 5 candidate good-first issues
+> - 3 docs improvements that would reduce friction immediately
+> ```
 
 This mirrors the open-source guidance to lay the groundwork early, make people
 feel welcome, and label beginner-friendly work clearly.
@@ -75,18 +77,20 @@ A sustainable weekly rhythm for your team:
 
 Prompt:
 
-```text
-Use this week’s merged work, issue notes, and docs changes.
-
-Create a DevRel pack with:
-1. one X thread for developers
-2. one GitHub Discussion prompt
-3. one short maintainer update for the repo or changelog
-4. one contributor spotlight post
-5. one idea for a tutorial, code example, or demo repo
-
-Keep everything concrete and technically honest.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use this week’s merged work, issue notes, and docs changes.
+> 
+> Create a DevRel pack with:
+> 1. one X thread for developers
+> 2. one GitHub Discussion prompt
+> 3. one short maintainer update for the repo or changelog
+> 4. one contributor spotlight post
+> 5. one idea for a tutorial, code example, or demo repo
+> 
+> Keep everything concrete and technically honest.
+> ```
 
 ## Step 3: Meet Developers Where They Already Are
 

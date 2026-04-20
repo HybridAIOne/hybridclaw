@@ -148,6 +148,12 @@ type DevelopmentDocsSnapshot = {
   sidebarTree: SidebarNode;
 };
 
+type PromotedSidebarGroup = {
+  label: string;
+  pathKey: string;
+  position: number;
+};
+
 let developmentDocsSnapshotCache: DevelopmentDocsSnapshot | null = null;
 
 function escapeHtml(value: string): string {
@@ -173,6 +179,34 @@ function normalizeDocPath(input: string): string {
     .replace(/^\/+/, '')
     .replace(/\\/g, '/')
     .replace(/\/+/g, '/');
+}
+
+const PROMOTED_SIDEBAR_GROUPS: PromotedSidebarGroup[] = [
+  {
+    label: 'Tutorials',
+    pathKey: 'guides/sme',
+    position: 3.1,
+  },
+  {
+    label: 'Skills',
+    pathKey: 'guides/skills',
+    position: 3.2,
+  },
+];
+
+function getPromotedSidebarGroup(
+  relativePath: string,
+): PromotedSidebarGroup | null {
+  const normalized = normalizeDocPath(relativePath);
+  for (const group of PROMOTED_SIDEBAR_GROUPS) {
+    if (
+      normalized === group.pathKey ||
+      normalized.startsWith(`${group.pathKey}/`)
+    ) {
+      return group;
+    }
+  }
+  return null;
 }
 
 function parseDevelopmentDoc(
@@ -685,38 +719,65 @@ function buildSidebarTree(
     routePath: null,
   };
 
+  const ensureSidebarGroup = (
+    parent: SidebarNode,
+    pathKey: string,
+    label: string,
+    position: number | null,
+  ): SidebarNode => {
+    let group = parent.children.find(
+      (entry) => !entry.isPage && entry.pathKey === pathKey,
+    );
+    if (group) return group;
+    group = {
+      children: [],
+      description: '',
+      isPage: false,
+      label,
+      pathKey,
+      position,
+      routePath: null,
+    };
+    parent.children.push(group);
+    return group;
+  };
+
   for (const page of docs) {
     if (page.relativePath === 'README.md') continue;
 
     const parts = page.relativePath.split('/');
+    const promotedGroup = getPromotedSidebarGroup(page.relativePath);
     let cursor = root;
     let currentPath = '';
+    let directorySegments = parts.slice(0, -1);
 
-    for (const segment of parts.slice(0, -1)) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      let group = cursor.children.find(
-        (entry) => !entry.isPage && entry.pathKey === currentPath,
+    if (promotedGroup) {
+      cursor = ensureSidebarGroup(
+        root,
+        promotedGroup.pathKey,
+        promotedGroup.label,
+        promotedGroup.position,
       );
-      if (!group) {
-        const categoryMeta = readCategoryMetadataCached(currentPath) || {};
-        group = {
-          children: [],
-          description: '',
-          isPage: false,
-          label:
-            typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
-              ? categoryMeta.label.trim()
-              : humanizeSegment(segment),
-          pathKey: currentPath,
-          position:
-            typeof categoryMeta.position === 'number'
-              ? categoryMeta.position
-              : null,
-          routePath: null,
-        };
-        cursor.children.push(group);
-      }
-      cursor = group;
+      currentPath = promotedGroup.pathKey;
+      const promotedDepth = promotedGroup.pathKey.split('/').length;
+      directorySegments = directorySegments.slice(promotedDepth);
+    }
+
+    for (const segment of directorySegments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const categoryMeta = readCategoryMetadataCached(currentPath) || {};
+      const label =
+        typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
+          ? categoryMeta.label.trim()
+          : humanizeSegment(segment);
+      cursor = ensureSidebarGroup(
+        cursor,
+        currentPath,
+        label,
+        typeof categoryMeta.position === 'number'
+          ? categoryMeta.position
+          : null,
+      );
     }
 
     cursor.children.push({
@@ -819,9 +880,24 @@ function buildBreadcrumbs(
     { href: DOCS_ROUTE, label: rootLabel },
   ];
 
+  const promotedGroup = getPromotedSidebarGroup(page.relativePath);
   const parts = page.relativePath.split('/');
-  let currentPath = '';
-  for (const segment of parts.slice(0, -1)) {
+  let currentPath = promotedGroup?.pathKey || '';
+
+  if (promotedGroup) {
+    const indexDoc = docsByRelativePath.get(
+      `${promotedGroup.pathKey}/README.md`,
+    );
+    items.push({
+      href: indexDoc?.routePath || null,
+      label: promotedGroup.label,
+    });
+  }
+
+  const startIndex = promotedGroup
+    ? promotedGroup.pathKey.split('/').length
+    : 0;
+  for (const segment of parts.slice(startIndex, -1)) {
     currentPath = currentPath ? `${currentPath}/${segment}` : segment;
     const categoryMeta = readCategoryMetadataCached(currentPath) || {};
     const label =

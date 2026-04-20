@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Founder-Led Feature Explainer Videos
+title: "Tutorial: Founder-Led Feature Explainer Videos"
 description: Plan and produce short founder-led product videos with screen walkthroughs, captions, and repurposed cut-downs.
 sidebar_position: 14
 ---
@@ -48,37 +48,43 @@ also ships a [Publishing Skills](../skills/publishing.md) page with the
 
 Bad brief:
 
-```text
-Make a video about our product.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Make a video about our product.
+> ```
 
 Good brief:
 
-```text
-Make a 75-second founder-led explainer video for our product’s Telegram setup flow.
-Audience: technical founders and small teams.
-Goal: show that setup is fast and private.
-CTA: try the Telegram setup flow today.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Make a 75-second founder-led explainer video for our product’s Telegram setup flow.
+> Audience: technical founders and small teams.
+> Goal: show that setup is fast and private.
+> CTA: try the Telegram setup flow today.
+> ```
 
 ## Step 2: Generate The Video Pack
 
 Ask HybridClaw:
 
-```text
-Use the relevant docs and release notes to create a feature video pack.
-
-Return:
-1. a 75-second script
-2. a shot list with timestamps
-3. what the founder says on camera
-4. what should be shown on screen
-5. 3 hook options for the first 5 seconds
-6. a title, thumbnail text, and YouTube description
-7. one 20-second cut-down for X or LinkedIn
-
-Keep the video focused on one workflow and one user benefit.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use the relevant docs and release notes to create a feature video pack.
+> 
+> Return:
+> 1. a 75-second script
+> 2. a shot list with timestamps
+> 3. what the founder says on camera
+> 4. what should be shown on screen
+> 5. 3 hook options for the first 5 seconds
+> 6. a title, thumbnail text, and YouTube description
+> 7. one 20-second cut-down for X or LinkedIn
+> 
+> Keep the video focused on one workflow and one user benefit.
+> ```
 
 If the feature is code-heavy, ground the prompt with `@file` or `@diff`.
 
@@ -96,14 +102,16 @@ Do not try to sound polished. Try to sound clear.
 
 After recording, feed the transcript or rough notes back into HybridClaw:
 
-```text
-Turn this video transcript into:
-- caption text
-- a LinkedIn post
-- an X post
-- a newsletter blurb
-- a follow-up comment I can pin under the post
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Turn this video transcript into:
+> - caption text
+> - a LinkedIn post
+> - an X post
+> - a newsletter blurb
+> - a follow-up comment I can pin under the post
+> ```
 
 For YouTube, Creator Academy guidance is useful here:
 

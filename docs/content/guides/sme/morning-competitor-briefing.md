@@ -1,5 +1,5 @@
 ---
-title: Tutorial: Morning Competitor Briefing
+title: "Tutorial: Morning Competitor Briefing"
 description: Build a weekday competitor briefing for a small business owner and deliver it to Telegram or the local inbox.
 sidebar_position: 2
 ---
@@ -51,28 +51,30 @@ hybridclaw tui
 
 Then send a prompt like this:
 
-```text
-Search the web for the latest updates about these competitors:
-- Acme CRM
-- Northstar Digital
-- BluePeak Analytics
-
-Focus on:
-- pricing changes
-- product launches
-- new customer stories
-- hiring or expansion signals
-- partnerships or reseller moves
-
-Summarize the 5 most relevant updates for the owner of a small B2B business.
-For each item include:
-1. a one-line headline
-2. a 2-sentence summary
-3. why it matters for me
-4. the source link
-
-End with a short section titled "What I should do today".
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Search the web for the latest updates about these competitors:
+> - Acme CRM
+> - Northstar Digital
+> - BluePeak Analytics
+> 
+> Focus on:
+> - pricing changes
+> - product launches
+> - new customer stories
+> - hiring or expansion signals
+> - partnerships or reseller moves
+> 
+> Summarize the 5 most relevant updates for the owner of a small B2B business.
+> For each item include:
+> 1. a one-line headline
+> 2. a 2-sentence summary
+> 3. why it matters for me
+> 4. the source link
+> 
+> End with a short section titled "What I should do today".
+> ```
 
 Keep iterating until the output is tight enough that you would actually read it
 at 7:30 AM.
@@ -86,14 +88,16 @@ You can create the schedule in two ways.
 If you want the briefing delivered to a Telegram DM, ask from that Telegram
 chat:
 
-```text
-Every weekday at 7:30am, search the web for updates about Acme CRM, Northstar
-Digital, and BluePeak Analytics. Focus on pricing changes, launches, customer
-stories, hiring signals, and partnerships. Summarize the 5 most relevant
-updates for the owner of a small B2B business. For each item include a
-headline, a 2-sentence summary, why it matters, and the source link. End with
-"What I should do today".
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Every weekday at 7:30am, search the web for updates about Acme CRM, Northstar
+> Digital, and BluePeak Analytics. Focus on pricing changes, launches, customer
+> stories, hiring signals, and partnerships. Summarize the 5 most relevant
+> updates for the owner of a small B2B business. For each item include a
+> headline, a 2-sentence summary, why it matters, and the source link. End with
+> "What I should do today".
+> ```
 
 If you create the schedule from the same session where you want the result, the
 finished briefing will be delivered back there automatically.
@@ -102,24 +106,30 @@ finished briefing will be delivered back there automatically.
 
 From local TUI or web chat:
 
-```text
-/schedule add "30 7 * * 1-5" Search the web for updates about Acme CRM, Northstar Digital, and BluePeak Analytics. Focus on pricing changes, launches, customer stories, hiring signals, and partnerships. Summarize the 5 most relevant updates for the owner of a small B2B business. For each item include a headline, a 2-sentence summary, why it matters, and the source link. End with "What I should do today".
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule add "30 7 * * 1-5" Search the web for updates about Acme CRM, Northstar Digital, and BluePeak Analytics. Focus on pricing changes, launches, customer stories, hiring signals, and partnerships. Summarize the 5 most relevant updates for the owner of a small B2B business. For each item include a headline, a 2-sentence summary, why it matters, and the source link. End with "What I should do today".
+> ```
 
 List or remove jobs later with:
 
-```text
-/schedule list
-/schedule remove <id>
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> /schedule list
+> /schedule remove <id>
+> ```
 
 ## The Rule That Matters
 
 Scheduled jobs start fresh. Do not write:
 
-```text
-Do the usual competitor briefing.
-```
+> 🎯 **Try it yourself**
+>
+> ```text
+> Do the usual competitor briefing.
+> ```
 
 Write the full version every time:
 

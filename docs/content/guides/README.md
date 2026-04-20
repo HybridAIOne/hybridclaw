@@ -16,7 +16,7 @@ These pages focus on common operator workflows after the base install works.
 - [TUI MCP Quickstart](./tui-mcp.md) for host-mode MCP server setup
 - [Bundled Skills](./bundled-skills.md) for notable built-in skills and
   install helpers
-- [SME Tutorials](./sme/) for sixteen practical owner, GTM, marketing, sales,
+- [Tutorials](./sme/) for sixteen practical owner, GTM, marketing, sales,
   and community workflows
 - [Twilio Voice](./twilio-voice.md) for phone-channel setup, public webhook
   exposure, testing, and troubleshooting
