@@ -652,10 +652,7 @@ export function createWhatsAppConnectionManager(params?: {
           childLogger.debug({ error }, 'WhatsApp socket shutdown raised');
         }
       }
-      await waitForPendingCredsSave(
-        childLogger,
-        credsSaveQueue,
-      );
+      await waitForPendingCredsSave(childLogger, credsSaveQueue);
       releaseAuthLock?.();
       releaseAuthLock = null;
       rejectWaiters(new Error('WhatsApp runtime stopped'));
