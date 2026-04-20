@@ -1,3 +1,4 @@
+import type { ContentToolConfig } from '../types/container.js';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
@@ -23,6 +24,7 @@ export interface WorkerSignatureInput {
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
+  contentTools?: ContentToolConfig;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -69,6 +71,86 @@ function normalizeTaskModel(
   };
 }
 
+function normalizeContentTools(
+  contentTools: ContentToolConfig | undefined,
+): Record<string, unknown> {
+  return {
+    imageGeneration: {
+      apiKey: String(contentTools?.imageGeneration.apiKey || ''),
+      baseUrl: String(contentTools?.imageGeneration.baseUrl || '')
+        .trim()
+        .replace(/\/+$/g, ''),
+      defaultModel: String(
+        contentTools?.imageGeneration.defaultModel || '',
+      ).trim(),
+      defaultCount:
+        typeof contentTools?.imageGeneration.defaultCount === 'number'
+          ? Math.floor(contentTools.imageGeneration.defaultCount)
+          : null,
+      defaultAspectRatio: String(
+        contentTools?.imageGeneration.defaultAspectRatio || '',
+      ).trim(),
+      defaultResolution: String(
+        contentTools?.imageGeneration.defaultResolution || '',
+      ).trim(),
+      defaultOutputFormat: String(
+        contentTools?.imageGeneration.defaultOutputFormat || '',
+      ).trim(),
+      timeoutMs:
+        typeof contentTools?.imageGeneration.timeoutMs === 'number'
+          ? Math.floor(contentTools.imageGeneration.timeoutMs)
+          : null,
+    },
+    speech: {
+      apiKey: String(contentTools?.speech.apiKey || ''),
+      baseUrl: String(contentTools?.speech.baseUrl || '')
+        .trim()
+        .replace(/\/+$/g, ''),
+      defaultModel: String(contentTools?.speech.defaultModel || '').trim(),
+      defaultVoice: String(contentTools?.speech.defaultVoice || '').trim(),
+      defaultOutputFormat: String(
+        contentTools?.speech.defaultOutputFormat || '',
+      ).trim(),
+      defaultSpeed:
+        typeof contentTools?.speech.defaultSpeed === 'number' &&
+        Number.isFinite(contentTools.speech.defaultSpeed)
+          ? contentTools.speech.defaultSpeed
+          : null,
+      maxChars:
+        typeof contentTools?.speech.maxChars === 'number'
+          ? Math.floor(contentTools.speech.maxChars)
+          : null,
+      timeoutMs:
+        typeof contentTools?.speech.timeoutMs === 'number'
+          ? Math.floor(contentTools.speech.timeoutMs)
+          : null,
+    },
+    transcription: {
+      apiKey: String(contentTools?.transcription.apiKey || ''),
+      baseUrl: String(contentTools?.transcription.baseUrl || '')
+        .trim()
+        .replace(/\/+$/g, ''),
+      defaultModel: String(
+        contentTools?.transcription.defaultModel || '',
+      ).trim(),
+      defaultLanguage: String(
+        contentTools?.transcription.defaultLanguage || '',
+      ).trim(),
+      defaultPrompt: String(
+        contentTools?.transcription.defaultPrompt || '',
+      ).trim(),
+      maxBytes:
+        typeof contentTools?.transcription.maxBytes === 'number'
+          ? Math.floor(contentTools.transcription.maxBytes)
+          : null,
+      timeoutMs:
+        typeof contentTools?.transcription.timeoutMs === 'number'
+          ? Math.floor(contentTools.transcription.timeoutMs)
+          : null,
+    },
+  };
+}
+
 export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = normalizeHeaders(input.requestHeaders);
   const taskModels = Object.fromEntries(
@@ -88,6 +170,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
     taskModels,
+    contentTools: normalizeContentTools(input.contentTools),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',

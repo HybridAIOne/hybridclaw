@@ -75,6 +75,37 @@ test('writeInput omits auth material from IPC files when requested', async () =>
       perplexityApiKey: 'perplexity-secret',
       tavilyApiKey: 'tavily-secret',
     },
+    contentTools: {
+      imageGeneration: {
+        apiKey: 'fal-secret',
+        baseUrl: 'https://fal.run',
+        defaultModel: 'fal-ai/flux-2/klein/9b',
+        defaultCount: 1,
+        defaultAspectRatio: '1:1' as const,
+        defaultResolution: '1K' as const,
+        defaultOutputFormat: 'png' as const,
+        timeoutMs: 120000,
+      },
+      speech: {
+        apiKey: 'openai-tts-secret',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'gpt-4o-mini-tts',
+        defaultVoice: 'alloy',
+        defaultOutputFormat: 'mp3' as const,
+        defaultSpeed: 1,
+        maxChars: 4000,
+        timeoutMs: 60000,
+      },
+      transcription: {
+        apiKey: 'openai-stt-secret',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'whisper-1',
+        defaultLanguage: '',
+        defaultPrompt: '',
+        maxBytes: 25000000,
+        timeoutMs: 120000,
+      },
+    },
   };
 
   ensureSessionDirs('session-1');
@@ -110,10 +141,42 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     searxngBaseUrl: '',
     tavilySearchDepth: 'advanced',
   });
+  expect(written.contentTools).toEqual({
+    imageGeneration: {
+      apiKey: '',
+      baseUrl: 'https://fal.run',
+      defaultModel: 'fal-ai/flux-2/klein/9b',
+      defaultCount: 1,
+      defaultAspectRatio: '1:1',
+      defaultResolution: '1K',
+      defaultOutputFormat: 'png',
+      timeoutMs: 120000,
+    },
+    speech: {
+      apiKey: '',
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-4o-mini-tts',
+      defaultVoice: 'alloy',
+      defaultOutputFormat: 'mp3',
+      defaultSpeed: 1,
+      maxChars: 4000,
+      timeoutMs: 60000,
+    },
+    transcription: {
+      apiKey: '',
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'whisper-1',
+      defaultLanguage: '',
+      defaultPrompt: '',
+      maxBytes: 25000000,
+      timeoutMs: 120000,
+    },
+  });
   expect(input.apiKey).toBe('token_secret');
   expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
   expect(input.taskModels.compression.apiKey).toBe('or-secret');
   expect(input.webSearch.braveApiKey).toBe('brave-secret');
+  expect(input.contentTools.imageGeneration.apiKey).toBe('fal-secret');
 });
 
 test('readOutput enforces a hard deadline despite repeated activity', async () => {

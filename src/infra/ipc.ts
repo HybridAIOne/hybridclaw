@@ -65,6 +65,27 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
     requestHeaders: {},
     taskModels: redactTaskModelSecrets(input.taskModels),
     webSearch: redactWebSearchSecrets(input.webSearch),
+    contentTools: redactContentToolSecrets(input.contentTools),
+  };
+}
+
+function redactContentToolSecrets(
+  contentTools: ContainerInput['contentTools'],
+): ContainerInput['contentTools'] | undefined {
+  if (!contentTools) return undefined;
+  return {
+    imageGeneration: {
+      ...contentTools.imageGeneration,
+      apiKey: '',
+    },
+    speech: {
+      ...contentTools.speech,
+      apiKey: '',
+    },
+    transcription: {
+      ...contentTools.transcription,
+      apiKey: '',
+    },
   };
 }
 

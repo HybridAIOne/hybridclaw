@@ -4,16 +4,24 @@ import path from 'node:path';
 import type { ArtifactMetadata } from './types.js';
 
 export const ARTIFACT_MIME_TYPES: Record<string, string> = {
+  '.flac': 'audio/flac',
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.m4a': 'audio/mp4',
+  '.mermaid': 'text/vnd.mermaid',
+  '.mmd': 'text/vnd.mermaid',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.wav': 'audio/wav',
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };

@@ -32,6 +32,44 @@ export interface MediaContextItem {
 
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
+export interface ContentImageGenerationConfig {
+  apiKey: string;
+  baseUrl: string;
+  defaultModel: string;
+  defaultCount: number;
+  defaultAspectRatio: '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
+  defaultResolution: '1K' | '2K' | '4K';
+  defaultOutputFormat: 'png' | 'jpeg';
+  timeoutMs: number;
+}
+
+export interface ContentSpeechConfig {
+  apiKey: string;
+  baseUrl: string;
+  defaultModel: string;
+  defaultVoice: string;
+  defaultOutputFormat: 'mp3' | 'wav' | 'opus';
+  defaultSpeed: number;
+  maxChars: number;
+  timeoutMs: number;
+}
+
+export interface ContentTranscriptionConfig {
+  apiKey: string;
+  baseUrl: string;
+  defaultModel: string;
+  defaultLanguage: string;
+  defaultPrompt: string;
+  maxBytes: number;
+  timeoutMs: number;
+}
+
+export interface ContentToolConfig {
+  imageGeneration: ContentImageGenerationConfig;
+  speech: ContentSpeechConfig;
+  transcription: ContentTranscriptionConfig;
+}
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -74,6 +112,7 @@ export interface ContainerInput {
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;
+  contentTools?: ContentToolConfig;
 }
 
 export interface ContainerOutput {

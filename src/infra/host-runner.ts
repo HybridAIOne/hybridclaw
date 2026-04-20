@@ -65,6 +65,7 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
+import { resolveContentToolConfig } from './content-tool-config.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
@@ -899,6 +900,7 @@ async function runHostProcessInner(
     enableRag,
     agentId,
   });
+  const contentTools = resolveContentToolConfig();
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
@@ -1002,6 +1004,7 @@ async function runHostProcessInner(
       tavilyApiKey: TAVILY_API_KEY,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    contentTools,
     escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
@@ -1012,6 +1015,7 @@ async function runHostProcessInner(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    contentTools: input.contentTools,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
