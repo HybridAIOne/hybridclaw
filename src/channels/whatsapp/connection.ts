@@ -37,6 +37,7 @@ const EXPECTED_TRANSPORT_DEBUG_WINDOW_MS = 60_000;
 const EXPECTED_TRANSPORT_DEBUG_LIMIT = 3;
 const EXPECTED_TRANSPORT_DEBUG_COOLDOWN_MS = 1_000;
 const KEEPALIVE_ERROR_SUPPRESS_MS = 30_000;
+const STOP_CREDS_SAVE_TIMEOUT_MS = 2_000;
 
 type WhatsAppLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
@@ -338,6 +339,31 @@ export interface WhatsAppConnectionManager {
   rememberSentMessage: WhatsAppMessageStore['rememberSentMessage'];
 }
 
+async function waitForPendingCredsSave(
+  target: WhatsAppLogger,
+  pendingSave: Promise<void>,
+): Promise<void> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const outcome = await Promise.race([
+      pendingSave.then(() => 'saved' as const),
+      new Promise<'timeout'>((resolve) => {
+        timeoutHandle = setTimeout(
+          () => resolve('timeout'),
+          STOP_CREDS_SAVE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (outcome === 'timeout') {
+      target.warn(
+        `Timed out waiting ${STOP_CREDS_SAVE_TIMEOUT_MS}ms for WhatsApp credential save during shutdown; continuing.`,
+      );
+    }
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 export function createWhatsAppConnectionManager(params?: {
   onSocketCreated?: (socket: WASocket) => void;
 }): WhatsAppConnectionManager {
@@ -623,7 +649,10 @@ export function createWhatsAppConnectionManager(params?: {
           childLogger.debug({ error }, 'WhatsApp socket shutdown raised');
         }
       }
-      await credsSaveQueue.catch(() => undefined);
+      await waitForPendingCredsSave(
+        childLogger,
+        credsSaveQueue.catch(() => undefined),
+      );
       releaseAuthLock?.();
       releaseAuthLock = null;
       rejectWaiters(new Error('WhatsApp runtime stopped'));

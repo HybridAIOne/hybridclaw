@@ -576,3 +576,33 @@ test('serializes WhatsApp credential saves on rapid creds.update events', async 
   await manager.stop();
   expect(maxConcurrentSaves).toBe(1);
 });
+
+test('stop continues after timing out on a stuck WhatsApp credential save', async () => {
+  vi.useFakeTimers();
+  const {
+    createWhatsAppConnectionManager,
+    releaseAuthLock,
+    saveCredsMock,
+    sockets,
+    whatsappLogger,
+  } = await importFreshConnectionModule();
+  const pendingSave = createDeferred<void>();
+  saveCredsMock.mockImplementation(() => pendingSave.promise);
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const credsHandlers = sockets[0]?.evHandlers.get('creds.update');
+  expect(credsHandlers).toHaveLength(1);
+  credsHandlers?.[0]?.({});
+  await flushMicrotasks();
+
+  const stopPromise = manager.stop();
+  await vi.advanceTimersByTimeAsync(2_000);
+  await stopPromise;
+
+  expect(releaseAuthLock).toHaveBeenCalledTimes(1);
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'Timed out waiting 2000ms for WhatsApp credential save during shutdown; continuing.',
+  );
+});

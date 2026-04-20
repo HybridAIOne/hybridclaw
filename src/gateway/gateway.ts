@@ -2528,6 +2528,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     });
     if (opts?.drain) {
       broadcastShutdown();
+      stopAllExecutions();
       const DRAIN_TIMEOUT_MS = 15_000;
       const DRAIN_POLL_MS = 250;
       const deadline = Date.now() + DRAIN_TIMEOUT_MS;
@@ -2541,7 +2542,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     stopHeartbeat();
     stopObservabilityIngest();
     stopDiscoveryLoop();
-    stopAllExecutions();
+    if (!opts?.drain) {
+      stopAllExecutions();
+    }
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');
     });
