@@ -33,7 +33,7 @@ function registerResolvedChannel(
 ): void {
   registerChannel({
     kind,
-    id: String(registration || kind).trim() || kind,
+    id: registration?.trim() || kind,
     capabilities,
   });
 }

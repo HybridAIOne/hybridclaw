@@ -569,12 +569,10 @@ async function postSlackText(target: string, text: string): Promise<void> {
   if (!parsedTarget) {
     throw new Error(`Invalid Slack target: ${target}`);
   }
-  if (!app) {
-    throw new Error('Slack runtime is not initialized.');
-  }
+  const activeApp = ensureSlackRuntimeInitialized();
 
   for (const chunk of prepareSlackTextChunks(text)) {
-    await app.client.chat.postMessage({
+    await activeApp.client.chat.postMessage({
       channel: parsedTarget.channelId,
       text: chunk,
       mrkdwn: true,
@@ -593,9 +591,7 @@ async function postSlackFile(params: {
   if (!parsedTarget) {
     throw new Error(`Invalid Slack target: ${params.target}`);
   }
-  if (!app) {
-    throw new Error('Slack runtime is not initialized.');
-  }
+  const activeApp = ensureSlackRuntimeInitialized();
 
   const filename =
     trimValue(params.filename) || path.basename(path.resolve(params.filePath));
@@ -609,7 +605,7 @@ async function postSlackFile(params: {
     ...(parsedTarget.threadTs ? { thread_ts: parsedTarget.threadTs } : {}),
   };
 
-  await app.client.files.uploadV2(uploadParams as SlackUploadFileArgs);
+  await activeApp.client.files.uploadV2(uploadParams as SlackUploadFileArgs);
 }
 
 async function updateSlackApprovalMessage(params: {
@@ -631,6 +627,13 @@ async function updateSlackApprovalMessage(params: {
       params.statusText,
     ),
   });
+}
+
+function ensureSlackRuntimeInitialized(): App {
+  if (!app) {
+    throw new Error('Slack runtime is not initialized.');
+  }
+  return app;
 }
 
 export async function sendSlackApprovalNotification(params: {
@@ -1067,6 +1070,7 @@ export async function sendToSlackTarget(
   target: string,
   text: string,
 ): Promise<void> {
+  ensureSlackRuntimeInitialized();
   await postSlackText(target, text);
 }
 
@@ -1076,6 +1080,7 @@ export async function sendSlackFileToTarget(params: {
   filename?: string | null;
   caption?: string | null;
 }): Promise<void> {
+  ensureSlackRuntimeInitialized();
   await postSlackFile(params);
 }
 
