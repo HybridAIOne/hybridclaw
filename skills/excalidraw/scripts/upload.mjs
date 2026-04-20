@@ -5,6 +5,7 @@ import { createCipheriv, randomBytes } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
 const UPLOAD_URL = 'https://json.excalidraw.com/api/v2/post/';
+const UPLOAD_TIMEOUT_MS = 30_000;
 
 function concatBuffers(...buffers) {
   const parts = [];
@@ -56,10 +57,25 @@ async function uploadExcalidrawJson(excalidrawJson) {
   );
   const payload = concatBuffers(encodingMetadata, iv, ciphertext);
 
-  const response = await fetch(UPLOAD_URL, {
-    method: 'POST',
-    body: payload,
-  });
+  let response;
+  try {
+    response = await fetch(UPLOAD_URL, {
+      method: 'POST',
+      body: payload,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/octet-stream',
+      },
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new Error(
+        `Upload timed out after ${Math.round(UPLOAD_TIMEOUT_MS / 1000)}s`,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new Error(`Upload failed with HTTP ${response.status}`);
