@@ -2,6 +2,7 @@ import {
   getCodexAuthStatus,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
+import { logger } from '../logger.js';
 import { CODEX_CLIENT_VERSION } from './codex-constants.js';
 import {
   createDiscoveryStore,
@@ -195,7 +196,10 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
 
     const state = await discoveryStore.discover(fetchCodexModels, {
       force: opts?.force,
-      onError: (_err, staleState) => staleState,
+      onError: (err, staleState) => {
+        logger.warn({ err }, 'Codex model discovery failed');
+        return staleState;
+      },
     });
     return [...state.discoveredModelNames];
   }

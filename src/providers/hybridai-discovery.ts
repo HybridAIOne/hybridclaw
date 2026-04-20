@@ -3,6 +3,7 @@ import {
   HYBRIDAI_BASE_URL,
   MissingRequiredEnvVarError,
 } from '../config/config.js';
+import { logger } from '../logger.js';
 import {
   formatHybridAIModelForCatalog,
   stripHybridAIModelPrefix,
@@ -210,7 +211,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       () => fetchHybridAIModels(apiKey),
       {
         force: opts?.force,
-        onError: (_err, staleState) => staleState,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'HybridAI model discovery failed');
+          return staleState;
+        },
       },
     );
     return [...state.discoveredModelNames];

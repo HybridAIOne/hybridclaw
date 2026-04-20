@@ -1,4 +1,5 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
+import { logger } from '../logger.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
@@ -208,7 +209,10 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       () => fetchOpenRouterModels(apiKey),
       {
         force: opts?.force,
-        onError: (_err, staleState) => staleState,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'OpenRouter model discovery failed');
+          return staleState;
+        },
       },
     );
     return [...state.discoveredModelNames];
