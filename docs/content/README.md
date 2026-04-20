@@ -26,20 +26,16 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- Provider auth and model selection span HybridAI, Codex, OpenRouter, Mistral,
-  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi,
-  Kilo Code, and local backends. Several remote providers also discover model
-  catalogs at runtime.
-- Skills can be enabled or disabled globally or per channel from
-  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
-  `Skills` page.
-- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
-  MemPalace, QMD, and GBrain plugins. The
-  [Memory Plugins](./extensibility/memory-plugins.md) guide compares the main
-  tradeoffs.
-- HybridClaw can emit OpenTelemetry traces to OTLP backends when
-  `OTEL_ENABLED=true` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set, correlating
-  gateway and agent spans with structured logs.
+- The built-in `/chat` sidebar can search recent conversations by title and
+  show contextual match snippets, so long-lived browser sessions are easier to
+  reopen without scrolling through the default recent list.
+- Browser chat and the console chat keep the composer focused after streamed
+  replies finish, which makes keyboard-only follow-up turns faster.
+- The bundled PDF creator wraps long lines, respects explicit `\n` line
+  breaks, and adds pages automatically when content runs past the first page.
+- Generated artifacts keep resolving correctly even when the sandbox exposes a
+  custom workspace display root such as `/app`, so downloads and attachments
+  stay stable in browser-driven workflows.
 
 ## Browse By Section
 

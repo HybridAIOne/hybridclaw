@@ -16,6 +16,7 @@ import {
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -359,31 +360,46 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
+  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
 ): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
   const workspaceRoot = path.resolve(workspacePath);
+  const displayRoot = path.posix.normalize(
+    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
+  );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
-    if (
-      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
-      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
-    ) {
+    const allowedRoots =
+      displayRoot === CONTAINER_WORKSPACE_ROOT
+        ? [CONTAINER_WORKSPACE_ROOT]
+        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
+            (left, right) => right.length - left.length,
+          );
+    const matchedRoot =
+      allowedRoots.find(
+        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
+      ) ?? null;
+    if (!matchedRoot) {
       return null;
     }
-    const rel = cleanAbs
-      .slice(CONTAINER_WORKSPACE_ROOT.length)
-      .replace(/^\/+/, '');
+    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (
-      resolved === workspaceRoot ||
-      resolved.startsWith(`${workspaceRoot}${path.sep}`)
-    ) {
+    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
     }
     return null;
@@ -392,10 +408,7 @@ function resolveArtifactHostPath(
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (
-    resolved === workspaceRoot ||
-    resolved.startsWith(`${workspaceRoot}${path.sep}`)
-  ) {
+  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
     return resolved;
   }
   return null;
@@ -404,6 +417,7 @@ function resolveArtifactHostPath(
 export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
+  workspaceDisplayRoot?: string,
 ): void {
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
@@ -412,6 +426,7 @@ export function remapOutputArtifacts(
     const hostPath = resolveArtifactHostPath(
       String(raw.path || ''),
       workspacePath,
+      workspaceDisplayRoot,
     );
     if (!hostPath) continue;
     const filename =
@@ -848,6 +863,7 @@ async function runContainerInner(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -946,7 +962,11 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')

@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { normalizeNullableTrimmedString as normalizePackageSpec } from '../utils/normalized-strings.js';
 import type {
   PluginExternalDependency,
   PluginManifest,
@@ -67,11 +68,6 @@ export interface PluginDependencyCheckReport {
   nodeDependencies: PluginPackageStatus[];
   pipDependencies: PluginPackageStatus[];
   externalDependencies: PluginExternalDependencyStatus[];
-}
-
-function normalizePackageSpec(value: unknown): string | null {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  return normalized ? normalized : null;
 }
 
 function extractCheckPackageName(spec: string): string {

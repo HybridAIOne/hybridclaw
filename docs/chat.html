@@ -163,6 +163,34 @@
       min-height: 0;
     }
 
+    .sidebar-search-wrap {
+      display: grid;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .sidebar-search {
+      width: 100%;
+      border: 1px solid #d9e0ea;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.82);
+      color: #374151;
+      font: inherit;
+      font-size: 14px;
+      padding: 10px 12px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .sidebar-search::placeholder {
+      color: #8b98ab;
+    }
+
+    .sidebar-search:focus {
+      outline: none;
+      border-color: #a8b8d8;
+      box-shadow: 0 0 0 3px rgba(134, 159, 210, 0.18);
+    }
+
     .sidebar-section-title {
       padding: 4px 2px 0;
       font-size: 11px;
@@ -248,6 +276,14 @@
       white-space: nowrap;
     }
 
+    .chat-session-snippet {
+      font-size: 12px;
+      color: #6f7a8c;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .sidebar-empty {
       padding: 2px 2px 0;
       font-size: 13px;
@@ -267,6 +303,10 @@
     }
 
     .layout.is-sidebar-collapsed .sidebar-session-list-wrap {
+      display: none;
+    }
+
+    .layout.is-sidebar-collapsed .sidebar-search-wrap {
       display: none;
     }
 
@@ -516,6 +556,56 @@
     .msg-block.user-block {
       margin-left: auto;
       align-items: flex-end;
+    }
+
+    .msg-block.is-btw-thread {
+      position: relative;
+      margin-left: 28px;
+      padding-left: 18px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(113, 136, 205, 0.2),
+          rgba(113, 136, 205, 0.1)
+        )
+        left 0 top / 2px 100% no-repeat;
+    }
+
+    .msg-block.is-btw-thread::before {
+      content: 'BTW';
+      position: absolute;
+      left: 18px;
+      top: -12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #d7e1f8;
+      background: #f6f8ff;
+      color: #5a6ea3;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: 0 1px 2px rgba(50, 80, 140, 0.06);
+    }
+
+    .msg-block.is-btw-thread + .msg-block.is-btw-thread::before {
+      content: none;
+    }
+
+    .msg-block.is-btw-thread .msg {
+      border-color: #d8e2f7;
+      background: linear-gradient(180deg, #fbfcff, #f7faff);
+      box-shadow: 0 2px 10px rgba(92, 114, 168, 0.08);
+    }
+
+    .msg-block.is-btw-thread .msg.system {
+      background: linear-gradient(180deg, #eef4ff, #e8efff);
+      color: #4b5f88;
+      font-weight: 600;
+    }
+
+    .msg-block.is-btw-thread .msg.thinking {
+      background: #f6f9ff;
     }
 
     .msg-actions {
@@ -1234,6 +1324,15 @@
         padding: 12px;
       }
 
+      .msg-block.is-btw-thread {
+        margin-left: 16px;
+        padding-left: 12px;
+      }
+
+      .msg-block.is-btw-thread::before {
+        left: 12px;
+      }
+
       .empty-greeting {
         font-size: clamp(22px, 6.8vw, 34px);
       }
@@ -1270,6 +1369,15 @@
         <span class="new-chat-icon">+</span>
         <span class="new-chat-label">New Conversation</span>
       </button>
+      <div class="sidebar-search-wrap">
+        <input
+          id="recentSearch"
+          type="search"
+          class="sidebar-search"
+          placeholder="Search"
+          aria-label="Search conversations"
+        >
+      </div>
       <section class="sidebar-session-list-wrap" aria-labelledby="recentChatsLabel">
         <div id="recentChatsLabel" class="sidebar-section-title">Recent chats</div>
         <div id="recentSessions" class="sidebar-nav" aria-live="polite"></div>
@@ -1379,6 +1487,8 @@
     const messageEl = document.getElementById('message');
     const messagesEl = document.getElementById('messages');
     const recentSessionsEl = document.getElementById('recentSessions');
+    const recentSearchEl = document.getElementById('recentSearch');
+    const recentChatsLabelEl = document.getElementById('recentChatsLabel');
     const errorEl = document.getElementById('error');
     const sendEl = document.getElementById('send');
     const attachEl = document.getElementById('attach');
@@ -1388,7 +1498,7 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
-    const MAX_RECENT_SESSIONS = 10;
+    const CHAT_UI_CONFIG_URL = '/static/chat-ui-config.json';
     const SEND_ICON = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 19V5"></path>
@@ -1476,14 +1586,30 @@
       const sessionId = String(entry?.sessionId || '').trim();
       if (!sessionId) return null;
       const title = String(entry?.title || '').trim() || 'Untitled chat';
+      const searchSnippet = String(entry?.searchSnippet || '').trim();
       const lastActive = String(entry?.lastActive || '').trim();
       const messageCount = Number(entry?.messageCount);
       return {
         sessionId,
         title,
+        searchSnippet,
         lastActive,
         messageCount: Number.isFinite(messageCount) ? messageCount : 0,
       };
+    }
+
+    async function loadChatUiConfig() {
+      if (!chatUiConfigPromise) {
+        chatUiConfigPromise = fetch(CHAT_UI_CONFIG_URL, {
+          cache: 'no-store',
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to load chat UI config (${response.status})`);
+          }
+          return response.json();
+        });
+      }
+      return chatUiConfigPromise;
     }
 
     const initialStoredSessionId = localStorage.getItem('hybridclaw_session');
@@ -1502,10 +1628,14 @@
       lastSessionNumber = activeSessionNumber;
     }
     let recentSessions = [];
+    let recentSearchQuery = '';
+    let recentSearchTimer = 0;
+    let chatUiConfigPromise = null;
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
     let pendingMedia = [];
     let pendingUploadCount = 0;
     let activeChatRequest = null;
+    let activeConcurrentBtwRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
     let slashSuggestionsVersion = 0;
@@ -2084,11 +2214,18 @@
 
     function renderRecentSessions() {
       if (!recentSessionsEl) return;
+      if (recentChatsLabelEl) {
+        recentChatsLabelEl.textContent = recentSearchQuery
+          ? 'Search results'
+          : 'Recent chats';
+      }
       recentSessionsEl.innerHTML = '';
       if (recentSessions.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'sidebar-empty';
-        empty.textContent = 'No recent chats yet.';
+        empty.textContent = recentSearchQuery
+          ? 'No matching chats.'
+          : 'No recent chats yet.';
         recentSessionsEl.appendChild(empty);
         return;
       }
@@ -2106,6 +2243,13 @@
         title.textContent = session.title || 'Untitled chat';
         copy.appendChild(title);
 
+        if (session.searchSnippet) {
+          const snippet = document.createElement('span');
+          snippet.className = 'chat-session-snippet';
+          snippet.textContent = session.searchSnippet;
+          copy.appendChild(snippet);
+        }
+
         const meta = document.createElement('span');
         meta.className = 'chat-session-meta';
         meta.textContent = formatRelativeTime(session.lastActive);
@@ -2121,11 +2265,20 @@
 
     async function refreshRecentSessions() {
       try {
+        const chatUiConfig = await loadChatUiConfig();
+        const trimmedQuery = String(recentSearchQuery || '').trim();
         const params = new URLSearchParams({
           userId: activeUserId,
           channelId: 'web',
-          limit: String(MAX_RECENT_SESSIONS),
+          limit: String(
+            trimmedQuery
+              ? chatUiConfig.maxSearchResults
+              : chatUiConfig.maxRecentSessions,
+          ),
         });
+        if (trimmedQuery) {
+          params.set('q', trimmedQuery);
+        }
         const payload = await requestJson(`/api/chat/recent?${params.toString()}`, {
           method: 'GET',
           headers: apiHeaders(),
@@ -2139,6 +2292,16 @@
         recentSessions = [];
       }
       renderRecentSessions();
+    }
+
+    function scheduleRefreshRecentSessions() {
+      if (recentSearchTimer) {
+        window.clearTimeout(recentSearchTimer);
+      }
+      recentSearchTimer = window.setTimeout(() => {
+        recentSearchTimer = 0;
+        void refreshRecentSessions();
+      }, 160);
     }
 
     function autoResizeTextarea() {
@@ -2283,28 +2446,53 @@
       renderSlashSuggestionsList(entries);
     }
 
+    function parseConcurrentBtwDraft(rawContent) {
+      const trimmed = String(rawContent || '').trim();
+      const match = /^\/btw(?:\s+([\s\S]*))?$/iu.exec(trimmed);
+      if (!match) return null;
+      return {
+        commandText: trimmed,
+        question: String(match[1] || '').trim(),
+      };
+    }
+
+    function resolveConcurrentBtwDraft() {
+      if (!activeChatRequest || activeConcurrentBtwRequest) return null;
+      if (pendingUploadCount > 0 || pendingMedia.length > 0) return null;
+      return parseConcurrentBtwDraft(messageEl.value);
+    }
+
     function updateComposerState() {
       const isRunning = Boolean(activeChatRequest);
       const isStopping = Boolean(activeChatRequest?.stopping);
+      const concurrentBtwDraft = resolveConcurrentBtwDraft();
+      const canSendConcurrentBtw = Boolean(concurrentBtwDraft);
       const hasContent = messageEl.value.trim().length > 0;
       const hasMedia = pendingMedia.length > 0;
       sendEl.disabled =
         isStopping ||
         (!isRunning && (pendingUploadCount > 0 || (!hasContent && !hasMedia)));
-      sendEl.classList.toggle('is-stop', isRunning);
+      sendEl.classList.toggle('is-stop', isRunning && !canSendConcurrentBtw);
       sendEl.setAttribute(
         'aria-label',
-        isRunning ? 'Stop current message' : 'Send message',
+        isRunning && !canSendConcurrentBtw
+          ? 'Stop current message'
+          : isRunning
+            ? 'Send /btw side question'
+            : 'Send message',
       );
-      sendEl.title = isRunning ? 'Stop current message' : 'Send message';
+      sendEl.title =
+        isRunning && !canSendConcurrentBtw
+          ? 'Stop current message'
+          : isRunning
+            ? 'Send /btw side question'
+            : 'Send message';
       // NOTE: SEND_ICON and STOP_ICON are static trusted SVG constants defined in this file
-      sendEl.innerHTML = isRunning ? STOP_ICON : SEND_ICON;  // eslint-disable-line no-unsanitized/property
+      sendEl.innerHTML =
+        isRunning && !canSendConcurrentBtw ? STOP_ICON : SEND_ICON;  // eslint-disable-line no-unsanitized/property
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
-      messageEl.disabled = isRunning;
-      if (isRunning) {
-        hideSlashSuggestions();
-      }
+      messageEl.disabled = false;
     }
 
     function setError(text) {
@@ -3029,6 +3217,9 @@
       }
       const block = document.createElement('div');
       block.className = 'msg-block';
+      if (options.threadKind === 'btw') {
+        block.classList.add('is-btw-thread');
+      }
       if (role === 'user') {
         block.classList.add('user-block');
       }
@@ -3148,7 +3339,7 @@
       }
     }
 
-    function addThinkingMessage() {
+    function addThinkingMessage(options = {}) {
       const item = document.createElement('div');
       item.className = 'msg assistant thinking';
       const dots = document.createElement('span');
@@ -3157,6 +3348,15 @@
         dots.appendChild(document.createElement('span'));
       }
       item.appendChild(dots);
+      if (options.threadKind === 'btw') {
+        const block = document.createElement('div');
+        block.className = 'msg-block is-btw-thread';
+        block.appendChild(item);
+        messagesEl.appendChild(block);
+        updateEmptyState();
+        scrollChatToBottom();
+        return block;
+      }
       messagesEl.appendChild(item);
       updateEmptyState();
       scrollChatToBottom();
@@ -3713,6 +3913,8 @@
           if (requestState.assistantBlock?.isConnected) {
             return requestState.assistantBlock;
           }
+          const thinkingParent = requestState.thinkingItem?.parentNode || null;
+          const thinkingNextSibling = requestState.thinkingItem?.nextSibling || null;
           if (requestState.thinkingItem?.isConnected) {
             requestState.thinkingItem.remove();
           }
@@ -3721,6 +3923,16 @@
             replayRequest,
           });
           requestState.assistantBlock = assistantView?.block || null;
+          if (
+            thinkingParent &&
+            requestState.assistantBlock?.isConnected &&
+            requestState.assistantBlock.parentNode === thinkingParent
+          ) {
+            thinkingParent.insertBefore(
+              requestState.assistantBlock,
+              thinkingNextSibling,
+            );
+          }
           return requestState.assistantBlock;
         };
         const renderStreamedAssistant = () => {
@@ -3866,6 +4078,9 @@
         if (requestState.assistantBlock?.isConnected) {
           renderMessageActions(requestState.assistantBlock);
         }
+        if (!activeChatRequest && !messageEl.disabled) {
+          messageEl.focus();
+        }
       }
 
       return null;
@@ -3873,7 +4088,85 @@
 
     async function sendMessage() {
       if (pendingUploadCount > 0) return;
+      const concurrentBtwDraft = resolveConcurrentBtwDraft();
+      if (concurrentBtwDraft) {
+        await submitConcurrentBtwQuestion(concurrentBtwDraft);
+        return;
+      }
+      if (activeChatRequest) {
+        if (messageEl.value.trim()) {
+          setError('Only `/btw` can be sent while the current run is active.');
+        }
+        return;
+      }
       await submitPrompt(messageEl.value, pendingMedia);
+    }
+
+    async function submitConcurrentBtwQuestion(command) {
+      if (!activeChatRequest || activeConcurrentBtwRequest) return;
+
+      const targetSessionId = String(
+        activeChatRequest.sessionId || activeSessionId || '',
+      ).trim();
+      if (!targetSessionId) return;
+
+      setError('');
+      activeConcurrentBtwRequest = {
+        sessionId: targetSessionId,
+      };
+      const draftText = command.commandText;
+      addMessage('system', draftText, undefined, { threadKind: 'btw' });
+      const thinkingItem = addThinkingMessage({ threadKind: 'btw' });
+      messageEl.value = '';
+      autoResizeTextarea();
+      hideSlashSuggestions();
+      updateComposerState();
+
+      try {
+        const result = await requestJson('/api/command', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({
+            sessionId: targetSessionId,
+            guildId: null,
+            channelId: 'web',
+            userId: activeUserId,
+            username: 'web',
+            args: command.question ? ['btw', command.question] : ['btw'],
+          }),
+        });
+        if (thinkingItem.isConnected) {
+          thinkingItem.remove();
+        }
+        const title = String(result?.title || '').trim();
+        const text = String(result?.text || '').trim();
+        const formatted = !title ? text : text ? `${title}\n\n${text}` : title;
+        if (result.kind === 'error') {
+          addMessage('system', formatted || 'BTW failed.', undefined, {
+            threadKind: 'btw',
+          });
+        } else {
+          addMessage('assistant', text || 'No response returned.', undefined, {
+            threadKind: 'btw',
+          });
+        }
+        if (result.sessionId) {
+          activeSessionId = String(result.sessionId).trim() || activeSessionId;
+          savePrefs();
+        }
+      } catch (err) {
+        if (thinkingItem.isConnected) {
+          thinkingItem.remove();
+        }
+        const text = err instanceof Error ? err.message : String(err);
+        addMessage('system', `BTW failed: ${text}`, undefined, {
+          threadKind: 'btw',
+        });
+      } finally {
+        activeConcurrentBtwRequest = null;
+        updateComposerState();
+        messageEl.focus();
+      }
     }
 
     async function stopActiveChatRequest() {
@@ -3971,7 +4264,7 @@
     }
 
     sendEl.addEventListener('click', () => {
-      if (activeChatRequest) {
+      if (activeChatRequest && !resolveConcurrentBtwDraft()) {
         void stopActiveChatRequest();
         return;
       }
@@ -3983,6 +4276,12 @@
     attachmentInputEl.addEventListener('change', () => {
       void uploadSelectedFiles(attachmentInputEl.files);
     });
+    if (recentSearchEl) {
+      recentSearchEl.addEventListener('input', (event) => {
+        recentSearchQuery = String(event.target?.value || '').trim();
+        scheduleRefreshRecentSessions();
+      });
+    }
     document.getElementById('newChat').addEventListener('click', newChat);
     const sidebarToggleBtn = document.getElementById('sidebarToggle');
     const mobileSidebarMedia = window.matchMedia('(max-width: 900px)');
@@ -4087,7 +4386,6 @@
       }
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        if (activeChatRequest) return;
         void sendMessage();
       }
     });

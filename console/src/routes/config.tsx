@@ -232,115 +232,7 @@ export function ConfigPage() {
             </section>
 
             <section className="config-section">
-              <h4>Discord</h4>
-              <label className="field">
-                <span>Prefix</span>
-                <input
-                  value={draft.discord.prefix}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            discord: {
-                              ...current.discord,
-                              prefix: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Group policy</span>
-                <select
-                  value={draft.discord.groupPolicy}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            discord: {
-                              ...current.discord,
-                              groupPolicy: event.target
-                                .value as AdminConfig['discord']['groupPolicy'],
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                >
-                  <option value="open">open</option>
-                  <option value="allowlist">allowlist</option>
-                  <option value="disabled">disabled</option>
-                </select>
-              </label>
-              <BooleanField
-                label="Commands only"
-                value={draft.discord.commandsOnly}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(commandsOnly) =>
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          discord: {
-                            ...current.discord,
-                            commandsOnly,
-                          },
-                        }
-                      : current,
-                  )
-                }
-              />
-            </section>
-
-            <section className="config-section">
               <h4>Container</h4>
-              <label className="field">
-                <span>Sandbox mode</span>
-                <select
-                  value={draft.container.sandboxMode}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            container: {
-                              ...current.container,
-                              sandboxMode: event.target
-                                .value as AdminConfig['container']['sandboxMode'],
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                >
-                  <option value="container">container</option>
-                  <option value="host">host</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Image</span>
-                <input
-                  value={draft.container.image}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            container: {
-                              ...current.container,
-                              image: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
               <label className="field">
                 <span>Memory</span>
                 <input
@@ -360,6 +252,25 @@ export function ConfigPage() {
                   }
                 />
               </label>
+              <BooleanField
+                label="Persistent bash state"
+                value={draft.container.persistBashState}
+                trueLabel="on"
+                falseLabel="off"
+                onChange={(persistBashState) =>
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          container: {
+                            ...current.container,
+                            persistBashState,
+                          },
+                        }
+                      : current,
+                  )
+                }
+              />
             </section>
           </div>
         )}

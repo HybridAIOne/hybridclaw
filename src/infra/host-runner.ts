@@ -7,6 +7,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -747,6 +748,7 @@ async function runHostProcessInner(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -851,7 +853,11 @@ async function runHostProcessInner(
       );
       stopSessionHostProcess(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
     if (typeof output.result === 'string')
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')

@@ -133,6 +133,10 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
+import {
+  attachDiscordTransportErrorHandlers,
+  logDiscordApiError,
+} from './transport-errors.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -1076,7 +1080,11 @@ async function ensureSlashCommands(): Promise<void> {
       'Successfully registered slash commands',
     );
   } catch (error) {
-    logger.warn({ error }, 'Failed to register global slash commands');
+    logDiscordApiError({
+      error,
+      expectedAction: 'Global slash commands were not registered.',
+      unexpectedMessage: 'Failed to register global slash commands',
+    });
   }
 
   await Promise.allSettled(
@@ -1100,10 +1108,12 @@ async function ensureSlashCommands(): Promise<void> {
           'Successfully cleaned up guild slash commands',
         );
       } catch (error) {
-        logger.warn(
-          { error, guildId: guild.id },
-          'Failed to clean up Discord guild slash commands',
-        );
+        logDiscordApiError({
+          error,
+          expectedAction: 'Guild slash commands were not cleaned up.',
+          unexpectedMessage: 'Failed to clean up Discord guild slash commands',
+          metadata: { guildId: guild.id },
+        });
       }
     }),
   );
@@ -1539,6 +1549,7 @@ export async function initDiscord(
       Partials.User,
     ],
   });
+  attachDiscordTransportErrorHandlers(client);
 
   client.on('presenceUpdate', (_oldPresence, nextPresence) => {
     const userId = nextPresence.userId || nextPresence.user?.id;
@@ -1552,13 +1563,6 @@ export async function initDiscord(
         details: activity.details || null,
       })),
     });
-  });
-
-  client.on('error', (error) => {
-    logger.error(
-      { error },
-      'Discord client error (will reconnect automatically)',
-    );
   });
 
   client.on('clientReady', () => {

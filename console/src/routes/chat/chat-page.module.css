@@ -58,6 +58,30 @@
   background: var(--accent-soft);
 }
 
+.sidebarSearchWrap {
+  padding: 2px 0 4px;
+}
+
+.sidebarSearch {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 9px 11px;
+}
+
+.sidebarSearch::placeholder {
+  color: var(--muted-foreground);
+}
+
+.sidebarSearch:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+  border-color: var(--ring);
+}
+
 .sidebarLabel {
   margin: 12px 0 4px;
   padding: 0 6px;
@@ -113,8 +137,22 @@
   text-overflow: ellipsis;
 }
 
+.sessionSnippet {
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sessionTime {
   font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.sidebarStatus {
+  padding: 6px 10px;
+  font-size: 0.82rem;
   color: var(--muted-foreground);
 }
 
@@ -364,25 +402,11 @@
 }
 
 .actionButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
   height: 28px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.82rem;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.actionButton:hover {
-  background: var(--muted);
-  color: var(--text);
 }
 
 .actionButtonSuccess {
@@ -399,27 +423,11 @@
 }
 
 .branchButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 22px;
   height: 22px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.8rem;
-}
-
-.branchButton:hover {
-  background: var(--muted);
-  color: var(--text);
-}
-
-.branchButton:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .approvalActions {
@@ -430,39 +438,9 @@
 }
 
 .approvalAllow {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--success-border);
+  border-color: var(--success-border);
   background: var(--success-soft);
   color: var(--success);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalAllow:hover {
-  opacity: 0.85;
-}
-
-.approvalDeny {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalDeny:hover {
-  opacity: 0.85;
-}
-
-.approvalAllow:disabled,
-.approvalDeny:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .artifactCard {

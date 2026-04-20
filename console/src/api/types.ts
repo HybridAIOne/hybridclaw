@@ -548,6 +548,7 @@ export interface AdminConfig {
     additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
+    persistBashState: boolean;
   };
   ops: {
     healthHost: string;
