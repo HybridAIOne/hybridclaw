@@ -131,6 +131,9 @@ jobs:
           fi
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -149,58 +152,10 @@ jobs:
 
       - name: Promote agent image from main build
         id: promote
-        shell: bash
-        env:
-          SOURCE: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-agent:sha-${{ needs.validate.outputs.sha_short }}
-          TARGET_TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          set -euo pipefail
-
-          MAX_ATTEMPTS=1
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            MAX_ATTEMPTS=80
-          fi
-
-          RAW=""
-          for ((_attempt=1; _attempt<=MAX_ATTEMPTS; _attempt++)); do
-            RAW="$(docker buildx imagetools inspect --raw "${SOURCE}" 2>/dev/null || true)"
-            if [[ -n "${RAW}" ]]; then
-              break
-            fi
-            echo "Waiting for source image ${SOURCE}..."
-            sleep 15
-          done
-
-          if [[ -z "${RAW}" ]]; then
-            echo "Source image not available; falling back to build."
-            echo "promoted=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          if ! jq -e '
-            (.manifests // [])
-            | map(.platform.architecture)
-            | (index("amd64") and index("arm64"))
-          ' <<< "${RAW}" >/dev/null; then
-            echo "Source image is not multi-arch; falling back to build."
-            echo "promoted=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          while IFS= read -r tag; do
-            [[ -n "${tag}" ]] || continue
-            docker buildx imagetools create --tag "${tag}" "${SOURCE}"
-          done <<< "${TARGET_TAGS}"
-
-          echo "promoted=true" >> "${GITHUB_OUTPUT}"
-
-      - name: Setup QEMU
-        if: steps.promote.outputs.promoted != 'true'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
-      - name: Setup Buildx for fallback build
-        if: steps.promote.outputs.promoted != 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: ./.github/actions/promote-image
+        with:
+          source: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-agent:sha-${{ needs.validate.outputs.sha_short }}
+          target-tags: ${{ steps.meta.outputs.tags }}
 
       - name: Build and push agent image
         if: steps.promote.outputs.promoted != 'true'
@@ -256,6 +211,9 @@ jobs:
           fi
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -275,58 +233,10 @@ jobs:
 
       - name: Promote gateway image from main build
         id: promote
-        shell: bash
-        env:
-          SOURCE: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-gateway:sha-${{ needs.validate.outputs.sha_short }}
-          TARGET_TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          set -euo pipefail
-
-          MAX_ATTEMPTS=1
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            MAX_ATTEMPTS=80
-          fi
-
-          RAW=""
-          for ((_attempt=1; _attempt<=MAX_ATTEMPTS; _attempt++)); do
-            RAW="$(docker buildx imagetools inspect --raw "${SOURCE}" 2>/dev/null || true)"
-            if [[ -n "${RAW}" ]]; then
-              break
-            fi
-            echo "Waiting for source image ${SOURCE}..."
-            sleep 15
-          done
-
-          if [[ -z "${RAW}" ]]; then
-            echo "Source image not available; falling back to build."
-            echo "promoted=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          if ! jq -e '
-            (.manifests // [])
-            | map(.platform.architecture)
-            | (index("amd64") and index("arm64"))
-          ' <<< "${RAW}" >/dev/null; then
-            echo "Source image is not multi-arch; falling back to build."
-            echo "promoted=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          while IFS= read -r tag; do
-            [[ -n "${tag}" ]] || continue
-            docker buildx imagetools create --tag "${tag}" "${SOURCE}"
-          done <<< "${TARGET_TAGS}"
-
-          echo "promoted=true" >> "${GITHUB_OUTPUT}"
-
-      - name: Setup QEMU
-        if: steps.promote.outputs.promoted != 'true'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
-      - name: Setup Buildx for fallback build
-        if: steps.promote.outputs.promoted != 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: ./.github/actions/promote-image
+        with:
+          source: ghcr.io/${{ needs.validate.outputs.owner_lc }}/hybridclaw-gateway:sha-${{ needs.validate.outputs.sha_short }}
+          target-tags: ${{ steps.meta.outputs.tags }}
 
       - name: Build and push gateway image
         if: steps.promote.outputs.promoted != 'true'
