@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import fs from 'node:fs';
 import { createCipheriv, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
 const UPLOAD_URL = 'https://json.excalidraw.com/api/v2/post/';
@@ -92,7 +92,9 @@ async function uploadExcalidrawJson(excalidrawJson) {
 async function main() {
   const filePath = process.argv[2];
   if (!filePath) {
-    throw new Error('Usage: node skills/excalidraw/scripts/upload.mjs <path-to-file.excalidraw>');
+    throw new Error(
+      'Usage: node skills/excalidraw/scripts/upload.mjs <path-to-file.excalidraw>',
+    );
   }
 
   const content = fs.readFileSync(filePath, 'utf8');
