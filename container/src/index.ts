@@ -18,7 +18,10 @@ import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
   formatModelErrorForLog,
+  classifyModelError,
   isRetryableModelError,
+  RoutedModelError,
+  shouldAutoRouteFromModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import {
@@ -690,49 +693,28 @@ async function executePreparedToolCall(
   };
 }
 
-async function callHybridAIWithRetry(params: {
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+interface ModelCallTarget {
+  provider: ContainerInput['provider'];
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
-  history: ChatMessage[];
-  tools: ToolDefinition[];
-  onTextDelta?: (delta: string) => void;
-  onActivity?: () => void;
   maxTokens?: number;
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
+}
+
+async function callSingleModelTargetWithRetry(params: {
+  target: ModelCallTarget;
+  history: ChatMessage[];
+  tools: ToolDefinition[];
+  onTextDelta?: (delta: string) => void;
+  onActivity?: () => void;
 }): Promise<ChatCompletionResponse> {
-  const {
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    chatbotId,
-    enableRag,
-    requestHeaders,
-    history,
-    tools,
-    onTextDelta,
-    onActivity,
-    maxTokens,
-    isLocal,
-    contextWindow,
-    thinkingFormat,
-  } = params;
+  const { target, history, tools, onTextDelta, onActivity } = params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
 
@@ -740,7 +722,7 @@ async function callHybridAIWithRetry(params: {
     attempt += 1;
     const attemptStartedAt = Date.now();
     console.error(
-      `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
+      `[model] call start provider=${target.provider || 'hybridai'} model=${target.model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
     );
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
@@ -748,63 +730,65 @@ async function callHybridAIWithRetry(params: {
       if (onTextDelta) {
         try {
           response = await callRoutedModelStream({
-            provider,
-            baseUrl,
-            apiKey,
-            model,
-            chatbotId,
-            enableRag,
-            requestHeaders,
+            provider: target.provider,
+            baseUrl: target.baseUrl,
+            apiKey: target.apiKey,
+            model: target.model,
+            chatbotId: target.chatbotId,
+            enableRag: target.enableRag,
+            requestHeaders: target.requestHeaders,
             messages: history,
             tools,
             onTextDelta,
             onActivity,
-            maxTokens,
-            isLocal,
-            contextWindow,
-            thinkingFormat,
+            maxTokens: target.maxTokens,
+            isLocal: target.isLocal,
+            contextWindow: target.contextWindow,
+            thinkingFormat: target.thinkingFormat,
           });
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
-            provider,
+            target.provider,
             streamErr,
           );
-          if (!fallbackEligible) throw streamErr;
+          if (!fallbackEligible || shouldAutoRouteFromModelError(streamErr)) {
+            throw streamErr;
+          }
           response = await callRoutedModel({
-            provider,
-            baseUrl,
-            apiKey,
-            model,
-            chatbotId,
-            enableRag,
-            requestHeaders,
+            provider: target.provider,
+            baseUrl: target.baseUrl,
+            apiKey: target.apiKey,
+            model: target.model,
+            chatbotId: target.chatbotId,
+            enableRag: target.enableRag,
+            requestHeaders: target.requestHeaders,
             messages: history,
             tools,
-            maxTokens,
-            isLocal,
-            contextWindow,
-            thinkingFormat,
+            maxTokens: target.maxTokens,
+            isLocal: target.isLocal,
+            contextWindow: target.contextWindow,
+            thinkingFormat: target.thinkingFormat,
           });
         }
       } else {
         response = await callRoutedModel({
-          provider,
-          baseUrl,
-          apiKey,
-          model,
-          chatbotId,
-          enableRag,
-          requestHeaders,
+          provider: target.provider,
+          baseUrl: target.baseUrl,
+          apiKey: target.apiKey,
+          model: target.model,
+          chatbotId: target.chatbotId,
+          enableRag: target.enableRag,
+          requestHeaders: target.requestHeaders,
           messages: history,
           tools,
-          maxTokens,
-          isLocal,
-          contextWindow,
-          thinkingFormat,
+          maxTokens: target.maxTokens,
+          isLocal: target.isLocal,
+          contextWindow: target.contextWindow,
+          thinkingFormat: target.thinkingFormat,
         });
       }
       console.error(
-        `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
+        `[model] call success provider=${target.provider || 'hybridai'} model=${target.model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
       );
       await emitRuntimeEvent({
         event: 'after_model_call',
@@ -813,7 +797,7 @@ async function callHybridAIWithRetry(params: {
       });
       return response;
     } catch (err) {
-      const formattedError = formatModelErrorForLog(err, baseUrl);
+      const formattedError = formatModelErrorForLog(err, target.baseUrl);
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
@@ -824,14 +808,74 @@ async function callHybridAIWithRetry(params: {
         retryable,
         error: formattedError,
       });
+      const classification = classifyModelError(err);
       console.error(
-        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${target.provider || 'hybridai'} model=${target.model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} class=${classification.kind} error=${formattedError}`,
       );
       if (!retryable) throw err;
       await sleep(delayMs);
       delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
     }
   }
+}
+
+async function callModelWithRetry(params: {
+  primaryTarget: ModelCallTarget;
+  fallbackTargets?: ContainerInput['modelFallbacks'];
+  history: ChatMessage[];
+  tools: ToolDefinition[];
+  onTextDelta?: (delta: string) => void;
+  onActivity?: () => void;
+}): Promise<ChatCompletionResponse> {
+  const {
+    primaryTarget,
+    fallbackTargets,
+    history,
+    tools,
+    onTextDelta,
+    onActivity,
+  } = params;
+  const targets: ModelCallTarget[] = [
+    primaryTarget,
+    ...((fallbackTargets || []) as ModelCallTarget[]),
+  ];
+  const failures: ConstructorParameters<typeof RoutedModelError>[0] = [];
+
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index];
+    try {
+      return await callSingleModelTargetWithRetry({
+        target,
+        history,
+        tools,
+        onTextDelta,
+        onActivity,
+      });
+    } catch (error) {
+      const classification = classifyModelError(error);
+      failures.push({
+        target: {
+          provider: target.provider,
+          model: target.model,
+          baseUrl: target.baseUrl,
+        },
+        classification,
+        error,
+      });
+
+      const nextTarget = targets[index + 1];
+      const autoRoute = classification.autoRoute && Boolean(nextTarget);
+      console.error(
+        `[model] route ${autoRoute ? 'fallback' : 'stop'} provider=${target.provider || 'hybridai'} model=${target.model} class=${classification.kind}${nextTarget ? ` nextProvider=${nextTarget.provider || 'hybridai'} nextModel=${nextTarget.model}` : ''}`,
+      );
+
+      if (!autoRoute) {
+        throw new RoutedModelError(failures);
+      }
+    }
+  }
+
+  throw new RoutedModelError(failures);
 }
 
 /**
@@ -841,21 +885,12 @@ async function processRequest(
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
+  provider: ContainerInput['provider'],
   isLocal: boolean | undefined,
   contextWindow: number | undefined,
   thinkingFormat: 'qwen' | undefined,
   model: string,
+  modelFallbacks: ContainerInput['modelFallbacks'] | undefined,
   chatbotId: string,
   enableRag: boolean,
   requestHeaders: Record<string, string> | undefined,
@@ -995,24 +1030,27 @@ async function processRequest(
       tokenEstimateCache,
     );
 
-    let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
+    let response: Awaited<ReturnType<typeof callModelWithRetry>>;
     try {
-      response = await callHybridAIWithRetry({
-        provider,
-        baseUrl,
-        apiKey,
-        model,
-        chatbotId,
-        enableRag,
-        requestHeaders,
+      response = await callModelWithRetry({
+        primaryTarget: {
+          provider,
+          baseUrl,
+          apiKey,
+          model,
+          chatbotId,
+          enableRag,
+          requestHeaders,
+          maxTokens,
+          isLocal,
+          contextWindow,
+          thinkingFormat,
+        },
+        fallbackTargets: modelFallbacks,
         history,
         tools,
         onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
         onActivity: streamTextDeltas ? emitStreamActivity : undefined,
-        maxTokens,
-        isLocal,
-        contextWindow,
-        thinkingFormat,
       });
     } catch (err) {
       const failed: ContainerOutput = {
@@ -1023,9 +1061,11 @@ async function processRequest(
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error:
-          err instanceof ProviderRequestError
+          err instanceof RoutedModelError
             ? err.message
-            : `API error: ${err instanceof Error ? err.message : String(err)}`,
+            : err instanceof ProviderRequestError
+              ? err.message
+              : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
       await emitRuntimeEvent({
         event: 'turn_end',
@@ -1611,6 +1651,7 @@ async function main(): Promise<void> {
       firstInput.contextWindow,
       firstInput.thinkingFormat,
       firstInput.model,
+      firstInput.modelFallbacks,
       firstInput.chatbotId,
       firstInput.enableRag,
       storedRequestHeaders,
@@ -1646,6 +1687,7 @@ async function main(): Promise<void> {
         firstInput.contextWindow,
         firstInput.thinkingFormat,
         firstInput.model,
+        firstInput.modelFallbacks,
         firstInput.chatbotId,
         firstInput.enableRag,
         firstInput.requestHeaders,
@@ -1764,6 +1806,7 @@ async function main(): Promise<void> {
       input.contextWindow,
       input.thinkingFormat,
       input.model,
+      input.modelFallbacks,
       input.chatbotId,
       input.enableRag,
       requestHeaders,
@@ -1798,6 +1841,7 @@ async function main(): Promise<void> {
         input.contextWindow,
         input.thinkingFormat,
         input.model,
+        input.modelFallbacks,
         input.chatbotId,
         input.enableRag,
         requestHeaders,

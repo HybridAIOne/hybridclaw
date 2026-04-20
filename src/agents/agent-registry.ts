@@ -355,6 +355,29 @@ export function resolveAgentModel(
   return normalizeString(agent.model.primary) || undefined;
 }
 
+export function resolveAgentModelFallbacks(
+  agent: AgentConfig | null | undefined,
+  activeModel?: string | null,
+): string[] {
+  if (!agent?.model || typeof agent.model === 'string') return [];
+  const modelConfig = agent.model as Exclude<
+    AgentModelConfig,
+    string | undefined
+  >;
+  const primary = normalizeString(modelConfig.primary);
+  if (!primary) return [];
+  const normalizedActiveModel = normalizeString(activeModel);
+  if (normalizedActiveModel && normalizedActiveModel !== primary) {
+    return [];
+  }
+  const fallbacks = Array.isArray(modelConfig.fallbacks)
+    ? modelConfig.fallbacks
+    : [];
+  return (normalizeOptionalTrimmedUniqueStringArray(fallbacks) || []).filter(
+    (candidate) => candidate !== primary,
+  );
+}
+
 export function resolveAgentWorkspaceId(agentId?: string | null): string {
   const agent = resolveAgentConfig(agentId);
   return normalizeString(agent.workspace) || agent.id;

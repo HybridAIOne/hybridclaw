@@ -118,6 +118,15 @@ export interface TaskModelPolicy {
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo'
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
@@ -192,6 +201,38 @@ export interface WebSearchConfig {
   tavilySearchDepth: 'basic' | 'advanced';
 }
 
+export interface ModelFallbackTarget {
+  model: string;
+  provider?:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo'
+    | 'ollama'
+    | 'lmstudio'
+    | 'llamacpp'
+    | 'vllm';
+  apiKey: string;
+  baseUrl: string;
+  chatbotId: string;
+  enableRag: boolean;
+  requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
+  maxTokens?: number;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -205,6 +246,15 @@ export interface ContainerInput {
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
+    | 'gemini'
+    | 'deepseek'
+    | 'xai'
+    | 'zai'
+    | 'kimi'
+    | 'minimax'
+    | 'dashscope'
+    | 'xiaomi'
+    | 'kilo'
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
@@ -216,6 +266,7 @@ export interface ContainerInput {
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;
+  modelFallbacks?: ModelFallbackTarget[];
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];

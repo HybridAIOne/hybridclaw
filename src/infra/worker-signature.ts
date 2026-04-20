@@ -14,12 +14,27 @@ interface WorkerSignatureTaskModel {
   error?: string;
 }
 
+interface WorkerSignatureModelFallback {
+  model: string;
+  provider?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  chatbotId?: string;
+  enableRag?: boolean;
+  requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: string;
+  maxTokens?: number;
+}
+
 export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
+  modelFallbacks?: WorkerSignatureModelFallback[];
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
@@ -66,8 +81,35 @@ function normalizeTaskModel(
   };
 }
 
+function normalizeModelFallback(
+  input: WorkerSignatureModelFallback,
+): Record<string, unknown> {
+  return {
+    provider: String(input.provider || '').trim(),
+    baseUrl: String(input.baseUrl || '')
+      .trim()
+      .replace(/\/+$/g, ''),
+    apiKey: String(input.apiKey || ''),
+    chatbotId: String(input.chatbotId || '').trim(),
+    enableRag: input.enableRag === true,
+    requestHeaders: normalizeHeaders(input.requestHeaders),
+    isLocal: input.isLocal === true,
+    contextWindow:
+      typeof input.contextWindow === 'number' ? input.contextWindow : null,
+    thinkingFormat: String(input.thinkingFormat || '').trim(),
+    model: String(input.model || '').trim(),
+    maxTokens:
+      typeof input.maxTokens === 'number' && Number.isFinite(input.maxTokens)
+        ? Math.floor(input.maxTokens)
+        : null,
+  };
+}
+
 export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = normalizeHeaders(input.requestHeaders);
+  const modelFallbacks = Array.isArray(input.modelFallbacks)
+    ? input.modelFallbacks.map((item) => normalizeModelFallback(item))
+    : [];
   const taskModels = Object.fromEntries(
     TASK_MODEL_KEYS.map((key) => [
       key,
@@ -83,6 +125,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
       .replace(/\/+$/g, ''),
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
+    modelFallbacks,
     taskModels,
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(

@@ -6,6 +6,10 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
+import {
+  resolveAgentConfig,
+  resolveAgentModelFallbacks,
+} from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
 import {
@@ -93,6 +97,65 @@ function resolveExecutorMaxTokens(params: {
     model: params.model,
     discoveredMaxTokens: params.discoveredMaxTokens,
   });
+}
+
+async function resolveModelFallbackTargets(params: {
+  agentId: string;
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+}): Promise<ContainerInput['modelFallbacks']> {
+  const fallbackModels = resolveAgentModelFallbacks(
+    resolveAgentConfig(params.agentId),
+    params.model,
+  );
+  if (fallbackModels.length === 0) return undefined;
+
+  const resolvedFallbacks: NonNullable<ContainerInput['modelFallbacks']> = [];
+  const seen = new Set<string>([String(params.model || '').trim()]);
+
+  for (const fallbackModel of fallbackModels) {
+    const normalizedModel = String(fallbackModel || '').trim();
+    if (!normalizedModel || seen.has(normalizedModel)) continue;
+    seen.add(normalizedModel);
+
+    try {
+      const runtime = await resolveModelRuntimeCredentials({
+        model: normalizedModel,
+        chatbotId: params.chatbotId,
+        enableRag: params.enableRag,
+        agentId: params.agentId,
+      });
+      resolvedFallbacks.push({
+        model: normalizedModel,
+        provider: runtime.provider,
+        apiKey: runtime.apiKey,
+        baseUrl: remapHostBaseUrlForContainer(runtime.baseUrl),
+        chatbotId: runtime.chatbotId,
+        enableRag: runtime.enableRag,
+        requestHeaders: runtime.requestHeaders,
+        isLocal: runtime.isLocal,
+        contextWindow: runtime.contextWindow,
+        thinkingFormat: runtime.thinkingFormat,
+        maxTokens: resolveExecutorMaxTokens({
+          model: normalizedModel,
+          discoveredMaxTokens: runtime.maxTokens,
+        }),
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          agentId: params.agentId,
+          primaryModel: params.model,
+          fallbackModel: normalizedModel,
+          err: error,
+        },
+        'Failed to resolve runtime credentials for agent fallback model',
+      );
+    }
+  }
+
+  return resolvedFallbacks.length > 0 ? resolvedFallbacks : undefined;
 }
 
 interface PoolEntry {
@@ -783,6 +846,12 @@ async function runContainerInner(
     enableRag,
     agentId,
   });
+  const modelFallbacks = await resolveModelFallbackTargets({
+    agentId,
+    model,
+    chatbotId: modelRuntime.chatbotId,
+    enableRag: modelRuntime.enableRag,
+  });
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
@@ -817,6 +886,7 @@ async function runContainerInner(
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    modelFallbacks,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -871,6 +941,7 @@ async function runContainerInner(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    modelFallbacks: input.modelFallbacks,
     taskModels: input.taskModels,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
