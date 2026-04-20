@@ -558,6 +558,56 @@
       align-items: flex-end;
     }
 
+    .msg-block.is-btw-thread {
+      position: relative;
+      margin-left: 28px;
+      padding-left: 18px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(113, 136, 205, 0.2),
+          rgba(113, 136, 205, 0.1)
+        )
+        left 0 top / 2px 100% no-repeat;
+    }
+
+    .msg-block.is-btw-thread::before {
+      content: 'BTW';
+      position: absolute;
+      left: 18px;
+      top: -12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #d7e1f8;
+      background: #f6f8ff;
+      color: #5a6ea3;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: 0 1px 2px rgba(50, 80, 140, 0.06);
+    }
+
+    .msg-block.is-btw-thread + .msg-block.is-btw-thread::before {
+      content: none;
+    }
+
+    .msg-block.is-btw-thread .msg {
+      border-color: #d8e2f7;
+      background: linear-gradient(180deg, #fbfcff, #f7faff);
+      box-shadow: 0 2px 10px rgba(92, 114, 168, 0.08);
+    }
+
+    .msg-block.is-btw-thread .msg.system {
+      background: linear-gradient(180deg, #eef4ff, #e8efff);
+      color: #4b5f88;
+      font-weight: 600;
+    }
+
+    .msg-block.is-btw-thread .msg.thinking {
+      background: #f6f9ff;
+    }
+
     .msg-actions {
       display: flex;
       justify-content: flex-start;
@@ -1274,6 +1324,15 @@
         padding: 12px;
       }
 
+      .msg-block.is-btw-thread {
+        margin-left: 16px;
+        padding-left: 12px;
+      }
+
+      .msg-block.is-btw-thread::before {
+        left: 12px;
+      }
+
       .empty-greeting {
         font-size: clamp(22px, 6.8vw, 34px);
       }
@@ -1576,6 +1635,7 @@
     let pendingMedia = [];
     let pendingUploadCount = 0;
     let activeChatRequest = null;
+    let activeConcurrentBtwRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
     let slashSuggestionsVersion = 0;
@@ -2386,28 +2446,53 @@
       renderSlashSuggestionsList(entries);
     }
 
+    function parseConcurrentBtwDraft(rawContent) {
+      const trimmed = String(rawContent || '').trim();
+      const match = /^\/btw(?:\s+([\s\S]*))?$/iu.exec(trimmed);
+      if (!match) return null;
+      return {
+        commandText: trimmed,
+        question: String(match[1] || '').trim(),
+      };
+    }
+
+    function resolveConcurrentBtwDraft() {
+      if (!activeChatRequest || activeConcurrentBtwRequest) return null;
+      if (pendingUploadCount > 0 || pendingMedia.length > 0) return null;
+      return parseConcurrentBtwDraft(messageEl.value);
+    }
+
     function updateComposerState() {
       const isRunning = Boolean(activeChatRequest);
       const isStopping = Boolean(activeChatRequest?.stopping);
+      const concurrentBtwDraft = resolveConcurrentBtwDraft();
+      const canSendConcurrentBtw = Boolean(concurrentBtwDraft);
       const hasContent = messageEl.value.trim().length > 0;
       const hasMedia = pendingMedia.length > 0;
       sendEl.disabled =
         isStopping ||
         (!isRunning && (pendingUploadCount > 0 || (!hasContent && !hasMedia)));
-      sendEl.classList.toggle('is-stop', isRunning);
+      sendEl.classList.toggle('is-stop', isRunning && !canSendConcurrentBtw);
       sendEl.setAttribute(
         'aria-label',
-        isRunning ? 'Stop current message' : 'Send message',
+        isRunning && !canSendConcurrentBtw
+          ? 'Stop current message'
+          : isRunning
+            ? 'Send /btw side question'
+            : 'Send message',
       );
-      sendEl.title = isRunning ? 'Stop current message' : 'Send message';
+      sendEl.title =
+        isRunning && !canSendConcurrentBtw
+          ? 'Stop current message'
+          : isRunning
+            ? 'Send /btw side question'
+            : 'Send message';
       // NOTE: SEND_ICON and STOP_ICON are static trusted SVG constants defined in this file
-      sendEl.innerHTML = isRunning ? STOP_ICON : SEND_ICON;  // eslint-disable-line no-unsanitized/property
+      sendEl.innerHTML =
+        isRunning && !canSendConcurrentBtw ? STOP_ICON : SEND_ICON;  // eslint-disable-line no-unsanitized/property
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
-      messageEl.disabled = isRunning;
-      if (isRunning) {
-        hideSlashSuggestions();
-      }
+      messageEl.disabled = false;
     }
 
     function setError(text) {
@@ -3132,6 +3217,9 @@
       }
       const block = document.createElement('div');
       block.className = 'msg-block';
+      if (options.threadKind === 'btw') {
+        block.classList.add('is-btw-thread');
+      }
       if (role === 'user') {
         block.classList.add('user-block');
       }
@@ -3251,7 +3339,7 @@
       }
     }
 
-    function addThinkingMessage() {
+    function addThinkingMessage(options = {}) {
       const item = document.createElement('div');
       item.className = 'msg assistant thinking';
       const dots = document.createElement('span');
@@ -3260,6 +3348,15 @@
         dots.appendChild(document.createElement('span'));
       }
       item.appendChild(dots);
+      if (options.threadKind === 'btw') {
+        const block = document.createElement('div');
+        block.className = 'msg-block is-btw-thread';
+        block.appendChild(item);
+        messagesEl.appendChild(block);
+        updateEmptyState();
+        scrollChatToBottom();
+        return block;
+      }
       messagesEl.appendChild(item);
       updateEmptyState();
       scrollChatToBottom();
@@ -3816,6 +3913,8 @@
           if (requestState.assistantBlock?.isConnected) {
             return requestState.assistantBlock;
           }
+          const thinkingParent = requestState.thinkingItem?.parentNode || null;
+          const thinkingNextSibling = requestState.thinkingItem?.nextSibling || null;
           if (requestState.thinkingItem?.isConnected) {
             requestState.thinkingItem.remove();
           }
@@ -3824,6 +3923,16 @@
             replayRequest,
           });
           requestState.assistantBlock = assistantView?.block || null;
+          if (
+            thinkingParent &&
+            requestState.assistantBlock?.isConnected &&
+            requestState.assistantBlock.parentNode === thinkingParent
+          ) {
+            thinkingParent.insertBefore(
+              requestState.assistantBlock,
+              thinkingNextSibling,
+            );
+          }
           return requestState.assistantBlock;
         };
         const renderStreamedAssistant = () => {
@@ -3979,7 +4088,85 @@
 
     async function sendMessage() {
       if (pendingUploadCount > 0) return;
+      const concurrentBtwDraft = resolveConcurrentBtwDraft();
+      if (concurrentBtwDraft) {
+        await submitConcurrentBtwQuestion(concurrentBtwDraft);
+        return;
+      }
+      if (activeChatRequest) {
+        if (messageEl.value.trim()) {
+          setError('Only `/btw` can be sent while the current run is active.');
+        }
+        return;
+      }
       await submitPrompt(messageEl.value, pendingMedia);
+    }
+
+    async function submitConcurrentBtwQuestion(command) {
+      if (!activeChatRequest || activeConcurrentBtwRequest) return;
+
+      const targetSessionId = String(
+        activeChatRequest.sessionId || activeSessionId || '',
+      ).trim();
+      if (!targetSessionId) return;
+
+      setError('');
+      activeConcurrentBtwRequest = {
+        sessionId: targetSessionId,
+      };
+      const draftText = command.commandText;
+      addMessage('system', draftText, undefined, { threadKind: 'btw' });
+      const thinkingItem = addThinkingMessage({ threadKind: 'btw' });
+      messageEl.value = '';
+      autoResizeTextarea();
+      hideSlashSuggestions();
+      updateComposerState();
+
+      try {
+        const result = await requestJson('/api/command', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({
+            sessionId: targetSessionId,
+            guildId: null,
+            channelId: 'web',
+            userId: activeUserId,
+            username: 'web',
+            args: command.question ? ['btw', command.question] : ['btw'],
+          }),
+        });
+        if (thinkingItem.isConnected) {
+          thinkingItem.remove();
+        }
+        const title = String(result?.title || '').trim();
+        const text = String(result?.text || '').trim();
+        const formatted = !title ? text : text ? `${title}\n\n${text}` : title;
+        if (result.kind === 'error') {
+          addMessage('system', formatted || 'BTW failed.', undefined, {
+            threadKind: 'btw',
+          });
+        } else {
+          addMessage('assistant', text || 'No response returned.', undefined, {
+            threadKind: 'btw',
+          });
+        }
+        if (result.sessionId) {
+          activeSessionId = String(result.sessionId).trim() || activeSessionId;
+          savePrefs();
+        }
+      } catch (err) {
+        if (thinkingItem.isConnected) {
+          thinkingItem.remove();
+        }
+        const text = err instanceof Error ? err.message : String(err);
+        addMessage('system', `BTW failed: ${text}`, undefined, {
+          threadKind: 'btw',
+        });
+      } finally {
+        activeConcurrentBtwRequest = null;
+        updateComposerState();
+        messageEl.focus();
+      }
     }
 
     async function stopActiveChatRequest() {
@@ -4077,7 +4264,7 @@
     }
 
     sendEl.addEventListener('click', () => {
-      if (activeChatRequest) {
+      if (activeChatRequest && !resolveConcurrentBtwDraft()) {
         void stopActiveChatRequest();
         return;
       }
@@ -4199,7 +4386,6 @@
       }
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        if (activeChatRequest) return;
         void sendMessage();
       }
     });
