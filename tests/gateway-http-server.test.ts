@@ -1382,6 +1382,8 @@ async function importFreshHealth(options?: {
     restartSupported: true,
     restartReason: null,
   }));
+  const refreshRuntimeSecretsFromEnv = vi.fn();
+  const reloadRuntimeConfig = vi.fn();
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -1399,6 +1401,7 @@ async function importFreshHealth(options?: {
     IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
+    refreshRuntimeSecretsFromEnv,
     getSandboxAutoDetectionState: vi.fn(() => ({
       runningInsideContainer: options?.runningInsideContainer === true,
       sandboxModeExplicit: false,
@@ -1409,6 +1412,15 @@ async function importFreshHealth(options?: {
       path.join(installRoot, ...segments),
     ),
   }));
+  vi.doMock('../src/config/runtime-config.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/config/runtime-config.js')
+    >('../src/config/runtime-config.js');
+    return {
+      ...actual,
+      reloadRuntimeConfig,
+    };
+  });
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: loggerDebug,
@@ -1610,6 +1622,8 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
+    refreshRuntimeSecretsFromEnv,
+    reloadRuntimeConfig,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
     restoreGatewayAdminAgentMarkdownRevision,
@@ -2041,6 +2055,8 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2054,6 +2070,56 @@ describe('gateway HTTP server', () => {
 
     const payload = JSON.parse(res.body);
     expect(payload.model).toBe('gpt-5__hc_eval=agent=charly,ablate-system');
+    expect(res.getHeader('x-hybridclaw-session-id')).toMatch(
+      OPENAI_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-execution-session-id')).toMatch(
+      OPENAI_EXECUTION_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-artifact-count')).toBe('0');
+    expect(res.getHeader('x-hybridclaw-agent-id')).toBe('charly');
+    expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('current-agent');
+  });
+
+  test('prefers the gateway result session ids in non-streaming OpenAI trace headers', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockResolvedValueOnce({
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      userMessageId: 11,
+      assistantMessageId: 12,
+      sessionId: 'sess_eval_real_1',
+      sessionKey: 'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
+      artifacts: [
+        {
+          path: '/tmp/report.pdf',
+          filename: 'report.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5__hc_eval=agent=charly',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.getHeader('x-hybridclaw-session-id')).toBe('sess_eval_real_1');
+    expect(res.getHeader('x-hybridclaw-session-key')).toBe(
+      'agent:charly:channel:openai:chat:dm:peer:feedfacecafebeef',
+    );
+    expect(res.getHeader('x-hybridclaw-execution-session-id')).toMatch(
+      OPENAI_EXECUTION_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-artifact-count')).toBe('1');
   });
 
   test('routes OpenAI requests with HybridClaw eval-profile header using the plain model name', async () => {
@@ -2077,6 +2143,8 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2109,6 +2177,8 @@ describe('gateway HTTP server', () => {
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      autoApproveTools: true,
+      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2123,6 +2193,13 @@ describe('gateway HTTP server', () => {
     expect(state.stopSessionExecution).toHaveBeenCalledWith(
       expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
     );
+    expect(res.getHeader('x-hybridclaw-session-id')).toMatch(
+      OPENAI_SESSION_ID_RE,
+    );
+    expect(res.getHeader('x-hybridclaw-agent-id')).toMatch(
+      /^eval-[a-f0-9]{16}$/,
+    );
+    expect(res.getHeader('x-hybridclaw-workspace-mode')).toBe('fresh-agent');
   });
 
   test('streams OpenAI-compatible chat completion chunks with usage', async () => {
@@ -3121,7 +3198,9 @@ describe('gateway HTTP server', () => {
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('localStorage.setItem');
     expect(res.body).toContain('hybridclaw_token');
+    expect(res.body).toContain('hybridclaw_user_id');
     expect(res.body).toContain('my-web-token');
+    expect(res.body).toContain('user-1');
     expect(res.body).toContain('window.location.replace("/admin")');
     // Session cookie should still be set
     expect(res.headers['Set-Cookie']).toEqual(
@@ -3668,6 +3747,122 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('passes chat title search queries through to recent session lookup', async () => {
+    const authSecret = 'health-secret';
+    const sessionToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iat: Math.floor(Date.now() / 1000),
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=25&q=deploy',
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'user-1',
+      channelId: 'web',
+      limit: 25,
+      query: 'deploy',
+    });
+  });
+
+  test('uses the signed session subject for web chat history search', async () => {
+    const authSecret = 'health-secret';
+    const sessionToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iat: Math.floor(Date.now() / 1000),
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/chat/recent?channelId=web&limit=25&q=deploy',
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'user-1',
+      channelId: 'web',
+      limit: 25,
+      query: 'deploy',
+    });
+  });
+
+  test('caps recent chat search limit and query length before lookup', async () => {
+    const authSecret = 'health-secret';
+    const sessionToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iat: Math.floor(Date.now() / 1000),
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const longQuery = 'd'.repeat(250);
+    const req = makeRequest({
+      url: `/api/chat/recent?userId=web-user-a&channelId=web&limit=9999&q=${longQuery}`,
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'user-1',
+      channelId: 'web',
+      limit: 200,
+      query: 'd'.repeat(200),
+    });
+  });
+
+  test('accepts web chat search with request auth and explicit user id', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=25&q=deploy',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 25,
+      query: 'deploy',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   test('rejects history requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?limit=2' });
@@ -3924,6 +4119,25 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Gateway restart is unavailable in this launch mode.',
+    });
+  });
+
+  test('reloads gateway config for authorized admin API calls', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      status: 'ok',
+      message: 'Gateway reloaded.',
     });
   });
 
@@ -5409,6 +5623,53 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('uses the signed session subject for web chat requests', async () => {
+    const authSecret = 'health-secret';
+    const sessionToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iat: Math.floor(Date.now() / 1000),
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+      body: {
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        userId: 'other-user',
+        username: 'web',
+        content: '/status',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        args: ['status'],
+        userId: 'user-1',
+      }),
+    );
+  });
+
   test('lists slash command suggestions for the web chat UI', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -5433,17 +5694,9 @@ describe('gateway HTTP server', () => {
           }),
       ),
     );
-    expect(body.commands).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'demo_status',
-          label: '/demo_status',
-          insertText: '/demo_status',
-          description: 'Run the demo plugin status command',
-          depth: 1,
-        }),
-      ]),
-    );
+    // Plugin command inclusion is verified by the query-based test below;
+    // with an empty query the ranked result is capped at MAX_RESULTS, so a
+    // specific plugin entry may be truncated as the built-in catalog grows.
     for (const cmd of body.commands) {
       expect(cmd).toEqual(
         expect.objectContaining({
@@ -6100,6 +6353,52 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Malformed canonical `sessionId`.',
     });
+  });
+
+  test('uses the signed session subject for /api/command web requests', async () => {
+    const authSecret = 'health-secret';
+    const sessionToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iat: Math.floor(Date.now() / 1000),
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'plain',
+      text: 'ok',
+      sessionId: 'session-web-command',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/command',
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+      body: {
+        sessionId: 'session-web-command',
+        channelId: 'web',
+        userId: 'other-user',
+        username: 'web',
+        args: ['help'],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-command',
+        channelId: 'web',
+        args: ['help'],
+        userId: 'user-1',
+      }),
+    );
   });
 
   test('returns 400 for malformed json request bodies', async () => {

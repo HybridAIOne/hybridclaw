@@ -28,6 +28,8 @@ with HybridClaw. No external CLI tools are required.
 >
 > Use `--json` on `extract_pdf_text.mjs` when you need structured downstream processing.
 >
+> The bundled `create_pdf.mjs` script wraps long lines, respects explicit `\n`, and adds pages automatically when content overflows the first page.
+>
 > When filling a fillable form, add `--flatten` so the values are baked into the page content and survive re-extraction.
 
 > 🎯 **Try it yourself**
@@ -44,13 +46,13 @@ with HybridClaw. No external CLI tools are required.
 >
 > `Create a PDF registration form with fields "last_name" (text), "country" (dropdown with DE/US/FR), and "is_adult" (checkbox), then report the extracted field metadata`
 >
-> `Fill the registration form with last_name="Simpson", country="US", and is_adult=true, save both a regular filled.pdf and a flattened filled-flat.pdf, and extract text from the flattened copy to confirm the values stuck`
+> `Create that same registration form, fill it with last_name="Simpson", country="US", and is_adult=true, save both a regular filled.pdf and a flattened filled-flat.pdf, and extract text from the flattened copy to confirm the values stuck`
 >
 > Non-fillable overlays:
 >
 > `Create a plain one-page PDF titled "Tax Form 2025" with three label lines ("Name:", "Date:", "Signature:"), confirm it has no fillable fields, then render the page to PNG and extract its best-effort label structure so I can plan coordinate boxes`
 >
-> `Using the tax form from the previous step, write a fields.json with label/entry boxes for Name and Signature, validate the bounding boxes, draw a validation overlay onto the rendered page image, then write the filled PDF with the text annotations in place`
+> `Create a plain one-page PDF titled "Tax Form 2025" with three label lines ("Name:", "Date:", "Signature:"), render the page to PNG, extract its best-effort label structure, write a fields.json with label/entry boxes for Name and Signature, validate the bounding boxes, draw a validation overlay onto the rendered page image, then write the filled PDF with the text annotations in place`
 >
 > Multi-step flow:
 >

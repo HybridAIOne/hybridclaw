@@ -28,6 +28,7 @@ import {
   HYBRIDAI_BASE_URL,
   IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
+  refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
@@ -38,6 +39,7 @@ import type {
 import {
   getRuntimeConfig,
   parseSchedulerBoardStatus,
+  reloadRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -56,6 +58,10 @@ import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
+  normalizeRecentChatSearchQuery,
+  normalizeRecentChatSessionLimit,
+} from '../session/recent-chat-search.js';
+import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
@@ -65,7 +71,10 @@ import {
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
-import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedString as normalizeOptionalString,
+  normalizeTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -73,6 +82,7 @@ import {
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
+  getSessionAuthPayload,
   hasSessionAuth,
   setSessionCookie,
   verifyLaunchToken,
@@ -321,11 +331,6 @@ type ApiPluginToolRequestBody = {
   sessionId?: unknown;
   channelId?: unknown;
 };
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  return normalized || undefined;
-}
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -741,6 +746,35 @@ function ensureSessionAuth(req: IncomingMessage, res: ServerResponse): boolean {
 
   sendRedirect(res, 302, loginUrl);
   return false;
+}
+
+function resolveSessionAuthenticatedUserId(
+  req: IncomingMessage,
+): string | undefined {
+  const payload = getSessionAuthPayload(req);
+  return normalizeOptionalString(payload?.sub);
+}
+
+function resolveGatewayRequestUserId(params: {
+  req: IncomingMessage;
+  channelId?: string | null;
+  requestedUserId?: string | null;
+  fallbackUserId?: string | null;
+}): string | undefined {
+  const channelId = String(params.channelId || '')
+    .trim()
+    .toLowerCase();
+  if (channelId === 'web') {
+    return (
+      resolveSessionAuthenticatedUserId(params.req) ||
+      normalizeOptionalString(params.requestedUserId) ||
+      normalizeOptionalString(params.fallbackUserId)
+    );
+  }
+  return (
+    normalizeOptionalString(params.requestedUserId) ||
+    normalizeOptionalString(params.fallbackUserId)
+  );
 }
 
 function isWithinRoot(candidate: string, root: string): boolean {
@@ -1208,6 +1242,7 @@ async function handleApiChat(
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
+  const channelId = body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
     sessionId,
     sessionMode:
@@ -1215,8 +1250,14 @@ async function handleApiChat(
         ? body.sessionMode
         : undefined,
     guildId: body.guildId ?? null,
-    channelId: body.channelId || 'web',
-    userId: normalizeOptionalString(body.userId) || sessionId,
+    channelId,
+    userId:
+      resolveGatewayRequestUserId({
+        req,
+        channelId,
+        requestedUserId: normalizeOptionalString(body.userId),
+        fallbackUserId: sessionId,
+      }) || sessionId,
     username: body.username ?? 'web',
     content,
     ...(media.length > 0 ? { media } : {}),
@@ -1546,7 +1587,13 @@ async function handleApiCommand(
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
     args,
-    userId: normalizeOptionalString(body.userId) || sessionId,
+    userId:
+      resolveGatewayRequestUserId({
+        req,
+        channelId: body.channelId || 'web',
+        requestedUserId: normalizeOptionalString(body.userId),
+        fallbackUserId: sessionId,
+      }) || sessionId,
     username: body.username ?? null,
   };
   const result = await handleGatewayCommand(commandRequest);
@@ -1741,20 +1788,32 @@ function handleApiAgentAvatar(
   });
 }
 
-function handleApiChatRecent(res: ServerResponse, url: URL): void {
-  const userId = (url.searchParams.get('userId') || '').trim();
+function handleApiChatRecent(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  const channelId = (url.searchParams.get('channelId') || 'web').trim();
+  const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const userId = resolveGatewayRequestUserId({
+    req,
+    channelId,
+    requestedUserId: url.searchParams.get('userId'),
+  });
   if (!userId) {
     sendJson(res, 400, { error: 'Missing `userId` query parameter.' });
     return;
   }
-  const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const parsedLimit = parseInt(url.searchParams.get('limit') || '10', 10);
-  const limit = Number.isNaN(parsedLimit) ? 10 : parsedLimit;
+  const limit = normalizeRecentChatSessionLimit(
+    Number.isNaN(parsedLimit) ? undefined : parsedLimit,
+  );
   sendJson(res, 200, {
     sessions: getGatewayRecentChatSessions({
       userId,
       channelId,
       limit,
+      ...(query ? { query } : {}),
     }),
   });
 }
@@ -1843,6 +1902,26 @@ function handleApiRestart(res: ServerResponse): void {
   setTimeout(() => {
     process.kill(process.pid, 'SIGTERM');
   }, 50);
+}
+
+function handleApiConfigReload(res: ServerResponse): void {
+  try {
+    refreshRuntimeSecretsFromEnv();
+    reloadRuntimeConfig('admin-api');
+  } catch (error) {
+    sendJson(res, 500, {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Gateway reload failed unexpectedly.',
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway reloaded.',
+  });
 }
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
@@ -3298,6 +3377,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             /</g,
             '\\u003c',
           );
+          const escapedUserId = JSON.stringify(
+            normalizeOptionalString(payload.sub) || '',
+          ).replace(/</g, '\\u003c');
           res.writeHead(200, {
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-store',
@@ -3308,6 +3390,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           res.end(
             `<!DOCTYPE html><html><body><script>` +
               `localStorage.setItem('hybridclaw_token',${escaped});` +
+              `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
               `window.location.replace(${escapedRedirect});` +
               `</script></body></html>`,
           );
@@ -3530,7 +3613,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
-            handleApiChatRecent(res, url);
+            handleApiChatRecent(req, res, url);
             return;
           }
           if (pathname === '/api/chat/commands' && method === 'GET') {
@@ -3551,6 +3634,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/restart' && method === 'POST') {
             handleApiRestart(res);
+            return;
+          }
+
+          if (pathname === '/api/admin/config/reload' && method === 'POST') {
+            handleApiConfigReload(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {

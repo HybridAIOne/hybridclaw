@@ -1,9 +1,6 @@
+import { normalizeTrimmedString as trimValue } from '../../utils/normalized-strings.js';
 import type { ChannelAgentPromptAdapter } from '../prompt-adapters.js';
 import { resolveTelegramTargetChatType } from './target.js';
-
-function trimValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
 
 export const telegramAgentPromptAdapter: ChannelAgentPromptAdapter = {
   messageToolHints: ({ runtimeInfo }) => {

@@ -69,6 +69,14 @@ export function Composer(props: {
     };
   }, []);
 
+  const wasStreamingRef = useRef(props.isStreaming);
+  useEffect(() => {
+    if (wasStreamingRef.current && !props.isStreaming) {
+      textareaRef.current?.focus();
+    }
+    wasStreamingRef.current = props.isStreaming;
+  }, [props.isStreaming]);
+
   const resize = () => {
     const ta = textareaRef.current;
     if (!ta) return;

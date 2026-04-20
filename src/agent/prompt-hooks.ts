@@ -223,10 +223,11 @@ function buildSkillsSection(skillsPrompt: string): string {
 
   return [
     '## Skills (mandatory)',
-    'Before replying: scan `<available_skills>` `<description>` entries.',
+    'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
     '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
+    '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',
     '- Do not claim a listed skill is unavailable when the user named it.',
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',

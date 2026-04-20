@@ -6,11 +6,11 @@ import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { SkillImportError } from './skill-errors.js';
+import { normalizeImportedSkillRelativePath } from './skill-import-commons.js';
 import type { SkillGuardDecision, SkillGuardVerdict } from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
 import {
   type GitHubSkillImportSource,
-  normalizeImportedSkillRelativePath,
   populateFromGitHubSource,
 } from './skills-import-github.js';
 import {

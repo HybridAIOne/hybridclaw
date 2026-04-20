@@ -140,6 +140,23 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
+  test('prefers real absolute workspace paths over the /workspace display alias', async () => {
+    const workspaceRoot = '/workspace/.data/data/agents/main/workspace';
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+    vi.resetModules();
+
+    const { resolveWorkspacePath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(
+      resolveWorkspacePath(
+        '/workspace/.data/data/agents/main/workspace/output.pdf',
+      ),
+    ).toBe('/workspace/.data/data/agents/main/workspace/output.pdf');
+  });
+
   test('resolves uploaded-media cache display paths', async () => {
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'
