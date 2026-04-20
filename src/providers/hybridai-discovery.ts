@@ -7,7 +7,12 @@ import {
   formatHybridAIModelForCatalog,
   stripHybridAIModelPrefix,
 } from './model-names.js';
-import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
+import {
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
 const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
@@ -52,17 +57,6 @@ function normalizeHybridAIModelName(
     );
   }
   return formatHybridAIModelForCatalog(normalizedModelId);
-}
-
-function readPositiveInteger(value: unknown): number | null {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseInt(value, 10)
-        : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.floor(parsed);
 }
 
 function readModelId(entry: Record<string, unknown>): string {
