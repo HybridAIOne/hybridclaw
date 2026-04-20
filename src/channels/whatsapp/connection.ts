@@ -90,6 +90,16 @@ function shouldSuppressKeepAliveError(nowMs = Date.now()): boolean {
   return nowMs - lastExpectedTransportAt < KEEPALIVE_ERROR_SUPPRESS_MS;
 }
 
+function resolveWhatsAppLogMessage(payload: unknown, message?: string): string {
+  if (typeof message === 'string' && message.trim().length > 0) {
+    return message;
+  }
+  if (typeof payload === 'string' && payload.trim().length > 0) {
+    return payload;
+  }
+  return '';
+}
+
 function extractTransportSignal(payload: unknown, message?: string): unknown {
   if (payload && typeof payload === 'object') {
     if ('error' in payload) {
@@ -224,25 +234,26 @@ function emitWhatsAppLog(
   payload: unknown,
   message?: string,
 ): void {
+  const resolvedMessage = resolveWhatsAppLogMessage(payload, message);
   const transportSignal = extractTransportSignal(payload, message);
   if (
-    message === 'connection errored' &&
+    resolvedMessage === 'connection errored' &&
     isExpectedTransportError(transportSignal)
   ) {
     noteExpectedTransportActivity();
     return;
   }
   if (
-    message === 'error in sending keep alive' &&
+    resolvedMessage === 'error in sending keep alive' &&
     shouldSuppressKeepAliveError()
   ) {
     return;
   }
   if (
     shouldSuppressKeepAliveError() &&
-    (message === 'Buffer timeout reached, auto-flushing' ||
-      message === 'Flushing event buffer' ||
-      message === 'Event buffer activated')
+    (resolvedMessage === 'Buffer timeout reached, auto-flushing' ||
+      resolvedMessage === 'Flushing event buffer' ||
+      resolvedMessage === 'Event buffer activated')
   ) {
     return;
   }

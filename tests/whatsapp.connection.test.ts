@@ -30,7 +30,11 @@ async function importFreshConnectionModule(options?: {
     config: {
       browser?: unknown[];
       getMessage?: (key: unknown) => Promise<unknown>;
-      logger: { info: (obj: unknown, msg?: string) => void };
+      logger: {
+        debug: (obj: unknown, msg?: string) => void;
+        info: (obj: unknown, msg?: string) => void;
+        warn: (obj: unknown, msg?: string) => void;
+      };
     };
     evHandlers: Map<string, Array<(payload: unknown) => void>>;
     wsHandlers: Map<string, Array<(payload: unknown) => void>>;
@@ -396,9 +400,9 @@ test('suppresses buffer flush noise while WhatsApp is offline', async () => {
     }),
   );
 
-  sockets[0]?.config.logger.warn({}, 'Buffer timeout reached, auto-flushing');
+  sockets[0]?.config.logger.warn('Buffer timeout reached, auto-flushing');
   sockets[0]?.config.logger.debug({ bufferCount: 1 }, 'Flushing event buffer');
-  sockets[0]?.config.logger.debug({}, 'Event buffer activated');
+  sockets[0]?.config.logger.debug('Event buffer activated');
 
   expect(whatsappLogger.warn).not.toHaveBeenCalledWith(
     'Buffer timeout reached, auto-flushing',
@@ -407,10 +411,7 @@ test('suppresses buffer flush noise while WhatsApp is offline', async () => {
     { bufferCount: 1 },
     'Flushing event buffer',
   );
-  expect(whatsappLogger.debug).not.toHaveBeenCalledWith(
-    {},
-    'Event buffer activated',
-  );
+  expect(whatsappLogger.debug).not.toHaveBeenCalledWith('Event buffer activated');
 
   await manager.stop();
 });
