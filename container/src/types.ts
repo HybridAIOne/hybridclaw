@@ -234,6 +234,7 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
+  persistBashState?: boolean;
 }
 
 export interface MediaContextItem {

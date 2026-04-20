@@ -299,3 +299,116 @@ test('observability ingest restart dispatches a new startup flush without waitin
 
   stopObservabilityIngest();
 });
+
+test('observability ingest rate-limits repeated transient outage warnings', async () => {
+  vi.useFakeTimers();
+  vi.resetModules();
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+
+  const loggerMock = {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  vi.doMock('../src/logger.ts', () => ({
+    logger: loggerMock,
+  }));
+
+  try {
+    const { getRuntimeConfig, saveRuntimeConfig } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const runtimeConfig = getRuntimeConfig();
+    saveRuntimeConfig({
+      ...runtimeConfig,
+      hybridai: {
+        ...runtimeConfig.hybridai,
+        defaultChatbotId: 'bot-default',
+      },
+      observability: {
+        ...runtimeConfig.observability,
+        enabled: true,
+        botId: 'bot-observability',
+        agentId: 'agent-observability',
+        flushIntervalMs: 10_000,
+        batchMaxEvents: 10,
+      },
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              created: true,
+              token: 'ingest-token',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url.endsWith('/api/v1/agent-observability/events:batch')) {
+          throw new Error('fetch failed');
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+    const { startObservabilityIngest, stopObservabilityIngest } = await import(
+      '../src/audit/observability-ingest.ts'
+    );
+
+    initDatabase({ quiet: true });
+    recordAuditEvent({
+      sessionId: 'session-observability-rate-limit',
+      runId: 'run-observability-rate-limit',
+      event: {
+        type: 'bot.set',
+        source: 'command',
+        requestedBot: 'Research Bot',
+        previousBotId: null,
+        resolvedBotId: 'bot-research',
+        changed: true,
+        previousModel: 'gpt-5-nano',
+        syncedModel: 'gpt-4o-mini',
+        userId: 'user-1',
+        username: 'alice',
+      },
+    });
+
+    startObservabilityIngest();
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    });
+
+    const transientWarnCalls = loggerMock.warn.mock.calls.filter(
+      ([, message]) =>
+        message ===
+        'Observability ingest is temporarily unavailable at hybridai.one. Events will be retried automatically.',
+    );
+    expect(transientWarnCalls).toHaveLength(1);
+
+    stopObservabilityIngest();
+  } finally {
+    vi.doUnmock('../src/logger.ts');
+    vi.useRealTimers();
+    vi.resetModules();
+  }
+});
