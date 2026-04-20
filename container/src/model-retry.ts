@@ -5,6 +5,8 @@ import {
   ProviderRequestError,
 } from './providers/shared.js';
 
+const TRANSIENT_NETWORK_ERROR_RE =
+  /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN|terminated/i;
 const TRANSIENT_CODEX_STREAM_ERROR_RE =
   /an error occurred while processing your request|request id [0-9a-f-]{8}-[0-9a-f-]{27}|streaming response ended without payload|stream ended without payload|response\.incomplete|response\.failed/i;
 const MAX_ERROR_DETAIL_DEPTH = 3;
