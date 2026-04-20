@@ -1,4 +1,9 @@
-import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
+import {
+  type McpServerConfig,
+  TASK_MODEL_KEYS,
+  type TaskModelKey,
+} from '../types/models.js';
+import { normalizeMcpServersForSignature } from './mcp-server-config.js';
 
 interface WorkerSignatureTaskModel {
   provider?: string;
@@ -21,6 +26,7 @@ export interface WorkerSignatureInput {
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
+  mcpServers?: Record<string, McpServerConfig>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -84,6 +90,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
     taskModels,
+    mcpServers: normalizeMcpServersForSignature(input.mcpServers),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',

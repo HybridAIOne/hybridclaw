@@ -897,6 +897,7 @@ async function handleGatewayMessageInner(
       agentId,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+      mcpServersOverride: req.mcpServersOverride,
       skipContainerSystemPrompt: req.promptMode === 'none',
       maxTokens: req.maxTokens,
       maxWallClockMs: req.maxWallClockMs,
