@@ -209,4 +209,124 @@ describe('email connection manager', () => {
       uid: true,
     });
   });
+
+  test('keeps expected DNS failures local and logs a readable reconnect warning', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    const childLogger = {
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const connectError = Object.assign(
+      new Error('getaddrinfo ENOTFOUND mx.hybridclaw.io'),
+      {
+        code: 'ENOTFOUND',
+        hostname: 'mx.hybridclaw.io',
+        syscall: 'getaddrinfo',
+      },
+    );
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.ts', () => ({
+      logger: {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(() => childLogger),
+      },
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = vi.fn(async () => {
+          throw connectError;
+        });
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+    const manager = createEmailConnectionManager(
+      {
+        ...BASE_EMAIL_CONFIG,
+        imapHost: 'mx.hybridclaw.io',
+      },
+      'secret',
+      async () => {},
+    );
+
+    await expect(manager.start()).resolves.toBeUndefined();
+    await manager.stop();
+
+    expect(childLogger.error).not.toHaveBeenCalled();
+    expect(childLogger.warn).toHaveBeenCalledWith(
+      {
+        delayMs: 1_000,
+        reason: 'connect-error',
+        code: 'ENOTFOUND',
+        host: 'mx.hybridclaw.io',
+      },
+      'Email IMAP DNS lookup failed for mx.hybridclaw.io. Retrying connection in 1s.',
+    );
+  });
+
+  test('still rejects unexpected connect failures on initial start', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    const childLogger = {
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const connectError = new Error('Authentication failed');
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.ts', () => ({
+      logger: {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn(() => childLogger),
+      },
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = vi.fn(async () => {
+          throw connectError;
+        });
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+    const manager = createEmailConnectionManager(
+      BASE_EMAIL_CONFIG,
+      'secret',
+      async () => {},
+    );
+
+    await expect(manager.start()).rejects.toThrow('Authentication failed');
+    await manager.stop();
+
+    expect(childLogger.error).toHaveBeenCalledWith(
+      {
+        err: connectError,
+        delayMs: 1_000,
+        reason: 'connect-error',
+      },
+      'Email IMAP reconnect scheduled in 1s.',
+    );
+  });
 });

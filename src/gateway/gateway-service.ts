@@ -63,6 +63,7 @@ import {
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
 import {
   APP_VERSION,
@@ -7155,6 +7156,24 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `bot list|set <id|name>|clear|info`',
         );
+      }
+
+      case 'btw': {
+        const question = req.args.slice(1).join(' ').trim();
+        if (!question) {
+          return badCommand('Usage', 'Usage: `/btw <question>`');
+        }
+        try {
+          return infoCommand(
+            'BTW',
+            await runBtwSideQuestion(session, question),
+          );
+        } catch (error) {
+          return badCommand(
+            'BTW Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
 
       case 'model': {

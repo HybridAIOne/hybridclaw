@@ -17,6 +17,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -811,6 +812,7 @@ async function callHybridAIWithRetry(params: {
       });
       return response;
     } catch (err) {
+      const formattedError = formatModelErrorForLog(err, baseUrl);
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
@@ -819,10 +821,10 @@ async function callHybridAIWithRetry(params: {
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
         retryable,
-        error: err instanceof Error ? err.message : String(err),
+        error: formattedError,
       });
       console.error(
-        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${err instanceof Error ? err.message : String(err)}`,
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
       if (!retryable) throw err;
       await sleep(delayMs);
