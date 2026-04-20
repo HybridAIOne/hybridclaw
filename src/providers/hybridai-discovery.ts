@@ -7,9 +7,8 @@ import {
   formatHybridAIModelForCatalog,
   stripHybridAIModelPrefix,
 } from './model-names.js';
-import { isRecord, normalizeBaseUrl } from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
-const HYBRIDAI_DISCOVERY_TTL_MS = 3_600_000;
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
 const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
   'anthropic',
@@ -121,26 +120,26 @@ export interface HybridAIDiscoveryStore {
   getModelMaxTokens: (model: string) => number | null;
 }
 
+interface HybridAIDiscoveryState {
+  discoveredModelNames: string[];
+  contextWindowByModel: Map<string, number>;
+  maxTokensByModel: Map<string, number>;
+}
+
+const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
+  discoveredModelNames: [],
+  contextWindowByModel: new Map(),
+  maxTokensByModel: new Map(),
+});
+
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let contextWindowByModel = new Map<string, number>();
-  let maxTokensByModel = new Map<string, number>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyHybridAIDiscoveryState(),
+  );
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextContextWindows: Iterable<[string, number]> = [],
-    nextMaxTokens: Iterable<[string, number]> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    contextWindowByModel = new Map(nextContextWindows);
-    maxTokensByModel = new Map(nextMaxTokens);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchHybridAIModels(apiKey: string): Promise<string[]> {
+  async function fetchHybridAIModels(
+    apiKey: string,
+  ): Promise<HybridAIDiscoveryState> {
     const baseUrl = normalizeBaseUrl(HYBRIDAI_BASE_URL);
     let response: Response | null = null;
     for (const path of HYBRIDAI_DISCOVERY_PATHS) {
@@ -189,8 +188,11 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       }
     }
 
-    replaceDiscoveryCache([...discovered], contextWindows, maxTokens);
-    return [...discovered];
+    return {
+      discoveredModelNames: [...discovered],
+      contextWindowByModel: contextWindows,
+      maxTokensByModel: maxTokens,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
@@ -202,54 +204,42 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error instanceof MissingRequiredEnvVarError &&
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
-        replaceDiscoveryCache([], [], [], { cacheResult: false });
+        discoveryStore.replaceState(buildEmptyHybridAIDiscoveryState(), {
+          cacheResult: false,
+        });
         return [];
       }
       throw error;
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < HYBRIDAI_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchHybridAIModels(apiKey);
-        return [...discoveredModelNames];
-      } catch {
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(
+      () => fetchHybridAIModels(apiKey),
+      {
+        force: opts?.force,
+        onError: (_err, staleState) => staleState,
+      },
+    );
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
         model,
-        contextWindowByModel.keys(),
+        state.contextWindowByModel.keys(),
       );
-      return contextWindowByModel.get(normalized) ?? null;
+      return state.contextWindowByModel.get(normalized) ?? null;
     },
     getModelMaxTokens: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
         model,
-        maxTokensByModel.keys(),
+        state.maxTokensByModel.keys(),
       );
-      return maxTokensByModel.get(normalized) ?? null;
+      return state.maxTokensByModel.get(normalized) ?? null;
     },
   };
 }
