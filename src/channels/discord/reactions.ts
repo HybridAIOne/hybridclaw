@@ -2,6 +2,7 @@ import type { Message as DiscordMessage } from 'discord.js';
 
 import { logger } from '../../logger.js';
 import { sleep } from '../../utils/sleep.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 export type LifecyclePhase =
   | 'queued'
@@ -172,15 +173,17 @@ export class LifecycleReactionController {
       );
       this.lastReactionAt = Date.now();
     } catch (error) {
-      logger.debug(
-        {
-          error,
+      logDiscordApiError({
+        error,
+        expectedAction: 'Lifecycle reaction was not added.',
+        unexpectedMessage: 'Failed to add lifecycle reaction',
+        metadata: {
           channelId: this.message.channelId,
           messageId: this.message.id,
           emoji,
         },
-        'Failed to add lifecycle reaction',
-      );
+        level: 'debug',
+      });
     }
   }
 
@@ -194,15 +197,17 @@ export class LifecycleReactionController {
       );
       this.lastReactionAt = Date.now();
     } catch (error) {
-      logger.debug(
-        {
-          error,
+      logDiscordApiError({
+        error,
+        expectedAction: 'Lifecycle reaction was not removed.',
+        unexpectedMessage: 'Failed to remove lifecycle reaction',
+        metadata: {
           channelId: this.message.channelId,
           messageId: this.message.id,
           emoji,
         },
-        'Failed to remove lifecycle reaction',
-      );
+        level: 'debug',
+      });
     }
   }
 }

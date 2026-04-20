@@ -397,30 +397,17 @@
   transition: opacity 0.15s;
 }
 
-.messageBlock:hover .messageActions {
+.messageBlock:hover .messageActions,
+.messageBlock:focus-within .messageActions {
   opacity: 1;
 }
 
 .actionButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
   height: 28px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.82rem;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.actionButton:hover {
-  background: var(--muted);
-  color: var(--text);
 }
 
 .actionButtonSuccess {
@@ -437,27 +424,11 @@
 }
 
 .branchButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 22px;
   height: 22px;
-  border: none;
+  min-height: unset;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
   font-size: 0.8rem;
-}
-
-.branchButton:hover {
-  background: var(--muted);
-  color: var(--text);
-}
-
-.branchButton:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .approvalActions {
@@ -468,39 +439,9 @@
 }
 
 .approvalAllow {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--success-border);
+  border-color: var(--success-border);
   background: var(--success-soft);
   color: var(--success);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalAllow:hover {
-  opacity: 0.85;
-}
-
-.approvalDeny {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.approvalDeny:hover {
-  opacity: 0.85;
-}
-
-.approvalAllow:disabled,
-.approvalDeny:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .artifactCard {
@@ -618,6 +559,11 @@
   background: var(--panel-bg);
   box-shadow: var(--shadow-raised);
   overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
 }
 
 .pendingMediaRow {
@@ -685,8 +631,20 @@
   padding: 2px 0;
 }
 
+.composerInput:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
 .composerInput::placeholder {
   color: var(--muted-foreground);
+}
+
+.attachButton:focus-visible,
+.sendButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .attachButton,
@@ -819,7 +777,9 @@
   .sidebarOpen {
     display: flex;
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
     z-index: 100;
     width: 280px;
     max-width: 85vw;
@@ -851,6 +811,39 @@
 
   .composerWrapper {
     padding: 0 16px 12px;
+  }
+
+  .slashSuggestions {
+    max-height: 40vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .bubbleUser,
+  .bubbleAssistant {
+    max-width: 95%;
+  }
+
+  .messageArea {
+    padding: 12px 8px 8px;
+  }
+
+  .composerWrapper {
+    padding: 0 8px 8px;
+  }
+
+  .emptyState h1 {
+    font-size: 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinkingDot {
+    animation: none;
+  }
+
+  .sidebarOpen {
+    animation: none;
   }
 }
 

@@ -60,5 +60,8 @@ automatically.
   traffic.
 - Retry-aware transports honor service-provided `Retry-After` delays during
   transient delivery failures.
+- Discord, Email, and WhatsApp treat expected transient transport outages as
+  local reconnect events with rate-limited warnings instead of uncaught
+  top-level failures.
 - WhatsApp startup disables Baileys init queries that can trigger intermittent
   `400`/`bad-request` responses during connect.

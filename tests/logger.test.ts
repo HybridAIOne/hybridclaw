@@ -21,6 +21,33 @@ async function waitForFileText(
   throw new Error(`Timed out waiting for log file: ${filePath}`);
 }
 
+type LoggerModule = typeof import('../src/logger.ts');
+
+let loadedLoggerModule: LoggerModule | null = null;
+
+async function importLoggerModule(): Promise<LoggerModule> {
+  const module = await import('../src/logger.ts');
+  loadedLoggerModule = module;
+  return module;
+}
+
+async function importFreshLogger() {
+  loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+  loadedLoggerModule = null;
+  vi.resetModules();
+  vi.doMock('../src/config/runtime-config.ts', () => ({
+    getRuntimeConfig: () => ({
+      ops: { logLevel: 'info' },
+    }),
+    onRuntimeConfigChange: vi.fn(),
+  }));
+  const module = await importLoggerModule();
+  return {
+    ...module,
+    uncaughtExceptionHandler: module.handleUncaughtExceptionForTests,
+  };
+}
+
 describe('logger forced level override', () => {
   let tempDir: string | null = null;
 
@@ -28,6 +55,8 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
+    loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+    loadedLoggerModule = null;
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
     if (tempDir) {
@@ -54,7 +83,7 @@ describe('logger forced level override', () => {
       }),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     expect(logger.level).toBe('debug');
     listener?.({ ops: { logLevel: 'error' } }, { ops: { logLevel: 'info' } });
@@ -73,7 +102,7 @@ describe('logger forced level override', () => {
       onRuntimeConfigChange: vi.fn(),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     logger.info('foreground log mirror test');
 
@@ -97,7 +126,7 @@ describe('logger forced level override', () => {
       onRuntimeConfigChange: vi.fn(),
     }));
 
-    const { logger } = await import('../src/logger.ts');
+    const { logger } = await importLoggerModule();
 
     logger.debug('forced debug mirror test');
 
@@ -128,7 +157,7 @@ describe('logger forced level override', () => {
       }),
     }));
 
-    const { forceLoggerLevel, logger } = await import('../src/logger.ts');
+    const { forceLoggerLevel, logger } = await importLoggerModule();
 
     expect(logger.level).toBe('info');
     forceLoggerLevel('debug');
@@ -144,5 +173,88 @@ describe('logger forced level override', () => {
     );
 
     expect(logText).toContain('late forced debug mirror test');
+  });
+
+  it('still exits on uncaught transport exceptions', async () => {
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    const fatalSpy = vi
+      .spyOn(logger, 'fatal')
+      .mockImplementation(() => undefined);
+
+    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(fatalSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Uncaught exception',
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('still exits on unexpected uncaught exceptions', async () => {
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    const fatalSpy = vi
+      .spyOn(logger, 'fatal')
+      .mockImplementation(() => undefined);
+
+    uncaughtExceptionHandler(new Error('Invariant violation'));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(fatalSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Uncaught exception',
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('registers process handlers only once across module reloads', async () => {
+    loadedLoggerModule?.removeLoggerProcessHandlersForTests();
+    loadedLoggerModule = null;
+    vi.resetModules();
+
+    const mockRuntimeConfig = () =>
+      vi.doMock('../src/config/runtime-config.ts', () => ({
+        getRuntimeConfig: () => ({
+          ops: { logLevel: 'info' },
+        }),
+        onRuntimeConfigChange: vi.fn(),
+      }));
+
+    mockRuntimeConfig();
+    const firstModule = await importLoggerModule();
+    vi.resetModules();
+    mockRuntimeConfig();
+    const secondModule = await importLoggerModule();
+
+    expect(
+      process
+        .listeners('uncaughtException')
+        .filter(
+          (listener) =>
+            listener === firstModule.handleUncaughtExceptionForTests ||
+            listener === secondModule.handleUncaughtExceptionForTests,
+        ),
+    ).toHaveLength(1);
+    expect(
+      process
+        .listeners('unhandledRejection')
+        .filter(
+          (listener) =>
+            listener === firstModule.handleUnhandledRejectionForTests ||
+            listener === secondModule.handleUnhandledRejectionForTests,
+        ),
+    ).toHaveLength(1);
   });
 });

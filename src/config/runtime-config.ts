@@ -668,6 +668,7 @@ export interface RuntimeConfig {
     additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
+    persistBashState: boolean;
   };
   mcpServers: Record<string, McpServerConfig>;
   web: {
@@ -1243,6 +1244,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
+    persistBashState: true,
   },
   mcpServers: {},
   web: {
@@ -4813,6 +4815,10 @@ function normalizeRuntimeConfig(
         rawContainer.maxConcurrent,
         DEFAULT_RUNTIME_CONFIG.container.maxConcurrent,
         { min: 1 },
+      ),
+      persistBashState: normalizeBoolean(
+        rawContainer.persistBashState,
+        DEFAULT_RUNTIME_CONFIG.container.persistBashState,
       ),
     },
     mcpServers: normalizeMcpServers(rawMcpServers),

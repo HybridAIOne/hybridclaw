@@ -17,6 +17,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -77,11 +78,13 @@ import {
   getMessageToolDescription,
   getPendingSideEffects,
   getPluginToolDefinitions,
+  resetPersistentBashSessions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
+  setPersistentBashStateEnabled,
   setPluginTools,
   setScheduledTasks,
   setSessionContext,
@@ -244,6 +247,7 @@ async function shutdownAgentProcess(
 
   shutdownPromise = (async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
@@ -809,6 +813,7 @@ async function callHybridAIWithRetry(params: {
       });
       return response;
     } catch (err) {
+      const formattedError = formatModelErrorForLog(err, baseUrl);
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
@@ -817,10 +822,10 @@ async function callHybridAIWithRetry(params: {
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
         retryable,
-        error: err instanceof Error ? err.message : String(err),
+        error: formattedError,
       });
       console.error(
-        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${err instanceof Error ? err.message : String(err)}`,
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
       if (!retryable) throw err;
       await sleep(delayMs);
@@ -1544,6 +1549,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -1692,6 +1698,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,

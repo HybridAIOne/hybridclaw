@@ -76,6 +76,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
   'bot',
+  'btw',
   'config',
   'policy',
   'dream',
@@ -112,6 +113,8 @@ const APPROVAL_ACTION_CHOICES = [
   { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
+const BTW_COMMAND_DESCRIPTION =
+  'Ask an ephemeral side question about the current session (no tools, not persisted)';
 
 const CHANNEL_MODE_CHOICES = [
   { name: 'off', value: 'off' },
@@ -208,6 +211,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   bot: {
     command: '/bot [info|list|set <id|name>|clear]',
     description: 'Manage the chatbot for this session',
+  },
+  btw: {
+    command: '/btw <question>',
+    description: BTW_COMMAND_DESCRIPTION,
   },
   concierge: {
     command:
@@ -364,6 +371,9 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
       return ['bot', 'set', ...parts.slice(1)];
     }
+
+    case 'btw':
+      return ['btw', ...parts.slice(1)];
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -623,6 +633,18 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'btw',
+      description: BTW_COMMAND_DESCRIPTION,
+      options: [
+        {
+          kind: 'string',
+          name: 'question',
+          description: 'The side question to answer',
+          required: true,
+        },
+      ],
     },
     {
       name: 'memory',
@@ -2518,6 +2540,11 @@ export function parseCanonicalSlashCommandArgs(
   switch (interaction.commandName) {
     case 'status':
       return ['status'];
+
+    case 'btw': {
+      const question = normalizeStringOption(interaction, 'question', true);
+      return question ? ['btw', question] : null;
+    }
 
     case 'auth': {
       const subcommand = normalizeSubcommand(interaction);

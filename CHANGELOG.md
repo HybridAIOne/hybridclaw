@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
+
+### Added
+
+- **Ephemeral `/btw` side-question command**: Added `/btw <question>` across
+  local and Discord slash-command surfaces. It answers side questions from
+  recent conversation context with a tool-less model call, without persisting
+  the side exchange to session history.
+- **Concurrent `/btw` threads in browser chat**: The built-in `/chat` surface
+  accepts `/btw ...` while a primary run is active and renders those replies in
+  a distinct side-thread presentation.
+- **Bash tool state can persist between calls**: Added persistent bash state
+  support so bash tool calls can preserve
+  working directory, exported environment variables, and aliases for the active
+  session by default, plus `container.persistBashState` and a matching
+  `/admin/config` toggle (`Persistent bash state`) to disable this behavior
+  when stateless shell calls are preferred.
+
+### Fixed
+
+- **Expected transport outages stay local and less noisy**: Discord, Email
+  IMAP, and WhatsApp transport handlers now classify expected transient
+  transport failures, keep reconnect loops local, and rate-limit repetitive
+  outage logs.
+- **Cloud artifact path remapping remains stable across workspace roots**:
+  Artifact remapping now preserves host-resolved workspace paths when runtime
+  and display roots differ, keeping generated files downloadable and attachable
+  in cloud-backed sessions.
+- **Remote skill import guardrails close unsafe/over-budget paths**: GitHub
+  and skill-hub imports now enforce shared file-count/byte budgets during
+  streaming downloads and consistently reject unsafe relative paths.
+
 ## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
 
 ### Added
