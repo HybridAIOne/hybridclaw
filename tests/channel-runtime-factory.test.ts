@@ -39,14 +39,18 @@ test('shutdown invalidates init before runtime side effects begin', async () => 
   const { EMAIL_CAPABILITIES, createChannelRuntime, registerChannel } =
     await importFreshRuntimeFactory();
   const resolveConfigGate = createDeferred<void>();
-  const start = vi.fn(async () => {});
+  const start = vi.fn(async ({ config }: { config: { address: string } }) => {
+    expect(config.address).toBe('ops@example.com');
+  });
 
-  const runtime = createChannelRuntime<void>({
+  const runtime = createChannelRuntime<void>()({
     kind: 'email',
     capabilities: EMAIL_CAPABILITIES,
     resolveConfig: async () => {
       await resolveConfigGate.promise;
+      return { address: 'ops@example.com' };
     },
+    resolveRegistration: (config) => config.address,
     start,
   });
 
@@ -71,7 +75,7 @@ test('shutdown prevents a late init completion from sticking', async () => {
     await releaseFirstStart.promise;
   });
 
-  const runtime = createChannelRuntime<void>({
+  const runtime = createChannelRuntime<void>()({
     kind: 'email',
     capabilities: EMAIL_CAPABILITIES,
     start,

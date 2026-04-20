@@ -324,7 +324,7 @@ export function createWhatsAppRuntime() {
 
     await dispatchInboundBatch(batch, messageHandler);
   };
-  const runtimeLifecycle = createChannelRuntime<WhatsAppMessageHandler>({
+  const runtimeLifecycle = createChannelRuntime<WhatsAppMessageHandler>()({
     kind: 'whatsapp',
     capabilities: WHATSAPP_CAPABILITIES,
     start: async ({ handler }) => {

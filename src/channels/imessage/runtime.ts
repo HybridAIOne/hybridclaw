@@ -176,7 +176,7 @@ export function createIMessageRuntime() {
       },
     );
   };
-  const runtimeLifecycle = createChannelRuntime<IMessageMessageHandler>({
+  const runtimeLifecycle = createChannelRuntime<IMessageMessageHandler>()({
     kind: 'imessage',
     capabilities: IMESSAGE_CAPABILITIES,
     start: async ({ handler }) => {

@@ -18,7 +18,7 @@ type RuntimeOptionsWithConfig<Handler, Config> = BaseRuntimeOptions & {
   resolveRegistration?: (config: Config) => MaybePromise<Registration>;
   start: (params: { handler: Handler; config: Config }) => MaybePromise<void>;
 };
-type RuntimeOptions<Handler, Config> =
+type RuntimeOptions<Handler, Config = never> =
   | RuntimeOptionsWithoutConfig<Handler>
   | RuntimeOptionsWithConfig<Handler, Config>;
 type RuntimeLifecycle<Handler> = {
@@ -44,69 +44,64 @@ function hasResolvedConfig<Handler, Config>(
   return typeof options.resolveConfig === 'function';
 }
 
-export function createChannelRuntime<Handler = void>(
-  options: RuntimeOptionsWithoutConfig<Handler>,
-): RuntimeLifecycle<Handler>;
-export function createChannelRuntime<Handler, Config>(
-  options: RuntimeOptionsWithConfig<Handler, Config>,
-): RuntimeLifecycle<Handler>;
+export function createChannelRuntime<Handler = void>() {
+  return <Config = never>(
+    options: RuntimeOptions<Handler, Config>,
+  ): RuntimeLifecycle<Handler> => {
+    let initialized = false;
+    let initializing: Promise<void> | undefined;
+    let generation = 0;
 
-export function createChannelRuntime<Handler = void, Config = void>(
-  options: RuntimeOptions<Handler, Config>,
-) {
-  let initialized = false;
-  let initializing: Promise<void> | undefined;
-  let generation = 0;
-
-  return {
-    init: (handler: Handler): Promise<void> => {
-      if (initialized) return Promise.resolve();
-      if (!initializing) {
-        const initGeneration = generation;
-        const initPromise = (async () => {
-          if (hasResolvedConfig(options)) {
-            const config = await options.resolveConfig();
-            if (initGeneration !== generation) return;
-            const registration = await options.resolveRegistration?.(config);
-            if (initGeneration !== generation) return;
-            registerResolvedChannel(
-              options.kind,
-              options.capabilities,
-              registration,
-            );
-            await options.start({ handler, config });
-          } else {
-            const registration = await options.resolveRegistration?.();
-            if (initGeneration !== generation) return;
-            registerResolvedChannel(
-              options.kind,
-              options.capabilities,
-              registration,
-            );
-            await options.start({ handler });
-          }
-          if (initGeneration !== generation) {
-            await options.cleanup?.();
-            return;
-          }
-          initialized = true;
-        })().finally(() => {
-          if (initializing === initPromise) {
-            initializing = undefined;
-          }
-        });
-        initializing = initPromise;
-      }
-      return initializing;
-    },
-    shutdown: async (): Promise<void> => {
-      generation += 1;
-      try {
-        await options.cleanup?.();
-      } finally {
-        initialized = false;
-        initializing = undefined;
-      }
-    },
+    return {
+      init: (handler: Handler): Promise<void> => {
+        if (initialized) return Promise.resolve();
+        if (!initializing) {
+          const initGeneration = generation;
+          const initPromise = (async () => {
+            if (hasResolvedConfig(options)) {
+              const config = await options.resolveConfig();
+              if (initGeneration !== generation) return;
+              const registration = await options.resolveRegistration?.(config);
+              if (initGeneration !== generation) return;
+              registerResolvedChannel(
+                options.kind,
+                options.capabilities,
+                registration,
+              );
+              await options.start({ handler, config });
+            } else {
+              const registration = await options.resolveRegistration?.();
+              if (initGeneration !== generation) return;
+              registerResolvedChannel(
+                options.kind,
+                options.capabilities,
+                registration,
+              );
+              await options.start({ handler });
+            }
+            if (initGeneration !== generation) {
+              await options.cleanup?.();
+              return;
+            }
+            initialized = true;
+          })().finally(() => {
+            if (initializing === initPromise) {
+              initializing = undefined;
+            }
+          });
+          initializing = initPromise;
+        }
+        return initializing;
+      },
+      shutdown: async (): Promise<void> => {
+        generation += 1;
+        try {
+          await options.cleanup?.();
+        } finally {
+          initialized = false;
+          initializing = undefined;
+        }
+      },
+    };
   };
 }

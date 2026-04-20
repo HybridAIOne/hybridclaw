@@ -347,10 +347,7 @@ export function createEmailRuntime() {
     );
     return connectionManager;
   };
-  const runtimeLifecycle = createChannelRuntime<
-    EmailMessageHandler,
-    ResolvedRuntimeConfig
-  >({
+  const runtimeLifecycle = createChannelRuntime<EmailMessageHandler>()({
     kind: 'email',
     capabilities: EMAIL_CAPABILITIES,
     resolveConfig: () => {
@@ -358,9 +355,12 @@ export function createEmailRuntime() {
       return ensureRuntimeConfig();
     },
     resolveRegistration: (config) => config.address,
-    start: async ({ handler }) => {
+    start: async (params: {
+      config: ResolvedRuntimeConfig;
+      handler: EmailMessageHandler;
+    }) => {
       await ensureTransport();
-      await ensureConnectionManager(handler).start();
+      await ensureConnectionManager(params.handler).start();
     },
     cleanup: async () => {
       shuttingDown = true;

@@ -1035,7 +1035,7 @@ async function startSlackRuntime(handler: {
 const slackRuntime = createChannelRuntime<{
   commandHandler: SlackCommandHandler;
   messageHandler: SlackMessageHandler;
-}>({
+}>()({
   kind: 'slack',
   capabilities: SLACK_CAPABILITIES,
   start: async ({ handler }) => {
