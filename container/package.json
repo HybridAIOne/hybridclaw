@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "type": "module",
   "main": "dist/index.js",
   "files": [

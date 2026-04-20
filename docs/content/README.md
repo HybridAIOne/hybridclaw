@@ -26,16 +26,21 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- The built-in `/chat` sidebar can search recent conversations by title and
-  show contextual match snippets, so long-lived browser sessions are easier to
-  reopen without scrolling through the default recent list.
-- Browser chat and the console chat keep the composer focused after streamed
-  replies finish, which makes keyboard-only follow-up turns faster.
-- The bundled PDF creator wraps long lines, respects explicit `\n` line
-  breaks, and adds pages automatically when content runs past the first page.
-- Generated artifacts keep resolving correctly even when the sandbox exposes a
-  custom workspace display root such as `/app`, so downloads and attachments
-  stay stable in browser-driven workflows.
+- `/btw <question>` is available across local and Discord slash-command
+  surfaces for ephemeral side questions that use recent conversation context
+  without persisting the side exchange to session history.
+- The built-in browser chat accepts `/btw` while a primary run is active and
+  renders those replies in a dedicated side-thread style.
+- Bash tool calls preserve shell state (`cd`, exported env vars, aliases)
+  across calls for the active runtime session by default, with
+  `container.persistBashState` and a matching admin toggle to switch back to
+  stateless behavior.
+- Discord, Email, and WhatsApp classify expected transient transport outages
+  locally and rate-limit repetitive outage warnings, which reduces noise during
+  reconnect storms.
+- Artifact remapping preserves host-resolved workspace paths even when display
+  and runtime workspace roots differ, keeping generated files downloadable in
+  cloud-backed sessions.
 
 ## Browse By Section
 

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
@@ -51,6 +51,26 @@ function ToolErrorPreview(props: {
     summary: string;
   }>;
 }) {
+  const [open, setOpen] = useState(false);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    function handlePointerDown(event: MouseEvent) {
+      const node = detailsRef.current;
+      if (node && !node.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [open]);
+
   if (props.recentErrors === 0) {
     return <small>no recent errors</small>;
   }
@@ -68,7 +88,12 @@ function ToolErrorPreview(props: {
     .join('\n\n');
 
   return (
-    <details className="inline-popover">
+    <details
+      ref={detailsRef}
+      className="inline-popover"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="inline-popover-trigger" title={hoverTitle}>
         {props.recentErrors} recent error{props.recentErrors === 1 ? '' : 's'}
       </summary>
