@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -180,6 +181,7 @@ let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
 type PersistentBashSession = {
+  sessionDir: string;
   snapshotPath: string;
   cwdPath: string;
   defaultCwd: string;
@@ -193,15 +195,44 @@ const BASH_DOCKER_CWD = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
 ).trim();
 const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
+const RAW_MAX_PERSISTENT_BASH_SESSIONS = Number.parseInt(
+  process.env.HYBRIDCLAW_MAX_PERSISTENT_BASH_SESSIONS || '128',
+  10,
+);
+const MAX_PERSISTENT_BASH_SESSIONS = Number.isFinite(
+  RAW_MAX_PERSISTENT_BASH_SESSIONS,
+)
+  ? Math.max(1, RAW_MAX_PERSISTENT_BASH_SESSIONS)
+  : 128;
 const persistentBashSessions = new Map<string, PersistentBashSession>();
 const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
 const PERSISTENT_BASH_MARKER_PREFIX = '__HYBRIDCLAW_CWD_';
 const PERSISTENT_BASH_WRAPPER_SCRIPT = `
-__hybridclaw_snapshot=$1
-__hybridclaw_cwd_file=$2
-__hybridclaw_default_cwd=$3
-__hybridclaw_command=$4
-__hybridclaw_marker=$5
+__hybridclaw_session_dir=$1
+__hybridclaw_snapshot=$2
+__hybridclaw_cwd_file=$3
+__hybridclaw_default_cwd=$4
+__hybridclaw_command=$5
+__hybridclaw_marker=$6
+__hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
+__hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
+umask 077
+mkdir -p -- "$__hybridclaw_session_dir" || exit 125
+chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
+__hybridclaw_write_snapshot() {
+  {
+    export -p
+    alias -p
+    echo 'shopt -s expand_aliases'
+    echo 'set +e'
+    echo 'set +u'
+  } > "$__hybridclaw_snapshot_tmp" &&
+    mv -f -- "$__hybridclaw_snapshot_tmp" "$__hybridclaw_snapshot"
+}
+__hybridclaw_write_cwd() {
+  pwd -P > "$__hybridclaw_cwd_tmp" 2>/dev/null &&
+    mv -f -- "$__hybridclaw_cwd_tmp" "$__hybridclaw_cwd_file"
+}
 if [ -f "$__hybridclaw_snapshot" ]; then
   source "$__hybridclaw_snapshot" 2>/dev/null || true
 else
@@ -216,17 +247,18 @@ if [ -f "$__hybridclaw_cwd_file" ]; then
     __hybridclaw_cwd="$__hybridclaw_saved_cwd"
   fi
 fi
-cd -- "$__hybridclaw_cwd" || exit 126
+if ! cd -- "$__hybridclaw_cwd"; then
+  if [ "$__hybridclaw_cwd" != "$__hybridclaw_default_cwd" ] &&
+    cd -- "$__hybridclaw_default_cwd"; then
+    __hybridclaw_write_cwd || true
+  else
+    exit 126
+  fi
+fi
 eval "$__hybridclaw_command"
 __hybridclaw_ec=$?
-{
-  export -p
-  alias -p
-  echo 'shopt -s expand_aliases'
-  echo 'set +e'
-  echo 'set +u'
-} > "$__hybridclaw_snapshot"
-pwd -P > "$__hybridclaw_cwd_file" 2>/dev/null || true
+__hybridclaw_write_snapshot || true
+__hybridclaw_write_cwd || true
 printf '\\n%s%s%s\\n' "$__hybridclaw_marker" "$(pwd -P)" "$__hybridclaw_marker"
 exit $__hybridclaw_ec
 `.trim();
@@ -237,34 +269,97 @@ function getPersistentBashTempRoot(): string {
   return resolved ? path.resolve(resolved) : '/tmp';
 }
 
-function sanitizePersistentBashSessionId(sessionId: string): string {
+function formatPersistentBashSessionSlug(sessionId: string): string {
   const normalized = String(sessionId || '')
     .trim()
     .replace(/[^A-Za-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return (normalized || 'default').slice(0, 80);
+  return (normalized || 'default').slice(0, 40);
+}
+
+function cleanupPersistentBashSessionArtifacts(
+  session: PersistentBashSession | undefined,
+): void {
+  if (!session) return;
+  try {
+    if (TASK_SANDBOX_FS_ENABLED) {
+      spawnSync(
+        'docker',
+        [
+          'exec',
+          '-i',
+          BASH_DOCKER_CONTAINER,
+          'rm',
+          '-rf',
+          '--',
+          session.sessionDir,
+        ],
+        {
+          encoding: 'utf-8',
+          timeout: 5_000,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env },
+        },
+      );
+      return;
+    }
+    fs.rmSync(session.sessionDir, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best-effort; execution should not fail if temp artifacts linger.
+  }
+}
+
+function rememberPersistentBashSession(
+  key: string,
+  session: PersistentBashSession,
+): PersistentBashSession {
+  const existing = persistentBashSessions.get(key);
+  if (existing && existing !== session) {
+    cleanupPersistentBashSessionArtifacts(existing);
+  }
+  persistentBashSessions.delete(key);
+  persistentBashSessions.set(key, session);
+  while (persistentBashSessions.size > MAX_PERSISTENT_BASH_SESSIONS) {
+    const oldestKey = persistentBashSessions.keys().next().value;
+    if (typeof oldestKey !== 'string') break;
+    const oldestSession = persistentBashSessions.get(oldestKey);
+    persistentBashSessions.delete(oldestKey);
+    cleanupPersistentBashSessionArtifacts(oldestSession);
+  }
+  return session;
+}
+
+export function resetPersistentBashSessions(): void {
+  for (const session of persistentBashSessions.values()) {
+    cleanupPersistentBashSessionArtifacts(session);
+  }
+  persistentBashSessions.clear();
 }
 
 function getPersistentBashSession(): PersistentBashSession {
   const key = currentSessionId || 'default';
   const existing = persistentBashSessions.get(key);
-  if (existing) return existing;
+  if (existing) {
+    return rememberPersistentBashSession(key, existing);
+  }
 
-  const safeSessionId = sanitizePersistentBashSessionId(key);
-  const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${safeSessionId}`;
+  const sessionSlug = formatPersistentBashSessionSlug(key);
+  const sessionNonce = randomUUID();
+  const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${sessionSlug}-${sessionNonce}`;
   const tempRoot = getPersistentBashTempRoot();
   const joinPath = TASK_SANDBOX_FS_ENABLED ? path.posix.join : path.join;
+  const sessionDir = joinPath(tempRoot, prefix);
   const created: PersistentBashSession = {
-    snapshotPath: joinPath(tempRoot, `${prefix}.snapshot`),
-    cwdPath: joinPath(tempRoot, `${prefix}.cwd`),
+    sessionDir,
+    snapshotPath: joinPath(sessionDir, 'state.snapshot'),
+    cwdPath: joinPath(sessionDir, 'state.cwd'),
     defaultCwd: TASK_SANDBOX_FS_ENABLED
       ? BASH_DOCKER_CWD || '/app'
       : WORKSPACE_ROOT,
-    marker: `${PERSISTENT_BASH_MARKER_PREFIX}${safeSessionId}__`,
+    marker: `${PERSISTENT_BASH_MARKER_PREFIX}${sessionNonce.replaceAll('-', '')}__`,
     initialized: false,
   };
-  persistentBashSessions.set(key, created);
-  return created;
+  return rememberPersistentBashSession(key, created);
 }
 
 function stripPersistentBashMarker(content: string, marker: string): string {
@@ -296,6 +391,7 @@ function runPersistentLocalBash(params: {
       params.session.initialized ? '-c' : '-lc',
       PERSISTENT_BASH_WRAPPER_SCRIPT,
       'hybridclaw-bash-wrapper',
+      params.session.sessionDir,
       params.session.snapshotPath,
       params.session.cwdPath,
       params.session.defaultCwd,
@@ -329,6 +425,7 @@ function runPersistentDockerExecBash(params: {
       params.session.initialized ? '-c' : '-lc',
       PERSISTENT_BASH_WRAPPER_SCRIPT,
       'hybridclaw-bash-wrapper',
+      params.session.sessionDir,
       params.session.snapshotPath,
       params.session.cwdPath,
       params.session.defaultCwd,

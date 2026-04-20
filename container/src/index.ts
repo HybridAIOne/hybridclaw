@@ -77,6 +77,7 @@ import {
   getMessageToolDescription,
   getPendingSideEffects,
   getPluginToolDefinitions,
+  resetPersistentBashSessions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
@@ -244,6 +245,7 @@ async function shutdownAgentProcess(
 
   shutdownPromise = (async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
