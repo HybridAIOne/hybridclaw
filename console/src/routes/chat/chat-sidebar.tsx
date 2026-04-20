@@ -8,7 +8,13 @@ export function ChatSidebar(props: {
   activeSessionId: string;
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  isLoading: boolean;
 }) {
+  const trimmedSearch = props.searchQuery.trim();
+  const isSearching = trimmedSearch.length > 0;
+
   return (
     <>
       <div className={css.sidebarHeader}>
@@ -26,9 +32,23 @@ export function ChatSidebar(props: {
       >
         + New Conversation
       </button>
-      {props.sessions.length > 0 ? (
+      <div className={css.sidebarSearchWrap}>
+        <input
+          type="search"
+          className={css.sidebarSearch}
+          value={props.searchQuery}
+          onChange={(event) => props.onSearchQueryChange(event.target.value)}
+          placeholder="Search"
+          aria-label="Search conversations"
+        />
+      </div>
+      {props.isLoading && isSearching ? (
+        <div className={css.sidebarStatus}>Searching...</div>
+      ) : props.sessions.length > 0 ? (
         <>
-          <div className={css.sidebarLabel}>Recent</div>
+          <div className={css.sidebarLabel}>
+            {isSearching ? 'Search Results' : 'Recent'}
+          </div>
           <ul className={css.sessionList} aria-live="polite">
             {props.sessions.map((s) => (
               <li key={s.sessionId}>
@@ -47,6 +67,11 @@ export function ChatSidebar(props: {
                   <span className={css.sessionTitle}>
                     {s.title || 'Untitled'}
                   </span>
+                  {s.searchSnippet ? (
+                    <span className={css.sessionSnippet}>
+                      {s.searchSnippet}
+                    </span>
+                  ) : null}
                   <span className={css.sessionTime}>
                     {formatRelativeTime(s.lastActive)}
                   </span>
@@ -55,6 +80,8 @@ export function ChatSidebar(props: {
             ))}
           </ul>
         </>
+      ) : isSearching ? (
+        <div className={css.sidebarStatus}>No matching conversations.</div>
       ) : null}
     </>
   );
