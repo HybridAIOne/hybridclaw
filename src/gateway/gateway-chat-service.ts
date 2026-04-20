@@ -4,6 +4,7 @@ import { buildConversationContext } from '../agent/conversation.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
+  findAgentConfig,
   resolveAgentConfig,
   resolveAgentForRequest,
   resolveAgentModel,
@@ -36,6 +37,7 @@ import {
   getTasksForSession,
   logAudit,
   recordUsageEvent,
+  resolveSessionIdCompat,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -61,6 +63,12 @@ import {
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import {
+  buildAgentCollaborationChannelId,
+  buildAgentCollaborationSessionKey,
+  formatAgentCollaborationPrompt,
+  parseAgentCollaborationDestination,
+} from './agent-collaboration.js';
 import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
@@ -105,7 +113,12 @@ import {
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
-import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import type {
+  GatewayAgentCollaborationRequest,
+  GatewayAgentCollaborationResult,
+  GatewayChatRequest,
+  GatewayChatResult,
+} from './gateway-types.js';
 import { firstNumber } from './gateway-utils.js';
 import {
   normalizeSessionShowMode,
@@ -127,6 +140,110 @@ export async function handleGatewayMessage(
     },
     async () => handleGatewayMessageInner(req),
   );
+}
+
+export async function handleAgentCollaborationChatRequest(
+  req: GatewayAgentCollaborationRequest,
+): Promise<GatewayAgentCollaborationResult> {
+  const currentSessionId = String(req.currentSessionId || '').trim();
+  if (!currentSessionId) {
+    throw new Error('Current sessionId is required for agent collaboration.');
+  }
+
+  const sourceSession = memoryService.getSessionById(
+    resolveSessionIdCompat(currentSessionId),
+  );
+  if (!sourceSession) {
+    throw new Error(
+      `Agent collaboration source session was not found: ${currentSessionId}`,
+    );
+  }
+
+  const sourceAgentId = sourceSession.agent_id?.trim() || DEFAULT_AGENT_ID;
+  const targetAgentId = String(req.toAgent || '').trim();
+  if (!targetAgentId) {
+    throw new Error('Target agent id is required.');
+  }
+  if (targetAgentId === sourceAgentId) {
+    throw new Error('Target agent must differ from the current agent.');
+  }
+
+  const targetAgent = findAgentConfig(targetAgentId);
+  if (!targetAgent) {
+    throw new Error(`Agent "${targetAgentId}" was not found.`);
+  }
+
+  const text = String(req.text || '').trim();
+  if (!text) {
+    throw new Error('Agent collaboration text is required.');
+  }
+
+  const destination = parseAgentCollaborationDestination(req.destination);
+  const requestedSessionId = String(req.sessionId || '').trim();
+  if (requestedSessionId) {
+    const existing = memoryService.getSessionById(
+      resolveSessionIdCompat(requestedSessionId),
+    );
+    if (existing) {
+      const existingAgentId = existing.agent_id?.trim() || DEFAULT_AGENT_ID;
+      if (existingAgentId !== targetAgent.id) {
+        throw new Error(
+          `Session "${requestedSessionId}" belongs to agent "${existingAgentId}", not "${targetAgent.id}".`,
+        );
+      }
+    }
+  }
+
+  const collaborationSessionId = buildAgentCollaborationSessionKey({
+    sourceAgentId,
+    targetAgentId: targetAgent.id,
+    destination,
+    sessionId: requestedSessionId || undefined,
+  });
+  const channelId = buildAgentCollaborationChannelId({
+    sourceAgentId,
+    destination,
+  });
+  const rawTimeoutSeconds =
+    typeof req.timeoutSeconds === 'number' &&
+    Number.isFinite(req.timeoutSeconds)
+      ? Math.floor(req.timeoutSeconds)
+      : 300;
+  const timeoutSeconds = Math.max(5, Math.min(rawTimeoutSeconds, 900));
+
+  const result = await handleGatewayMessage({
+    sessionId: collaborationSessionId,
+    sessionMode: 'resume',
+    guildId: null,
+    channelId,
+    userId: `agent:${sourceAgentId}`,
+    username: sourceAgentId,
+    content: formatAgentCollaborationPrompt({
+      sourceAgentId,
+      targetAgentId: targetAgent.id,
+      destination,
+      text,
+    }),
+    agentId: targetAgent.id,
+    maxWallClockMs: timeoutSeconds * 1000,
+    source: 'agent',
+  });
+
+  return {
+    status: result.status,
+    route: {
+      sourceAgentId,
+      targetAgentId: targetAgent.id,
+      destination,
+      sessionId: collaborationSessionId,
+      executionSessionId: result.sessionId || collaborationSessionId,
+      channelId,
+    },
+    result: result.result,
+    toolsUsed: result.toolsUsed,
+    artifacts: result.artifacts,
+    ...(result.error ? { error: result.error } : {}),
+  };
 }
 
 async function handleGatewayMessageInner(

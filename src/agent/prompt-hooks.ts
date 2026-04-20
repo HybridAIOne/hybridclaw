@@ -479,6 +479,7 @@ function buildProactivityHook(context: PromptHookContext): string {
     '',
     '## Subagent Delegation Playbook',
     'Use `delegate` to offload narrow, self-contained subtasks to subagents.',
+    'Use `list_agents` to discover named agents and `chat_with_agent` when a configured agent should handle or review work directly.',
     '',
     '### When to use `delegate`',
     '- Reasoning-heavy subtasks (debugging, code review, research synthesis).',

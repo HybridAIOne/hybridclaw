@@ -99,7 +99,10 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
-import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  handleAgentCollaborationChatRequest,
+  handleGatewayMessage,
+} from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -243,6 +246,14 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
+type ApiAgentCollaborationChatRequestBody = {
+  currentSessionId?: unknown;
+  toAgent?: unknown;
+  text?: unknown;
+  sessionId?: unknown;
+  destination?: unknown;
+  timeoutSeconds?: unknown;
+};
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiAdminTerminalRequestBody = {
   cols?: number;
@@ -1857,6 +1868,63 @@ function handleApiChatCommands(res: ServerResponse, url: URL): void {
 
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
+}
+
+async function handleApiAgentCollaborationChat(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(
+    req,
+  )) as ApiAgentCollaborationChatRequestBody;
+  const currentSessionId = normalizeOptionalString(body.currentSessionId);
+  const toAgent = normalizeOptionalString(body.toAgent);
+  const text = normalizeOptionalString(body.text);
+  const sessionId = normalizeOptionalString(body.sessionId);
+  const destination = normalizeOptionalString(body.destination);
+  const timeoutSeconds =
+    typeof body.timeoutSeconds === 'number' &&
+    Number.isFinite(body.timeoutSeconds)
+      ? body.timeoutSeconds
+      : undefined;
+
+  if (!currentSessionId) {
+    sendJson(res, 400, {
+      error: 'Missing `currentSessionId` in request body.',
+    });
+    return;
+  }
+  if (!toAgent) {
+    sendJson(res, 400, { error: 'Missing `toAgent` in request body.' });
+    return;
+  }
+  if (!text) {
+    sendJson(res, 400, { error: 'Missing `text` in request body.' });
+    return;
+  }
+
+  try {
+    const result = await handleAgentCollaborationChatRequest({
+      currentSessionId,
+      toAgent,
+      text,
+      ...(sessionId ? { sessionId } : {}),
+      ...(destination ? { destination } : {}),
+      ...(typeof timeoutSeconds === 'number' ? { timeoutSeconds } : {}),
+    });
+    sendJson(res, result.status === 'success' ? 200 : 500, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendJson(
+      res,
+      /not found|required|must differ|belongs to agent|characters or fewer/i.test(
+        message,
+      )
+        ? 400
+        : 500,
+      { error: message },
+    );
+  }
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -3622,6 +3690,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
+            return;
+          }
+          if (pathname === '/api/agents/chat' && method === 'POST') {
+            await handleApiAgentCollaborationChat(req, res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
