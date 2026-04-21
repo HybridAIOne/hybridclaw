@@ -56,6 +56,39 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 
 ---
 
+## excalidraw
+
+Create and revise editable `.excalidraw` diagrams for architecture diagrams,
+flowcharts, sequence diagrams, concept maps, and hand-drawn explainers.
+
+**Prerequisites** — none.
+
+> 💡 **Tips & Tricks**
+>
+> Use Excalidraw JSON when the user needs an editable diagram instead of a
+> rendered image.
+>
+> Keep labels as bound text elements, not custom properties on shapes.
+>
+> Use short stable ids and readable text sizes so future edits stay simple.
+
+> 🎯 **Try it yourself**
+>
+> `Create an Excalidraw architecture diagram for a gateway, worker queue, database, and admin console`
+>
+> `Revise this .excalidraw file to add a retry path and error queue`
+>
+> `Make a hand-drawn flowchart for the support escalation process`
+
+**Troubleshooting**
+
+- **Diagram will not open** — validate that the file is valid JSON with the
+  standard Excalidraw envelope.
+- **Labels do not appear** — ensure labels are separate `text` elements bound
+  to their shapes.
+
+---
+
 ## wordpress
 
 Draft posts and pages, coordinate wp-admin work, use WP-CLI, inspect themes or

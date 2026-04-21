@@ -85,6 +85,53 @@ handle CI, and merge safely.
 
 ---
 
+## gh-issues
+
+Fetch GitHub issues, delegate focused fixes, open pull requests, and follow up
+on actionable PR review comments.
+
+**Prerequisites** — `git`, `gh` (GitHub CLI, authenticated).
+
+> 💡 **Tips & Tricks**
+>
+> Use `--dry-run` first to inspect the issue set without creating branches or
+> delegations.
+>
+> Add `--label`, `--milestone`, `--assignee`, and `--limit` filters to keep
+> each batch focused.
+>
+> Use `--reviews-only` to address actionable comments on open `fix/issue-*`
+> PRs.
+>
+> Use `--fork owner/repo` when branches should be pushed to a fork while PRs
+> target the source repo.
+
+> 🎯 **Try it yourself**
+>
+> `/gh-issues HybridAIOne/hybridclaw --label bug --limit 3 --dry-run`
+>
+> `/gh-issues HybridAIOne/hybridclaw --label bug --limit 2`
+>
+> `/gh-issues HybridAIOne/hybridclaw --reviews-only`
+>
+> `/gh-issues HybridAIOne/hybridclaw --fork my-user/hybridclaw --label help-wanted --limit 1`
+>
+> **Conversation flow:**
+>
+> `1. /gh-issues HybridAIOne/hybridclaw --label bug --limit 5 --dry-run`
+> `2. Process issues 42 and 48 only`
+> `3. After the PRs are open, run /gh-issues HybridAIOne/hybridclaw --reviews-only`
+
+**Troubleshooting**
+
+- **`gh` not authenticated** — run `gh auth login` or provide `GH_TOKEN`.
+- **Existing branch or PR** — the skill skips issues that already have a
+  `fix/issue-*` branch or open PR.
+- **Unclear issue** — delegated agents stop and report low confidence instead
+  of opening speculative PRs.
+
+---
+
 ## salesforce
 
 Inspect Salesforce objects, fields, relationships, Tooling API metadata, and
