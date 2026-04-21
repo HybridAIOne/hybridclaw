@@ -155,6 +155,13 @@ stored secret `GH_TOKEN` when `gh` is unavailable.
 > Fetches live matching issues and stops after the table or "no matches"
 > response. It must not run processing preflight or delegate work.
 >
+> `/gh-issues <your repo> --label bug --limit 2`
+>
+> Fetches live bug issues, displays whatever currently matches, and asks which
+> issues to process. It is valid for the result count to be lower than the
+> limit; the important checks are that a current-turn GitHub fetch happened and
+> preflight waits for selection.
+>
 > `/gh-issues <your repo> --label enhancement --limit 3`
 >
 > Fetches live enhancement issues and asks for `all`, comma-separated issue
