@@ -414,7 +414,7 @@ export function ChatPage() {
       } catch (err) {
         dispatch({
           type: 'ERROR_SET',
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
       }
     },
@@ -460,7 +460,7 @@ export function ChatPage() {
           const err = r.reason;
           dispatch({
             type: 'ERROR_SET',
-            error: err instanceof Error ? err.message : String(err),
+            error: getErrorMessage(err),
           });
         }
       }

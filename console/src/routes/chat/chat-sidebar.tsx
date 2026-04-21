@@ -74,22 +74,24 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
 }
 
 function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
+  const body = renderSessionListBody(props);
+  if (body === null) return null;
+  return <div className={css.chatSidebarContent}>{body}</div>;
+}
+
+function renderSessionListBody(
+  props: ChatSidebarProps & { isSearching: boolean },
+) {
   if (props.isLoading && props.isSearching) {
-    return (
-      <div className={css.chatSidebarContent}>
-        <div className={css.sidebarStatus}>Searching...</div>
-      </div>
-    );
+    return <div className={css.sidebarStatus}>Searching...</div>;
   }
   if (props.sessions.length === 0) {
     return props.isSearching ? (
-      <div className={css.chatSidebarContent}>
-        <div className={css.sidebarStatus}>No matching conversations.</div>
-      </div>
+      <div className={css.sidebarStatus}>No matching conversations.</div>
     ) : null;
   }
   return (
-    <div className={css.chatSidebarContent}>
+    <>
       <div className={css.sidebarLabel}>
         {props.isSearching ? 'Search Results' : 'Recent'}
       </div>
@@ -122,6 +124,6 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
           </li>
         ))}
       </ul>
-    </div>
+    </>
   );
 }
