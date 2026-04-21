@@ -19,6 +19,8 @@ metadata:
 
 Use this skill for Google Workspace workflows that go beyond HybridClaw's built-in email and Discord channels.
 
+For API-backed Google Workspace access, prefer the bundled `gog` skill when available.
+
 ## Scope
 
 - Gmail searches and draft/send workflows
