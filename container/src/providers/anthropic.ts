@@ -617,13 +617,6 @@ function parseServerSentEventBlock(block: string): ServerSentEvent | null {
   };
 }
 
-function findStreamBlock(
-  blocks: AnthropicStreamBlock[],
-  index: number,
-): AnthropicStreamBlock | undefined {
-  return blocks.find((block) => block.index === index);
-}
-
 function parseJsonObject(value: string): Record<string, unknown> {
   const trimmed = String(value || '').trim();
   if (!trimmed) return {};
@@ -638,7 +631,7 @@ function parseJsonObject(value: string): Record<string, unknown> {
 function buildStreamResponse(params: {
   id: string;
   model: string;
-  blocks: AnthropicStreamBlock[];
+  blocks: Map<number, AnthropicStreamBlock>;
   finishReason: string;
   usage?: ChatCompletionResponse['usage'];
 }): ChatCompletionResponse {
@@ -649,7 +642,7 @@ function buildStreamResponse(params: {
       role: 'assistant',
       stop_reason: params.finishReason,
       usage: params.usage,
-      content: params.blocks
+      content: [...params.blocks.values()]
         .sort((left, right) => left.index - right.index)
         .map((block) =>
           block.type === 'text'
@@ -756,7 +749,7 @@ export async function callAnthropicProviderStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const blocks: AnthropicStreamBlock[] = [];
+  const blocks = new Map<number, AnthropicStreamBlock>();
   let usage: ChatCompletionResponse['usage'] | undefined;
   let responseId = 'message';
   let responseModel = stripAnthropicModelPrefix(args.model);
@@ -805,7 +798,7 @@ export async function callAnthropicProviderStream(
         const index = typeof event.index === 'number' ? event.index : -1;
         if (!isRecord(event.content_block)) continue;
         if (event.content_block.type === 'text') {
-          blocks.push({
+          blocks.set(index, {
             type: 'text',
             index,
             text:
@@ -821,7 +814,7 @@ export async function callAnthropicProviderStream(
             Object.keys(event.content_block.input).length > 0
               ? JSON.stringify(event.content_block.input)
               : '';
-          blocks.push({
+          blocks.set(index, {
             type: 'tool_use',
             index,
             id:
@@ -840,7 +833,7 @@ export async function callAnthropicProviderStream(
 
       if (event.type === 'content_block_delta') {
         const index = typeof event.index === 'number' ? event.index : -1;
-        const block = findStreamBlock(blocks, index);
+        const block = blocks.get(index);
         if (!block || !isRecord(event.delta)) continue;
 
         if (
