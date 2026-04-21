@@ -75,6 +75,10 @@ vi.mock('./use-chat-stream', () => ({
   useChatStream: (...args: unknown[]) => useChatStreamMock(...args),
 }));
 
+vi.mock('../../components/view-switch', () => ({
+  ViewSwitchNav: () => null,
+}));
+
 function renderChatPage() {
   const queryClient = new QueryClient({
     defaultOptions: {

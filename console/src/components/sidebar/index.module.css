@@ -13,6 +13,7 @@
   z-index: 30;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
   height: 100vh;
   border-right: 1px solid var(--sidebar-border);

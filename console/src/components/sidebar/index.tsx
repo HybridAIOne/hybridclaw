@@ -88,6 +88,7 @@ export function SidebarProvider(props: {
     (value: boolean | ((prev: boolean) => boolean)) => {
       setOpenRaw((prev) => {
         const next = typeof value === 'function' ? value(prev) : value;
+        if (next === prev) return prev;
         if (key) {
           try {
             localStorage.setItem(key, String(next));

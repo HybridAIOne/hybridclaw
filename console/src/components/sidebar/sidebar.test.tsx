@@ -553,7 +553,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('desktop sidebar starts expanded and collapses on trigger click', () => {
+  it('desktop sidebar is always expanded', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -565,9 +565,9 @@ describe('AppSidebar', () => {
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+    expect(
+      screen.queryByRole('button', { name: /sidebar$/i }),
+    ).toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {
