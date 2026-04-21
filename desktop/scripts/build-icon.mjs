@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const currentFile = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(currentFile);
 const desktopDir = path.resolve(scriptsDir, '..');
-const committedPngIcon = path.join(desktopDir, 'build', 'icon.png');
+const buildDir = path.join(desktopDir, 'build');
 
 if (process.platform === 'darwin') {
   const result = spawnSync('swift', ['scripts/generate-mac-icon.swift'], {
@@ -17,7 +17,13 @@ if (process.platform === 'darwin') {
   process.exit(result.status ?? 1);
 }
 
-const missing = [committedPngIcon].filter((target) => !fs.existsSync(target));
+const committedAssets = [
+  path.join(buildDir, 'icon.png'),
+  path.join(buildDir, 'icon.icns'),
+  path.join(buildDir, 'background.png'),
+  path.join(buildDir, 'background@2x.png'),
+];
+const missing = committedAssets.filter((target) => !fs.existsSync(target));
 
 if (missing.length > 0) {
   console.error(
