@@ -10,6 +10,7 @@ import {
 import { logger } from '../logger.js';
 import {
   buildAnthropicSupportingHeaders,
+  isAnthropicOAuthToken,
   normalizeAnthropicBaseUrl,
   normalizeAnthropicModelName,
 } from './anthropic-utils.js';
@@ -57,10 +58,15 @@ function resolveAnthropicModelDiscoveryHeaders(): Record<
     }
 
     const auth = requireAnthropicApiKey();
-    return {
-      'x-api-key': auth.apiKey,
-      ...auth.headers,
-    };
+    const headers = { ...auth.headers };
+    if (isAnthropicOAuthToken(auth.apiKey)) {
+      headers.Authorization = `Bearer ${auth.apiKey}`;
+      delete headers['x-api-key'];
+    } else {
+      headers['x-api-key'] = auth.apiKey;
+      delete headers.Authorization;
+    }
+    return headers;
   } catch {
     return null;
   }
