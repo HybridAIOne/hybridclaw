@@ -3909,7 +3909,7 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Configured method: api-key');
-    expect(logSpy).toHaveBeenCalledWith('Detected auth source: claude-cli');
+    expect(logSpy).toHaveBeenCalledWith('Detected auth method: claude-cli');
     expect(logSpy).toHaveBeenCalledWith('Enabled: no');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
   });

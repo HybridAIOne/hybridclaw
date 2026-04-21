@@ -18,7 +18,10 @@ import {
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
-import { normalizeAnthropicBaseUrl } from '../providers/anthropic-utils.js';
+import {
+  isAnthropicOAuthToken,
+  normalizeAnthropicBaseUrl,
+} from '../providers/anthropic-utils.js';
 import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
@@ -153,7 +156,13 @@ export async function probeAnthropic(): Promise<ProviderProbeResult> {
     ...auth.headers,
   };
   if (auth.method === 'api-key') {
-    headers['x-api-key'] = auth.apiKey;
+    if (isAnthropicOAuthToken(auth.apiKey)) {
+      headers.Authorization = `Bearer ${auth.apiKey}`;
+      delete headers['x-api-key'];
+    } else {
+      headers['x-api-key'] = auth.apiKey;
+      delete headers.Authorization;
+    }
   }
 
   const startedAt = Date.now();

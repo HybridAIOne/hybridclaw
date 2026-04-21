@@ -1127,7 +1127,7 @@ function printAnthropicStatus(): void {
   console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
   console.log(`Configured method: ${config.anthropic.method}`);
   if (status.method) {
-    console.log(`Detected auth source: ${status.method}`);
+    console.log(`Detected auth method: ${status.method}`);
   }
   if (status.source) {
     console.log(`Source: ${status.source}`);

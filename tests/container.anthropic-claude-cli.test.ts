@@ -11,92 +11,95 @@ afterEach(() => {
 test('routes Anthropic claude-cli calls through `claude -p`', async () => {
   const originalSandboxMode = process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
   process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = 'host';
-  const spawnMock = vi.fn(() => {
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: PassThrough;
-      stderr: PassThrough;
-    };
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
+  try {
+    const spawnMock = vi.fn(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        stderr: PassThrough;
+      };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
 
-    queueMicrotask(() => {
-      child.stdout.write(
-        `${JSON.stringify({
-          type: 'result',
-          session_id: 'session_123',
-          result: 'cli response',
-        })}\n`,
-      );
-      child.stdout.end();
-      child.emit('close', 0);
+      queueMicrotask(() => {
+        child.stdout.write(
+          `${JSON.stringify({
+            type: 'result',
+            session_id: 'session_123',
+            result: 'cli response',
+          })}\n`,
+        );
+        child.stdout.end();
+        child.emit('close', 0);
+      });
+
+      return child;
     });
 
-    return child;
-  });
+    vi.doMock('node:child_process', () => ({
+      spawn: spawnMock,
+    }));
 
-  vi.doMock('node:child_process', () => ({
-    spawn: spawnMock,
-  }));
+    const { callAnthropicProvider } = await import(
+      '../container/src/providers/anthropic.js'
+    );
 
-  const { callAnthropicProvider } = await import(
-    '../container/src/providers/anthropic.js'
-  );
+    const response = await callAnthropicProvider({
+      provider: 'anthropic',
+      providerMethod: 'claude-cli',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: '',
+      model: 'anthropic/claude-sonnet-4-6',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+      maxTokens: 128,
+      isLocal: false,
+      contextWindow: undefined,
+      thinkingFormat: undefined,
+    });
 
-  const response = await callAnthropicProvider({
-    provider: 'anthropic',
-    providerMethod: 'claude-cli',
-    baseUrl: 'https://api.anthropic.com/v1',
-    apiKey: '',
-    model: 'anthropic/claude-sonnet-4-6',
-    chatbotId: '',
-    enableRag: false,
-    requestHeaders: {},
-    messages: [{ role: 'user', content: 'hello' }],
-    tools: [],
-    maxTokens: 128,
-    isLocal: false,
-    contextWindow: undefined,
-    thinkingFormat: undefined,
-  });
-
-  expect(spawnMock).toHaveBeenCalledWith(
-    'claude',
-    expect.arrayContaining([
-      '-p',
-      expect.any(String),
-      '--verbose',
-      '--output-format',
-      'stream-json',
-      '--permission-mode',
-      'bypassPermissions',
-      '--model',
-      'claude-sonnet-4-6',
-    ]),
-    expect.objectContaining({
-      cwd: process.cwd(),
-      env: expect.objectContaining({
-        HOME: expect.any(String),
+    expect(spawnMock).toHaveBeenCalledWith(
+      'claude',
+      expect.arrayContaining([
+        '-p',
+        expect.any(String),
+        '--verbose',
+        '--output-format',
+        'stream-json',
+        '--permission-mode',
+        'bypassPermissions',
+        '--model',
+        'claude-sonnet-4-6',
+      ]),
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: expect.objectContaining({
+          HOME: expect.any(String),
+        }),
       }),
-    }),
-  );
-  expect(spawnMock.mock.calls[0]?.[1]).not.toContain('--cwd');
-  expect(response).toMatchObject({
-    id: 'session_123',
-    model: 'claude-sonnet-4-6',
-    choices: [
-      {
-        message: {
-          role: 'assistant',
-          content: 'cli response',
+    );
+    expect(spawnMock.mock.calls[0]?.[1]).not.toContain('--cwd');
+    expect(response).toMatchObject({
+      id: 'session_123',
+      model: 'claude-sonnet-4-6',
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: 'cli response',
+          },
+          finish_reason: 'stop',
         },
-        finish_reason: 'stop',
-      },
-    ],
-  });
-  if (originalSandboxMode == null) {
-    delete process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = originalSandboxMode;
+      ],
+    });
+  } finally {
+    if (originalSandboxMode == null) {
+      delete process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
+    } else {
+      process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = originalSandboxMode;
+    }
   }
 });
 

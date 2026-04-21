@@ -103,6 +103,20 @@ function isLocalProvider(
   return isLocalBackendType(provider);
 }
 
+function isAnthropicReadyForMethod(
+  status: ReturnType<typeof getAnthropicAuthStatus>,
+  method: 'api-key' | 'claude-cli',
+): boolean {
+  if (method === 'claude-cli') {
+    return (
+      status.method === 'claude-cli' &&
+      status.authenticated === true &&
+      (status.expiresAt == null || status.expiresAt > Date.now())
+    );
+  }
+  return status.method === 'api-key';
+}
+
 function trustModelDocPath(): string {
   ensureRuntimeInstructionCopies();
   return resolveRuntimeInstructionPath('TRUST_MODEL.md');
@@ -1523,10 +1537,10 @@ export async function ensureRuntimeCredentials(
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
   const anthropicConfiguredMethod = runtimeConfig.anthropic.method;
-  const anthropicReady =
-    anthropicConfiguredMethod === 'claude-cli'
-      ? anthropicStatus.method === 'claude-cli'
-      : anthropicStatus.method === 'api-key';
+  const anthropicReady = isAnthropicReadyForMethod(
+    anthropicStatus,
+    anthropicConfiguredMethod,
+  );
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
   const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
@@ -1656,10 +1670,10 @@ export async function ensureRuntimeCredentials(
     const refreshedAnthropicStatus = getAnthropicAuthStatus();
     const refreshedAnthropicConfiguredMethod =
       refreshedRuntimeConfig.anthropic.method;
-    const refreshedAnthropicReady =
-      refreshedAnthropicConfiguredMethod === 'claude-cli'
-        ? refreshedAnthropicStatus.method === 'claude-cli'
-        : refreshedAnthropicStatus.method === 'api-key';
+    const refreshedAnthropicReady = isAnthropicReadyForMethod(
+      refreshedAnthropicStatus,
+      refreshedAnthropicConfiguredMethod,
+    );
     const refreshedCurrentModel =
       refreshedRuntimeConfig.hybridai.defaultModel.trim();
     const refreshedResolvedProvider = resolveModelProvider(
