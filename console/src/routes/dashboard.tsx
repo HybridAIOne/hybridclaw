@@ -222,7 +222,7 @@ export function DashboardPage() {
         <ProviderHealthPanel
           title="Backend health"
           entries={backendEntries}
-          onLogin={() => void navigate({ to: '/config' })}
+          onLogin={() => void navigate({ to: '/admin/config' })}
         />
       </div>
 
