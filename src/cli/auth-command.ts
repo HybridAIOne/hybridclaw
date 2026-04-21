@@ -1,5 +1,15 @@
 import readline from 'node:readline/promises';
-
+import {
+  clearGoogleAuth,
+  DEFAULT_GOOGLE_OAUTH_SCOPES,
+  GOOGLE_ACCOUNT_SECRET,
+  GOOGLE_OAUTH_CLIENT_ID_SECRET,
+  GOOGLE_OAUTH_CLIENT_SECRET_SECRET,
+  GOOGLE_OAUTH_REFRESH_TOKEN_SECRET,
+  getGoogleAuthStatus,
+  loginGoogle,
+  parseGoogleScopes,
+} from '../auth/google-auth.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -27,6 +37,7 @@ import {
   isHelpRequest,
   printAuthUsage,
   printCodexUsage,
+  printGoogleUsage,
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
@@ -713,6 +724,7 @@ type UnifiedProvider =
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
+  | 'google'
   | 'gemini'
   | 'deepseek'
   | 'xai'
@@ -757,6 +769,9 @@ function normalizeUnifiedProvider(
   ) {
     return 'huggingface';
   }
+  if (normalized === 'google' || normalized === 'gog') {
+    return 'google';
+  }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
     if (normalized === def.id || def.aliases.includes(normalized)) {
@@ -799,7 +814,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -813,7 +828,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -950,6 +965,244 @@ function clearHuggingFaceCredentials(): void {
   console.log(`Cleared Hugging Face credentials in ${filePath}.`);
   console.log(
     'If HF_TOKEN is still exported in your shell, unset it separately.',
+  );
+}
+
+function printGoogleStatus(): void {
+  const status = getGoogleAuthStatus();
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Account: ${status.account || '(not set)'}`);
+    console.log('Refresh token: configured');
+    console.log('Client secret: configured');
+    console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('gog mode: direct access token');
+  }
+}
+
+function clearGoogleCredentials(): void {
+  const filePath = clearGoogleAuth();
+  console.log(`Cleared Google OAuth credentials from ${filePath}.`);
+  console.log('gog containers will no longer receive GOG_ACCESS_TOKEN.');
+}
+
+function parseGoogleLoginArgs(args: string[]): {
+  account?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  scopes?: string;
+  redirectPort?: number;
+} {
+  const parsed: {
+    account?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scopes?: string;
+    redirectPort?: number;
+  } = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const accountFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--account',
+      placeholder: '<email>',
+      allowEmptyEquals: true,
+    });
+    if (accountFlag) {
+      parsed.account = accountFlag.value || undefined;
+      index = accountFlag.nextIndex;
+      continue;
+    }
+    const clientIdFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--client-id',
+      placeholder: '<id>',
+      allowEmptyEquals: true,
+    });
+    if (clientIdFlag) {
+      parsed.clientId = clientIdFlag.value || undefined;
+      index = clientIdFlag.nextIndex;
+      continue;
+    }
+    const clientSecretFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--client-secret',
+      placeholder: '<secret>',
+      allowEmptyEquals: true,
+    });
+    if (clientSecretFlag) {
+      parsed.clientSecret = clientSecretFlag.value || undefined;
+      index = clientSecretFlag.nextIndex;
+      continue;
+    }
+    const refreshTokenFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--refresh-token',
+      placeholder: '<token>',
+      allowEmptyEquals: true,
+    });
+    if (refreshTokenFlag) {
+      parsed.refreshToken = refreshTokenFlag.value || undefined;
+      index = refreshTokenFlag.nextIndex;
+      continue;
+    }
+    const scopesFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--scopes',
+      placeholder: '<scopes>',
+      allowEmptyEquals: true,
+    });
+    if (scopesFlag) {
+      parsed.scopes = scopesFlag.value || undefined;
+      index = scopesFlag.nextIndex;
+      continue;
+    }
+    const redirectPortFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--redirect-port',
+      placeholder: '<port>',
+      allowEmptyEquals: true,
+    });
+    if (redirectPortFlag) {
+      const port = Number.parseInt(redirectPortFlag.value, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(
+          'Google OAuth redirect port must be between 1 and 65535.',
+        );
+      }
+      parsed.redirectPort = port;
+      index = redirectPortFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login google --help\`.`,
+    );
+  }
+
+  return parsed;
+}
+
+async function resolveInteractiveGoogleLogin(params: {
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<{
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}> {
+  if (params.account && params.clientId && params.clientSecret) {
+    return params;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Google OAuth credentials. Pass `--client-id <id>`, `--client-secret <secret>`, and `--account <email>`, or run this command in an interactive terminal.',
+    );
+  }
+
+  const createPromptInterface = () =>
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  let rl = createPromptInterface();
+
+  try {
+    const account = await promptWithDefault({
+      rl,
+      question: 'Google account email',
+      defaultValue: params.account || undefined,
+    });
+    const clientId = await promptWithDefault({
+      rl,
+      question: 'Google OAuth desktop client id',
+      defaultValue: params.clientId || undefined,
+    });
+    rl.close();
+    const clientSecret =
+      params.clientSecret ||
+      (await promptForSecretInput({
+        prompt: 'Google OAuth desktop client secret: ',
+      }));
+    rl = createPromptInterface();
+    return {
+      account,
+      clientId,
+      clientSecret,
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureGoogleAuth(args: string[]): Promise<void> {
+  const parsed = parseGoogleLoginArgs(args);
+  const resolved = await resolveInteractiveGoogleLogin({
+    account:
+      parsed.account ||
+      process.env[GOOGLE_ACCOUNT_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_ACCOUNT_SECRET) ||
+      '',
+    clientId:
+      parsed.clientId ||
+      process.env[GOOGLE_OAUTH_CLIENT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_OAUTH_CLIENT_ID_SECRET) ||
+      '',
+    clientSecret:
+      parsed.clientSecret ||
+      process.env[GOOGLE_OAUTH_CLIENT_SECRET_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_OAUTH_CLIENT_SECRET_SECRET) ||
+      '',
+  });
+  const scopes = parseGoogleScopes(
+    parsed.scopes ||
+      process.env.GOOGLE_OAUTH_SCOPES?.trim() ||
+      readStoredRuntimeSecret('GOOGLE_OAUTH_SCOPES') ||
+      DEFAULT_GOOGLE_OAUTH_SCOPES.join(' '),
+  );
+  const result = await loginGoogle({
+    account: resolved.account,
+    clientId: resolved.clientId,
+    clientSecret: resolved.clientSecret,
+    refreshToken:
+      parsed.refreshToken ||
+      process.env[GOOGLE_OAUTH_REFRESH_TOKEN_SECRET]?.trim() ||
+      undefined,
+    scopes,
+    redirectPort: parsed.redirectPort,
+  });
+
+  console.log(`Saved Google OAuth credentials to ${result.secretsPath}.`);
+  console.log(`Account: ${result.account}`);
+  console.log(`Scopes: ${result.scopes.join(' ')}`);
+  console.log(
+    result.usedProvidedRefreshToken
+      ? 'Stored provided refresh token.'
+      : 'Completed browser authorization and stored refresh token.',
+  );
+  console.log(
+    'Agent containers will receive a fresh short-lived GOG_ACCESS_TOKEN for gog.',
   );
 }
 
@@ -1234,6 +1487,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
     printHuggingFaceUsage();
     return;
   }
+  if (provider === 'google') {
+    printGoogleUsage();
+    return;
+  }
   if (findGenericProviderDef(provider)) {
     console.log(
       `Usage: hybridclaw auth login ${provider} [--api-key <key>] [--base-url <url>] [--model <model>] [--no-default]`,
@@ -1488,7 +1745,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1514,6 +1771,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'huggingface') {
     await configureHuggingFace(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'google') {
+    await configureGoogleAuth(parsed.remaining);
     return;
   }
   const genericLoginDef = findGenericProviderDef(parsed.provider);
@@ -1652,6 +1913,14 @@ async function dispatchProviderAction(
     clearHuggingFaceCredentials();
     return;
   }
+  if (provider === 'google') {
+    if (action === 'status') {
+      printGoogleStatus();
+      return;
+    }
+    clearGoogleCredentials();
+    return;
+  }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
@@ -1706,7 +1975,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

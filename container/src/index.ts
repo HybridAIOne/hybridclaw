@@ -1537,6 +1537,11 @@ async function main(): Promise<void> {
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
+  for (const [name, value] of Object.entries(firstInput.runtimeEnv || {})) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) continue;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    process.env[name] = value;
+  }
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);

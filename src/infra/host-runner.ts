@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveGogRuntimeEnv } from '../auth/google-auth.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -668,6 +669,13 @@ async function runHostProcessInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
+  const runtimeEnv = await resolveGogRuntimeEnv().catch((error) => {
+    logger.warn(
+      { error },
+      'Failed to mint Google access token for gog runtime environment',
+    );
+    return {};
+  });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     const capacityState = await waitForHostCapacity(sessionId, abortSignal);
@@ -733,6 +741,7 @@ async function runHostProcessInner(
     pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
+    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,

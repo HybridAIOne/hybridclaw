@@ -235,6 +235,7 @@ export interface ContainerInput {
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface MediaContextItem {

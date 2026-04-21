@@ -78,6 +78,7 @@ export function writeInput(
         apiKey: '',
         requestHeaders: {},
         taskModels: redactTaskModelSecrets(input.taskModels),
+        runtimeEnv: {},
       }
     : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
