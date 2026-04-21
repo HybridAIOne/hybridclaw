@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
 import {
+  redactCredentialSecrets,
   redactHighEntropyStrings,
   redactSecrets,
   redactSecretsDeep,
@@ -166,6 +167,17 @@ test('redacts pii while preserving the GitHub noreply allowlist', () => {
   );
   expect(redactSecrets('Number: 1234567890123456')).toBe(
     'Number: 1234567890123456',
+  );
+});
+
+test('redacts credential secrets without masking user-visible contact details', () => {
+  expect(
+    redactCredentialSecrets(
+      'Invite user@example.com with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop',
+    ),
+  ).toBe('Invite user@example.com with OPENAI_API_KEY=sk-123...mnop');
+  expect(redactCredentialSecrets('Call +49 170 3330160')).toBe(
+    'Call +49 170 3330160',
   );
 });
 

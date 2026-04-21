@@ -541,6 +541,7 @@ async function importFreshCli(options?: {
     };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const saveNamedRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
   const readStoredRuntimeSecret = vi.fn(() => null);
   const readStoredRuntimeSecrets = vi.fn(() => ({}));
   const loadSkillCatalog = vi.fn(() => [
@@ -1209,6 +1210,7 @@ async function importFreshCli(options?: {
     readStoredRuntimeSecret,
     readStoredRuntimeSecrets,
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
+    saveNamedRuntimeSecrets,
     saveRuntimeSecrets,
   }));
   vi.doMock('../src/tui.ts', () => {
@@ -1312,6 +1314,7 @@ async function importFreshCli(options?: {
     readStoredRuntimeSecret,
     readStoredRuntimeSecrets,
     saveRuntimeSecrets,
+    saveNamedRuntimeSecrets,
     ensureRuntimeConfigFile,
     clearRuntimeConfigRevisions,
     deleteRuntimeConfigRevision,
@@ -3717,6 +3720,57 @@ describe('CLI hybridai commands', () => {
     expect(loginCodexInteractive).toHaveBeenCalledWith({
       method: 'browser-pkce',
     });
+  });
+
+  it('prompts once for interactive Google OAuth login values', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, readlineCreateInterface, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: [
+            'you@example.com',
+            'desktop-client-id',
+            'desktop-client-secret',
+          ],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'google',
+        '--refresh-token',
+        'refresh-token',
+      ]);
+
+      expect(readlineCreateInterface).toHaveBeenCalledTimes(1);
+      expect(readlineQuestion).toHaveBeenCalledWith('Google account email: ');
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        'Google OAuth desktop client id: ',
+      );
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Google OAuth desktop client secret: ',
+      );
+      expect(readlineClose).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
   });
 
   it('rejects conflicting codex login flags', async () => {

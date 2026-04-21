@@ -98,6 +98,28 @@ describe('skill resolution integration', () => {
     expect(pdfSkill?.description).toContain('invoice/document parsing');
   });
 
+  it('advertises gog for Google Calendar event access', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const gogSkill = catalog.find((skill) => skill.name === 'gog');
+    const googleWorkspaceSkill = fs.readFileSync(
+      path.resolve('skills/google-workspace/SKILL.md'),
+      'utf-8',
+    );
+
+    expect(gogSkill?.description).toContain('Google Calendar');
+    expect(gogSkill?.description).toContain('events');
+    expect(gogSkill?.description).toContain('meetings');
+    const gogSkillBody = fs.readFileSync(
+      path.resolve('skills/gog/SKILL.md'),
+      'utf-8',
+    );
+    expect(gogSkillBody).toContain('searches all available calendars');
+    expect(gogSkillBody).toContain('Do not pipe `gog ... --json`');
+    expect(googleWorkspaceSkill).toContain(
+      'API-backed Google Workspace access',
+    );
+  });
+
   it('SKILL.md with valid frontmatter parses correctly (name, description, category, tags)', () => {
     const extraDir = path.join(tmpDir, 'extra-skills');
     writeSkill(

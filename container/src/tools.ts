@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  formatMessageToolChannelList,
+  normalizeMessageToolChannelKinds,
+} from '../shared/message-tool-channels.js';
+import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
@@ -176,7 +180,7 @@ function parseStructuredToolOutput(
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages and uploads across supported channels (Discord, current Microsoft Teams chat, WhatsApp, email, local TUI), plus read Discord channel history, read ingested email thread history, and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages or ingested email threads, or look up Discord users.';
+  'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
@@ -603,13 +607,24 @@ function resolveGatewayMessageSendChannelFallback(): string {
   );
 }
 
-export function getMessageToolDescription(channelId?: string): string {
+export function getMessageToolDescription(
+  channelId?: string,
+  activeMessageChannels?: string[],
+): string {
   const explicitChannelId = normalizeDiscordMessageTarget(channelId);
   const activeChannelId =
     explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
       ? explicitChannelId
       : resolveGatewayDiscordChannelFallback();
   const activeTeamsChannelId = resolveGatewayMSTeamsChannelFallback();
+  let activeChannels = normalizeMessageToolChannelKinds(activeMessageChannels);
+  if (activeMessageChannels === undefined) {
+    const inferredChannels = new Set(activeChannels);
+    if (activeChannelId) inferredChannels.add('discord');
+    if (activeTeamsChannelId) inferredChannels.add('msteams');
+    activeChannels = [...inferredChannels].sort();
+  }
+  const activeChannelList = formatMessageToolChannelList(activeChannels);
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
@@ -621,16 +636,19 @@ export function getMessageToolDescription(channelId?: string): string {
       otherChannels.length > 0
         ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
         : '';
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
   }
   if (activeTeamsChannelId) {
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads. Discord-only actions such as read/member-info/channel-info still require explicit Discord targets.`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads.`;
+  }
+  if (activeChannels.length === 0) {
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: none.`;
   }
   const withOthers =
     configuredChannels.length > 0
       ? ` Configured channels: ${configuredChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
       : '';
-  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
+  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
 }
 
 function cloneTaskModelPolicies(
@@ -3457,17 +3475,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channelId: {
             type: 'string',
             description:
-              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, email addresses, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
+              'Message target or channel selector for send/read actions.',
           },
           guildId: {
             type: 'string',
             description:
-              'Discord guild id (required for member-info; optional for Discord channel-name sends).',
+              'Server or workspace id for channel/member lookups when required.',
           },
           userId: {
             type: 'string',
             description:
-              'Discord user id (required for member-info; optional requester id for send allowlist checks).',
+              'User id for member lookups or send allowlist checks when required.',
           },
           memberId: {
             type: 'string',
@@ -3476,17 +3494,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           username: {
             type: 'string',
             description:
-              'Discord username/display name/@handle to resolve for member-info, or as DM target for send when channelId/to/target is omitted.',
+              'Username, display name, or handle to resolve for member lookups or user-targeted sends.',
           },
           user: {
             type: 'string',
             description:
-              'Alias for username/userId in member-info; for send, used as DM target when channelId/to/target is omitted.',
+              'Alias for username/userId in member lookups or user-targeted sends.',
           },
           resolveAmbiguous: {
             type: 'string',
             description:
-              'Ambiguity policy for Discord name lookups. For action="member-info", user-target sends, and channel-name targets: "error" (default) returns an error/candidates, "best" auto-picks the top score.',
+              'Ambiguity policy for name lookups. "error" returns an error/candidates; "best" auto-picks the top score.',
             enum: ['error', 'best'],
           },
           limit: {
@@ -3512,7 +3530,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           subject: {
             type: 'string',
             description:
-              'Optional email subject override for action="send" when channelId/to targets an email address. If omitted, email can still use an inline `[Subject: ...]` prefix in content.',
+              'Optional subject override for action="send" when supported by the active channel.',
           },
           cc: {
             type: ['string', 'array'],
@@ -3520,7 +3538,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional email CC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+              'Optional copied recipient or list of recipients for action="send" when supported by the active channel.',
           },
           bcc: {
             type: ['string', 'array'],
@@ -3528,12 +3546,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+              'Optional blind-copied recipient or list of recipients for action="send" when supported by the active channel.',
           },
           inReplyTo: {
             type: 'string',
             description:
-              'Optional email Message-ID for the parent message being replied to on action="send" when channelId/to targets an email address. Use the latest message in the thread.',
+              'Optional parent message id for threaded replies when supported by the active channel.',
           },
           references: {
             type: ['string', 'array'],
@@ -3541,22 +3559,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional ordered email Message-ID chain for the References header on action="send" when channelId/to targets an email address. End the list with the same parent message used for inReplyTo.',
+              'Optional ordered parent message id chain for threaded replies when supported by the active channel.',
           },
           filePath: {
             type: 'string',
             description:
-              'Optional local file to upload for action="send". Discord, the current Teams conversation, WhatsApp, and email support filePath; local queued sends do not. Use a workspace-relative path or an absolute /discord-media-cache path.',
+              'Optional local file to upload for action="send" when supported by the active channel. Use a workspace-relative path or an absolute managed media path.',
           },
           attachmentPath: {
             type: 'string',
-            description:
-              'Alias for filePath in action="send". Use for local Discord uploads.',
+            description: 'Alias for filePath in action="send".',
           },
           mediaPath: {
             type: 'string',
-            description:
-              'Alias for filePath in action="send". Use for local Discord uploads.',
+            description: 'Alias for filePath in action="send".',
           },
           imagePath: {
             type: 'string',
@@ -3574,7 +3590,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'object',
             },
             description:
-              'Optional Discord components payload for action="send" (buttons/selects/action rows). Supported only for Discord sends, not Teams/WhatsApp/email/local sends.',
+              'Optional interactive components payload for action="send" when supported by the active channel.',
           },
           text: {
             type: 'string',
@@ -3592,12 +3608,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           contextChannelId: {
             type: 'string',
             description:
-              'Context Discord channel id used to infer guild for Discord user-target sends.',
+              'Context channel id used to infer routing for user-targeted sends.',
           },
           messageId: {
             type: 'string',
             description:
-              'Discord message id for actions: react, quote-reply, edit, delete, pin, unpin, thread-create.',
+              'Message id for actions: react, quote-reply, edit, delete, pin, unpin, thread-create.',
           },
           emoji: {
             type: 'string',
@@ -3614,13 +3630,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           target: {
             type: 'string',
-            description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+            description: 'Target user or channel for action="send".',
           },
           to: {
             type: 'string',
-            description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+            description: 'Target user or channel for action="send".',
           },
         },
         required: ['action'],

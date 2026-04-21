@@ -224,6 +224,7 @@ export interface ContainerInput {
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
+  activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   allowedTools?: string[];
   blockedTools?: string[];
@@ -235,6 +236,7 @@ export interface ContainerInput {
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface MediaContextItem {
