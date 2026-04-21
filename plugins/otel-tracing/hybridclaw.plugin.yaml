@@ -1,0 +1,31 @@
+id: otel-tracing
+name: OpenTelemetry Tracing
+version: 0.1.0
+kind: tool
+description: >-
+  Emit OpenTelemetry traces for every agent turn and tool call using
+  gen_ai.* semantic conventions. Reuses the global tracer provider set up
+  by the gateway's built-in OTel SDK (OTEL_ENABLED=true); does not
+  initialise its own exporter. For platform-hosted deployments the plugin
+  only emits identity and usage attributes — message text and tool
+  arguments are never written to spans.
+entrypoint: src/index.js
+requires:
+  env:
+    - OTEL_ENABLED
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    includeToolArguments:
+      type: boolean
+      default: false
+      description: >-
+        Add tool.arguments as a span attribute. Off by default: tool
+        arguments can contain customer data on platform-hosted deployments.
+    includeResultText:
+      type: boolean
+      default: false
+      description: >-
+        Add a truncated prefix of the agent response as a span attribute.
+        Off by default for the same reason as includeToolArguments.

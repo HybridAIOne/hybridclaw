@@ -1,0 +1,13 @@
+{
+  "name": "hybridclaw-plugin-otel-tracing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Per-turn OpenTelemetry spans with gen_ai.* attributes for HybridClaw agent runs",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  }
+}
