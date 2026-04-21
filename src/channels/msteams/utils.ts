@@ -5,7 +5,7 @@ import {
 
 export const MSTEAMS_CONVERSATION_REFERENCE_KEY =
   'msteams:conversation-reference';
-export { isRecord } from '../../utils/type-guards.js';
+export { isRecord } from '../../utils/shared-utils.js';
 export { normalizeValue };
 
 export function normalizeOptionalValue(value: unknown): string | null {

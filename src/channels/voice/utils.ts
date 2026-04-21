@@ -1,1 +1,1 @@
-export { isRecord } from '../../utils/type-guards.js';
+export { isRecord } from '../../utils/shared-utils.js';

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { SkillImportError } from './skill-errors.js';
 
-export { ensureText } from '../utils/type-guards.js';
+export { ensureText } from '../utils/shared-utils.js';
 
 export const MAX_IMPORT_FILE_COUNT = 256;
 export const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;

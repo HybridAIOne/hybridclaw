@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { GATEWAY_BASE_URL, getConfigSnapshot } from '../../config/config.js';
-import { isRecord, normalizeBaseUrl } from '../../utils/type-guards.js';
+import { isRecord, normalizeBaseUrl } from '../../utils/shared-utils.js';
 
 export interface VoiceWebhookPaths {
   basePath: string;

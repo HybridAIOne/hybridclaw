@@ -1,4 +1,4 @@
-export { isRecord, normalizeBaseUrl } from '../utils/type-guards.js';
+export { isRecord, normalizeBaseUrl } from '../utils/shared-utils.js';
 
 export function readPositiveInteger(value: unknown): number | null {
   const parsed =
