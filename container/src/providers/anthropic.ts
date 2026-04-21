@@ -14,6 +14,7 @@ import {
   type NormalizedStreamCallArgs,
   ProviderRequestError,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface ServerSentEvent {
   event: string | null;
@@ -42,6 +43,8 @@ interface ClaudeCliResult {
   responseId: string;
   text: string;
 }
+
+const ANTHROPIC_INFERENCE_TIMEOUT_MS = 300_000;
 
 const CLAUDE_CLI_ENV_ALLOWLIST = [
   'HOME',
@@ -726,6 +729,7 @@ export async function callAnthropicProvider(
     method: 'POST',
     headers: buildHeaders(args),
     body: JSON.stringify(buildRequestBody(args, false)),
+    signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -762,6 +766,7 @@ export async function callAnthropicProviderStream(
     method: 'POST',
     headers: buildHeaders({ ...args, stream: true }),
     body: JSON.stringify(buildRequestBody(args, true)),
+    signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -784,7 +789,10 @@ export async function callAnthropicProviderStream(
   let buffer = '';
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(
+      reader,
+      STREAM_IDLE_TIMEOUT_MS,
+    );
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 
     while (true) {
