@@ -109,15 +109,12 @@ If `gh` exists, prefer GitHub CLI authentication:
 gh auth status
 ```
 
-If that fails and `GH_TOKEN` is set, retry `gh` commands with `GH_TOKEN` in the
-environment.
-
-If `gh` is unavailable or authentication fails, use the GitHub REST API fallback
-with a token. Prefer the `http_request` tool when available using a stored
-`GH_TOKEN` secret. Otherwise use `curl` with `GH_TOKEN` from the environment.
-If neither `gh` auth nor an API token is available, ask the user to install and
-authenticate `gh`, or provide `GH_TOKEN`. Never print tokens or put them in git
-remote URLs.
+If `gh` is unavailable or authentication fails, use the GitHub REST API through
+the `http_request` tool with `bearerSecretName: "GH_TOKEN"`. The gateway resolves
+`GH_TOKEN` from the encrypted secret store; do not ask the shell for `GH_TOKEN`,
+do not echo tokens, and do not use `curl` for authenticated GitHub API calls. If
+neither `gh` auth nor stored secret `GH_TOKEN` works, ask the user to run
+`gh auth login` or store a GitHub token with `/secret set GH_TOKEN <token>`.
 
 When not in `--reviews-only`, fetch issues with a current-turn GitHub data call.
 Primary `gh` path:
@@ -133,19 +130,25 @@ Add optional filters only when present:
 - `--milestone "$MILESTONE"`
 - `--assignee "$ASSIGNEE"` after resolving `@me`
 
-API fallback path:
+API fallback path with `gh` still available:
 
 ```bash
 gh api "repos/$SOURCE_REPO/issues" \
   -f state="$STATE" -f per_page="$LIMIT"
 ```
 
-Or, without `gh`:
+API fallback path without `gh`: call `http_request` with
+`bearerSecretName: "GH_TOKEN"` and the GitHub URL. Example request shape:
 
-```bash
-curl -sS -H "Authorization: Bearer $GH_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/$SOURCE_REPO/issues?state=$STATE&per_page=$LIMIT"
+```json
+{
+  "method": "GET",
+  "url": "https://api.github.com/repos/{SOURCE_REPO}/issues?state={STATE}&per_page={LIMIT}",
+  "bearerSecretName": "GH_TOKEN",
+  "headers": {
+    "Accept": "application/vnd.github+json"
+  }
+}
 ```
 
 Add API query parameters only when present:
@@ -244,12 +247,18 @@ delegating fixes, not for issue listing.
      --jq ".[] | select(.headRepositoryOwner.login == \"$PUSH_OWNER\")"
    ```
 
-   If `gh` is unavailable, use the GitHub REST API:
+   If `gh` is unavailable, use `http_request` with
+   `bearerSecretName: "GH_TOKEN"`:
 
-   ```bash
-   curl -sS -H "Authorization: Bearer $GH_TOKEN" \
-     -H "Accept: application/vnd.github+json" \
-     "https://api.github.com/repos/$SOURCE_REPO/pulls?head=$PUSH_OWNER:fix/issue-$ISSUE_NUMBER&state=open&per_page=1"
+   ```json
+   {
+     "method": "GET",
+     "url": "https://api.github.com/repos/{SOURCE_REPO}/pulls?head={PUSH_OWNER}:fix/issue-{ISSUE_NUMBER}&state=open&per_page=1",
+     "bearerSecretName": "GH_TOKEN",
+     "headers": {
+       "Accept": "application/vnd.github+json"
+     }
+   }
    ```
 
 6. Skip issues whose intended branch exists in `PUSH_REPO`.
@@ -259,8 +268,9 @@ delegating fixes, not for issue listing.
    gh api "repos/$PUSH_REPO/branches/$BRANCH_REF" --silent
    ```
 
-   If `gh` is unavailable, use `GET /repos/$PUSH_REPO/branches/fix%2Fissue-N`
-   through the GitHub REST API.
+   If `gh` is unavailable, use `http_request` with
+   `bearerSecretName: "GH_TOKEN"` against:
+   `https://api.github.com/repos/{PUSH_REPO}/branches/fix%2Fissue-N`.
 
 7. Track claims for cron/watch dedupe when durable state storage is available.
 

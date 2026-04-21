@@ -93,7 +93,7 @@ per issue, and monitor review feedback on issue-fix PRs.
 
 **Prerequisites** — `git` for processing selected issues. `gh` is preferred for
 GitHub access, but the skill can fall back to the GitHub REST API with
-`GH_TOKEN` when `gh` is unavailable.
+stored secret `GH_TOKEN` when `gh` is unavailable.
 
 > 💡 **Tips & Tricks**
 >
@@ -174,7 +174,9 @@ GitHub access, but the skill can fall back to the GitHub REST API with
 **Troubleshooting**
 
 - **`gh` missing or not authenticated** — install and authenticate `gh`, or
-  provide `GH_TOKEN` so the skill can use the GitHub REST API fallback.
+  store `GH_TOKEN` with `/secret set GH_TOKEN <token>` so the skill can call the
+  GitHub REST API through `http_request` with `bearerSecretName: "GH_TOKEN"`.
+  The skill should not use shell environment tokens or authenticated `curl`.
 - **Existing branch or PR** — the skill skips issues that already have a
   `fix/issue-*` branch or open PR.
 - **Local checkout missing** — issue listing can run with only `owner/repo`,
