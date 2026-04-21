@@ -1187,7 +1187,9 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
       ? '/chat.html'
       : pathname === '/agents'
         ? '/agents.html'
-        : pathname,
+        : pathname === '/about' || pathname === '/about/'
+          ? '/index.html'
+          : pathname,
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -3328,6 +3330,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         ready: gatewayReady,
         uptimeMs,
       });
+      return;
+    }
+
+    if (pathname === '/') {
+      sendRedirect(res, 302, '/chat');
       return;
     }
 
