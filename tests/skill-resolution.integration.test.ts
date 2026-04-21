@@ -98,7 +98,7 @@ describe('skill resolution integration', () => {
     expect(pdfSkill?.description).toContain('invoice/document parsing');
   });
 
-  it('advertises gog for Google Calendar API-backed Workspace access', () => {
+  it('advertises gog for Google Calendar event access', () => {
     const catalog = skillsMod.loadSkillCatalog();
     const gogSkill = catalog.find((skill) => skill.name === 'gog');
     const googleWorkspaceSkill = fs.readFileSync(
@@ -107,6 +107,8 @@ describe('skill resolution integration', () => {
     );
 
     expect(gogSkill?.description).toContain('Google Calendar');
+    expect(gogSkill?.description).toContain('events');
+    expect(gogSkill?.description).toContain('meetings');
     expect(googleWorkspaceSkill).toContain(
       'API-backed Google Workspace access',
     );
