@@ -34,7 +34,7 @@ type SidebarContextValue = {
   toggleSidebar: () => void;
 };
 
-type SidebarCollapsible = 'icon' | 'offcanvas' | 'none';
+type SidebarCollapsible = 'icon' | 'none';
 
 type SidebarProps = {
   children: ReactNode;
@@ -223,15 +223,10 @@ export function Sidebar({
     );
   }
 
-  // Desktop: collapsible panel (icon or offcanvas mode).
+  // Desktop: collapsible icon-rail panel.
   const state = context.open ? 'expanded' : 'collapsed';
   return (
-    <aside
-      className={styles.root}
-      data-side={side}
-      data-state={state}
-      data-collapsible={state === 'collapsed' ? collapsible : ''}
-    >
+    <aside className={styles.root} data-side={side} data-state={state}>
       {children}
     </aside>
   );
