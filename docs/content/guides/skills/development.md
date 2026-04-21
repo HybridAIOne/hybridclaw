@@ -87,8 +87,9 @@ handle CI, and merge safely.
 
 ## gh-issues
 
-Fetch GitHub issues, delegate focused fixes, open pull requests, and follow up
-on actionable PR review comments.
+Process GitHub issues as an automation queue: list and filter issues, confirm
+selected issue numbers, deduplicate `fix/issue-*` work, delegate one focused PR
+per issue, and monitor review feedback on issue-fix PRs.
 
 **Prerequisites** — `git`, `gh` (GitHub CLI, authenticated).
 
@@ -105,6 +106,15 @@ on actionable PR review comments.
 >
 > Use `--fork owner/repo` when branches should be pushed to a fork while PRs
 > target the source repo.
+>
+> Use `--watch --interval 15` for recurring queue follow-up. HybridClaw
+> schedules the next run instead of sleeping in the current turn.
+>
+> Use `--cron --yes` for scheduled runs that process at most one eligible item
+> and exit.
+>
+> Use `--notify-channel <target>` to send the final PR summary to a HybridClaw
+> message target without sending intermediate status chatter.
 
 > 🎯 **Try it yourself**
 >
@@ -115,6 +125,10 @@ on actionable PR review comments.
 > `/gh-issues <your repo> --reviews-only`
 >
 > `/gh-issues <your repo> --fork <your fork> --label help-wanted --limit 1`
+>
+> `/gh-issues <your repo> --watch --interval 15 --label bug --limit 5`
+>
+> `/gh-issues <your repo> --cron --yes --reviews-only`
 >
 > **Conversation flow:**
 >
@@ -127,8 +141,12 @@ on actionable PR review comments.
 - **`gh` not authenticated** — run `gh auth login` or provide `GH_TOKEN`.
 - **Existing branch or PR** — the skill skips issues that already have a
   `fix/issue-*` branch or open PR.
+- **Local checkout missing** — issue listing can run with only `owner/repo`,
+  but processing selected issues needs a matching local git checkout.
 - **Unclear issue** — delegated agents stop and report low confidence instead
   of opening speculative PRs.
+- **Wrong workflow** — use `github-pr-workflow` for current-branch PR work, CI
+  fixes, or a known PR; use `gh-issues` when the entry point is an issue queue.
 
 ---
 
