@@ -209,10 +209,12 @@ export async function callHybridAIProviderStream(
       : undefined;
     if (!choice) return;
 
+    let usedMessageContent = false;
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
       if (typeof message.content === 'string') {
+        usedMessageContent = true;
         const nextContent = message.content;
         const delta = nextContent.startsWith(textContent)
           ? nextContent.slice(textContent.length)
@@ -238,7 +240,11 @@ export async function callHybridAIProviderStream(
     if (choice.delta) {
       const delta = choice.delta;
       if (typeof delta.role === 'string' && delta.role) role = delta.role;
-      if (typeof delta.content === 'string' && delta.content) {
+      if (
+        !usedMessageContent &&
+        typeof delta.content === 'string' &&
+        delta.content
+      ) {
         textContent += delta.content;
         args.onTextDelta(delta.content);
       }

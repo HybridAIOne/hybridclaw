@@ -231,6 +231,33 @@ test('callRoutedModelStream forwards stream and max_tokens', async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('callRoutedModelStream does not duplicate HybridAI chunks with message and delta content', async () => {
+  const deltas: string[] = [];
+  const fetchMock = vi.fn(async () =>
+    makeEventStreamResponse([
+      'data: {"id":"resp_stream","model":"gpt-5-nano","choices":[{"message":{"role":"assistant","content":"Hello"},"delta":{"role":"assistant","content":"Hello"}}]}\n\n',
+      'data: {"id":"resp_stream","model":"gpt-5-nano","choices":[{"message":{"role":"assistant","content":"Hello world"},"delta":{"content":" world"},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await callRoutedModelStream({
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_1',
+    enableRag: true,
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  expect(deltas).toEqual(['Hello', ' world']);
+  expect(result.choices[0]?.message.content).toBe('Hello world');
+});
+
 test('callRoutedModelStream parses Codex SSE text deltas and tool calls', async () => {
   const deltas: string[] = [];
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

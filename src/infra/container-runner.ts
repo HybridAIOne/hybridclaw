@@ -225,7 +225,7 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
 
   try {
     if (!delta) return;
-    callback(redactSecrets(delta));
+    callback(delta);
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
@@ -978,10 +978,6 @@ async function runContainerInner(
       workspacePath,
       params.workspaceDisplayRootOverride,
     );
-    if (typeof output.result === 'string')
-      output.result = redactSecrets(output.result);
-    if (typeof output.error === 'string')
-      output.error = redactSecrets(output.error);
     if (output.pendingApproval) {
       output.pendingApproval = {
         ...output.pendingApproval,

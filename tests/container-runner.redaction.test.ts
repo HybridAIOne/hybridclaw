@@ -50,7 +50,7 @@ afterEach(() => {
   restoreEnvVar('HOME', ORIGINAL_HOME);
 });
 
-test('ContainerExecutor redacts result and error strings from agent output', async () => {
+test('ContainerExecutor preserves user-visible result and error strings from agent output', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -58,10 +58,10 @@ test('ContainerExecutor redacts result and error strings from agent output', asy
   const spawn = vi.fn(() => makeFakeChildProcess() as never);
   const readOutput = vi.fn(async () => ({
     status: 'error' as const,
-    result: 'OPENAI_API_KEY=sk-1234567890abcdefghijklmnop',
+    result: 'Invited max.noller@hybridai.one and stephan.noller@hybridai.one.',
     toolsUsed: [],
     artifacts: [],
-    error: 'Authorization: Bearer 1234567890abcdefghijklmnopqrstuv',
+    error: 'Could not notify max.noller@hybridai.one.',
   }));
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
@@ -127,8 +127,99 @@ test('ContainerExecutor redacts result and error strings from agent output', asy
     channelId: 'tui',
   });
 
-  expect(output.result).toBe('OPENAI_API_KEY=sk-123...mnop');
-  expect(output.error).toBe('Authorization: Bearer 123456...stuv');
+  expect(output.result).toBe(
+    'Invited max.noller@hybridai.one and stephan.noller@hybridai.one.',
+  );
+  expect(output.error).toBe('Could not notify max.noller@hybridai.one.');
+});
+
+test('ContainerExecutor preserves user-visible streamed text deltas', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => {
+    const delta = Buffer.from(
+      'Invited max.noller@hybridai.one.',
+      'utf-8',
+    ).toString('base64');
+    proc.stderr.emit('data', Buffer.from(`[stream] ${delta}\n`));
+    return {
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      artifacts: [],
+    };
+  });
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+  const deltas: string[] = [];
+  await executor.exec({
+    sessionId: 'session-stream-visible',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  expect(deltas).toEqual(['Invited max.noller@hybridai.one.']);
 });
 
 test('ContainerExecutor preserves approval ids while redacting approval text fields', async () => {
