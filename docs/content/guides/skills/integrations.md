@@ -15,7 +15,7 @@ secrets safely, and inject secrets into commands.
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| `op` (1Password CLI) | Vault access | `hybridclaw skill install 1password brew-1password-cli` |
+| `op` (1Password CLI) | Vault access | `hybridclaw skill install 1password op` |
 
 You must also have a 1Password account and be signed in (`op signin`).
 
@@ -164,7 +164,7 @@ the APIs you plan to use enabled in that Google Cloud project.
 12. Install the `gog` CLI dependency:
 
 ```bash
-hybridclaw skill install gog brew
+hybridclaw skill install gog gog
 ```
 
 13. Store the OAuth material in HybridClaw and complete the consent link:
@@ -179,7 +179,8 @@ personal Gmail, Calendar, Drive, Docs, and Sheets access.
 
 HybridClaw stores the OAuth client secret and refresh token in encrypted
 runtime secrets. At run time it mints a short-lived access token on the host
-and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT` into the agent runtime.
+and injects only Google Workspace CLI access-token environment variables plus
+`GOG_ACCOUNT` into the agent runtime.
 
 > 💡 **Tips & Tricks**
 >
@@ -246,7 +247,7 @@ hybridclaw auth login google --client-id "<client-id>" --client-secret "<client-
 13. Install the `gog` dependency:
 
 ```bash
-hybridclaw skill install gog brew
+hybridclaw skill install gog gog
 ```
 
 Use **OAuth client ID**, not **API key** or **Service account**, for normal
@@ -254,8 +255,8 @@ personal Gmail, Calendar, Drive, Docs, and Sheets access.
 
 > 💡 **Tips & Tricks**
 >
-> Browser automation does not need OAuth setup. API access through `gog` needs
-> the Google OAuth client setup above.
+> Browser automation does not need OAuth setup. API access through `gog` or
+> `gws` needs the Google OAuth client setup above.
 >
 > If a Google login page appears, it directs you to run `hybridclaw browser login` rather than entering credentials.
 >

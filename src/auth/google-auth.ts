@@ -403,22 +403,51 @@ export async function mintGoogleAccessToken(): Promise<{
   return { accessToken, expiresIn, account: stored.account };
 }
 
-export async function resolveGogRuntimeEnv(): Promise<Record<string, string>> {
-  const existingAccessToken = String(process.env.GOG_ACCESS_TOKEN || '').trim();
+function buildGoogleWorkspaceRuntimeEnv(input: {
+  gogAccessToken?: string;
+  gwsAccessToken?: string;
+  account?: string;
+}): Record<string, string> {
+  const gwsAccessToken = String(input.gwsAccessToken || '').trim();
+  const gogAccessToken = String(input.gogAccessToken || '').trim();
+  const accessToken = gwsAccessToken || gogAccessToken;
+  if (!accessToken) return {};
+
+  const account = String(input.account || '').trim();
+  return {
+    GOG_ACCESS_TOKEN: gogAccessToken || accessToken,
+    GOOGLE_WORKSPACE_CLI_TOKEN: gwsAccessToken || accessToken,
+    ...(account ? { GOG_ACCOUNT: account } : {}),
+  };
+}
+
+export async function resolveGoogleWorkspaceRuntimeEnv(): Promise<
+  Record<string, string>
+> {
+  const existingGogAccessToken = String(
+    process.env.GOG_ACCESS_TOKEN || '',
+  ).trim();
+  const existingGwsAccessToken = String(
+    process.env.GOOGLE_WORKSPACE_CLI_TOKEN || '',
+  ).trim();
   const existingAccount =
     String(process.env.GOG_ACCOUNT || '').trim() ||
     readSecretOrEnv(GOOGLE_ACCOUNT_SECRET);
-  if (existingAccessToken) {
-    return {
-      GOG_ACCESS_TOKEN: existingAccessToken,
-      ...(existingAccount ? { GOG_ACCOUNT: existingAccount } : {}),
-    };
+  if (existingGogAccessToken || existingGwsAccessToken) {
+    return buildGoogleWorkspaceRuntimeEnv({
+      gogAccessToken: existingGogAccessToken,
+      gwsAccessToken: existingGwsAccessToken,
+      account: existingAccount,
+    });
   }
 
   const minted = await mintGoogleAccessToken();
   if (!minted) return {};
-  return {
-    GOG_ACCESS_TOKEN: minted.accessToken,
-    ...(minted.account ? { GOG_ACCOUNT: minted.account } : {}),
-  };
+  return buildGoogleWorkspaceRuntimeEnv({
+    gogAccessToken: minted.accessToken,
+    gwsAccessToken: minted.accessToken,
+    account: minted.account,
+  });
 }
+
+export const resolveGogRuntimeEnv = resolveGoogleWorkspaceRuntimeEnv;

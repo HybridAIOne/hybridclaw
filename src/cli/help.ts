@@ -269,7 +269,7 @@ Examples:
 
 Notes:
   - The Google refresh token and client secret are stored in encrypted runtime secrets.
-  - Agent containers receive only a short-lived \`GOG_ACCESS_TOKEN\` minted by the host.
+  - Agent containers receive only short-lived Google Workspace access tokens minted by the host.
   - Use a Google OAuth desktop client with an authorized redirect URI matching the printed localhost callback URL.`);
 }
 
@@ -567,6 +567,7 @@ Commands:
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -578,6 +579,7 @@ Commands:
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
   - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.

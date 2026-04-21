@@ -95,14 +95,14 @@ hybridclaw auth whatsapp reset
   vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login google` stores a Google OAuth desktop client id,
   client secret, account, and refresh token for API access through the bundled
-  `gog` skill. Create the desktop OAuth client in Google Cloud Console, then
-  pass its **Client ID** and **Client secret** to the command above. The
+  `gog` and `gws` skills. Create the desktop OAuth client in Google Cloud
+  Console, then pass its **Client ID** and **Client secret** to the command above. The
   command prints a Google authorization URL and waits for the local OAuth
   callback; approve the requested scopes in the browser to store the refresh
   token.
-- Google API access through `gog` also requires the relevant Google Cloud APIs
-  to be enabled in the same project, for example Gmail API, Google Calendar
-  API, Google Drive API, Google Docs API, Google Sheets API, and People API.
+- Google API access through `gog` or `gws` also requires the relevant Google
+  Cloud APIs to be enabled in the same project, for example Gmail API, Google
+  Calendar API, Google Drive API, Google Docs API, Google Sheets API, and People API.
   If the OAuth app is in testing mode, add your Google account as a test user
   before authorizing.
 - The local backend model id is optional. If omitted, HybridClaw enables the

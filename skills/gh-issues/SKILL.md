@@ -20,11 +20,10 @@ metadata:
       - github-pr-workflow
       - code-review
     install:
-      - id: brew
+      - id: gh
         kind: brew
         formula: gh
-        bins:
-          - gh
+        bins: ["gh"]
         label: "Install GitHub CLI (brew)"
 ---
 # GitHub Issues

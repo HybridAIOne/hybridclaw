@@ -205,7 +205,7 @@ test('skill install installs one declared dependency from a local TUI/web sessio
 
   const installSkillDependencyMock = vi.fn().mockResolvedValue({
     ok: true,
-    message: 'Installed 1password via brew',
+    message: 'Installed 1password via op',
     stdout: 'brew installed 1password-cli',
     stderr: '',
     code: 0,
@@ -221,19 +221,19 @@ test('skill install installs one declared dependency from a local TUI/web sessio
     sessionId: 'session-skill-install',
     guildId: null,
     channelId: 'tui',
-    args: ['skill', 'install', '1password', 'brew'],
+    args: ['skill', 'install', '1password', 'op'],
   });
 
   expect(installSkillDependencyMock).toHaveBeenCalledWith({
     skillName: '1password',
-    installId: 'brew',
+    installId: 'op',
   });
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Skill Installed');
-  expect(result.text).toContain('Installed 1password via brew');
+  expect(result.text).toContain('Installed 1password via op');
   expect(result.text).toContain('stdout:');
   expect(result.text).toContain('brew installed 1password-cli');
 });
@@ -257,6 +257,64 @@ test('skill install requires both a skill and dependency id', async () => {
   }
   expect(result.title).toBe('Usage');
   expect(result.text).toContain('skill install <skill> <dependency>');
+});
+
+test('skill setup installs every declared dependency from a local TUI/web session', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const setupSkillDependenciesMock = vi.fn().mockResolvedValue({
+    ok: true,
+    message: 'Set up gws: installed gws',
+    stdout: '[gws]\nnpm installed @googleworkspace/cli',
+    stderr: '',
+    code: 0,
+  });
+  vi.doMock('../src/skills/skills-install.js', () => ({
+    setupSkillDependencies: setupSkillDependenciesMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-setup',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'setup', 'gws'],
+  });
+
+  expect(setupSkillDependenciesMock).toHaveBeenCalledWith({
+    skillName: 'gws',
+  });
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Setup Complete');
+  expect(result.text).toContain('Set up gws: installed gws');
+  expect(result.text).toContain('stdout:');
+  expect(result.text).toContain('npm installed @googleworkspace/cli');
+});
+
+test('skill setup is rejected outside local TUI/web sessions', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-setup-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['skill', 'setup', 'gws'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Setup Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
 test('skill install is rejected outside local TUI/web sessions', async () => {

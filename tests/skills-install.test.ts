@@ -80,7 +80,7 @@ describe('skill install metadata', () => {
     expect(skill).not.toBeNull();
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
-        id: 'brew',
+        id: 'op',
         kind: 'brew',
         formula: '1password-cli',
         bins: ['op'],
@@ -95,14 +95,14 @@ describe('skill install metadata', () => {
     );
     const selection = resolveSkillInstallSelection({
       skillName: '1password',
-      installId: 'brew',
+      installId: 'op',
     });
 
     if ('error' in selection) {
       throw new Error(selection.error);
     }
 
-    expect(selection.installId).toBe('brew');
+    expect(selection.installId).toBe('op');
     expect(selection.spec.kind).toBe('brew');
     expect(selection.spec.formula).toBe('1password-cli');
   });
@@ -123,7 +123,7 @@ describe('skill install metadata', () => {
         '---',
         'name: openhue',
         'description: Control Philips Hue lights and scenes.',
-        'metadata: {"openclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]}}',
+        'metadata: {"openclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"openhue","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]}}',
         '---',
         '',
         '# OpenHue',
@@ -141,7 +141,7 @@ describe('skill install metadata', () => {
     // openclaw input is normalized into the hybridclaw-shaped output metadata.
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
-        id: 'brew',
+        id: 'openhue',
         kind: 'brew',
         formula: 'openhue/cli/openhue-cli',
         bins: ['openhue'],
@@ -170,7 +170,7 @@ describe('skill install metadata', () => {
         '---',
         'name: openhue-dedupe',
         'description: Prefer hybridclaw metadata over openclaw metadata.',
-        'metadata: {"hybridclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"brew","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]},"openclaw":{"requires":{"bins":["ignored-openclaw-bin"]},"install":[{"id":"npm","kind":"npm","package":"ignored-openclaw-package","label":"Ignored OpenClaw install"}]}}',
+        'metadata: {"hybridclaw":{"requires":{"bins":["openhue"]},"install":[{"id":"openhue","kind":"brew","formula":"openhue/cli/openhue-cli","bins":["openhue"],"label":"Install OpenHue CLI (brew)"}]},"openclaw":{"requires":{"bins":["ignored-openclaw-bin"]},"install":[{"id":"ignored-openclaw-package","kind":"npm","package":"ignored-openclaw-package","label":"Ignored OpenClaw install"}]}}',
         '---',
         '',
         '# OpenHue Dedupe',
@@ -187,7 +187,7 @@ describe('skill install metadata', () => {
     });
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
-        id: 'brew',
+        id: 'openhue',
         kind: 'brew',
         formula: 'openhue/cli/openhue-cli',
         bins: ['openhue'],
@@ -369,7 +369,7 @@ describe('skill install metadata', () => {
         '---',
         'name: manim-shortcut',
         'description: Test explicit install command requirement.',
-        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim-shortcut","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
+        'metadata: {"hybridclaw":{"install":[{"id":"manim","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
         '---',
         '',
         '# Manim Shortcut',
@@ -390,7 +390,7 @@ describe('skill install metadata', () => {
       throw new Error('Expected install selection failure');
     }
     expect(selection.error).toContain(
-      'retry: skill install manim-shortcut uv-manim-shortcut',
+      'retry: skill install manim-shortcut manim',
     );
   });
 
@@ -422,7 +422,7 @@ describe('skill install metadata', () => {
         '---',
         'name: manim-multi',
         'description: Test multiple install options.',
-        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim","kind":"uv","package":"manim","label":"Install Manim (uv)"},{"id":"brew-ffmpeg","kind":"brew","formula":"ffmpeg","label":"Install ffmpeg (brew)"}]}}',
+        'metadata: {"hybridclaw":{"install":[{"id":"manim","kind":"uv","package":"manim","label":"Install Manim (uv)"},{"id":"ffmpeg","kind":"brew","formula":"ffmpeg","label":"Install ffmpeg (brew)"}]}}',
         '---',
         '',
         '# Manim Multi',
@@ -435,15 +435,13 @@ describe('skill install metadata', () => {
     });
 
     expect(selection).toEqual({
-      error: expect.stringContaining(
-        'retry: skill install manim-multi uv-manim',
-      ),
+      error: expect.stringContaining('retry: skill install manim-multi manim'),
     });
     if (!('error' in selection)) {
       throw new Error('Expected install selection failure');
     }
     expect(selection.error).toContain(
-      'retry: skill install manim-multi brew-ffmpeg',
+      'retry: skill install manim-multi ffmpeg',
     );
   });
 
@@ -461,7 +459,7 @@ describe('skill install metadata', () => {
         '---',
         'name: manim-uv',
         'description: Test uv installer bootstrap.',
-        'metadata: {"hybridclaw":{"install":[{"id":"uv-manim","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
+        'metadata: {"hybridclaw":{"install":[{"id":"manim","kind":"uv","package":"manim","label":"Install Manim (uv)"}]}}',
         '---',
         '',
         '# Manim Uv',
@@ -494,11 +492,11 @@ describe('skill install metadata', () => {
     );
     const result = await installSkillDependency({
       skillName: 'manim-uv',
-      installId: 'uv-manim',
+      installId: 'manim',
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toBe('Installed manim-uv via uv-manim');
+    expect(result.message).toBe('Installed manim-uv via manim');
     expect(spawnMock).toHaveBeenNthCalledWith(
       1,
       'brew',
@@ -524,6 +522,94 @@ describe('skill install metadata', () => {
         env: expect.objectContaining({
           PATH: expect.stringContaining('/opt/homebrew/bin'),
         }),
+      }),
+    );
+  });
+
+  test('sets up every declared dependency for a skill', async () => {
+    const spawnMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        createMockSpawnProcess({ code: 0, stdout: 'installed first\n' }),
+      )
+      .mockImplementationOnce(() =>
+        createMockSpawnProcess({ code: 0, stdout: 'installed second\n' }),
+      );
+    vi.doMock('node:child_process', () => ({
+      spawn: spawnMock,
+    }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return {
+        ...actual,
+        hasBinary: () => true,
+        loadSkillCatalog: () => [
+          {
+            name: 'setup-demo',
+            description: 'Demo setup skill',
+            category: 'test',
+            userInvocable: true,
+            disableModelInvocation: false,
+            always: false,
+            requires: { bins: [], env: [] },
+            metadata: {
+              hybridclaw: {
+                tags: [],
+                relatedSkills: [],
+                install: [
+                  {
+                    id: 'first-tool',
+                    kind: 'npm',
+                    package: 'first-tool',
+                    bins: ['first-tool'],
+                  },
+                  {
+                    id: 'second-tool',
+                    kind: 'npm',
+                    package: 'second-tool',
+                    bins: ['second-tool'],
+                  },
+                ],
+              },
+            },
+            filePath: '/tmp/setup-demo/SKILL.md',
+            baseDir: '/tmp/setup-demo',
+            source: 'bundled',
+            available: true,
+            enabled: true,
+            missing: [],
+          },
+        ],
+      };
+    });
+
+    const { setupSkillDependencies } = await import(
+      '../src/skills/skills-install.ts'
+    );
+    const result = await setupSkillDependencies({ skillName: 'setup-demo' });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe(
+      'Set up setup-demo: installed first-tool, second-tool',
+    );
+    expect(result.stdout).toContain('[first-tool]\ninstalled first');
+    expect(result.stdout).toContain('[second-tool]\ninstalled second');
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      1,
+      'npm',
+      ['install', '-g', '--ignore-scripts', 'first-tool'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      2,
+      'npm',
+      ['install', '-g', '--ignore-scripts', 'second-tool'],
+      expect.objectContaining({
+        stdio: ['ignore', 'pipe', 'pipe'],
       }),
     );
   });

@@ -16,8 +16,8 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 | Dependency | Purpose | Install |
 |---|---|---|
 | `python3` | Required runtime | System install |
-| `manim` | Animation engine | `hybridclaw skill install manim-video uv-manim` |
-| `ffmpeg` | Video stitching | `hybridclaw skill install manim-video brew-ffmpeg` |
+| `manim` | Animation engine | `hybridclaw skill install manim-video manim` |
+| `ffmpeg` | Video stitching | `hybridclaw skill install manim-video ffmpeg` |
 
 > 💡 **Tips & Tricks**
 >
@@ -48,7 +48,7 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 **Troubleshooting**
 
 - **`manim` not found** — install via `hybridclaw skill install manim-video
-  uv-manim`.
+  manim`.
 - **Render errors** — check that `ffmpeg` is installed. Run draft renders at
   `-ql` first to catch issues before high-quality rendering.
 - **Slow renders** — use `-ql` during development. Only render at `-qh` for
@@ -98,7 +98,7 @@ plugins, and publish safely.
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| `wp` (WP-CLI) | WordPress command-line management | `hybridclaw skill install wordpress brew-wp-cli` |
+| `wp` (WP-CLI) | WordPress command-line management | `hybridclaw skill install wordpress wp` |
 
 WP-CLI needs access to a WordPress installation (local or SSH).
 

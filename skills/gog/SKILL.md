@@ -20,7 +20,7 @@ metadata:
     related_skills:
       - google-workspace
     install:
-      - id: brew
+      - id: gog
         kind: brew
         formula: steipete/tap/gogcli
         bins: ["gog"]
@@ -33,12 +33,12 @@ Use `gog` for Gmail/Calendar/Drive/Contacts/Sheets/Docs. Requires OAuth setup.
 ## Setup (once)
 
 ```bash
-hybridclaw skill install gog brew
+hybridclaw skill install gog gog
 hybridclaw auth login google --client-id <id> --client-secret <secret> --account you@gmail.com
 hybridclaw auth status google
 ```
 
-HybridClaw stores the Google OAuth client secret and refresh token in encrypted runtime secrets, mints a short-lived access token on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT` into the agent runtime for `gog`.
+HybridClaw stores the Google OAuth client secret and refresh token in encrypted runtime secrets, mints a short-lived access token on the host, and injects only `GOG_ACCESS_TOKEN`, `GOOGLE_WORKSPACE_CLI_TOKEN`, and `GOG_ACCOUNT` into the agent runtime for Google Workspace CLIs.
 
 ## Common commands
 
