@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Use the gog CLI for Google Workspace workflows across Gmail, Calendar, Drive, Contacts, Sheets, and Docs.
+description: Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs.
 user-invocable: true
 requires:
   bins:
