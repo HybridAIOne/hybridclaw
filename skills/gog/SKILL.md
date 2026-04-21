@@ -62,7 +62,8 @@ Use the minimum scopes needed for the task. Keep OAuth client secrets outside th
 3. The runtime normally provides `GOG_ACCOUNT`; pass `--account you@example.com` only when the user has explicitly configured multiple accounts.
 4. Prefer read/list/search commands first, then propose write operations.
 5. Require explicit confirmation before sending email, creating drafts that may be sent, creating or updating calendar events, changing Sheets values, or modifying Drive/Docs resources.
-6. For scripting and follow-up parsing, prefer `--json` and `--no-input` when the subcommand supports them.
+6. For scripting and follow-up parsing, prefer `--json`, `--results-only`, and `--no-input` when the subcommand supports them.
+7. Do not pipe `gog ... --json` into `python3 - <<'PY'`; the heredoc becomes Python's stdin, so `json.load(sys.stdin)` will not receive the `gog` output. Use a temp JSON file or call `gog` from Python with `subprocess.check_output`.
 
 ## Gmail
 
@@ -132,6 +133,25 @@ List events:
 
 ```bash
 gog calendar events <calendarId> --from <iso> --to <iso>
+```
+
+For broad user requests like "my calendar", "my Google Calendar", or "all my meetings", omit `<calendarId>` first so `gog` searches all available calendars. Use `primary` only when the user explicitly asks for the primary calendar or after confirming that primary is the right scope.
+
+```bash
+gog calendar events --from <iso> --to <iso> --json --results-only --no-input
+```
+
+When filtering JSON results, either write JSON to a temp file:
+
+```bash
+gog calendar events --from <iso> --to <iso> --json --results-only --no-input > /tmp/gog-events.json
+python3 -c 'import json,re; items=json.load(open("/tmp/gog-events.json")); rx=re.compile("festival", re.I); print(json.dumps([e for e in items if rx.search(str(e.get("summary","")) + " " + str(e.get("description","")))], ensure_ascii=False, indent=2))'
+```
+
+Or call `gog` from Python:
+
+```bash
+python3 -c 'import json,re,subprocess; out=subprocess.check_output(["gog","calendar","events","--from","<iso>","--to","<iso>","--json","--results-only","--no-input"], text=True); items=json.loads(out); rx=re.compile("festival", re.I); print(json.dumps([e for e in items if rx.search(str(e.get("summary","")) + " " + str(e.get("description","")))], ensure_ascii=False, indent=2))'
 ```
 
 Create an event:

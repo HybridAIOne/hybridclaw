@@ -109,6 +109,12 @@ describe('skill resolution integration', () => {
     expect(gogSkill?.description).toContain('Google Calendar');
     expect(gogSkill?.description).toContain('events');
     expect(gogSkill?.description).toContain('meetings');
+    const gogSkillBody = fs.readFileSync(
+      path.resolve('skills/gog/SKILL.md'),
+      'utf-8',
+    );
+    expect(gogSkillBody).toContain('searches all available calendars');
+    expect(gogSkillBody).toContain('Do not pipe `gog ... --json`');
     expect(googleWorkspaceSkill).toContain(
       'API-backed Google Workspace access',
     );
