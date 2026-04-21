@@ -253,6 +253,9 @@ async function runClaudeCliCommand(
     '--verbose',
     '--output-format',
     'stream-json',
+    // HybridClaw's sandbox and approval policy are the enforcement boundary.
+    // Claude CLI permissions are bypassed so the wrapper does not add a second,
+    // divergent approval system inside the already constrained execution layer.
     '--permission-mode',
     'bypassPermissions',
     '--model',
