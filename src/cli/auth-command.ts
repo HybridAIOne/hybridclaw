@@ -942,14 +942,16 @@ function printGoogleStatus(): void {
     console.log('Refresh token: configured');
     console.log('Client secret: configured');
     console.log(`Scopes: ${status.scopes.join(' ')}`);
-    console.log('gog mode: direct access token');
+    console.log('Workspace CLI mode: direct access token');
   }
 }
 
 function clearGoogleCredentials(): void {
   const filePath = clearGoogleAuth();
   console.log(`Cleared Google OAuth credentials from ${filePath}.`);
-  console.log('gog containers will no longer receive GOG_ACCESS_TOKEN.');
+  console.log(
+    'Agent containers will no longer receive Google Workspace access tokens.',
+  );
 }
 
 function parseGoogleLoginArgs(args: string[]): {
@@ -1141,7 +1143,7 @@ async function configureGoogleAuth(args: string[]): Promise<void> {
       : 'Completed browser authorization and stored refresh token.',
   );
   console.log(
-    'Agent containers will receive a fresh short-lived GOG_ACCESS_TOKEN for gog.',
+    'Agent containers will receive fresh short-lived Google Workspace access tokens for gog and gws.',
   );
 }
 

@@ -465,3 +465,55 @@ export async function installSkillDependency(params: {
     code: result.code,
   });
 }
+
+export async function setupSkillDependencies(params: {
+  skillName: string;
+}): Promise<SkillInstallResult> {
+  const skill = findSkillCatalogEntry(params.skillName);
+  if (!skill) {
+    return createInstallFailure({
+      message: `Unknown skill: ${params.skillName}`,
+    });
+  }
+
+  const installSpecs = skill.metadata.hybridclaw.install || [];
+  if (installSpecs.length === 0) {
+    return createInstallFailure({
+      message: `Skill "${skill.name}" does not declare install metadata.`,
+    });
+  }
+
+  const completed: string[] = [];
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  for (const [index, spec] of installSpecs.entries()) {
+    const installId = resolveSkillInstallId(spec, index);
+    const result = await installSkillDependency({
+      skillName: skill.name,
+      installId,
+    });
+    if (result.stdout) stdout.push(`[${installId}]\n${result.stdout}`);
+    if (result.stderr) stderr.push(`[${installId}]\n${result.stderr}`);
+    if (!result.ok) {
+      return createInstallFailure({
+        message: [
+          `Skill setup failed for "${skill.name}" at dependency "${installId}".`,
+          completed.length > 0 ? `Completed: ${completed.join(', ')}` : '',
+          `Failure: ${result.message}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        stdout: stdout.join('\n\n'),
+        stderr: stderr.join('\n\n'),
+        code: result.code,
+      });
+    }
+    completed.push(installId);
+  }
+
+  return createInstallSuccess({
+    message: `Set up ${skill.name}: installed ${completed.join(', ')}`,
+    stdout: stdout.join('\n\n'),
+    stderr: stderr.join('\n\n'),
+  });
+}

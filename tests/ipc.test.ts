@@ -48,6 +48,7 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     channelId: 'channel-1',
     runtimeEnv: {
       GOG_ACCESS_TOKEN: 'short-lived-access-token',
+      GOOGLE_WORKSPACE_CLI_TOKEN: 'short-lived-access-token',
       GOG_ACCOUNT: 'user@example.com',
     },
     taskModels: {
@@ -76,6 +77,7 @@ test('writeInput omits auth material from IPC files when requested', async () =>
   expect(written.requestHeaders).toEqual({});
   expect(written.runtimeEnv).toEqual({
     GOG_ACCESS_TOKEN: 'short-lived-access-token',
+    GOOGLE_WORKSPACE_CLI_TOKEN: 'short-lived-access-token',
     GOG_ACCOUNT: 'user@example.com',
   });
   expect(written.taskModels).toEqual({

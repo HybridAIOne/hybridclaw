@@ -1,16 +1,11 @@
 ---
-name: using-gws
-description: >-
-  Interacts with Google Workspace via the gws CLI for Calendar, Gmail, Drive,
-  Sheets, and Docs. Checks calendars, triages email, searches Drive, reads
-  spreadsheets, and runs cross-service workflows like morning briefings and
-  meeting prep. Triggers on any mention of calendar, meetings, schedule, email,
-  inbox, unread mail, Google Drive, spreadsheets, documents, tasks, or requests
-  like "what's my day look like" and "morning briefing" — even without
-  explicitly mentioning Google.
+name: gws
+description: Use the gws CLI for Google Calendar, Gmail, Drive, Sheets, Docs, Tasks, and cross-service Workspace workflows.
 user-invocable: true
 metadata:
   hybridclaw:
+    category: productivity
+    short_description: "Google Workspace via gws CLI."
     tags:
       - google
       - workspace
@@ -23,23 +18,45 @@ metadata:
     related_skills:
       - google-workspace
     install:
-      - kind: npm
+      - id: gws
+        kind: npm
         package: "@googleworkspace/cli"
-        bins:
-          - gws
+        bins: ["gws"]
+        label: Install Google Workspace CLI (npm)
 ---
 
 # Google Workspace via gws CLI
 
 ## Step 1: Check auth before anything else
 
-Run `gws auth status` (no API call, instant) and parse the JSON output.
-If `auth_method` is `"none"`, tell the user:
+HybridClaw injects `GOOGLE_WORKSPACE_CLI_TOKEN` into the agent runtime when
+Google auth is configured with `hybridclaw auth login google`.
 
-> Run `gws auth login` in your terminal to connect your Google account.
+Run exactly `gws auth status` (no API call, instant) and parse the JSON output.
+Do not add `--json`; `gws auth status --json` is invalid because auth status
+already prints JSON by default.
 
-That's it. Don't explain OAuth, GCP projects, scopes, or alternatives.
-The default login flow works for both personal Gmail and Workspace accounts.
+Treat auth as configured when any of these are true:
+
+- `credential_source` is `"token_env_var"`
+- `token_env_var` is `true`
+- `auth_method` is not `"none"`
+- `storage` is not `"none"`
+
+This matters because HybridClaw passes its Google OAuth token through
+`GOOGLE_WORKSPACE_CLI_TOKEN`; current `gws auth status` may still report
+`auth_method: "none"` for that env-token mode.
+
+Only if none of the authenticated states above are present, tell the user:
+
+> Run `hybridclaw auth login google` in your terminal to connect your Google account.
+
+If env-token auth is present, do not ask the user to log in again. Continue
+with the requested `gws` command immediately.
+
+That's it. Don't explain OAuth, GCP projects, scopes, or alternatives unless a
+later `gws` command returns an auth or scope error.
+The HybridClaw login flow works for both personal Gmail and Workspace accounts.
 
 ## Step 2: Act immediately
 

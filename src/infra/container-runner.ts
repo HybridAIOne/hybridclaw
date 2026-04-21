@@ -7,10 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  readStoredGoogleAuth,
-  resolveGogRuntimeEnv,
-} from '../auth/google-auth.js';
+import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
@@ -793,15 +790,13 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
-  const runtimeEnv = readStoredGoogleAuth()
-    ? await resolveGogRuntimeEnv().catch((error) => {
-        logger.warn(
-          { error },
-          'Failed to mint Google access token for gog runtime environment',
-        );
-        return {};
-      })
-    : {};
+  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    logger.warn(
+      { error },
+      'Failed to resolve Google access token for Workspace CLI runtime environment',
+    );
+    return {};
+  });
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',

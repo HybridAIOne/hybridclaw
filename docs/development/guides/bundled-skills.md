@@ -25,7 +25,7 @@ HybridClaw ships with 37 bundled skills. A few notable categories:
 
 ```bash
 hybridclaw skill list
-hybridclaw skill install 1password brew
+hybridclaw skill install 1password op
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
 hybridclaw skill inspect <name>
