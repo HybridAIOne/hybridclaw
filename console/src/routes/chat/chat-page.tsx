@@ -121,7 +121,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         messages: action.messages,
         branchFamilies: action.branchFamilies,
-        error: '',
         ...(action.sessionId ? { sessionId: action.sessionId } : {}),
       };
     case 'MESSAGES_SET': {
