@@ -261,6 +261,80 @@ test('resolves configured Anthropic task models on the host', async () => {
   });
 });
 
+test('uses Anthropic discovery vision capability when routing vision fallbacks', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'anthropic-task-routing-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.models = [];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.vision.provider = 'auto';
+    config.auxiliaryModels.vision.model = '';
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://api.anthropic.com' &&
+        url.pathname === '/v1/models'
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'claude-text-only-from-discovery-test',
+                max_input_tokens: 200_000,
+                max_tokens: 16_000,
+              },
+              {
+                id: 'claude-vision-from-discovery-test',
+                max_input_tokens: 200_000,
+                max_tokens: 32_000,
+                capabilities: { vision: true },
+              },
+            ],
+            has_more: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const catalog = await import('../src/providers/model-catalog.ts');
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(
+    catalog.isModelVisionCapable('anthropic/claude-vision-from-discovery-test'),
+  ).toBe(true);
+  expect(
+    catalog.isModelVisionCapable(
+      'anthropic/claude-text-only-from-discovery-test',
+    ),
+  ).toBe(false);
+
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    sessionModel: 'anthropic/claude-text-only-from-discovery-test',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'anthropic',
+    apiKey: 'anthropic-task-routing-test',
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'anthropic/claude-vision-from-discovery-test',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+  });
+});
+
 test('warns when task model policy resolution fails and returns a deferred error', async () => {
   const homeDir = makeTempHome();
   vi.doMock('../src/auth/anthropic-auth.js', () => ({
