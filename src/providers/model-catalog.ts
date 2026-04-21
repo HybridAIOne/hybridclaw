@@ -198,13 +198,20 @@ function dedupeModelList(models: string[]): string[] {
 function collectModelsForProvider(
   filter: ModelCatalogProviderFilter,
 ): string[] {
+  const config = getRuntimeConfig();
   switch (filter) {
     case 'hybridai':
       return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
-    case 'anthropic':
-      return getDiscoveredAnthropicModelNames();
+    case 'anthropic': {
+      const discovered = getDiscoveredAnthropicModelNames();
+      return discovered.length > 0
+        ? discovered
+        : config.anthropic.enabled
+          ? config.anthropic.models
+          : [];
+    }
     case 'local':
     case 'ollama':
     case 'lmstudio':
@@ -224,9 +231,9 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (
-        getRuntimeConfig() as unknown as Record<string, unknown>
-      )[filter] as { enabled: boolean; models: string[] } | undefined;
+      const section = (config as unknown as Record<string, unknown>)[filter] as
+        | { enabled: boolean; models: string[] }
+        | undefined;
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
         ...(section?.enabled ? section.models : []),
@@ -246,7 +253,7 @@ export function getAvailableModelList(provider?: string): string[] {
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),
-        ...getDiscoveredAnthropicModelNames(),
+        ...collectModelsForProvider('anthropic'),
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
         ...getDiscoveredOpenAICompatRemoteModelNames(),

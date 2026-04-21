@@ -544,6 +544,41 @@ test('available model catalog uses bearer auth for Anthropic OAuth tokens in api
   expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty('x-api-key');
 });
 
+test('available model catalog falls back to configured Anthropic models when discovery fails', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('anthropic')).toEqual([
+    'anthropic/claude-sonnet-4-6',
+  ]);
+  expect(catalog.getAvailableModelList()).toContain(
+    'anthropic/claude-sonnet-4-6',
+  );
+});
+
 test('available model catalog uses Claude CLI auth for Anthropic model discovery', async () => {
   const homeDir = makeTempHome();
   vi.doMock('../src/auth/anthropic-auth.js', () => ({
