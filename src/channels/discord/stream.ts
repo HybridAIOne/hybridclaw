@@ -5,11 +5,10 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
-import {
-  getHumanDelayMs,
-  type HumanDelayConfig,
-  sleep,
-} from './human-delay.js';
+import { sleep } from '../../utils/sleep.js';
+import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
+import { withDiscordRetry } from './retry.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 interface DiscordSendChannel {
   send: (payload: {
@@ -26,15 +25,6 @@ interface DiscordEditMessage {
   delete: () => Promise<unknown>;
 }
 
-interface DiscordErrorLike {
-  status?: number;
-  httpStatus?: number;
-  retryAfter?: number;
-  data?: {
-    retry_after?: number;
-  };
-}
-
 export interface DiscordStreamOptions {
   maxChars?: number;
   maxLines?: number;
@@ -44,59 +34,10 @@ export interface DiscordStreamOptions {
 }
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
-const RETRY_MAX_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 500;
+const DISCORD_STREAM_RETRY_LOG_MESSAGE = 'Discord request failed; retrying';
 
 function isRenderableChunk(chunk: string): boolean {
   return chunk.trim().length > 0;
-}
-
-function isRetryableDiscordError(error: unknown): boolean {
-  const maybe = error as DiscordErrorLike;
-  const status = maybe.status ?? maybe.httpStatus;
-  return (
-    status === 429 ||
-    (typeof status === 'number' && status >= 500 && status <= 599)
-  );
-}
-
-function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
-  const maybe = error as DiscordErrorLike;
-  const retryAfterSeconds = maybe.retryAfter ?? maybe.data?.retry_after;
-  if (
-    typeof retryAfterSeconds === 'number' &&
-    Number.isFinite(retryAfterSeconds) &&
-    retryAfterSeconds > 0
-  ) {
-    return Math.max(50, Math.ceil(retryAfterSeconds * 1_000));
-  }
-  const jitter = Math.floor(Math.random() * 250);
-  return fallbackMs + jitter;
-}
-
-async function withDiscordRetry<T>(
-  label: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  let attempt = 0;
-  let delayMs = RETRY_BASE_DELAY_MS;
-  while (true) {
-    attempt += 1;
-    try {
-      return await run();
-    } catch (error) {
-      if (attempt >= RETRY_MAX_ATTEMPTS || !isRetryableDiscordError(error)) {
-        throw error;
-      }
-      const waitMs = extractRetryDelayMs(error, delayMs);
-      logger.warn(
-        { label, attempt, waitMs, error },
-        'Discord request failed; retrying',
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      delayMs = Math.min(delayMs * 2, 4_000);
-    }
-  }
 }
 
 export class DiscordStreamManager {
@@ -183,7 +124,9 @@ export class DiscordStreamManager {
     return this.enqueue(async () => {
       for (const message of this.messages) {
         try {
-          await withDiscordRetry('delete', () => message.delete());
+          await withDiscordRetry('delete', () => message.delete(), {
+            logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
+          });
         } catch (error) {
           logger.debug({ error }, 'Failed to delete partial streamed message');
         }
@@ -196,7 +139,11 @@ export class DiscordStreamManager {
 
   private enqueue(task: () => Promise<void>): Promise<void> {
     this.opQueue = this.opQueue.then(task).catch((error) => {
-      logger.warn({ error }, 'Discord stream operation failed');
+      logDiscordApiError({
+        error,
+        expectedAction: 'Response message was not delivered.',
+        unexpectedMessage: 'Discord stream operation failed',
+      });
     });
     return this.opQueue;
   }
@@ -227,8 +174,10 @@ export class DiscordStreamManager {
     if (chunks.length === 0) {
       if (files && files.length > 0) {
         const fallback = 'Attached files:';
-        const sent = await withDiscordRetry('reply', () =>
-          this.sourceMessage.reply({ content: fallback, files }),
+        const sent = await withDiscordRetry(
+          'reply',
+          () => this.sourceMessage.reply({ content: fallback, files }),
+          { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
         );
         this.messages.push(sent as unknown as DiscordEditMessage);
         this.sentChunks.push(fallback);
@@ -250,11 +199,15 @@ export class DiscordStreamManager {
         }
         const sent =
           i === 0
-            ? await withDiscordRetry('reply', () =>
-                this.sourceMessage.reply({ content: chunk }),
+            ? await withDiscordRetry(
+                'reply',
+                () => this.sourceMessage.reply({ content: chunk }),
+                { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
               )
-            : await withDiscordRetry('send', () =>
-                this.channel.send({ content: chunk }),
+            : await withDiscordRetry(
+                'send',
+                () => this.channel.send({ content: chunk }),
+                { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
               );
         this.messages.push(sent as unknown as DiscordEditMessage);
         this.sentChunks.push(chunk);
@@ -270,8 +223,10 @@ export class DiscordStreamManager {
         continue;
       }
 
-      await withDiscordRetry('edit', () =>
-        this.messages[i].edit({ content: chunk }),
+      await withDiscordRetry(
+        'edit',
+        () => this.messages[i].edit({ content: chunk }),
+        { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
       );
       this.sentChunks[i] = chunk;
       this.lastEditAt = Date.now();
@@ -279,7 +234,9 @@ export class DiscordStreamManager {
 
     if (this.messages.length > chunks.length) {
       for (let i = this.messages.length - 1; i >= chunks.length; i -= 1) {
-        await withDiscordRetry('delete', () => this.messages[i].delete());
+        await withDiscordRetry('delete', () => this.messages[i].delete(), {
+          logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
+        });
       }
       this.messages.splice(chunks.length);
       this.sentChunks = this.sentChunks.slice(0, chunks.length);
@@ -287,8 +244,11 @@ export class DiscordStreamManager {
 
     if (files && files.length > 0) {
       const lastIndex = chunks.length - 1;
-      await withDiscordRetry('edit', () =>
-        this.messages[lastIndex].edit({ content: chunks[lastIndex], files }),
+      await withDiscordRetry(
+        'edit',
+        () =>
+          this.messages[lastIndex].edit({ content: chunks[lastIndex], files }),
+        { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
       );
       this.sentChunks[lastIndex] = chunks[lastIndex];
       this.lastEditAt = Date.now();

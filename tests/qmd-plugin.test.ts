@@ -1,19 +1,13 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
@@ -152,13 +146,10 @@ function writeQmdStub(
   return scriptPath;
 }
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.unstubAllGlobals();
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unstubAllGlobals: true,
 });
 
 test('QMD plugin injects external prompt context and exposes a status command', async () => {
@@ -251,12 +242,12 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
   installQmdPlugin(cwd);
   const qmdCommand = writeQmdStub(cwd, {
     searchPayloadByQuery: {
-      'According to docs/development/extensibility/plugins.md, how are plugins discovered?':
+      'According to docs/content/extensibility/plugins.md, how are plugins discovered?':
         [],
-      'development extensibility plugins discovered': [
+      'content extensibility plugins discovered': [
         {
           title: 'Plugin System',
-          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
+          file: 'qmd://hybridclaw/docs/content/extensibility/plugins.md',
           snippet:
             'HybridClaw plugins are local runtime extensions discovered from plugin directories.',
           score: 0.89,
@@ -298,7 +289,7 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
         username: 'alice',
         role: 'user',
         content:
-          'According to docs/development/extensibility/plugins.md, how are plugins discovered?',
+          'According to docs/content/extensibility/plugins.md, how are plugins discovered?',
         created_at: '2026-03-19T10:00:00.000Z',
       },
     ],
@@ -306,15 +297,13 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
 
   expect(promptContext).toHaveLength(1);
   expect(promptContext[0]).toContain(
-    'User question: According to docs/development/extensibility/plugins.md, how are plugins discovered?',
+    'User question: According to docs/content/extensibility/plugins.md, how are plugins discovered?',
   );
   expect(promptContext[0]).toContain(
-    'QMD search query: development extensibility plugins discovered',
+    'QMD search query: content extensibility plugins discovered',
   );
   expect(promptContext[0]).toContain('Plugin System');
-  expect(promptContext[0]).toContain(
-    'docs/development/extensibility/plugins.md',
-  );
+  expect(promptContext[0]).toContain('docs/content/extensibility/plugins.md');
 });
 
 test('QMD plugin terminates options before a leading-dash search query', async () => {
@@ -390,7 +379,7 @@ test('QMD plugin uses the latest user message even when recentMessages are rever
       'latest question': [
         {
           title: 'Latest Hit',
-          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
+          file: 'qmd://hybridclaw/docs/content/extensibility/plugins.md',
           snippet: 'Latest user question won.',
           score: 0.9,
         },
@@ -1034,12 +1023,12 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
   const cwd = makeTempDir('hybridclaw-qmd-project-');
   const qmdCommand = writeQmdStub(cwd, {
     searchPayloadByQuery: {
-      'According to docs/development/extensibility/plugins.md, how are plugins discovered?':
+      'According to docs/content/extensibility/plugins.md, how are plugins discovered?':
         [],
-      'development extensibility plugins discovered': [
+      'content extensibility plugins discovered': [
         {
           title: 'Plugin System',
-          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
+          file: 'qmd://hybridclaw/docs/content/extensibility/plugins.md',
           snippet:
             'HybridClaw plugins are local runtime extensions discovered from plugin directories.',
           score: 0.89,
@@ -1111,7 +1100,7 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
         username: 'alice',
         role: 'user',
         content:
-          'According to docs/development/extensibility/plugins.md, how are plugins discovered?',
+          'According to docs/content/extensibility/plugins.md, how are plugins discovered?',
         created_at: '2026-03-19T10:00:00.000Z',
       },
     ],
@@ -1123,7 +1112,7 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
       resultCount: 1,
       usedFallbackQuery: true,
       topResultPaths: [
-        'qmd://hybridclaw/docs/development/extensibility/plugins.md',
+        'qmd://hybridclaw/docs/content/extensibility/plugins.md',
       ],
     }),
     'QMD prompt context injected',

@@ -112,6 +112,7 @@ describe('runtime config secret refs', () => {
       WEB_API_TOKEN: 'web-token-from-store',
       EMAIL_PASSWORD: 'email-app-password',
       IMESSAGE_PASSWORD: 'bluebubbles-password',
+      TWILIO_AUTH_TOKEN: 'twilio-auth-token',
     });
     process.env.TEST_GATEWAY_TOKEN = 'gateway-token-from-env';
     process.env.TEST_VLLM_API_KEY = 'vllm-token-from-env';
@@ -131,6 +132,13 @@ describe('runtime config secret refs', () => {
       email.enabled = true;
       email.password = { source: 'store', id: 'EMAIL_PASSWORD' };
 
+      const voice = config.voice as Record<string, unknown>;
+      voice.enabled = true;
+      const twilio = voice.twilio as Record<string, unknown>;
+      twilio.accountSid = 'AC123';
+      twilio.fromNumber = '+14155550123';
+      twilio.authToken = { source: 'store', id: 'TWILIO_AUTH_TOKEN' };
+
       const local = config.local as Record<string, unknown>;
       const backends = local.backends as Record<string, unknown>;
       const vllm = backends.vllm as Record<string, unknown>;
@@ -145,6 +153,7 @@ describe('runtime config secret refs', () => {
     expect(config.ops.gatewayApiToken).toBe('gateway-token-from-env');
     expect(config.email.password).toBe('email-app-password');
     expect(config.imessage.password).toBe('bluebubbles-password');
+    expect(config.voice.twilio.authToken).toBe('twilio-auth-token');
     expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-env');
   });
 

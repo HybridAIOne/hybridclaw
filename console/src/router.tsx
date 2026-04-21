@@ -6,6 +6,8 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentFilesPage } from './routes/agents';
+import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
@@ -34,128 +36,165 @@ function TerminalRouteComponent() {
   );
 }
 
-function RootLayout() {
+const LazyChatPage = lazy(async () => {
+  const mod = await import('./routes/chat');
+  return { default: mod.ChatPage };
+});
+
+function ChatRouteComponent() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <Suspense fallback={<div className="empty-state">Loading chat…</div>}>
+      <LazyChatPage />
+    </Suspense>
   );
 }
 
 const rootRoute = createRootRoute({
-  component: RootLayout,
+  component: () => <Outlet />,
+});
+
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_admin_layout',
+  component: () => (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ),
 });
 
 const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin',
   component: DashboardPage,
 });
 
+const approvalsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/approvals',
+  component: ApprovalsPage,
+});
+
+const agentFilesRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/agents',
+  component: AgentFilesPage,
+});
+
 const terminalRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/terminal',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/terminal',
   component: TerminalRouteComponent,
 });
 
 const gatewayRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/gateway',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/gateway',
   component: GatewayPage,
 });
 
 const sessionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/sessions',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/sessions',
   component: SessionsPage,
 });
 
 const channelsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/channels',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/channels',
   component: ChannelsPage,
 });
 
 const emailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/email',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/email',
   component: EmailPage,
 });
 
 const configRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/config',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/config',
   component: ConfigPage,
 });
 
 const modelsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/models',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/models',
   component: ModelsPage,
 });
 
 const schedulerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/scheduler',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/scheduler',
   component: SchedulerPage,
 });
 
 const jobsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/jobs',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/jobs',
   component: JobsPage,
 });
 
 const mcpRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/mcp',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/mcp',
   component: McpPage,
 });
 
 const auditRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/audit',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/audit',
   component: AuditPage,
 });
 
 const skillsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/skills',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/skills',
   component: SkillsPage,
 });
 
 const pluginsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/plugins',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/plugins',
   component: PluginsPage,
 });
 
 const toolsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/tools',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/tools',
   component: ToolsPage,
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat',
+  component: ChatRouteComponent,
+});
+
 const routeTree = rootRoute.addChildren([
-  dashboardRoute,
-  terminalRoute,
-  gatewayRoute,
-  sessionsRoute,
-  channelsRoute,
-  emailRoute,
-  configRoute,
-  modelsRoute,
-  schedulerRoute,
-  jobsRoute,
-  mcpRoute,
-  auditRoute,
-  skillsRoute,
-  pluginsRoute,
-  toolsRoute,
+  adminLayoutRoute.addChildren([
+    dashboardRoute,
+    approvalsRoute,
+    agentFilesRoute,
+    terminalRoute,
+    gatewayRoute,
+    sessionsRoute,
+    channelsRoute,
+    emailRoute,
+    configRoute,
+    modelsRoute,
+    schedulerRoute,
+    jobsRoute,
+    mcpRoute,
+    auditRoute,
+    skillsRoute,
+    pluginsRoute,
+    toolsRoute,
+  ]),
+  chatRoute,
 ]);
 
 export const router = createRouter({
-  basepath: '/admin',
   routeTree,
 });
 

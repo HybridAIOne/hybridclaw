@@ -229,17 +229,6 @@ code {
   white-space: nowrap;
 }
 
-.topbar-sidebar-trigger {
-  display: none;
-  flex: 0 0 auto;
-}
-
-@media (max-width: 1080px) {
-  .topbar-sidebar-trigger {
-    display: inline-flex;
-  }
-}
-
 .view-switch {
   display: inline-flex;
   align-items: center;
@@ -935,6 +924,24 @@ th {
   opacity: 0.65;
 }
 
+/* ToggleGroup data-state selectors — mirrors .active.is-on / .active.is-off
+   and provides a data-attribute hook for CSS transitions going forward. */
+.binary-toggle-button[data-state="on"].is-on {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.binary-toggle-button[data-state="on"].is-off {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+/* ToggleGroup sm size variant — compact padding for dense table rows. */
+.toggle-group--sm .binary-toggle-button {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
 .config-section {
   padding: 16px;
   border-radius: var(--radius-md);
@@ -1011,6 +1018,89 @@ th {
   color: var(--accent);
 }
 
+.table-link-button-danger {
+  color: var(--danger);
+}
+
+.policy-editor-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.policy-comment-field {
+  grid-column: 1 / -1;
+}
+
+.policy-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.policy-rules-table td {
+  vertical-align: middle;
+}
+
+.policy-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.policy-template-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-wrap: nowrap;
+}
+
+.policy-template-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.policy-template-inline span {
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.policy-template-inline select {
+  width: auto;
+  min-width: 180px;
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 38px 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-bg);
+  color: var(--text);
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+.policy-action-row .primary-button,
+.policy-action-row .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-height);
+  min-height: var(--control-height);
+}
+
 .skill-review-actions {
   display: flex;
   gap: 8px;
@@ -1048,6 +1138,25 @@ th {
 .summary-block p {
   margin: 0;
   line-height: 1.55;
+}
+
+.agent-file-meta {
+  min-width: 0;
+}
+
+.agent-file-meta .supporting-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-file-editor-title {
+  font-weight: 700;
+  color: var(--foreground);
 }
 
 .summary-block-header,

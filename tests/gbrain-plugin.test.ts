@@ -1,17 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {
   return JSON.parse(
@@ -221,13 +215,10 @@ function writeGbrainStub(
   return scriptPath;
 }
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.unstubAllGlobals();
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unstubAllGlobals: true,
 });
 
 test('resolveGbrainPluginConfig normalizes defaults and runtime-relative paths', async () => {
@@ -420,11 +411,11 @@ test('gbrain plugin falls back to a condensed keyword search when the primary qu
   installGbrainPlugin(cwd);
   const gbrainCommand = writeGbrainStub(cwd, {
     callPayloadByToolAndQuery: {
-      'query:According to docs/development/extensibility/plugins.md, how are plugins discovered?':
+      'query:According to docs/content/extensibility/plugins.md, how are plugins discovered?':
         [],
-      'search:development extensibility plugins discovered': [
+      'search:content extensibility plugins discovered': [
         {
-          slug: 'docs/development/extensibility/plugins',
+          slug: 'docs/content/extensibility/plugins',
           title: 'Plugin System',
           type: 'doc',
           chunk_text:
@@ -470,7 +461,7 @@ test('gbrain plugin falls back to a condensed keyword search when the primary qu
         username: 'alice',
         role: 'user',
         content:
-          'According to docs/development/extensibility/plugins.md, how are plugins discovered?',
+          'According to docs/content/extensibility/plugins.md, how are plugins discovered?',
         created_at: '2026-04-10T09:00:00.000Z',
       },
     ],
@@ -484,7 +475,7 @@ test('gbrain plugin falls back to a condensed keyword search when the primary qu
   expect(retrievalContext).toBeDefined();
   expect(retrievalContext).toContain('GBrain retrieval mode: search');
   expect(retrievalContext).toContain(
-    'GBrain search query: development extensibility plugins discovered',
+    'GBrain search query: content extensibility plugins discovered',
   );
   expect(retrievalContext).toContain('Plugin System');
   expect(retrievalContext).toContain(

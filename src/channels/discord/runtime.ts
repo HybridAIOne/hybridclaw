@@ -112,6 +112,7 @@ import {
   type LifecyclePhase,
   LifecycleReactionController,
 } from './reactions.js';
+import { withDiscordRetry } from './retry.js';
 import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   resolveDiscordLocalFileForSend,
@@ -132,6 +133,10 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
+import {
+  attachDiscordTransportErrorHandlers,
+  logDiscordApiError,
+} from './transport-errors.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -199,8 +204,6 @@ let messageHandler: MessageHandler;
 let commandHandler: CommandHandler;
 let activeConversationRuns = 0;
 let botMentionRegex: RegExp | null = null;
-const DISCORD_RETRY_MAX_ATTEMPTS = 3;
-const DISCORD_RETRY_BASE_DELAY_MS = 500;
 const GUILD_INBOUND_HISTORY_LIMIT = 20;
 const GUILD_INBOUND_HISTORY_MAX_CHARS = 6_000;
 const PARTICIPANT_CONTEXT_MAX_USERS = 30;
@@ -567,15 +570,6 @@ function buildParticipantContext(
   ].join('\n');
 }
 
-interface DiscordErrorLike {
-  status?: number;
-  httpStatus?: number;
-  retryAfter?: number;
-  data?: {
-    retry_after?: number;
-  };
-}
-
 const DISCORD_READY_WAIT_TIMEOUT_MS = 10_000;
 const DISCORD_READY_WAIT_INTERVAL_MS = 100;
 
@@ -912,56 +906,6 @@ function parseCommand(content: string): ParsedCommand {
   return parseCommandInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
-function isRetryableDiscordError(error: unknown): boolean {
-  const maybe = error as DiscordErrorLike;
-  const status = maybe.status ?? maybe.httpStatus;
-  return (
-    status === 429 ||
-    (typeof status === 'number' && status >= 500 && status <= 599)
-  );
-}
-
-function retryDelayMs(error: unknown, fallbackMs: number): number {
-  const maybe = error as DiscordErrorLike;
-  const retryAfterSeconds = maybe.retryAfter ?? maybe.data?.retry_after;
-  if (
-    typeof retryAfterSeconds === 'number' &&
-    Number.isFinite(retryAfterSeconds) &&
-    retryAfterSeconds > 0
-  ) {
-    return Math.max(50, Math.ceil(retryAfterSeconds * 1_000));
-  }
-  return fallbackMs + Math.floor(Math.random() * 250);
-}
-
-async function withDiscordRetry<T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  let attempt = 0;
-  let delayMs = DISCORD_RETRY_BASE_DELAY_MS;
-  while (true) {
-    attempt += 1;
-    try {
-      return await fn();
-    } catch (error) {
-      if (
-        attempt >= DISCORD_RETRY_MAX_ATTEMPTS ||
-        !isRetryableDiscordError(error)
-      ) {
-        throw error;
-      }
-      const waitMs = retryDelayMs(error, delayMs);
-      logger.warn(
-        { label, attempt, waitMs, error },
-        'Discord API call failed; retrying',
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      delayMs = Math.min(delayMs * 2, 4_000);
-    }
-  }
-}
-
 function cleanIncomingContent(content: string): string {
   return cleanIncomingContentInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
@@ -1136,7 +1080,11 @@ async function ensureSlashCommands(): Promise<void> {
       'Successfully registered slash commands',
     );
   } catch (error) {
-    logger.warn({ error }, 'Failed to register global slash commands');
+    logDiscordApiError({
+      error,
+      expectedAction: 'Global slash commands were not registered.',
+      unexpectedMessage: 'Failed to register global slash commands',
+    });
   }
 
   await Promise.allSettled(
@@ -1160,10 +1108,12 @@ async function ensureSlashCommands(): Promise<void> {
           'Successfully cleaned up guild slash commands',
         );
       } catch (error) {
-        logger.warn(
-          { error, guildId: guild.id },
-          'Failed to clean up Discord guild slash commands',
-        );
+        logDiscordApiError({
+          error,
+          expectedAction: 'Guild slash commands were not cleaned up.',
+          unexpectedMessage: 'Failed to clean up Discord guild slash commands',
+          metadata: { guildId: guild.id },
+        });
       }
     }),
   );
@@ -1308,7 +1258,6 @@ export async function initDiscord(
     id: 'discord',
     capabilities: DISCORD_CAPABILITIES,
   });
-
   interface QueuedConversationMessage {
     msg: DiscordMessage;
     content: string;
@@ -1599,6 +1548,7 @@ export async function initDiscord(
       Partials.User,
     ],
   });
+  attachDiscordTransportErrorHandlers(client);
 
   client.on('presenceUpdate', (_oldPresence, nextPresence) => {
     const userId = nextPresence.userId || nextPresence.user?.id;
@@ -1612,13 +1562,6 @@ export async function initDiscord(
         details: activity.details || null,
       })),
     });
-  });
-
-  client.on('error', (error) => {
-    logger.error(
-      { error },
-      'Discord client error (will reconnect automatically)',
-    );
   });
 
   client.on('clientReady', () => {
@@ -2606,7 +2549,11 @@ export async function initDiscord(
 
     if (!shouldHandleFreeModeMessage(msg, behavior, content)) {
       logger.debug(
-        { channelId: msg.channelId, messageId: msg.id, userId: msg.author.id },
+        {
+          channelId: msg.channelId,
+          messageId: msg.id,
+          userId: msg.author.id,
+        },
         'Skipping Discord free-mode message by relevance/mention gate',
       );
       return;

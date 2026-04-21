@@ -1,6 +1,10 @@
 import path from 'node:path';
 
-import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
+import {
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedString as normalizeString,
+  normalizeTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import type { AgentModelConfig } from './agent-types.js';
 
 export const CLAW_FORMAT_VERSION = 1 as const;
@@ -37,6 +41,7 @@ export interface ClawManifest {
   presentation?: ClawPresentation;
   agent?: {
     model?: AgentModelConfig;
+    skills?: string[];
     enableRag?: boolean;
   };
   skills?: {
@@ -77,16 +82,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const entry of value) {
-    const normalized = normalizeString(entry);
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    out.push(normalized);
-  }
-  return out;
+  return Array.isArray(value) ? normalizeTrimmedUniqueStringArray(value) : [];
 }
 
 function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
@@ -356,8 +352,12 @@ export function validateClawManifest(
   let agent: ClawManifest['agent'] | undefined;
   if (isRecord(input.agent)) {
     const model = normalizeModelConfig(input.agent.model);
+    const skills = normalizeOptionalTrimmedUniqueStringArray(
+      input.agent.skills,
+    );
     agent = {
       ...(model ? { model } : {}),
+      ...(skills !== undefined ? { skills } : {}),
       ...(typeof input.agent.enableRag === 'boolean'
         ? { enableRag: input.agent.enableRag }
         : {}),

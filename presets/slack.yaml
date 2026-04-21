@@ -1,0 +1,13 @@
+name: slack
+description: Slack API and file endpoints
+rules:
+  - action: allow
+    host: slack.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: files.slack.com
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]

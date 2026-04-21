@@ -1,6 +1,8 @@
 import type { Message as DiscordMessage } from 'discord.js';
 
 import { logger } from '../../logger.js';
+import { sleep } from '../../utils/sleep.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 export type LifecyclePhase =
   | 'queued'
@@ -16,10 +18,6 @@ export type DiscordRetryFn = <T>(
 
 const MIN_REACTION_GAP_MS = 350;
 const DONE_REACTION_VISIBILITY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function findReactionByEmoji(
   message: DiscordMessage,
@@ -175,15 +173,17 @@ export class LifecycleReactionController {
       );
       this.lastReactionAt = Date.now();
     } catch (error) {
-      logger.debug(
-        {
-          error,
+      logDiscordApiError({
+        error,
+        expectedAction: 'Lifecycle reaction was not added.',
+        unexpectedMessage: 'Failed to add lifecycle reaction',
+        metadata: {
           channelId: this.message.channelId,
           messageId: this.message.id,
           emoji,
         },
-        'Failed to add lifecycle reaction',
-      );
+        level: 'debug',
+      });
     }
   }
 
@@ -197,15 +197,17 @@ export class LifecycleReactionController {
       );
       this.lastReactionAt = Date.now();
     } catch (error) {
-      logger.debug(
-        {
-          error,
+      logDiscordApiError({
+        error,
+        expectedAction: 'Lifecycle reaction was not removed.',
+        unexpectedMessage: 'Failed to remove lifecycle reaction',
+        metadata: {
           channelId: this.message.channelId,
           messageId: this.message.id,
           emoji,
         },
-        'Failed to remove lifecycle reaction',
-      );
+        level: 'debug',
+      });
     }
   }
 }

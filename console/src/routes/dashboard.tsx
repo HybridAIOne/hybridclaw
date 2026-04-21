@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview } from '../api/client';
 import { useAuth } from '../auth';
+import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
@@ -9,12 +11,14 @@ import {
   useSortableRows,
 } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
   formatRelativeTime,
   formatTokenBreakdown,
   formatUptime,
   formatUsd,
+  pluralize,
 } from '../lib/format';
 import { compareDateTime, compareNumber, compareText } from '../lib/sort';
 
@@ -57,6 +61,7 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
 
 export function DashboardPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const live = useLiveEvents(auth.token);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
@@ -89,7 +94,7 @@ export function DashboardPage() {
   if (overviewQuery.isError && !overview) {
     return (
       <div className="empty-state error">
-        {(overviewQuery.error as Error).message}
+        {getErrorMessage(overviewQuery.error)}
       </div>
     );
   }
@@ -169,7 +174,7 @@ export function DashboardPage() {
               </small>
               <small>
                 {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
-                {overview.usage.daily.callCount} calls
+                {pluralize(overview.usage.daily.callCount, 'call')}
               </small>
             </div>
             <div className="usage-stack">
@@ -185,7 +190,7 @@ export function DashboardPage() {
               </small>
               <small>
                 {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
-                {overview.usage.monthly.callCount} calls
+                {pluralize(overview.usage.monthly.callCount, 'call')}
               </small>
             </div>
           </div>
@@ -204,7 +209,7 @@ export function DashboardPage() {
                         inputTokens: row.totalInputTokens ?? 0,
                         outputTokens: row.totalOutputTokens ?? 0,
                       })}{' '}
-                      · {row.callCount} calls this month
+                      · {pluralize(row.callCount, 'call')} this month
                     </small>
                   </div>
                   <span>{formatUsd(row.totalCostUsd)}</span>
@@ -214,29 +219,11 @@ export function DashboardPage() {
           </div>
         </Panel>
 
-        <Panel title="Backend health">
-          <div className="list-stack">
-            {backendEntries.map(([name, backend]) => (
-              <div className="list-row" key={name}>
-                <div>
-                  <strong>{name}</strong>
-                  <small>
-                    {backend.detail ||
-                      (backend.reachable
-                        ? `${backend.latencyMs ?? 0}ms`
-                        : backend.error || 'unreachable')}
-                  </small>
-                </div>
-                <span>{backend.modelCount ?? 0} models</span>
-              </div>
-            ))}
-            {backendEntries.length === 0 ? (
-              <p className="supporting-text">
-                No provider health data is available.
-              </p>
-            ) : null}
-          </div>
-        </Panel>
+        <ProviderHealthPanel
+          title="Backend health"
+          entries={backendEntries}
+          onLogin={() => void navigate({ to: '/admin/config' })}
+        />
       </div>
 
       <Panel title="Recent sessions">

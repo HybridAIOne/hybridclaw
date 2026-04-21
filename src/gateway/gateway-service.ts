@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,9 +55,16 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
+import {
+  createTwilioOutboundCall,
+  normalizeTwilioPhoneNumber,
+  resolveVoiceWebhookPaths,
+} from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import { runBtwSideQuestion } from '../commands/btw-command.js';
+import { runPolicyCommand } from '../commands/policy-command.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -64,12 +72,21 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
+  DISCORD_TOKEN,
+  EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   GATEWAY_BASE_URL,
+  HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
+  IMESSAGE_PASSWORD,
+  MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
+  MSTEAMS_APP_ID,
+  MSTEAMS_APP_PASSWORD,
+  MSTEAMS_TENANT_ID,
+  OPENROUTER_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
@@ -77,6 +94,10 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
+  SLACK_APP_TOKEN,
+  SLACK_BOT_TOKEN,
+  TELEGRAM_BOT_TOKEN,
+  TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -96,6 +117,9 @@ import {
 } from '../config/runtime-config-edit.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { resolveContainerImageStatus } from '../infra/container-setup.js';
+import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -146,6 +170,18 @@ import {
   listLoadedPluginCommands,
 } from '../plugins/plugin-manager.js';
 import {
+  applyPolicyPreset,
+  listPolicyPresetSummaries,
+  type PolicyPresetSummary,
+} from '../policy/policy-presets.js';
+import {
+  addPolicyRule,
+  deletePolicyRule,
+  readPolicyState,
+  setPolicyDefault,
+  updatePolicyRule,
+} from '../policy/policy-store.js';
+import {
   discoverCodexModels,
   getDiscoveredCodexModelContextWindow,
   getDiscoveredCodexModelMaxTokens,
@@ -160,7 +196,6 @@ import {
   getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
-import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -187,27 +222,26 @@ import {
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
-import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
-  getAvailableModelListWithOptions,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
+  formatModelCountSuffix,
   formatModelForDisplay,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
+import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
-import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -244,7 +278,10 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { loadSkillCatalog } from '../skills/skills.js';
+import {
+  loadSkillCatalog,
+  resolveManagedCommunitySkillsDir,
+} from '../skills/skills.js';
 import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
@@ -268,6 +305,7 @@ import {
   ensureBootstrapFiles,
   resetWorkspace,
   resolveStartupBootstrapFile,
+  WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
   normalizePlaceholderToolReply,
@@ -306,6 +344,7 @@ import {
   reloadPluginRuntime,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
+import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
@@ -315,6 +354,14 @@ import {
   parseTimestamp,
 } from './gateway-time.js';
 import {
+  type GatewayAdminAgent,
+  type GatewayAdminAgentMarkdownFile,
+  type GatewayAdminAgentMarkdownFileResponse,
+  type GatewayAdminAgentMarkdownRevision,
+  type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentsResponse,
+  type GatewayAdminApprovalAgent,
+  type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
@@ -329,6 +376,10 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
+  type GatewayAdminPendingApproval,
+  type GatewayAdminPolicyPresetSummary,
+  type GatewayAdminPolicyRule,
+  type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
   type GatewayAdminToolCatalogEntry,
@@ -353,6 +404,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { runMemoryConsolidation } from './memory-consolidation-runner.js';
+import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -370,6 +422,29 @@ const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
+const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
+const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
+const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
+  WORKSPACE_BOOTSTRAP_FILES,
+);
+type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type GatewayAdminAgentMarkdownFileStats = Pick<
+  GatewayAdminAgentMarkdownFile,
+  'exists' | 'updatedAt' | 'sizeBytes'
+>;
+type GatewayAdminAgentMarkdownFileState = GatewayAdminAgentMarkdownFileStats & {
+  content: string;
+};
+type StoredAdminAgentMarkdownRevisionMetadata =
+  GatewayAdminAgentMarkdownRevision & {
+    fileName: AdminAgentMarkdownFileName;
+  };
+type StoredAdminAgentMarkdownRevision =
+  StoredAdminAgentMarkdownRevisionMetadata & {
+    content: string;
+  };
+
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
@@ -552,15 +627,6 @@ export function maybeRecordGatewayRequestLog(params: {
   }
 }
 
-export class GatewayRequestError extends Error {
-  statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
 const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'read',
   'write',
@@ -681,7 +747,8 @@ export function resolveChannelType(
     source === 'imessage' ||
     source === 'whatsapp' ||
     source === 'email' ||
-    source === 'msteams'
+    source === 'msteams' ||
+    source === 'voice'
   ) {
     return source;
   }
@@ -690,7 +757,8 @@ export function resolveChannelType(
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
     inferredChannelType === 'whatsapp' ||
-    inferredChannelType === 'email'
+    inferredChannelType === 'email' ||
+    inferredChannelType === 'voice'
   ) {
     return inferredChannelType;
   }
@@ -781,26 +849,581 @@ function mapUsageSummary(value: {
   };
 }
 
-function mapGatewayAdminAgent(agent: AgentConfig): {
-  id: string;
-  name: string | null;
-  model: string | null;
-  chatbotId: string | null;
-  enableRag: boolean | null;
-  workspace: string | null;
+function getGatewayAdminAgentConfig(agentId: string): AgentConfig {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    throw new Error('Agent id is required.');
+  }
+  const agent = getAgentById(normalizedAgentId);
+  if (!agent) {
+    throw new Error(`Agent "${normalizedAgentId}" was not found.`);
+  }
+  return agent;
+}
+
+function normalizeGatewayAdminAgentMarkdownFileName(
+  value: string,
+): AdminAgentMarkdownFileName {
+  const normalized = value.trim();
+  if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
+    throw new Error(
+      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+    );
+  }
+  return normalized as AdminAgentMarkdownFileName;
+}
+
+function resolveGatewayAdminAgentMarkdownFile(params: {
+  agentId: string;
+  fileName: string;
+}): {
+  agent: AgentConfig;
+  resolvedAgent: AgentConfig;
+  fileName: AdminAgentMarkdownFileName;
   workspacePath: string;
+  filePath: string;
 } {
-  const resolved = resolveAgentConfig(agent.id);
+  const agent = getGatewayAdminAgentConfig(params.agentId);
+  const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
+  const resolvedAgent = resolveAgentConfig(agent.id);
+  const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
+  const filePath = path.join(workspacePath, fileName);
+  return {
+    agent,
+    resolvedAgent,
+    fileName,
+    workspacePath,
+    filePath,
+  };
+}
+
+function getGatewayAdminAgentMarkdownFileStats(
+  filePath: string,
+): GatewayAdminAgentMarkdownFileStats {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) {
+      throw new Error('Not a regular file.');
+    }
+    return {
+      exists: true,
+      updatedAt: new Date(stat.mtimeMs).toISOString(),
+      sizeBytes: stat.size,
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return {
+        exists: false,
+        updatedAt: null,
+        sizeBytes: null,
+      };
+    }
+    throw error;
+  }
+}
+
+function mapGatewayAdminAgentMarkdownFile(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+  stats?: GatewayAdminAgentMarkdownFileStats;
+}): GatewayAdminAgentMarkdownFile {
+  const filePath = path.join(params.workspacePath, params.fileName);
+  const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
+  return {
+    name: params.fileName,
+    path: filePath,
+    exists: stats.exists,
+    updatedAt: stats.updatedAt,
+    sizeBytes: stats.sizeBytes,
+  };
+}
+
+function getGatewayAdminAgentMarkdownFilePresenceStats(
+  workspacePath: string,
+): Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
+  const entriesByName = new Map<string, fs.Dirent>();
+  try {
+    for (const entry of fs.readdirSync(workspacePath, {
+      withFileTypes: true,
+    })) {
+      entriesByName.set(entry.name, entry);
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+    (statsByName, fileName) => {
+      const entry = entriesByName.get(fileName);
+      statsByName[fileName] = {
+        exists: entry?.isFile() ?? false,
+        updatedAt: null,
+        sizeBytes: null,
+      };
+      return statsByName;
+    },
+    {} as Record<
+      AdminAgentMarkdownFileName,
+      GatewayAdminAgentMarkdownFileStats
+    >,
+  );
+}
+
+function mapGatewayAdminAgent(
+  agent: AgentConfig,
+  options?: {
+    resolvedAgent?: AgentConfig;
+    workspacePath?: string;
+    markdownFileStats?: Partial<
+      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats>
+    >;
+    markdownFileOverrides?: Partial<
+      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
+    >;
+  },
+): GatewayAdminAgent {
+  const resolved = options?.resolvedAgent ?? resolveAgentConfig(agent.id);
+  const workspacePath =
+    options?.workspacePath ?? path.resolve(agentWorkspaceDir(resolved.id));
   return {
     id: resolved.id,
     name: resolved.name || null,
     model: resolveAgentModel(resolved) || null,
+    skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
-    workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+    workspacePath,
+    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+      (fileName) =>
+        options?.markdownFileOverrides?.[fileName] ||
+        mapGatewayAdminAgentMarkdownFile({
+          workspacePath,
+          fileName,
+          stats: options?.markdownFileStats?.[fileName],
+        }),
+    ),
   };
+}
+
+function readGatewayAdminAgentMarkdownFileState(
+  filePath: string,
+  stats = getGatewayAdminAgentMarkdownFileStats(filePath),
+): GatewayAdminAgentMarkdownFileState {
+  if (!stats.exists) {
+    return {
+      ...stats,
+      content: '',
+    };
+  }
+  if (
+    typeof stats.sizeBytes === 'number' &&
+    stats.sizeBytes > ADMIN_AGENT_MARKDOWN_MAX_BYTES
+  ) {
+    throw new Error(
+      `Markdown file is too large to edit in the admin console (${stats.sizeBytes} bytes, limit ${ADMIN_AGENT_MARKDOWN_MAX_BYTES}).`,
+    );
+  }
+  return {
+    ...stats,
+    content: fs.readFileSync(filePath, 'utf-8'),
+  };
+}
+
+function getGatewayAdminAgentMarkdownContentSize(content: string): number {
+  return Buffer.byteLength(content, 'utf-8');
+}
+
+function assertGatewayAdminAgentMarkdownContentSize(
+  content: string,
+  errorPrefix = 'Markdown content',
+): number {
+  const sizeBytes = getGatewayAdminAgentMarkdownContentSize(content);
+  if (sizeBytes > ADMIN_AGENT_MARKDOWN_MAX_BYTES) {
+    throw new Error(
+      `${errorPrefix} exceeds the ${ADMIN_AGENT_MARKDOWN_MAX_BYTES}-byte admin editor limit.`,
+    );
+  }
+  return sizeBytes;
+}
+
+function writeGatewayAdminAgentMarkdownFileContent(
+  filePath: string,
+  content: string,
+  options?: {
+    sizeBytes?: number;
+  },
+): GatewayAdminAgentMarkdownFileStats {
+  if (typeof options?.sizeBytes !== 'number') {
+    assertGatewayAdminAgentMarkdownContentSize(content);
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(tempPath, content, 'utf-8');
+  fs.renameSync(tempPath, filePath);
+  return getGatewayAdminAgentMarkdownFileStats(filePath);
+}
+
+function buildGatewayAdminAgentMarkdownFileResponse(params: {
+  resolved: ReturnType<typeof resolveGatewayAdminAgentMarkdownFile>;
+  fileState?: GatewayAdminAgentMarkdownFileState;
+  revisions?: GatewayAdminAgentMarkdownRevision[];
+}): GatewayAdminAgentMarkdownFileResponse {
+  const fileState =
+    params.fileState ??
+    readGatewayAdminAgentMarkdownFileState(params.resolved.filePath);
+  const mappedFile = mapGatewayAdminAgentMarkdownFile({
+    workspacePath: params.resolved.workspacePath,
+    fileName: params.resolved.fileName,
+    stats: fileState,
+  });
+  const markdownFileOverrides: Partial<
+    Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
+  > = {
+    [params.resolved.fileName]: mappedFile,
+  };
+  const markdownFileStats = getGatewayAdminAgentMarkdownFilePresenceStats(
+    params.resolved.workspacePath,
+  );
+  return {
+    agent: mapGatewayAdminAgent(params.resolved.agent, {
+      resolvedAgent: params.resolved.resolvedAgent,
+      workspacePath: params.resolved.workspacePath,
+      markdownFileStats,
+      markdownFileOverrides,
+    }),
+    file: {
+      ...mappedFile,
+      content: fileState.content,
+      revisions:
+        params.revisions ??
+        listGatewayAdminAgentMarkdownRevisions({
+          workspacePath: params.resolved.workspacePath,
+          fileName: params.resolved.fileName,
+        }),
+    },
+  };
+}
+
+function getGatewayAdminAgentMarkdownRevisionDir(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): string {
+  return path.join(
+    path.dirname(params.workspacePath),
+    ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME,
+    params.fileName,
+  );
+}
+
+function buildGatewayAdminAgentMarkdownRevision(params: {
+  fileName: AdminAgentMarkdownFileName;
+  content: string;
+  source: GatewayAdminAgentMarkdownRevision['source'];
+}): StoredAdminAgentMarkdownRevision {
+  const now = new Date();
+  const sizeBytes = assertGatewayAdminAgentMarkdownContentSize(
+    params.content,
+    'Markdown revision content',
+  );
+  return {
+    id: randomUUID(),
+    fileName: params.fileName,
+    createdAt: now.toISOString(),
+    sizeBytes,
+    sha256: createHash('sha256').update(params.content).digest('hex'),
+    source: params.source,
+    content: params.content,
+  };
+}
+
+function buildGatewayAdminAgentMarkdownRevisionEntryName(
+  revision: Pick<StoredAdminAgentMarkdownRevision, 'createdAt' | 'id'>,
+): string {
+  const createdAtMs = Date.parse(revision.createdAt);
+  const timestampPrefix = Number.isFinite(createdAtMs)
+    ? createdAtMs.toString(36)
+    : '0';
+  return `${timestampPrefix}-${revision.id}.json`;
+}
+
+function getGatewayAdminAgentMarkdownRevisionContentPath(
+  revisionPath: string,
+): string {
+  return `${revisionPath.slice(0, -'.json'.length)}.md`;
+}
+
+function writeGatewayAdminAgentMarkdownRevision(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+  content: string;
+  source: GatewayAdminAgentMarkdownRevision['source'];
+}): GatewayAdminAgentMarkdownRevision {
+  const revision = buildGatewayAdminAgentMarkdownRevision(params);
+  const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
+  fs.mkdirSync(revisionDir, { recursive: true });
+  const revisionPath = path.join(
+    revisionDir,
+    buildGatewayAdminAgentMarkdownRevisionEntryName(revision),
+  );
+  const contentPath =
+    getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+  const metadata: StoredAdminAgentMarkdownRevisionMetadata = {
+    id: revision.id,
+    fileName: revision.fileName,
+    createdAt: revision.createdAt,
+    sizeBytes: revision.sizeBytes,
+    sha256: revision.sha256,
+    source: revision.source,
+  };
+  const tempContentPath = `${contentPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(tempContentPath, revision.content, 'utf-8');
+  fs.renameSync(tempContentPath, contentPath);
+  const tempMetadataPath = `${revisionPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(
+    tempMetadataPath,
+    JSON.stringify(metadata, null, 2),
+    'utf-8',
+  );
+  fs.renameSync(tempMetadataPath, revisionPath);
+  trimGatewayAdminAgentMarkdownRevisions(params);
+  return metadata;
+}
+
+function readGatewayAdminAgentMarkdownRevisionMetadataRecord(
+  revisionPath: string,
+): StoredAdminAgentMarkdownRevisionMetadata | null {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(revisionPath, 'utf-8'),
+    ) as Partial<StoredAdminAgentMarkdownRevisionMetadata>;
+    if (
+      typeof parsed.id !== 'string' ||
+      typeof parsed.fileName !== 'string' ||
+      typeof parsed.createdAt !== 'string' ||
+      typeof parsed.sizeBytes !== 'number' ||
+      typeof parsed.sha256 !== 'string' ||
+      (parsed.source !== 'save' && parsed.source !== 'restore')
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      fileName: normalizeGatewayAdminAgentMarkdownFileName(parsed.fileName),
+      createdAt: parsed.createdAt,
+      sizeBytes: parsed.sizeBytes,
+      sha256: parsed.sha256,
+      source: parsed.source,
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return null;
+    }
+    logger.warn({ revisionPath, error }, 'Failed to read markdown revision');
+    return null;
+  }
+}
+
+function readGatewayAdminAgentMarkdownRevisionRecord(
+  revisionPath: string,
+): StoredAdminAgentMarkdownRevision | null {
+  const metadata =
+    readGatewayAdminAgentMarkdownRevisionMetadataRecord(revisionPath);
+  if (!metadata) {
+    return null;
+  }
+  const contentPath =
+    getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+  try {
+    return {
+      ...metadata,
+      content: fs.readFileSync(contentPath, 'utf-8'),
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== 'ENOENT') {
+      logger.warn({ contentPath, error }, 'Failed to read markdown revision');
+      return null;
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(revisionPath, 'utf-8'),
+    ) as Partial<StoredAdminAgentMarkdownRevision>;
+    if (typeof parsed.content !== 'string') {
+      return null;
+    }
+    return {
+      ...metadata,
+      content: parsed.content,
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return null;
+    }
+    logger.warn({ revisionPath, error }, 'Failed to read markdown revision');
+    return null;
+  }
+}
+
+function getGatewayAdminAgentMarkdownRevisionEntryTimestamp(
+  entry: string,
+): number {
+  const [revisionId] = entry.split('.json', 1);
+  const [encodedTimestamp] = revisionId.split('-', 1);
+  const timestamp = Number.parseInt(encodedTimestamp, 36);
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function compareGatewayAdminAgentMarkdownRevisionEntries(
+  left: string,
+  right: string,
+): number {
+  const byTimestamp =
+    getGatewayAdminAgentMarkdownRevisionEntryTimestamp(right) -
+    getGatewayAdminAgentMarkdownRevisionEntryTimestamp(left);
+  if (Number.isFinite(byTimestamp) && byTimestamp !== 0) {
+    return byTimestamp;
+  }
+  return right.localeCompare(left);
+}
+
+function listGatewayAdminAgentMarkdownRevisionEntries(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): { revisionDir: string; entries: string[] } {
+  const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(revisionDir);
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return {
+        revisionDir,
+        entries: [],
+      };
+    }
+    throw error;
+  }
+  return {
+    revisionDir,
+    entries: entries
+      .filter((entry) => entry.endsWith('.json'))
+      .sort(compareGatewayAdminAgentMarkdownRevisionEntries),
+  };
+}
+
+function trimGatewayAdminAgentMarkdownRevisions(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): void {
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  for (const entry of entries.slice(ADMIN_AGENT_MARKDOWN_MAX_REVISIONS)) {
+    const revisionPath = path.join(revisionDir, entry);
+    const contentPath =
+      getGatewayAdminAgentMarkdownRevisionContentPath(revisionPath);
+    for (const targetPath of [revisionPath, contentPath]) {
+      try {
+        fs.unlinkSync(targetPath);
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err?.code === 'ENOENT') {
+          continue;
+        }
+        logger.warn(
+          { revisionDir, entry, targetPath, error },
+          'Failed to trim markdown revision',
+        );
+      }
+    }
+  }
+}
+
+function listGatewayAdminAgentMarkdownRevisions(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+}): GatewayAdminAgentMarkdownRevision[] {
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  const revisions: Array<
+    StoredAdminAgentMarkdownRevisionMetadata & { createdAtMs: number }
+  > = [];
+  for (const entry of entries) {
+    if (revisions.length >= ADMIN_AGENT_MARKDOWN_MAX_REVISIONS) {
+      break;
+    }
+    const record = readGatewayAdminAgentMarkdownRevisionMetadataRecord(
+      path.join(revisionDir, entry),
+    );
+    if (!record || record.fileName !== params.fileName) {
+      continue;
+    }
+    revisions.push({
+      ...record,
+      createdAtMs: Date.parse(record.createdAt),
+    });
+  }
+  return revisions
+    .sort((left, right) => {
+      const byCreatedAt = right.createdAtMs - left.createdAtMs;
+      if (Number.isFinite(byCreatedAt) && byCreatedAt !== 0) {
+        return byCreatedAt;
+      }
+      return right.id.localeCompare(left.id);
+    })
+    .map((entry) => ({
+      id: entry.id,
+      createdAt: entry.createdAt,
+      sizeBytes: entry.sizeBytes,
+      sha256: entry.sha256,
+      source: entry.source,
+    }));
+}
+
+function normalizeGatewayAdminAgentMarkdownRevisionId(value: string): string {
+  const revisionId = value.trim();
+  if (!revisionId) {
+    throw new Error('Revision id is required.');
+  }
+  if (!/^[A-Za-z0-9-]+$/.test(revisionId)) {
+    throw new Error('Revision id is invalid.');
+  }
+  return revisionId;
+}
+
+function getGatewayAdminAgentMarkdownRevisionRecord(params: {
+  workspacePath: string;
+  fileName: AdminAgentMarkdownFileName;
+  revisionId: string;
+}): StoredAdminAgentMarkdownRevision {
+  const revisionId = normalizeGatewayAdminAgentMarkdownRevisionId(
+    params.revisionId,
+  );
+  const { revisionDir, entries } =
+    listGatewayAdminAgentMarkdownRevisionEntries(params);
+  const revisionEntry = entries.find(
+    (entry) =>
+      entry === `${revisionId}.json` || entry.endsWith(`-${revisionId}.json`),
+  );
+  if (!revisionEntry) {
+    throw new Error(`Revision "${revisionId}" was not found.`);
+  }
+  const revisionPath = path.join(revisionDir, revisionEntry);
+  const record = readGatewayAdminAgentMarkdownRevisionRecord(revisionPath);
+  if (!record || record.fileName !== params.fileName) {
+    throw new Error(`Revision "${revisionId}" was not found.`);
+  }
+  return record;
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -870,6 +1493,7 @@ function buildGatewayProviderHealth(params: {
               ? 'Login required'
               : 'Not authenticated',
           }),
+      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
       modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
       detail:
         params.codex.authenticated && !params.codex.reloginRequired
@@ -883,19 +1507,25 @@ function buildGatewayProviderHealth(params: {
     {
       key: 'openrouter',
       enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(readOpenRouterApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
     },
     {
       key: 'mistral',
       enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(readMistralApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
     },
     {
       key: 'huggingface',
       enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(readHuggingFaceApiKey({ required: false })),
+      authenticated: Boolean(
+        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
+      ),
       modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
     },
   ] as const;
@@ -927,67 +1557,6 @@ function buildGatewayProviderHealth(params: {
   }
 
   return providerHealth;
-}
-
-function isOpenRouterAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.openrouter.enabled &&
-    Boolean(readOpenRouterApiKey({ required: false }))
-  );
-}
-
-function isHuggingFaceAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.huggingface.enabled &&
-    Boolean(readHuggingFaceApiKey({ required: false }))
-  );
-}
-
-function isMistralAvailableForModelCommands(): boolean {
-  const runtimeConfig = getRuntimeConfig();
-  return (
-    runtimeConfig.mistral.enabled &&
-    Boolean(readMistralApiKey({ required: false }))
-  );
-}
-
-function isModelAvailableForCurrentGatewayState(
-  model: string,
-  providerHealth: GatewayStatus['providerHealth'],
-): boolean {
-  switch (resolveModelProvider(model)) {
-    case 'hybridai':
-      return providerHealth?.hybridai?.reachable === true;
-    case 'openai-codex':
-      return providerHealth?.codex?.reachable === true;
-    case 'openrouter':
-      return isOpenRouterAvailableForModelCommands();
-    case 'mistral':
-      return isMistralAvailableForModelCommands();
-    case 'huggingface':
-      return isHuggingFaceAvailableForModelCommands();
-    case 'ollama':
-      return providerHealth?.ollama?.reachable === true;
-    case 'lmstudio':
-      return providerHealth?.lmstudio?.reachable === true;
-    case 'llamacpp':
-      return providerHealth?.llamacpp?.reachable === true;
-    case 'vllm':
-      return providerHealth?.vllm?.reachable === true;
-    default:
-      return true;
-  }
-}
-
-function filterModelsForCurrentGatewayState(
-  models: string[],
-  providerHealth: GatewayStatus['providerHealth'],
-): string[] {
-  return models.filter((model) =>
-    isModelAvailableForCurrentGatewayState(model, providerHealth),
-  );
 }
 
 async function getGatewayStatusForModelSubcommand(
@@ -2055,6 +2624,33 @@ function resolveGatewayPasswordStatus(params: {
   };
 }
 
+function resolveGatewayVoiceAuthStatus(params: {
+  envValues: Array<string | undefined>;
+  configValue: string;
+  storedValue?: string;
+}): Pick<
+  NonNullable<GatewayStatus['voice']>,
+  'authTokenConfigured' | 'authTokenSource'
+> {
+  const credential = resolveRuntimeCredentialStatus(
+    'TWILIO_AUTH_TOKEN',
+    params.envValues,
+    params.storedValue,
+  );
+  if (credential.source) {
+    return {
+      authTokenConfigured: Boolean(credential.value),
+      authTokenSource: credential.source,
+    };
+  }
+
+  const configValue = String(params.configValue || '').trim();
+  return {
+    authTokenConfigured: Boolean(configValue),
+    authTokenSource: configValue ? 'config' : null,
+  };
+}
+
 function resolveGatewayTokenStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
@@ -2083,7 +2679,7 @@ function resolveGatewayTokenStatus(params: {
 function buildOpenRouterAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
-    process.env.OPENROUTER_API_KEY,
+    OPENROUTER_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2100,7 +2696,7 @@ function buildOpenRouterAuthStatusLines(): string[] {
 function buildMistralAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('MISTRAL_API_KEY', [
-    process.env.MISTRAL_API_KEY,
+    MISTRAL_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2117,8 +2713,7 @@ function buildMistralAuthStatusLines(): string[] {
 function buildHuggingFaceAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('HF_TOKEN', [
-    process.env.HF_TOKEN,
-    process.env.HUGGINGFACE_API_KEY,
+    HUGGINGFACE_API_KEY,
   ]);
   return [
     `Authenticated: ${credential.value ? 'yes' : 'no'}`,
@@ -2169,13 +2764,10 @@ function buildLocalAuthStatusLines(): string[] {
 function buildMSTeamsAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const credential = resolveRuntimeCredentialStatus('MSTEAMS_APP_PASSWORD', [
-    process.env.MSTEAMS_APP_PASSWORD,
+    MSTEAMS_APP_PASSWORD,
   ]);
-  const appId =
-    String(process.env.MSTEAMS_APP_ID || '').trim() || config.msteams.appId;
-  const tenantId =
-    String(process.env.MSTEAMS_TENANT_ID || '').trim() ||
-    config.msteams.tenantId;
+  const appId = MSTEAMS_APP_ID;
+  const tenantId = MSTEAMS_TENANT_ID;
   return [
     `Authenticated: ${appId && credential.value ? 'yes' : 'no'}`,
     ...(credential.source ? [`Source: ${credential.source}`] : []),
@@ -2230,99 +2822,6 @@ function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
         title: 'Microsoft Teams Auth Status',
         lines: buildMSTeamsAuthStatusLines(),
       };
-  }
-}
-
-function buildProviderEnableCommand(
-  provider: 'openrouter' | 'mistral' | 'huggingface',
-): string {
-  return `config set ${provider}.enabled true`;
-}
-
-function buildModelListProviderSetupMessage(
-  providerArg: string,
-): string | null {
-  const provider = normalizeModelCatalogProviderFilter(providerArg);
-  const config = getRuntimeConfig();
-  switch (provider) {
-    case 'hybridai': {
-      if (getHybridAIAuthStatus().authenticated) return null;
-      return [
-        'HybridAI is not authorized.',
-        'Authorize it first from a terminal:',
-        '  hybridclaw auth login hybridai',
-        'Then rerun `model list hybridai`.',
-      ].join('\n');
-    }
-    case 'openai-codex': {
-      const status = getCodexAuthStatus();
-      if (status.authenticated && !status.reloginRequired) return null;
-      return [
-        status.reloginRequired
-          ? 'Codex authorization expired.'
-          : 'Codex is not authorized.',
-        'Authorize it first from a terminal:',
-        '  hybridclaw auth login codex',
-        'Then rerun `model list codex`.',
-      ].join('\n');
-    }
-    case 'openrouter': {
-      const authorized = Boolean(readOpenRouterApiKey({ required: false }));
-      if (authorized && config.openrouter.enabled) return null;
-      return [
-        !authorized
-          ? 'OpenRouter is not authorized.'
-          : 'OpenRouter is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login openrouter',
-            ]
-          : []),
-        ...(config.openrouter.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('openrouter')}`]),
-        'Then rerun `model list openrouter`.',
-      ].join('\n');
-    }
-    case 'mistral': {
-      const authorized = Boolean(readMistralApiKey({ required: false }));
-      if (authorized && config.mistral.enabled) return null;
-      return [
-        !authorized ? 'Mistral is not authorized.' : 'Mistral is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login mistral',
-            ]
-          : []),
-        ...(config.mistral.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('mistral')}`]),
-        'Then rerun `model list mistral`.',
-      ].join('\n');
-    }
-    case 'huggingface': {
-      const authorized = Boolean(readHuggingFaceApiKey({ required: false }));
-      if (authorized && config.huggingface.enabled) return null;
-      return [
-        !authorized
-          ? 'Hugging Face is not authorized.'
-          : 'Hugging Face is disabled.',
-        ...(!authorized
-          ? [
-              'Authorize it first from a terminal:',
-              '  hybridclaw auth login huggingface',
-            ]
-          : []),
-        ...(config.huggingface.enabled
-          ? []
-          : ['Enable it:', `  ${buildProviderEnableCommand('huggingface')}`]),
-        'Then rerun `model list huggingface`.',
-      ].join('\n');
-    }
-    default:
-      return null;
   }
 }
 
@@ -2719,6 +3218,59 @@ function normalizeSecretRoutePrefix(raw: string | undefined): string {
   return normalized;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = String(hostname || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
+  url?: string;
+  error?: string;
+} {
+  const baseUrl = String(GATEWAY_BASE_URL || '').trim();
+  if (!baseUrl) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return {
+      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
+    };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
+    };
+  }
+
+  if (isLoopbackHostname(parsed.hostname)) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
+    };
+  }
+
+  const paths = resolveVoiceWebhookPaths(webhookBasePath);
+  const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
+  return {
+    url: `${normalizedBaseUrl}${paths.webhookPath}`,
+  };
+}
+
 function formatHttpRequestAuthRule(
   rule: RuntimeHttpRequestAuthRule,
   index: number,
@@ -2948,6 +3500,7 @@ export function buildTokenUsageAuditPayload(
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
+  const hybridai = getHybridAIAuthStatus();
   const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
     await Promise.allSettled([
       localBackendsProbe.get(),
@@ -2993,7 +3546,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   });
   const discordCredential = resolveRuntimeCredentialStatus(
     'DISCORD_TOKEN',
-    [process.env.DISCORD_TOKEN],
+    [DISCORD_TOKEN],
     storedSecrets.DISCORD_TOKEN,
   );
   const discord = {
@@ -3002,12 +3555,12 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   } as NonNullable<GatewayStatus['discord']>;
   const slackBotCredential = resolveRuntimeCredentialStatus(
     'SLACK_BOT_TOKEN',
-    [process.env.SLACK_BOT_TOKEN],
+    [SLACK_BOT_TOKEN],
     storedSecrets.SLACK_BOT_TOKEN,
   );
   const slackAppCredential = resolveRuntimeCredentialStatus(
     'SLACK_APP_TOKEN',
-    [process.env.SLACK_APP_TOKEN],
+    [SLACK_APP_TOKEN],
     storedSecrets.SLACK_APP_TOKEN,
   );
   const slack = {
@@ -3018,21 +3571,26 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   } as NonNullable<GatewayStatus['slack']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
-    envValues: [process.env.TELEGRAM_BOT_TOKEN],
+    envValues: [TELEGRAM_BOT_TOKEN],
     configValue: runtimeConfig.telegram.botToken,
     storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
   });
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
-    envValues: [process.env.EMAIL_PASSWORD],
+    envValues: [EMAIL_PASSWORD],
     configValue: runtimeConfig.email.password,
     storedValue: storedSecrets.EMAIL_PASSWORD,
   });
   const imessage = resolveGatewayPasswordStatus({
     storedSecretName: 'IMESSAGE_PASSWORD',
-    envValues: [process.env.IMESSAGE_PASSWORD],
+    envValues: [IMESSAGE_PASSWORD],
     configValue: runtimeConfig.imessage.password,
     storedValue: storedSecrets.IMESSAGE_PASSWORD,
+  });
+  const voiceAuth = resolveGatewayVoiceAuthStatus({
+    envValues: [TWILIO_AUTH_TOKEN],
+    configValue: runtimeConfig.voice.twilio.authToken,
+    storedValue: storedSecrets.TWILIO_AUTH_TOKEN,
   });
   return {
     status: 'ok',
@@ -3057,6 +3615,10 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       expiresAt: codex.expiresAt,
       reloginRequired: codex.reloginRequired,
     },
+    hybridai: {
+      apiKeyConfigured: hybridai.authenticated,
+      apiKeySource: hybridai.source,
+    },
     sandbox,
     observability: getObservabilityIngestState(),
     scheduler: {
@@ -3067,6 +3629,19 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     telegram,
     email,
     imessage,
+    voice: {
+      enabled: runtimeConfig.voice.enabled,
+      accountSidConfigured: Boolean(
+        runtimeConfig.voice.twilio.accountSid.trim(),
+      ),
+      fromNumberConfigured: Boolean(
+        runtimeConfig.voice.twilio.fromNumber.trim(),
+      ),
+      authTokenConfigured: voiceAuth.authTokenConfigured,
+      authTokenSource: voiceAuth.authTokenSource,
+      webhookPath: runtimeConfig.voice.webhookPath,
+      maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
+    },
     whatsapp: {
       ...whatsappAuth,
       pairingQrText: whatsappPairing.pairingQrText,
@@ -3093,18 +3668,155 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   };
 }
 
-export function getGatewayAdminAgents(): {
-  agents: Array<ReturnType<typeof mapGatewayAdminAgent>>;
-} {
+export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   return {
-    agents: listAgents().map((agent) => mapGatewayAdminAgent(agent)),
+    agents: listAgents().map((agent) => {
+      const resolved = resolveAgentConfig(agent.id);
+      const workspacePath = path.resolve(agentWorkspaceDir(resolved.id));
+      return mapGatewayAdminAgent(agent, {
+        resolvedAgent: resolved,
+        workspacePath,
+        markdownFileStats:
+          getGatewayAdminAgentMarkdownFilePresenceStats(workspacePath),
+      });
+    }),
   };
+}
+
+export function getGatewayAdminAgentMarkdownFile(
+  agentId: string,
+  fileName: string,
+): GatewayAdminAgentMarkdownFileResponse {
+  const resolved = resolveGatewayAdminAgentMarkdownFile({ agentId, fileName });
+  return buildGatewayAdminAgentMarkdownFileResponse({ resolved });
+}
+
+export function getGatewayAdminAgentMarkdownRevision(params: {
+  agentId: string;
+  fileName: string;
+  revisionId: string;
+}): GatewayAdminAgentMarkdownRevisionResponse {
+  const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  const revision = getGatewayAdminAgentMarkdownRevisionRecord({
+    workspacePath: resolved.workspacePath,
+    fileName: resolved.fileName,
+    revisionId: params.revisionId,
+  });
+  return {
+    agent: mapGatewayAdminAgent(resolved.agent, {
+      resolvedAgent: resolved.resolvedAgent,
+      workspacePath: resolved.workspacePath,
+      markdownFileStats: getGatewayAdminAgentMarkdownFilePresenceStats(
+        resolved.workspacePath,
+      ),
+    }),
+    fileName: resolved.fileName,
+    revision: {
+      id: revision.id,
+      createdAt: revision.createdAt,
+      sizeBytes: revision.sizeBytes,
+      sha256: revision.sha256,
+      source: revision.source,
+      content: revision.content,
+    },
+  };
+}
+
+export function saveGatewayAdminAgentMarkdownFile(params: {
+  agentId: string;
+  fileName: string;
+  content: string;
+}): GatewayAdminAgentMarkdownFileResponse {
+  const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
+    params.content,
+  );
+  const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  const currentState = readGatewayAdminAgentMarkdownFileState(
+    resolved.filePath,
+  );
+  if (currentState.exists && currentState.content === params.content) {
+    return buildGatewayAdminAgentMarkdownFileResponse({
+      resolved,
+      fileState: currentState,
+    });
+  }
+  if (currentState.exists) {
+    writeGatewayAdminAgentMarkdownRevision({
+      workspacePath: resolved.workspacePath,
+      fileName: resolved.fileName,
+      content: currentState.content,
+      source: 'save',
+    });
+  }
+  const nextStats = writeGatewayAdminAgentMarkdownFileContent(
+    resolved.filePath,
+    params.content,
+    {
+      sizeBytes: nextSizeBytes,
+    },
+  );
+  return buildGatewayAdminAgentMarkdownFileResponse({
+    resolved,
+    fileState: {
+      ...nextStats,
+      content: params.content,
+    },
+  });
+}
+
+export function restoreGatewayAdminAgentMarkdownRevision(params: {
+  agentId: string;
+  fileName: string;
+  revisionId: string;
+}): GatewayAdminAgentMarkdownFileResponse {
+  const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  const revision = getGatewayAdminAgentMarkdownRevisionRecord({
+    workspacePath: resolved.workspacePath,
+    fileName: resolved.fileName,
+    revisionId: params.revisionId,
+  });
+  const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
+    revision.content,
+    'Markdown revision content',
+  );
+  const currentState = readGatewayAdminAgentMarkdownFileState(
+    resolved.filePath,
+  );
+  if (currentState.exists && currentState.content === revision.content) {
+    return buildGatewayAdminAgentMarkdownFileResponse({
+      resolved,
+      fileState: currentState,
+    });
+  }
+  if (currentState.exists) {
+    writeGatewayAdminAgentMarkdownRevision({
+      workspacePath: resolved.workspacePath,
+      fileName: resolved.fileName,
+      content: currentState.content,
+      source: 'restore',
+    });
+  }
+  const nextStats = writeGatewayAdminAgentMarkdownFileContent(
+    resolved.filePath,
+    revision.content,
+    {
+      sizeBytes: nextSizeBytes,
+    },
+  );
+  return buildGatewayAdminAgentMarkdownFileResponse({
+    resolved,
+    fileState: {
+      ...nextStats,
+      content: revision.content,
+    },
+  });
 }
 
 export function createGatewayAdminAgent(params: {
   id: string;
   name?: string | null;
   model?: string | null;
+  skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
   workspace?: string | null;
@@ -3113,6 +3825,9 @@ export function createGatewayAdminAgent(params: {
     id: params.id,
     ...(params.name?.trim() ? { name: params.name.trim() } : {}),
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
+    ...(params.skills !== undefined
+      ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
     ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
@@ -3129,6 +3844,7 @@ export function updateGatewayAdminAgent(
   params: {
     name?: string | null;
     model?: string | null;
+    skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
     workspace?: string | null;
@@ -3145,6 +3861,9 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(params.model !== undefined
       ? { model: params.model?.trim() || undefined }
+      : {}),
+    ...(params.skills !== undefined
+      ? { skills: params.skills == null ? undefined : [...params.skills] }
       : {}),
     ...(params.chatbotId !== undefined
       ? { chatbotId: params.chatbotId?.trim() || undefined }
@@ -3382,7 +4101,7 @@ function resolveGatewayAdminEmailPassword(
   runtimeConfig: RuntimeConfig,
 ): string {
   const credential = resolveRuntimeCredentialStatus('EMAIL_PASSWORD', [
-    process.env.EMAIL_PASSWORD,
+    EMAIL_PASSWORD,
   ]);
   return credential.value || String(runtimeConfig.email.password || '').trim();
 }
@@ -3825,6 +4544,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
       { ...value },
     ]),
   ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
+  const REMOTE_OPENAI_COMPAT_KEYS = [
+    'openrouter',
+    'mistral',
+    'huggingface',
+    'gemini',
+    'deepseek',
+    'xai',
+    'zai',
+    'kimi',
+    'minimax',
+    'dashscope',
+    'xiaomi',
+    'kilo',
+  ] as const;
+  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
+    if (providerStatus[key]) continue;
+    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
+    providerStatus[key] = {
+      kind: 'remote',
+      reachable: diagnostic === null,
+      ...(diagnostic
+        ? {
+            error: diagnostic.message,
+            loginRequired: diagnostic.kind === 'unauthorized',
+          }
+        : {}),
+    };
+  }
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -3834,25 +4581,34 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     const normalized = modelId.trim().toLowerCase();
     if (!normalized) continue;
 
-    let providerKey: keyof NonNullable<
+    type ProviderKey = keyof NonNullable<
       GatewayAdminModelsResponse['providerStatus']
-    > = 'hybridai';
-    if (normalized.startsWith('openai-codex/')) {
-      providerKey = 'codex';
-    } else if (normalized.startsWith('openrouter/')) {
-      providerKey = 'openrouter';
-    } else if (normalized.startsWith('mistral/')) {
-      providerKey = 'mistral';
-    } else if (normalized.startsWith('huggingface/')) {
-      providerKey = 'huggingface';
-    } else if (normalized.startsWith('ollama/')) {
-      providerKey = 'ollama';
-    } else if (normalized.startsWith('lmstudio/')) {
-      providerKey = 'lmstudio';
-    } else if (normalized.startsWith('llamacpp/')) {
-      providerKey = 'llamacpp';
-    } else if (normalized.startsWith('vllm/')) {
-      providerKey = 'vllm';
+    >;
+    const PROVIDER_KEY_BY_PREFIX: Array<[string, ProviderKey]> = [
+      ['openai-codex/', 'codex'],
+      ['openrouter/', 'openrouter'],
+      ['mistral/', 'mistral'],
+      ['huggingface/', 'huggingface'],
+      ['gemini/', 'gemini'],
+      ['deepseek/', 'deepseek'],
+      ['xai/', 'xai'],
+      ['zai/', 'zai'],
+      ['kimi/', 'kimi'],
+      ['minimax/', 'minimax'],
+      ['dashscope/', 'dashscope'],
+      ['xiaomi/', 'xiaomi'],
+      ['kilo/', 'kilo'],
+      ['ollama/', 'ollama'],
+      ['lmstudio/', 'lmstudio'],
+      ['llamacpp/', 'llamacpp'],
+      ['vllm/', 'vllm'],
+    ];
+    let providerKey: ProviderKey = 'hybridai';
+    for (const [prefix, key] of PROVIDER_KEY_BY_PREFIX) {
+      if (normalized.startsWith(prefix)) {
+        providerKey = key;
+        break;
+      }
     }
 
     modelCountByProvider.set(
@@ -3876,10 +4632,20 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         ) || 0,
     };
   }
+  const sortedProviderStatus = Object.fromEntries(
+    Object.entries(providerStatus).sort(
+      ([leftKey, left], [rightKey, right]) => {
+        const leftEnabled = left.reachable === true;
+        const rightEnabled = right.reachable === true;
+        if (leftEnabled !== rightEnabled) return leftEnabled ? -1 : 1;
+        return leftKey.localeCompare(rightKey);
+      },
+    ),
+  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
 
   return {
     defaultModel,
-    providerStatus,
+    providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
         const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
@@ -4003,6 +4769,188 @@ export function getGatewayAdminAudit(params?: {
       limit,
     }).map(mapAdminAuditEntry),
   };
+}
+
+function listGatewayAdminApprovalAgents(
+  selectedAgentId: string,
+): GatewayAdminApprovalAgent[] {
+  const agents = new Map<string, GatewayAdminApprovalAgent>();
+
+  for (const agentId of [
+    selectedAgentId,
+    ...listAgents().map((agent) => agent.id),
+  ]) {
+    const resolved = resolveAgentConfig(agentId);
+    agents.set(resolved.id, {
+      id: resolved.id,
+      name: resolved.name || null,
+      workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+    });
+  }
+
+  return [...agents.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+}
+
+function mapGatewayAdminPolicyRule(
+  rule: ReturnType<typeof readPolicyState>['rules'][number],
+): GatewayAdminPolicyRule {
+  return {
+    index: rule.index,
+    action: rule.action,
+    host: rule.host,
+    port: rule.port,
+    methods: [...rule.methods],
+    paths: [...rule.paths],
+    agent: rule.agent,
+    ...(rule.comment ? { comment: rule.comment } : {}),
+    ...(rule.managedByPreset ? { managedByPreset: rule.managedByPreset } : {}),
+  };
+}
+
+function mapGatewayAdminPolicyStateValue(
+  state: ReturnType<typeof readPolicyState>,
+): GatewayAdminPolicyState {
+  return {
+    exists: state.exists,
+    policyPath: state.policyPath,
+    workspacePath: state.workspacePath,
+    defaultAction: state.defaultAction,
+    presets: [...state.presets],
+    rules: state.rules.map(mapGatewayAdminPolicyRule),
+  };
+}
+
+function mapGatewayAdminPolicyState(agentId: string): GatewayAdminPolicyState {
+  return mapGatewayAdminPolicyStateValue(
+    readPolicyState(path.resolve(agentWorkspaceDir(agentId))),
+  );
+}
+
+function mapGatewayAdminPolicyPresetSummary(
+  preset: PolicyPresetSummary,
+): GatewayAdminPolicyPresetSummary {
+  return {
+    name: preset.name,
+    description: preset.description,
+  };
+}
+
+function resolveGatewayAdminPolicyWorkspace(agentId?: string): string {
+  const resolved = resolveAgentConfig(agentId);
+  return path.resolve(agentWorkspaceDir(resolved.id));
+}
+
+function mapGatewayAdminPendingApproval(
+  pending: ReturnType<typeof listPendingApprovals>[number],
+  sessionAgentIds: Map<string, string>,
+): GatewayAdminPendingApproval {
+  return {
+    sessionId: pending.sessionId,
+    agentId: sessionAgentIds.get(pending.sessionId) || null,
+    approvalId: pending.entry.approvalId,
+    userId: pending.entry.userId,
+    prompt: pending.entry.prompt,
+    createdAt: new Date(pending.entry.createdAt).toISOString(),
+    expiresAt: new Date(pending.entry.expiresAt).toISOString(),
+    allowSession: pending.entry.commandAction?.allowSession === true,
+    allowAgent: pending.entry.commandAction?.allowAgent === true,
+    allowAll: pending.entry.commandAction?.allowAll === true,
+    actionKey: pending.entry.commandAction?.actionKey?.trim() || null,
+  };
+}
+
+export function getGatewayAdminApprovals(params?: {
+  agentId?: string;
+}): GatewayAdminApprovalsResponse {
+  const selectedAgentId = resolveAgentConfig(params?.agentId).id;
+  const sessionAgentIds = new Map(
+    getAllSessions().map((session) => [
+      session.id,
+      resolveAgentForRequest({ session }).agentId,
+    ]),
+  );
+
+  return {
+    selectedAgentId,
+    agents: listGatewayAdminApprovalAgents(selectedAgentId),
+    pending: listPendingApprovals().map((pending) =>
+      mapGatewayAdminPendingApproval(pending, sessionAgentIds),
+    ),
+    policy: mapGatewayAdminPolicyState(selectedAgentId),
+    availablePresets: listPolicyPresetSummaries().map(
+      mapGatewayAdminPolicyPresetSummary,
+    ),
+  };
+}
+
+export function saveGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index?: number | null;
+  rule: Parameters<typeof addPolicyRule>[1];
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state =
+      input.index != null
+        ? updatePolicyRule(workspacePath, input.index, input.rule)
+        : addPolicyRule(workspacePath, input.rule);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function deleteGatewayAdminPolicyRule(input: {
+  agentId?: string;
+  index: number;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyDefault(input: {
+  agentId?: string;
+  defaultAction: 'allow' | 'deny';
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setPolicyDefault(workspacePath, input.defaultAction);
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function applyGatewayAdminPolicyPreset(input: {
+  agentId?: string;
+  presetName: string;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
@@ -4130,7 +5078,7 @@ export function createGatewayAdminSkill(input: {
   const category = normalizeCreatedSkillCategory(input.category);
   const shortDescription = String(input.shortDescription || '').trim();
 
-  const projectSkillsDir = path.join(process.cwd(), 'skills');
+  const projectSkillsDir = resolveManagedCommunitySkillsDir();
   const skillDir = path.join(projectSkillsDir, name);
 
   if (fs.existsSync(skillDir)) {
@@ -4209,7 +5157,7 @@ export function createGatewayAdminSkill(input: {
   // Stage outside skills/ so catalog scans never see partial skill directories.
   fs.mkdirSync(projectSkillsDir, { recursive: true });
   const stagedSkillDir = fs.mkdtempSync(
-    path.join(process.cwd(), `.${name}.create-`),
+    path.join(projectSkillsDir, `.${name}.create-`),
   );
   try {
     fs.writeFileSync(path.join(stagedSkillDir, 'SKILL.md'), content, 'utf-8');
@@ -4400,7 +5348,7 @@ export async function uploadGatewayAdminSkillZip(
     }
     assertGatewayAdminSkillAllowed(skillName, skillRoot);
 
-    const projectSkillsDir = path.join(process.cwd(), 'skills');
+    const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
     if (fs.existsSync(targetDir)) {
       throw new GatewayRequestError(
@@ -4905,11 +5853,13 @@ export function getGatewayRecentChatSessions(params: {
   userId: string;
   channelId?: string | null;
   limit?: number;
+  query?: string | null;
 }): GatewayRecentChatSession[] {
   return getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
+    query: params.query,
   });
 }
 
@@ -5169,14 +6119,12 @@ async function runDelegationTaskWithRetry(
   let lastError = 'Delegation failed with unknown error';
   let lastStatus: DelegationRunStatus = 'failed';
   let lastDuration = 0;
-  let lastSessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
   let lastToolsUsed: string[] = [];
   let lastArtifacts: ArtifactMetadata[] | undefined;
 
   while (attempt < maxAttempts) {
     attempt += 1;
-    const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
-    lastSessionId = sessionId;
     const startedAt = Date.now();
     try {
       const output = await runAgent({
@@ -5206,6 +6154,7 @@ async function runDelegationTaskWithRetry(
       lastArtifacts = output.artifacts;
 
       if (output.status === 'success' && output.result?.trim()) {
+        stopSessionHostProcess(sessionId);
         return {
           status: 'completed',
           sessionId,
@@ -5265,9 +6214,10 @@ async function runDelegationTaskWithRetry(
     }
   }
 
+  stopSessionHostProcess(sessionId);
   return {
     status: lastStatus,
-    sessionId: lastSessionId,
+    sessionId,
     model: task.model,
     durationMs: lastDuration,
     attempts: attempt,
@@ -5665,7 +6615,9 @@ export async function handleGatewayCommand(
   function isLocalSession(req: GatewayCommandRequest): boolean {
     return (
       req.guildId === null &&
-      (req.channelId === 'web' || req.channelId === 'tui')
+      (req.channelId === 'web' ||
+        req.channelId === 'tui' ||
+        req.channelId === 'cli')
     );
   }
 
@@ -5713,23 +6665,6 @@ export async function handleGatewayCommand(
     if (
       catalogModels.length > 0 &&
       !catalogModels.includes(resolvedModelName)
-    ) {
-      return {
-        ok: false,
-        result: badCommand(
-          'Unknown Model',
-          `\`${rawModelName}\` is not in the available models list.`,
-        ),
-      };
-    }
-    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
-    const availableModels = filterModelsForCurrentGatewayState(
-      catalogModels,
-      gatewayStatus.providerHealth,
-    );
-    if (
-      availableModels.length > 0 &&
-      !availableModels.includes(resolvedModelName)
     ) {
       return {
         ok: false,
@@ -6223,6 +7158,24 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'btw': {
+        const question = req.args.slice(1).join(' ').trim();
+        if (!question) {
+          return badCommand('Usage', 'Usage: `/btw <question>`');
+        }
+        try {
+          return infoCommand(
+            'BTW',
+            await runBtwSideQuestion(session, question),
+          );
+        } catch (error) {
+          return badCommand(
+            'BTW Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
       case 'model': {
         const sub = req.args[1]?.toLowerCase();
         const providerFilterArg = sub === 'list' ? req.args[2] : undefined;
@@ -6252,12 +7205,7 @@ export async function handleGatewayCommand(
           ? await getGatewayStatusForModelSubcommand(sub)
           : null;
         const availableModels =
-          gatewayStatus == null
-            ? []
-            : filterModelsForCurrentGatewayState(
-                getAvailableModelList(),
-                gatewayStatus.providerHealth,
-              );
+          gatewayStatus == null ? [] : getAvailableModelList();
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
@@ -6277,15 +7225,22 @@ export async function handleGatewayCommand(
               'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
+          if (providerFilter && gatewayStatus) {
+            const diagnostic = diagnoseProviderForModels(
+              providerFilter,
+              gatewayStatus.providerHealth,
+            );
+            if (diagnostic) {
+              return infoCommand(
+                `Available Models (${providerFilterArg})`,
+                diagnostic.message,
+              );
+            }
+          }
           const listedModels =
             gatewayStatus == null
               ? []
-              : filterModelsForCurrentGatewayState(
-                  getAvailableModelListWithOptions(providerFilterArg, {
-                    expanded: expandedModelList,
-                  }),
-                  gatewayStatus.providerHealth,
-                );
+              : getAvailableModelList(providerFilterArg);
           const current = resolveRequestedCatalogModelName(
             runtime.model,
             listedModels,
@@ -6304,8 +7259,7 @@ export async function handleGatewayCommand(
             return infoCommand(
               'Available Models',
               providerFilterArg
-                ? (buildModelListProviderSetupMessage(providerFilterArg) ??
-                    `No models available for provider \`${providerFilterArg}\`.`)
+                ? `No models available for provider \`${providerFilterArg}\`.`
                 : 'No models available.',
             );
           }
@@ -6313,7 +7267,7 @@ export async function handleGatewayCommand(
             providerFilterArg
               ? `Available Models (${providerFilterArg})`
               : 'Available Models',
-            list,
+            `${list}\n\n${formatModelCountSuffix(modelCatalog.length)}`,
             undefined,
             { modelCatalog },
           );
@@ -6367,15 +7321,6 @@ export async function handleGatewayCommand(
             modelName,
             availableModels,
           );
-          if (
-            availableModels.length > 0 &&
-            !availableModels.includes(normalizedModelName)
-          ) {
-            return badCommand(
-              'Unknown Model',
-              `\`${modelName}\` is not in the available models list.`,
-            );
-          }
           const modelContextWindowTokens =
             resolveKnownModelContextWindow(normalizedModelName);
           updateSessionModel(session.id, normalizedModelName);
@@ -6938,6 +7883,113 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'voice': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Voice Command Restricted',
+            '`voice` can place outbound calls and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const voiceConfig = getRuntimeConfig().voice;
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const publicWebhook = resolveVoiceCommandWebhookUrl(
+          voiceConfig.webhookPath,
+        );
+
+        if (!sub || sub === 'info' || sub === 'status') {
+          return infoCommand(
+            'Voice',
+            [
+              `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
+              `Provider: ${voiceConfig.provider}`,
+              `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
+              `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
+              `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
+              publicWebhook.url
+                ? `Webhook: ${publicWebhook.url}`
+                : `Webhook: unavailable (${publicWebhook.error})`,
+              'Usage: `voice call <e164-number>`',
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'call') {
+          if (!voiceConfig.enabled) {
+            return badCommand(
+              'Voice Disabled',
+              'Enable `voice.enabled` before using `voice call`.',
+            );
+          }
+
+          if (voiceConfig.provider !== 'twilio') {
+            return badCommand(
+              'Voice Provider Unsupported',
+              `\`voice call\` currently supports only the Twilio provider, but configured provider is \`${voiceConfig.provider}\`.`,
+            );
+          }
+
+          const to = normalizeTwilioPhoneNumber(req.args.slice(2).join(' '));
+          if (!to) {
+            return badCommand('Usage', 'Usage: `voice call <e164-number>`');
+          }
+
+          const accountSid = voiceConfig.twilio.accountSid.trim();
+          if (!accountSid) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.accountSid` before using `voice call`.',
+            );
+          }
+
+          const from = normalizeTwilioPhoneNumber(
+            voiceConfig.twilio.fromNumber,
+          );
+          if (!from) {
+            return badCommand(
+              'Voice Not Configured',
+              'Set `voice.twilio.fromNumber` to an E.164 number like `+14155550123` before using `voice call`.',
+            );
+          }
+
+          const authToken = String(TWILIO_AUTH_TOKEN || '').trim();
+          if (!authToken) {
+            return badCommand(
+              'Voice Not Configured',
+              'Store `TWILIO_AUTH_TOKEN` in the encrypted secret store before using `voice call`.',
+            );
+          }
+
+          if (!publicWebhook.url) {
+            return badCommand(
+              'Voice Webhook Not Public',
+              publicWebhook.error ||
+                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
+            );
+          }
+
+          try {
+            const call = await createTwilioOutboundCall({
+              accountSid,
+              authToken,
+              from,
+              to,
+              url: publicWebhook.url,
+            });
+            return plainCommand(
+              `Calling ${call.to} from ${call.from} via Twilio (Call SID: ${call.sid}, status: ${call.status}).`,
+            );
+          } catch (error) {
+            return badCommand(
+              'Voice Call Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
+      }
+
       case 'config': {
         if (!isLocalSession(req)) {
           return badCommand(
@@ -7046,6 +8098,29 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
         );
+      }
+
+      case 'policy': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Policy Restricted',
+            '`policy` manages local workspace network rules and is only available from local TUI/web sessions.',
+          );
+        }
+        const runtime = resolveSessionRuntimeTarget(session);
+        const result = runPolicyCommand(req.args.slice(1), {
+          workspacePath: runtime.workspacePath,
+        });
+        if (result.kind === 'error') {
+          return badCommand(
+            result.title || 'Policy Command Failed',
+            result.text,
+          );
+        }
+        if (result.kind === 'info') {
+          return infoCommand(result.title || 'Policy', result.text);
+        }
+        return plainCommand(result.text);
       }
 
       case 'stop':
@@ -7332,13 +8407,6 @@ export async function handleGatewayCommand(
       }
 
       case 'dream': {
-        if (!isLocalSession(req)) {
-          return badCommand(
-            'Dream Restricted',
-            '`dream` consolidates local workspace memory and is only available from local TUI/web sessions.',
-          );
-        }
-
         const sub = (req.args[1] || '').trim().toLowerCase();
         const currentConfig = getRuntimeConfig();
         const currentIntervalHours = Math.max(
@@ -7476,6 +8544,10 @@ export async function handleGatewayCommand(
         const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
+        const containerImageStatus =
+          status.sandbox?.mode === 'container' && status.sandbox.image
+            ? await resolveContainerImageStatus(status.sandbox.image)
+            : null;
         const sessionModel = runtime.model;
         if (sessionModel.trim().toLowerCase().startsWith('huggingface/')) {
           await discoverHuggingFaceModels();
@@ -7530,6 +8602,20 @@ export async function handleGatewayCommand(
           `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
           `🤖 Agent: ${runtime.agentId}`,
           `📁 CWD: ${runtime.workspacePath}`,
+          ...(status.sandbox?.mode === 'container' && status.sandbox.image
+            ? [
+                `🐳 Container: ${status.sandbox.image} · ${[
+                  containerImageStatus?.version
+                    ? `v${containerImageStatus.version}`
+                    : 'version unavailable',
+                  containerImageStatus?.shortId
+                    ? `id ${containerImageStatus.shortId}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}`,
+              ]
+            : []),
           `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,

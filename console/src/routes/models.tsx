@@ -2,17 +2,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
+import { useToast } from '../components/toast';
 import {
   PageHeader,
   Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
   formatRelativeTime,
   formatTokenBreakdown,
   formatUsd,
+  pluralize,
 } from '../lib/format';
 import { compareNumber, compareText } from '../lib/sort';
 
@@ -144,6 +147,7 @@ function formatModelMetadata(model: ModelEntry): string {
 export function ModelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
 
@@ -161,6 +165,10 @@ export function ModelsPage() {
       queryClient.setQueryData(['models', auth.token], payload);
       setDraft(createDraft(payload));
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      toast.success(`Default model is now ${payload.defaultModel}.`);
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -294,17 +302,6 @@ export function ModelsPage() {
                   {saveMutation.isPending ? 'Saving...' : 'Save selection'}
                 </button>
               </div>
-
-              {saveMutation.isSuccess ? (
-                <p className="success-banner">
-                  Default model is now {saveMutation.data.defaultModel}.
-                </p>
-              ) : null}
-              {saveMutation.isError ? (
-                <p className="error-banner">
-                  {(saveMutation.error as Error).message}
-                </p>
-              ) : null}
             </div>
           )}
         </Panel>
@@ -312,7 +309,7 @@ export function ModelsPage() {
 
       <Panel
         title="Catalog"
-        subtitle={`${models.length} model${models.length === 1 ? '' : 's'} visible`}
+        subtitle={`${pluralize(models.length, 'model')} visible`}
       >
         {modelsQuery.isLoading ? (
           <div className="empty-state">Loading model catalog...</div>
@@ -380,7 +377,7 @@ export function ModelsPage() {
                           </small>
                           <small>
                             {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
-                            {model.usageMonthly.callCount} calls
+                            {pluralize(model.usageMonthly.callCount, 'call')}
                           </small>
                         </>
                       ) : (
@@ -425,7 +422,7 @@ export function ModelsPage() {
                         inputTokens: model.usageDaily.totalInputTokens ?? 0,
                         outputTokens: model.usageDaily.totalOutputTokens ?? 0,
                       })}{' '}
-                      · {model.usageDaily.callCount} calls today
+                      · {pluralize(model.usageDaily.callCount, 'call')} today
                     </small>
                   </div>
                   <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>

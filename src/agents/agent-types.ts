@@ -13,6 +13,7 @@ export interface AgentConfig {
   displayName?: string;
   imageAsset?: string;
   model?: AgentModelConfig;
+  skills?: string[];
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;

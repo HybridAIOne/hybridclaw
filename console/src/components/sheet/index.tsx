@@ -1,18 +1,3 @@
-/**
- * Sheet — a slide-in panel (drawer) built on our own accessibility primitives.
- *
- * Usage:
- *   <Sheet open={open} onOpenChange={setOpen}>
- *     <SheetContent side="left">
- *       <SheetHeader className="sr-only">
- *         <SheetTitle>Panel title</SheetTitle>
- *         <SheetDescription>What this panel does.</SheetDescription>
- *       </SheetHeader>
- *       …your content…
- *     </SheetContent>
- *   </Sheet>
- */
-
 import {
   createContext,
   type HTMLAttributes,
@@ -29,10 +14,6 @@ import { useScrollLock } from '../../hooks/useScrollLock';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
-// ---------------------------------------------------------------------------
-// Internal context
-// ---------------------------------------------------------------------------
-
 type SheetContextValue = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -48,15 +29,7 @@ function useSheetContext() {
   return ctx;
 }
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export type SheetSide = 'left' | 'right' | 'top' | 'bottom';
-
-// ---------------------------------------------------------------------------
-// Sheet (root)
-// ---------------------------------------------------------------------------
 
 /**
  * Controlled root — pass `open` + `onOpenChange` (same contract as a
@@ -84,10 +57,6 @@ export function Sheet(props: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// SheetContent
-// ---------------------------------------------------------------------------
-
 type SheetContentProps = HTMLAttributes<HTMLElement> & {
   /** Which edge the panel slides in from. Defaults to "right". */
   side?: SheetSide;
@@ -109,13 +78,14 @@ export function SheetContent({
   ...rest
 }: SheetContentProps) {
   const ctx = useSheetContext();
+  const portalRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const { open, onOpenChange, titleId, descriptionId } = ctx;
 
   useScrollLock(open);
   useFocusTrap(panelRef, open);
   useEscapeKeydown(() => onOpenChange(false), open);
-  useHideOthers(panelRef, open);
+  useHideOthers(portalRef, open);
 
   const sideClass = {
     left: styles.left,
@@ -127,7 +97,7 @@ export function SheetContent({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <>
+    <div ref={portalRef}>
       {/* Overlay — click to dismiss; permanently aria-hidden because Escape
           is the keyboard-accessible dismiss path. */}
       <div
@@ -136,8 +106,6 @@ export function SheetContent({
         aria-hidden="true"
         onClick={() => onOpenChange(false)}
       />
-
-      {/* Panel */}
       <section
         {...rest}
         ref={panelRef}
@@ -157,14 +125,10 @@ export function SheetContent({
       >
         {children}
       </section>
-    </>,
+    </div>,
     document.body,
   );
 }
-
-// ---------------------------------------------------------------------------
-// SheetHeader / SheetTitle / SheetDescription
-// ---------------------------------------------------------------------------
 
 /**
  * Wraps the accessible title and description. Always rendered visually

@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a reproducible defect, regression, crash, or broken behavior.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before filing, please:
+
+        - search existing issues and discussions
+        - test on the latest release if possible
+        - include exact commands, versions, and logs
+        - run `hybridclaw doctor` for setup/runtime failures
+  - type: dropdown
+    id: bug_type
+    attributes:
+      label: Bug type
+      options:
+        - Regression
+        - Crash or hang
+        - Incorrect behavior
+        - Broken documentation/example
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One concise sentence describing what is broken.
+      placeholder: "`hybridclaw tui` exits immediately when the gateway is reachable but Docker is unavailable."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide the shortest deterministic repro path you know.
+      placeholder: |
+        1. Install HybridClaw with npm.
+        2. Run `hybridclaw gateway`.
+        3. In another terminal run `hybridclaw tui`.
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The TUI should connect to the running gateway and show the startup banner.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: "The process exits with `...` and no prompt is shown."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: HybridClaw version
+      placeholder: 0.12.4
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.4 / Ubuntu 24.04 / Windows 11 via WSL2
+    validations:
+      required: true
+  - type: input
+    id: install_method
+    attributes:
+      label: Install method
+      placeholder: npm global / local source checkout / Docker image
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      placeholder: gateway / tui / container / docs / Discord / Slack / auth / memory
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and evidence
+      description: Paste redacted logs, screenshots, or failing output.
+      render: shell
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected, how often it happens, and whether there is a workaround.
+      placeholder: Blocks first-run onboarding for local Docker setups; reproduced on two clean installs; temporary workaround is ...

@@ -15,22 +15,52 @@ hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+hybridclaw auth login gemini gemini-2.5-pro --api-key AIza...
+hybridclaw auth login deepseek deepseek-chat --api-key sk-...
+hybridclaw auth login xai grok-3 --api-key xai-...
+hybridclaw auth login zai glm-5 --api-key ...
+hybridclaw auth login kimi kimi-k2.5 --api-key ...
+hybridclaw auth login minimax MiniMax-M2.5 --api-key ...
+hybridclaw auth login dashscope qwen3-coder-plus --api-key ...
+hybridclaw auth login xiaomi mimo-v2-pro --api-key ...
+hybridclaw auth login kilo anthropic/claude-sonnet-4.6 --api-key ...
 hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login google --client-id 000000000000-example.apps.googleusercontent.com --client-secret GOCSPX-example --account you@example.com
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
 hybridclaw auth status openrouter
 hybridclaw auth status mistral
 hybridclaw auth status huggingface
+hybridclaw auth status gemini
+hybridclaw auth status deepseek
+hybridclaw auth status xai
+hybridclaw auth status zai
+hybridclaw auth status kimi
+hybridclaw auth status minimax
+hybridclaw auth status dashscope
+hybridclaw auth status xiaomi
+hybridclaw auth status kilo
 hybridclaw auth status local
+hybridclaw auth status google
 hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
 hybridclaw auth logout openrouter
 hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
+hybridclaw auth logout gemini
+hybridclaw auth logout deepseek
+hybridclaw auth logout xai
+hybridclaw auth logout zai
+hybridclaw auth logout kimi
+hybridclaw auth logout minimax
+hybridclaw auth logout dashscope
+hybridclaw auth logout xiaomi
+hybridclaw auth logout kilo
 hybridclaw auth logout local
+hybridclaw auth logout google
 hybridclaw auth logout msteams
 hybridclaw auth whatsapp reset
 ```
@@ -44,12 +74,28 @@ hybridclaw auth whatsapp reset
   and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
-- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`, and
-  `hybridclaw auth login huggingface` can take `--api-key`, otherwise they fall
-  back to `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, or `HF_TOKEN`, or prompt
-  interactively.
+- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`,
+  `hybridclaw auth login huggingface`, and the other API-key providers
+  (`gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`, `dashscope`,
+  `xiaomi`, `kilo`) can take `--api-key`, otherwise they fall back to the
+  matching environment variable (e.g. `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
+  `HF_TOKEN`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`,
+  `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`,
+  `XIAOMI_API_KEY`, `KILO_API_KEY`), or prompt interactively.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
   vLLM in `~/.hybridclaw/config.json`.
+- `hybridclaw auth login google` stores a Google OAuth desktop client id,
+  client secret, account, and refresh token for API access through the bundled
+  `gog` skill. Create the desktop OAuth client in Google Cloud Console, then
+  pass its **Client ID** and **Client secret** to the command above. The
+  command prints a Google authorization URL and waits for the local OAuth
+  callback; approve the requested scopes in the browser to store the refresh
+  token.
+- Google API access through `gog` also requires the relevant Google Cloud APIs
+  to be enabled in the same project, for example Gmail API, Google Calendar
+  API, Google Drive API, Google Docs API, Google Sheets API, and People API.
+  If the OAuth app is in testing mode, add your Google account as a test user
+  before authorizing.
 - The local backend model id is optional. If omitted, HybridClaw enables the
   backend and you can pick a model later with `/model list <backend>`.
 - Interactive onboarding can skip remote provider auth entirely when you plan
@@ -65,6 +111,8 @@ hybridclaw auth whatsapp reset
   the credentials file path or any partial secret value.
 - `hybridclaw auth logout local` disables configured local backends and clears
   any saved vLLM API key.
+- `hybridclaw auth logout google` clears the stored Google OAuth material used
+  to mint short-lived `gog` access tokens.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and
   disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without
@@ -81,8 +129,10 @@ hybridclaw auth whatsapp reset
 ## Where Credentials Live
 
 - `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Mistral,
-  Hugging Face, Discord, email, Teams, BlueBubbles iMessage, related runtime
-  secrets, and named `/secret set` values in encrypted form
+  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope,
+  Xiaomi, Kilo Code, Google OAuth for `gog`, Discord, email, Teams,
+  BlueBubbles iMessage, related runtime secrets, and named `/secret set` values
+  in encrypted form
 - `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
   `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
   runtime secrets

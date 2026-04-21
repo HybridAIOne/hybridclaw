@@ -2,10 +2,11 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
-  HybridAIRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  ProviderRequestError,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface StreamToolCallDelta {
   index?: number;
@@ -120,7 +121,7 @@ export async function callHybridAIProvider(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   return (await response.json()) as ChatCompletionResponse;
@@ -148,7 +149,7 @@ export async function callHybridAIProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new HybridAIRequestError(response.status, text);
+    throw new ProviderRequestError(response.status, text);
   }
 
   const contentType = (
@@ -208,16 +209,22 @@ export async function callHybridAIProviderStream(
       : undefined;
     if (!choice) return;
 
+    let usedMessageContent = false;
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
       if (typeof message.content === 'string') {
         const nextContent = message.content;
-        const delta = nextContent.startsWith(textContent)
-          ? nextContent.slice(textContent.length)
-          : nextContent;
-        textContent = nextContent;
-        if (delta) args.onTextDelta(delta);
+        const messageDelta = nextContent
+          ? nextContent.startsWith(textContent)
+            ? nextContent.slice(textContent.length)
+            : nextContent
+          : '';
+        if (messageDelta) {
+          textContent = nextContent;
+          usedMessageContent = true;
+          args.onTextDelta(messageDelta);
+        }
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         toolCalls.length = 0;
@@ -237,7 +244,11 @@ export async function callHybridAIProviderStream(
     if (choice.delta) {
       const delta = choice.delta;
       if (typeof delta.role === 'string' && delta.role) role = delta.role;
-      if (typeof delta.content === 'string' && delta.content) {
+      if (
+        !usedMessageContent &&
+        typeof delta.content === 'string' &&
+        delta.content
+      ) {
         textContent += delta.content;
         args.onTextDelta(delta.content);
       }
@@ -259,7 +270,10 @@ export async function callHybridAIProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });

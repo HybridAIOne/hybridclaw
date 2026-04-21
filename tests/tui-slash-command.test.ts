@@ -162,10 +162,10 @@ test('maps Discord-style slash commands to gateway command args', () => {
     mapTuiSlashCommandToGatewayArgs([
       'skill',
       'install',
-      'pdf',
-      'brew-poppler',
+      '1password',
+      'brew',
     ]),
-  ).toEqual(['skill', 'install', 'pdf', 'brew-poppler']);
+  ).toEqual(['skill', 'install', '1password', 'brew']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
   ).toEqual(['skill', 'learn', 'demo-skill']);
@@ -194,6 +194,18 @@ test('maps Discord-style slash commands to gateway command args', () => {
       'clawhub/brand-voice',
     ]),
   ).toEqual(['skill', 'import', '--force', 'clawhub/brand-voice']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'enable', 'zettelkasten']),
+  ).toEqual(['skill', 'enable', 'zettelkasten']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'disable',
+      'zettelkasten',
+      '--channel',
+      'discord',
+    ]),
+  ).toEqual(['skill', 'disable', 'zettelkasten', '--channel', 'discord']);
   expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'list'])).toEqual([
     'plugin',
     'list',
@@ -277,8 +289,7 @@ test('maps /approve actions to explicit typed results', () => {
     message: 'yes abc123',
   });
   expect(mapTuiApproveSlashToMessage(['approve', 'always'], 'abc123')).toEqual({
-    kind: 'message',
-    message: 'yes abc123 for session',
+    kind: 'usage',
   });
   expect(mapTuiApproveSlashToMessage(['approve', 'agent'], 'abc123')).toEqual({
     kind: 'message',

@@ -1,12 +1,13 @@
 import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
-  HUGGINGFACE_MODEL_PREFIX,
-  readHuggingFaceApiKey,
-} from './huggingface-utils.js';
-import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
-
-const HUGGINGFACE_DISCOVERY_TTL_MS = 3_600_000;
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
 function normalizeHuggingFaceModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
@@ -41,23 +42,24 @@ export interface HuggingFaceDiscoveryStore {
   getModelContextWindow: (model: string) => number | null;
 }
 
+interface HuggingFaceDiscoveryState {
+  discoveredModelNames: string[];
+  contextWindowByModel: Map<string, number>;
+}
+
+const buildEmptyHuggingFaceDiscoveryState = (): HuggingFaceDiscoveryState => ({
+  discoveredModelNames: [],
+  contextWindowByModel: new Map(),
+});
+
 export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let contextWindowByModel = new Map<string, number>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyHuggingFaceDiscoveryState(),
+  );
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextContextWindows: Iterable<[string, number]> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    contextWindowByModel = new Map(nextContextWindows);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchHuggingFaceModels(apiKey: string): Promise<string[]> {
+  async function fetchHuggingFaceModels(
+    apiKey: string,
+  ): Promise<HuggingFaceDiscoveryState> {
     const response = await fetch(
       `${normalizeBaseUrl(HUGGINGFACE_BASE_URL)}/models`,
       {
@@ -86,55 +88,50 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
         contextWindows.set(normalized, contextWindow);
       }
     }
-    replaceDiscoveryCache([...discovered], contextWindows);
-    return [...discovered];
+    return {
+      discoveredModelNames: [...discovered],
+      contextWindowByModel: contextWindows,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!HUGGINGFACE_ENABLED) {
-      replaceDiscoveryCache([], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const apiKey = readHuggingFaceApiKey({ required: false });
+    const apiKey = readApiKeyForOpenAICompatProvider('huggingface', {
+      required: false,
+    });
     if (!apiKey) {
-      replaceDiscoveryCache([], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < HUGGINGFACE_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchHuggingFaceModels(apiKey);
-        return [...discoveredModelNames];
-      } catch (err) {
-        logger.warn({ err }, 'HuggingFace model discovery failed');
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(
+      () => fetchHuggingFaceModels(apiKey),
+      {
+        force: opts?.force,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'HuggingFace model discovery failed');
+          return staleState;
+        },
+      },
+    );
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeHuggingFaceModelName(model);
-      return contextWindowByModel.get(normalized) ?? null;
+      return state.contextWindowByModel.get(normalized) ?? null;
     },
   };
 }

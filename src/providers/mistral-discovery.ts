@@ -1,12 +1,13 @@
 import { MISTRAL_BASE_URL, MISTRAL_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
+import { normalizeMistralModelName } from './mistral-utils.js';
+import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
-  normalizeMistralModelName,
-  readMistralApiKey,
-} from './mistral-utils.js';
-import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
-
-const MISTRAL_DISCOVERY_TTL_MS = 3_600_000;
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
 function readMistralModelEntries(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
@@ -65,32 +66,30 @@ export interface MistralDiscoveryStore {
   isModelDeprecated: (model: string) => boolean;
 }
 
+interface MistralDiscoveryState {
+  canonicalModelByName: Map<string, string>;
+  discoveredModelNames: string[];
+  contextWindowByModel: Map<string, number>;
+  deprecatedModelNames: Set<string>;
+  visionCapableModels: Set<string>;
+}
+
+const buildEmptyMistralDiscoveryState = (): MistralDiscoveryState => ({
+  canonicalModelByName: new Map(),
+  discoveredModelNames: [],
+  contextWindowByModel: new Map(),
+  deprecatedModelNames: new Set(),
+  visionCapableModels: new Set(),
+});
+
 export function createMistralDiscoveryStore(): MistralDiscoveryStore {
-  let canonicalModelByName = new Map<string, string>();
-  let discoveredModelNames: string[] = [];
-  let contextWindowByModel = new Map<string, number>();
-  let deprecatedModelNames = new Set<string>();
-  let visionCapableModels = new Set<string>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyMistralDiscoveryState(),
+  );
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextCanonicalModelByName: Iterable<[string, string]> = [],
-    nextContextWindows: Iterable<[string, number]> = [],
-    nextDeprecatedModels: Iterable<string> = [],
-    nextVisionCapable: Iterable<string> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    canonicalModelByName = new Map(nextCanonicalModelByName);
-    discoveredModelNames = [...modelNames];
-    contextWindowByModel = new Map(nextContextWindows);
-    deprecatedModelNames = new Set(nextDeprecatedModels);
-    visionCapableModels = new Set(nextVisionCapable);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchMistralModels(apiKey: string): Promise<string[]> {
+  async function fetchMistralModels(
+    apiKey: string,
+  ): Promise<MistralDiscoveryState> {
     const response = await fetch(
       `${normalizeBaseUrl(MISTRAL_BASE_URL)}/models`,
       {
@@ -139,77 +138,75 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
         visionCapable.add(canonical);
       }
     }
-    replaceDiscoveryCache(
-      [...discovered],
-      canonicalByName,
-      contextWindows,
-      deprecated,
-      visionCapable,
-    );
-    return [...discovered];
+    return {
+      canonicalModelByName: canonicalByName,
+      discoveredModelNames: [...discovered],
+      contextWindowByModel: contextWindows,
+      deprecatedModelNames: deprecated,
+      visionCapableModels: visionCapable,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!MISTRAL_ENABLED) {
-      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyMistralDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const apiKey = readMistralApiKey({ required: false });
+    const apiKey = readApiKeyForOpenAICompatProvider('mistral', {
+      required: false,
+    });
     if (!apiKey) {
-      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyMistralDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < MISTRAL_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchMistralModels(apiKey);
-        return [...discoveredModelNames];
-      } catch (err) {
-        logger.warn({ err }, 'Mistral model discovery failed');
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(
+      () => fetchMistralModels(apiKey),
+      {
+        force: opts?.force,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'Mistral model discovery failed');
+          return staleState;
+        },
+      },
+    );
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeMistralModelName(model);
-      const canonical = canonicalModelByName.get(normalized) ?? normalized;
-      return contextWindowByModel.get(canonical) ?? null;
+      const canonical =
+        state.canonicalModelByName.get(normalized) ?? normalized;
+      return state.contextWindowByModel.get(canonical) ?? null;
     },
     resolveCanonicalModelName: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeMistralModelName(model);
-      return canonicalModelByName.get(normalized) ?? normalized;
+      return state.canonicalModelByName.get(normalized) ?? normalized;
     },
-    isModelDeprecated: (model: string) =>
-      deprecatedModelNames.has(
-        canonicalModelByName.get(normalizeMistralModelName(model)) ??
-          normalizeMistralModelName(model),
-      ),
-    isModelVisionCapable: (model: string) =>
-      visionCapableModels.has(
-        canonicalModelByName.get(normalizeMistralModelName(model)) ??
-          normalizeMistralModelName(model),
-      ),
+    isModelDeprecated: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeMistralModelName(model);
+      return state.deprecatedModelNames.has(
+        state.canonicalModelByName.get(normalized) ?? normalized,
+      );
+    },
+    isModelVisionCapable: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeMistralModelName(model);
+      return state.visionCapableModels.has(
+        state.canonicalModelByName.get(normalized) ?? normalized,
+      );
+    },
   };
 }
 

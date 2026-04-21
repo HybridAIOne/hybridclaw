@@ -1,0 +1,13 @@
+name: npm
+description: npm registry and package metadata
+rules:
+  - action: allow
+    host: registry.npmjs.org
+    port: 443
+    methods: ["GET", "POST"]
+    paths: ["/**"]
+  - action: allow
+    host: www.npmjs.com
+    port: 443
+    methods: ["GET"]
+    paths: ["/**"]

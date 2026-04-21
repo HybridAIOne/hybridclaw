@@ -14,6 +14,8 @@ hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=co
 hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway memory inspect [sessionId]
@@ -22,6 +24,7 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
@@ -50,8 +53,14 @@ current workspace after confirmation.
 current built-in memory layers for a session: `MEMORY.md`, today's daily note,
 recent raw history, compacted `session_summary`, recent semantic-memory rows,
 and canonical cross-session recall state.
+`hybridclaw gateway status` reports the current sandbox/runtime state; in
+container mode it also shows the configured image name, resolved image
+version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
+`gateway voice info` reports the current local Twilio voice setup, and
+`gateway voice call <number>` places an outbound call through the configured
+Twilio account.
 
 ## Local Eval Workflows
 
@@ -80,12 +89,35 @@ hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
+  `hybridai-skills`
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--kind
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics
@@ -149,10 +181,20 @@ hybridclaw help auth
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help gemini
+hybridclaw help deepseek
+hybridclaw help xai
+hybridclaw help zai
+hybridclaw help kimi
+hybridclaw help minimax
+hybridclaw help dashscope
+hybridclaw help xiaomi
+hybridclaw help kilo
 ```
 
 `auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `local`, `msteams`, and `slack`.
+`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 
@@ -164,6 +206,8 @@ hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@use
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+hybridclaw gateway voice info
+hybridclaw gateway voice call <number>
 hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
@@ -172,6 +216,9 @@ Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
 because they need app credentials rather than a local pairing flow. For the
 step-by-step setup guide, see
 [Getting Started: Channel Setup](../getting-started/channels.md).
+Twilio voice is configured through `/admin/channels` or direct `voice.*`
+config keys, then inspected or used for outbound dialing with
+`hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see the same guide for channel-specific
 examples and current CLI-only limitations such as WhatsApp pairing.
@@ -245,7 +292,10 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 named skill. Use `skill list` first to discover the dependency ids exposed by a
 skill.
 `update` checks for a newer installed release and can upgrade a global npm
-install; source checkouts receive git-based update instructions instead.
+install. When `--yes` completes successfully and a local gateway is already
+running with a replayable launch command, HybridClaw restarts it automatically
+with the original parameters; otherwise it falls back to manual restart
+instructions. Source checkouts receive git-based update instructions instead.
 
 ## Discord And Session Commands
 
@@ -292,6 +342,8 @@ the same gateway command surface used by TUI and web chat.
   the built-in memory layers for the current or an explicit session id
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
+  for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
   `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
@@ -323,9 +375,13 @@ the same gateway command surface used by TUI and web chat.
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,
   provider, and chatbot context before the first prompt
+- Pending approvals in the TUI open an interactive picker with `Up` / `Down`
+  navigation, `Enter` confirmation, number-key quick select, and `Esc` to
+  skip; non-interactive terminals keep the text prompt fallback
 - pressing `Up` or `Down` on an empty prompt recalls earlier prompts
 - press `Ctrl-C` or `Ctrl-D` twice within five seconds to exit the TUI
-- on exit, HybridClaw prints token/file/tool totals and a ready-to-run
+- on exit, HybridClaw prints token/file/tool totals when remote history is
+  available, otherwise an explicit unavailable summary, plus a ready-to-run
   `hybridclaw tui --resume <sessionId>` command for that session
 
 Example secret flow:

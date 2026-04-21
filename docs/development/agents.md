@@ -36,6 +36,7 @@ Main docs landing pages:
 - [Remote Access](./guides/remote-access.md)
 - [Office Dependencies](./guides/office-dependencies.md)
 - [TUI MCP](./guides/tui-mcp.md)
+- [Twilio Voice](./guides/twilio-voice.md)
 - [Voice / TTS](./guides/voice-tts.md)
 
 ## Extensibility
@@ -43,7 +44,9 @@ Main docs landing pages:
 - [Extensibility](./extensibility/README.md)
 - [Adaptive Skills](./extensibility/adaptive-skills.md)
 - [Agent Packages](./extensibility/agent-packages.md)
+- [ByteRover Memory Plugin](./extensibility/byterover-memory-plugin.md)
 - [Honcho Memory Plugin](./extensibility/honcho-memory-plugin.md)
+- [Mem0 Memory Plugin](./extensibility/mem0-memory-plugin.md)
 - [MemPalace Memory Plugin](./extensibility/mempalace-memory-plugin.md)
 - [OTEL Plugin](./extensibility/otel-plugin.md)
 - [Plugins](./extensibility/plugins.md)

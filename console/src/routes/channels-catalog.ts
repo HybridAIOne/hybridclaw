@@ -1,9 +1,11 @@
 import type { AdminConfig } from '../api/types';
+import { pluralize } from '../lib/format';
 
 export type ChannelKind =
   | 'discord'
   | 'slack'
   | 'telegram'
+  | 'voice'
   | 'whatsapp'
   | 'email'
   | 'msteams'
@@ -22,6 +24,7 @@ interface ChannelCatalogOptions {
   slackBotTokenConfigured?: boolean;
   slackAppTokenConfigured?: boolean;
   telegramTokenConfigured?: boolean;
+  voiceAuthTokenConfigured?: boolean;
   whatsappLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
@@ -49,10 +52,6 @@ export function countTeamsOverrides(config: AdminConfig): number {
   return Object.values(config.msteams.teams).reduce((total, team) => {
     return total + countKeys(team.channels);
   }, 0);
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function describeDiscord(
@@ -188,6 +187,41 @@ function describeSlack(
   };
 }
 
+function describeVoice(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const authTokenConfigured = options.voiceAuthTokenConfigured === true;
+  const accountSid = config.voice.twilio.accountSid.trim();
+  const fromNumber = config.voice.twilio.fromNumber.trim();
+  const active =
+    config.voice.enabled && !!accountSid && !!fromNumber && authTokenConfigured;
+  const configured =
+    active ||
+    config.voice.enabled ||
+    !!accountSid ||
+    !!fromNumber ||
+    authTokenConfigured;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'voice',
+    label: 'Voice',
+    summary: `Twilio · webhook ${config.voice.webhookPath}`,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
 function describeEmail(
   config: AdminConfig,
   options: ChannelCatalogOptions,
@@ -303,6 +337,7 @@ export function buildChannelCatalog(
     describeDiscord(config, options),
     describeSlack(config, options),
     describeTelegram(config, options),
+    describeVoice(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),
     describeMSTeams(config),

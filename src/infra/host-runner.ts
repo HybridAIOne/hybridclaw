@@ -5,8 +5,14 @@ import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
+  readStoredGoogleAuth,
+  resolveGogRuntimeEnv,
+} from '../auth/google-auth.js';
+import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
+import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -33,11 +39,12 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
+import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
-import { redactSecrets } from '../security/redact.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
@@ -261,7 +268,7 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
   if (delta == null) return;
 
   try {
-    if (delta) callback(redactSecrets(delta));
+    if (delta) callback(redactCredentialSecrets(delta));
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
@@ -282,7 +289,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         toolName: resultMatch[1],
         phase: 'finish',
         durationMs: parseInt(resultMatch[2], 10),
-        preview: redactSecrets(resultMatch[3]),
+        preview: redactCredentialSecrets(resultMatch[3]),
       });
     } catch (err) {
       logger.debug(
@@ -300,7 +307,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       sessionId: entry.sessionId,
       toolName: startMatch[1],
       phase: 'start',
-      preview: redactSecrets(startMatch[2]),
+      preview: redactCredentialSecrets(startMatch[2]),
     });
   } catch (err) {
     logger.debug(
@@ -328,9 +335,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     }
     return {
       approvalId: parsed.approvalId,
-      prompt: redactSecrets(parsed.prompt),
-      intent: redactSecrets(parsed.intent),
-      reason: redactSecrets(parsed.reason),
+      prompt: redactCredentialSecrets(parsed.prompt),
+      intent: redactCredentialSecrets(parsed.intent),
+      reason: redactCredentialSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
       allowAll: parsed.allowAll === true,
@@ -473,6 +480,7 @@ function getOrSpawnHostProcess(
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',
@@ -609,6 +617,20 @@ export function stopSessionHostProcess(sessionId: string): boolean {
 export async function runHostProcess(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
+  return withSpan(
+    'hybridclaw.host.execute',
+    {
+      'hybridclaw.session_id': params.sessionId,
+      'hybridclaw.agent_id': params.agentId || '',
+      'hybridclaw.model': params.model || '',
+    },
+    async () => runHostProcessInner(params),
+  );
+}
+
+async function runHostProcessInner(
+  params: ExecutorRequest,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -651,6 +673,15 @@ export async function runHostProcess(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
+  const runtimeEnv = readStoredGoogleAuth()
+    ? await resolveGogRuntimeEnv().catch((error) => {
+        logger.warn(
+          { error },
+          'Failed to mint Google access token for gog runtime environment',
+        );
+        return {};
+      })
+    : {};
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     const capacityState = await waitForHostCapacity(sessionId, abortSignal);
@@ -696,6 +727,7 @@ export async function runHostProcess(
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
+    activeMessageChannels: collectActiveMessageToolChannelKinds(),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -716,6 +748,7 @@ export async function runHostProcess(
     pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
+    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
@@ -731,6 +764,7 @@ export async function runHostProcess(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -835,17 +869,23 @@ export async function runHostProcess(
       );
       stopSessionHostProcess(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
-    if (typeof output.result === 'string')
-      output.result = redactSecrets(output.result);
-    if (typeof output.error === 'string')
-      output.error = redactSecrets(output.error);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
+    if (typeof output.result === 'string') {
+      output.result = redactCredentialSecrets(output.result);
+    }
+    if (typeof output.error === 'string') {
+      output.error = redactCredentialSecrets(output.error);
+    }
     if (output.pendingApproval) {
       output.pendingApproval = {
         ...output.pendingApproval,
-        prompt: redactSecrets(output.pendingApproval.prompt),
-        intent: redactSecrets(output.pendingApproval.intent),
-        reason: redactSecrets(output.pendingApproval.reason),
+        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
+        intent: redactCredentialSecrets(output.pendingApproval.intent),
+        reason: redactCredentialSecrets(output.pendingApproval.reason),
       };
     }
     return output;

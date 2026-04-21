@@ -18,6 +18,7 @@ import {
 import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
   checkPlugin,
+  formatDependencyPlanDetails,
   installPlugin,
   reinstallPlugin,
   uninstallPlugin,
@@ -53,7 +54,10 @@ function infoCommand(title: string, text: string): GatewayCommandResult {
 
 function isLocalSession(req: GatewayCommandRequest): boolean {
   return (
-    req.guildId === null && (req.channelId === 'web' || req.channelId === 'tui')
+    req.guildId === null &&
+    (req.channelId === 'web' ||
+      req.channelId === 'tui' ||
+      req.channelId === 'cli')
   );
 }
 
@@ -664,15 +668,27 @@ export async function handlePluginGatewayCommand(params: {
         '`plugin install` is only available from local TUI/web sessions.',
       );
     }
+    const depsSatisfiedLines: string[] = [];
+    const onDependenciesAlreadySatisfied = (plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    }): void => {
+      depsSatisfiedLines.push(
+        `[check] plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+      );
+    };
     try {
       const result = await installPlugin(source, {
         approveDependencyInstall: yes === '--yes',
+        onDependenciesAlreadySatisfied,
       });
       const reloadResult = await reloadPluginRuntime();
       const lines = [
         result.alreadyInstalled
           ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+        ...depsSatisfiedLines,
         ...buildDependencyInstallLines(result),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
         ...buildMissingBinaryGuidanceLines(
@@ -765,15 +781,27 @@ export async function handlePluginGatewayCommand(params: {
         '`plugin reinstall` is only available from local TUI/web sessions.',
       );
     }
+    const reinstallDepsSatisfiedLines: string[] = [];
+    const onReinstallDependenciesAlreadySatisfied = (plan: {
+      usesPackageJson: boolean;
+      nodePackages: string[];
+      pipPackages: string[];
+    }): void => {
+      reinstallDepsSatisfiedLines.push(
+        `[check] plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+      );
+    };
     try {
       const result = await reinstallPlugin(source, {
         approveDependencyInstall: yes === '--yes',
+        onDependenciesAlreadySatisfied: onReinstallDependenciesAlreadySatisfied,
       });
       const reloadResult = await reloadPluginRuntime();
       const lines = [
         result.replacedExistingInstall
           ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+        ...reinstallDepsSatisfiedLines,
         ...buildDependencyInstallLines(result),
         `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
         ...buildMissingBinaryGuidanceLines(

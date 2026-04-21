@@ -1,5 +1,15 @@
 import { Link } from '@tanstack/react-router';
+import { useState } from 'react';
 import { cx } from '../../lib/cx';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../dialog';
 import { HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
 import {
@@ -15,6 +25,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from './index';
 import styles from './index.module.css';
@@ -27,9 +38,12 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar>
+    <Sidebar collapsible="none">
       <SidebarHeader>
-        <SidebarBrand />
+        <div className={styles.headerRow}>
+          <SidebarBrand />
+          <MobileSidebarTrigger />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {props.groups.map((group) => (
@@ -50,11 +64,17 @@ export function AppSidebar(props: {
       <SidebarFooter>
         <div className={styles.footerBlock}>
           <SidebarMeta version={props.version} />
-          <SidebarActions
-            showLogout={props.showLogout}
-            onLogout={props.onLogout}
-          />
+          <SidebarFooterActions>
+            <SidebarFooterMenu>
+              <SidebarFooterAction>
+                <ThemeToggle labelClassName={styles.themeToggleLabel} />
+              </SidebarFooterAction>
+            </SidebarFooterMenu>
+          </SidebarFooterActions>
         </div>
+        {props.showLogout ? (
+          <SidebarLogoutAction onLogout={props.onLogout} />
+        ) : null}
       </SidebarFooter>
     </Sidebar>
   );
@@ -76,6 +96,12 @@ function SidebarBrand() {
   );
 }
 
+function MobileSidebarTrigger() {
+  const { isMobile } = useSidebar();
+  if (!isMobile) return null;
+  return <SidebarTrigger className={styles.sidebarToggle} />;
+}
+
 function SidebarNavLink(props: { item: SidebarNavItem }) {
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -86,7 +112,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
       inactiveProps={{ className: styles.menuButton }}
-      activeOptions={{ exact: props.item.to === '/' }}
+      activeOptions={{ exact: true }}
       onClick={() => {
         if (isMobile) {
           setOpenMobile(false);
@@ -110,19 +136,19 @@ function SidebarMeta(props: { version?: string }) {
   );
 }
 
-function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
+function SidebarLogoutAction(props: { onLogout: () => void }) {
+  const [forgetTokenOpen, setForgetTokenOpen] = useState(false);
+
   return (
-    <SidebarFooterActions>
-      <SidebarFooterMenu>
-        <SidebarFooterAction>
-          <ThemeToggle />
-        </SidebarFooterAction>
-        {props.showLogout ? (
+    <>
+      <div className={styles.footerDivider} />
+      <SidebarFooterActions>
+        <SidebarFooterMenu>
           <SidebarFooterAction>
             <button
               className={styles.footerButton}
               type="button"
-              onClick={props.onLogout}
+              onClick={() => setForgetTokenOpen(true)}
             >
               <span className={styles.icon} aria-hidden="true">
                 <LogOut />
@@ -130,8 +156,25 @@ function SidebarActions(props: { showLogout: boolean; onLogout: () => void }) {
               Forget token
             </button>
           </SidebarFooterAction>
-        ) : null}
-      </SidebarFooterMenu>
-    </SidebarFooterActions>
+        </SidebarFooterMenu>
+      </SidebarFooterActions>
+      <Dialog open={forgetTokenOpen} onOpenChange={setForgetTokenOpen}>
+        <DialogContent size="sm" role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>Forget token?</DialogTitle>
+            <DialogDescription>
+              You will be logged out and will need to enter your token again to
+              access the admin console.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <DialogClose className="danger-button" onClick={props.onLogout}>
+              Forget token
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -7,11 +7,12 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
+const fetchEmailConfigMock = vi.fn();
 const saveConfigMock = vi.fn();
 const setRuntimeSecretMock = vi.fn();
 const validateTokenMock = vi.fn();
@@ -19,6 +20,7 @@ const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
+  fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   setRuntimeSecret: (...args: unknown[]) => setRuntimeSecretMock(...args),
   validateToken: (...args: unknown[]) => validateTokenMock(...args),
@@ -38,6 +40,17 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       maxTokens: 4096,
       enableRag: true,
       models: ['gpt-5'],
+    },
+    channelInstructions: {
+      discord: '',
+      msteams: '',
+      slack: '',
+      telegram: '',
+      voice:
+        'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
+      whatsapp: '',
+      email: '',
+      imessage: '',
     },
     discord: {
       prefix: '!claw',
@@ -132,6 +145,25 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 4000,
       mediaMaxMb: 20,
     },
+    voice: {
+      enabled: false,
+      provider: 'twilio',
+      twilio: {
+        accountSid: '',
+        authToken: '',
+        fromNumber: '',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    },
     whatsapp: {
       dmPolicy: 'pairing',
       groupPolicy: 'disabled',
@@ -189,6 +221,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       additionalMounts: '',
       maxOutputBytes: 200000,
       maxConcurrent: 2,
+      persistBashState: true,
     },
     ops: {
       healthHost: '127.0.0.1',
@@ -213,7 +246,9 @@ function renderChannelsPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChannelsPage />
+      <ToastProvider>
+        <ChannelsPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -221,11 +256,16 @@ function renderChannelsPage(): void {
 describe('ChannelsPage', () => {
   beforeEach(() => {
     fetchConfigMock.mockReset();
+    fetchEmailConfigMock.mockReset();
     saveConfigMock.mockReset();
     setRuntimeSecretMock.mockReset();
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     const gatewayStatus = {
+      hybridai: {
+        apiKeyConfigured: false,
+        apiKeySource: null,
+      },
       discord: {
         tokenConfigured: false,
         tokenSource: null,
@@ -239,6 +279,15 @@ describe('ChannelsPage', () => {
       telegram: {
         tokenConfigured: false,
         tokenSource: null,
+      },
+      voice: {
+        enabled: false,
+        accountSidConfigured: false,
+        fromNumberConfigured: false,
+        authTokenConfigured: false,
+        authTokenSource: null,
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
       },
       email: {
         passwordConfigured: false,
@@ -486,6 +535,80 @@ describe('ChannelsPage', () => {
     expect(telegramButton.textContent || '').not.toContain('active');
   });
 
+  it('shows Voice in the catalog and opens the Twilio voice editor', async () => {
+    const baseConfig = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        voice: {
+          ...baseConfig.voice,
+          enabled: true,
+          twilio: {
+            ...baseConfig.voice.twilio,
+            accountSid: 'AC123',
+            fromNumber: '+14155550123',
+          },
+        },
+      }),
+    });
+
+    renderChannelsPage();
+
+    const voiceButton = await screen.findByRole('button', { name: /Voice/i });
+    expect(voiceButton.textContent || '').toContain('configured');
+
+    fireEvent.click(voiceButton);
+    expect(
+      screen.getByRole('heading', { name: 'Voice settings' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Twilio auth token')).toBeTruthy();
+    expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
+    expect(screen.getByLabelText('Webhook path')).toBeTruthy();
+    expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
+  });
+
+  it('saves channel-specific instructions through the config endpoint', async () => {
+    const config = makeConfig();
+
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: {
+        ...config,
+        channelInstructions: {
+          ...config.channelInstructions,
+          voice: 'Answer in one short sentence. No formatting.',
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Voice/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Voice/i }));
+    fireEvent.change(screen.getByLabelText('Channel instructions'), {
+      target: { value: 'Answer in one short sentence. No formatting.' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel settings' }),
+    );
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          channelInstructions: expect.objectContaining({
+            voice: 'Answer in one short sentence. No formatting.',
+          }),
+        }),
+      );
+    });
+  });
+
   it('renders the live WhatsApp pairing QR on the channel page', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',
@@ -521,10 +644,20 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     await screen.findByRole('button', { name: /WhatsApp/i });
+    await waitFor(() => {
+      expect(validateTokenMock).toHaveBeenCalledTimes(1);
+    });
+
     fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'WhatsApp settings' }),
+      ).toBeTruthy();
+    });
 
     expect(
-      screen.getByRole('img', { name: 'WhatsApp pairing QR' }).textContent,
+      (await screen.findByRole('img', { name: 'WhatsApp pairing QR' }))
+        .textContent,
     ).toBe('▄▄\n██');
   });
 
@@ -785,9 +918,11 @@ describe('ChannelsPage', () => {
     await screen.findByRole('button', { name: /WhatsApp/i });
 
     fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
-    const panel = screen
-      .getByRole('heading', { name: 'WhatsApp settings' })
-      .closest('section');
+    const panel = (
+      await screen.findByRole('heading', {
+        name: 'WhatsApp settings',
+      })
+    ).closest('section');
     expect(panel).not.toBeNull();
     const enabledToggle = within(panel as HTMLElement).getByRole('group', {
       name: 'Enabled',
@@ -980,7 +1115,7 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 
   it('shows change password when passwordConfigured is true without a source', async () => {
@@ -1022,10 +1157,101 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Email/i });
-    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
     screen.getByRole('button', { name: 'Change password' });
     expect(screen.queryByRole('button', { name: 'Set password' })).toBeNull();
+  });
+
+  it('hides fetch email config when no HybridAI API key is configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
+
+    expect(
+      screen.queryByRole('button', { name: 'Fetch HybridAI Agent Email' }),
+    ).toBeNull();
+  });
+
+  it('shows fetch email config when a HybridAI API key is configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      hybridai: {
+        apiKeyConfigured: true,
+        apiKeySource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        hybridai: {
+          apiKeyConfigured: true,
+          apiKeySource: 'runtime-secrets',
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+    fireEvent.click(emailChannelButton);
+
+    expect(
+      screen.getByRole('button', { name: 'Fetch HybridAI Agent Email' }),
+    ).toBeTruthy();
   });
 
   it('updates Telegram bot tokens through encrypted runtime secrets', async () => {
@@ -1127,6 +1353,6 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Token updated in encrypted runtime secrets.');
+    screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 });

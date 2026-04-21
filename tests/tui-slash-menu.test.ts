@@ -27,6 +27,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
+  expect(labels).toContain('/voice <info|call>');
+  expect(labels).toContain('/voice call <e164-number>');
   expect(labels).toContain('/config [check|reload|set] [key] [value]');
   expect(labels).toContain('/config check');
   expect(labels).toContain('/config reload');
@@ -37,7 +39,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
     ),
   ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
-  expect(labels).toContain('/approve always [approval_id]');
+  expect(labels).toContain('/approve session [approval_id]');
   expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
@@ -51,8 +53,10 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/eval tau2');
   expect(labels).toContain('/eval swebench-verified');
   expect(labels).not.toContain('/eval tau2-bench');
-  expect(labels).toContain('/skill <config|list|inspect|…>');
+  expect(labels).toContain('/skill <config|list|enable|…>');
   expect(labels).toContain('/skill config');
+  expect(labels).toContain('/skill enable <name> [--channel <kind>]');
+  expect(labels).toContain('/skill disable <name> [--channel <kind>]');
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');

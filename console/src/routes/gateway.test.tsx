@@ -1,22 +1,38 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '../components/toast';
 
 import { GatewayPage } from './gateway';
 
-const restartGatewayMock = vi.fn();
-const validateTokenMock = vi.fn();
+const reloadGatewayMock = vi.fn();
+const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
-  restartGateway: (...args: unknown[]) => restartGatewayMock(...args),
-  validateToken: (...args: unknown[]) => validateTokenMock(...args),
+  reloadGateway: (...args: unknown[]) => reloadGatewayMock(...args),
 }));
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
+
+vi.mock('@tanstack/react-router', async () => {
+  const actual = await vi.importActual<typeof import('@tanstack/react-router')>(
+    '@tanstack/react-router',
+  );
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 vi.mock('../hooks/use-live-events', () => ({
   useLiveEvents: (...args: unknown[]) => useLiveEventsMock(...args),
@@ -78,20 +94,17 @@ function renderGatewayPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <GatewayPage />
+      <ToastProvider>
+        <GatewayPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
 describe('GatewayPage', () => {
   beforeEach(() => {
-    restartGatewayMock.mockReset();
-    validateTokenMock.mockReset();
+    reloadGatewayMock.mockReset();
+    navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
 
@@ -108,66 +121,22 @@ describe('GatewayPage', () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
-  it('disables restart when the gateway lifecycle does not support it', () => {
-    useAuthMock.mockReturnValue({
-      token: 'test-token',
-      gatewayStatus: makeStatus({
-        lifecycle: {
-          restartSupported: false,
-          restartReason: 'Gateway restart is unavailable in this launch mode.',
-        },
-      }),
-    });
-
-    renderGatewayPage();
-
-    const button = screen.getByRole('button', {
-      name: 'Restart Gateway',
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.className).toContain('danger-button');
-    expect(
-      screen.queryByText('Gateway restart is unavailable in this launch mode.'),
-    ).not.toBeNull();
-  });
-
-  it('shows a restarting spinner until the status poll succeeds', async () => {
-    vi.useFakeTimers();
-    restartGatewayMock.mockResolvedValue({
+  it('opens a reload confirmation dialog and calls the reload endpoint', async () => {
+    reloadGatewayMock.mockResolvedValue({
       status: 'ok',
-      message: 'Gateway restart requested.',
+      message: 'Gateway reloaded.',
     });
-    validateTokenMock.mockResolvedValue(
-      makeStatus({
-        pid: 5678,
-        timestamp: '2026-04-09T12:05:00.000Z',
-      }),
-    );
 
     renderGatewayPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Restart Gateway' }));
-    await act(async () => {
-      await flushMicrotasks();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload Gateway' }));
+    const dialog = screen.getByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reload' }));
+
+    await waitFor(() => {
+      expect(reloadGatewayMock).toHaveBeenCalledWith('test-token');
     });
-
-    expect(restartGatewayMock).toHaveBeenCalledWith('test-token');
-    expect(
-      screen.queryByRole('button', { name: 'Restarting Gateway' }),
-    ).not.toBeNull();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-      await flushMicrotasks();
-    });
-
-    expect(validateTokenMock).toHaveBeenCalledWith('test-token');
-    expect(
-      screen.queryByRole('button', { name: 'Restart Gateway' }),
-    ).not.toBeNull();
-    vi.useRealTimers();
   });
 });

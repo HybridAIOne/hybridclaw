@@ -1,15 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-function makeTempDir(prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempDir = useTempDir();
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -33,6 +27,10 @@ function createGatewayMainTestState(options?: {
   slackEnabled?: boolean;
   slackInitError?: Error;
   hasSlackCredentials?: boolean;
+  twilioAuthToken?: string;
+  voiceEnabled?: boolean;
+  voiceConfigAuthToken?: string;
+  voiceInitError?: Error;
   whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -51,6 +49,7 @@ function createGatewayMainTestState(options?: {
     imessageMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
+    voiceMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     whatsappMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -94,6 +93,27 @@ function createGatewayMainTestState(options?: {
         pollIntervalMs: 1_500,
         textChunkLimit: 4_000,
         mediaMaxMb: 20,
+      },
+      voice: {
+        enabled: options?.voiceEnabled ?? false,
+        provider: 'twilio',
+        twilio: {
+          accountSid: options?.voiceEnabled ? 'AC123' : '',
+          authToken:
+            options?.voiceConfigAuthToken ??
+            (options?.voiceEnabled ? 'twilio-auth-token' : ''),
+          fromNumber: options?.voiceEnabled ? '+14155550123' : '',
+        },
+        relay: {
+          ttsProvider: 'default',
+          voice: '',
+          transcriptionProvider: 'default',
+          language: 'en-US',
+          interruptible: true,
+          welcomeGreeting: 'Hello! How can I help you today?',
+        },
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
       },
       msteams: {
         enabled: options?.msteamsEnabled ?? true,
@@ -142,6 +162,7 @@ function createGatewayMainTestState(options?: {
       providerHealth: {},
       localBackends: {},
     })),
+    getActiveExecutorCount: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
@@ -165,6 +186,7 @@ function createGatewayMainTestState(options?: {
     initMSTeams: vi.fn(),
     initSlack: vi.fn(),
     initTelegram: vi.fn(),
+    initVoice: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(
@@ -178,6 +200,7 @@ function createGatewayMainTestState(options?: {
     loggerFatal: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    shutdownDiscord: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
@@ -239,6 +262,8 @@ async function importFreshGatewayMain(options?: {
   slackEnabled?: boolean;
   hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
+  voiceEnabled?: boolean;
+  voiceInitError?: Error;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -298,6 +323,12 @@ async function importFreshGatewayMain(options?: {
     }
     state.imessageMessageHandler = messageHandler;
   });
+  state.initVoice.mockImplementation((messageHandler) => {
+    if (options?.voiceInitError) {
+      throw options.voiceInitError;
+    }
+    state.voiceMessageHandler = messageHandler;
+  });
   class MockWhatsAppAuthLockError extends Error {
     readonly lockPath: string;
     readonly ownerPid: number | null;
@@ -338,6 +369,7 @@ async function importFreshGatewayMain(options?: {
   vi.stubGlobal('clearTimeout', vi.fn());
 
   vi.doMock('../src/agent/executor.js', () => ({
+    getActiveExecutorCount: state.getActiveExecutorCount,
     stopAllExecutions: vi.fn(),
   }));
   vi.doMock('../src/agent/proactive-policy.js', () => ({
@@ -370,6 +402,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/discord/runtime.js', () => ({
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
+    shutdownDiscord: state.shutdownDiscord,
     setDiscordMaintenancePresence: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
@@ -391,6 +424,10 @@ async function importFreshGatewayMain(options?: {
     sendTelegramMediaToChat: vi.fn(async () => {}),
     sendToTelegramChat: vi.fn(async () => {}),
     shutdownTelegram: state.shutdownTelegram,
+  }));
+  vi.doMock('../src/channels/voice/runtime.js', () => ({
+    initVoice: state.initVoice,
+    shutdownVoice: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
@@ -433,6 +470,8 @@ async function importFreshGatewayMain(options?: {
     SLACK_BOT_TOKEN:
       options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
+    TWILIO_AUTH_TOKEN:
+      options?.twilioAuthToken ?? state.currentConfig.voice.twilio.authToken,
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -557,47 +596,46 @@ async function importFreshGatewayMain(options?: {
   return state;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/agent/executor.js');
-  vi.doUnmock('../src/agent/proactive-policy.js');
-  vi.doUnmock('../src/agent/silent-reply.js');
-  vi.doUnmock('../src/agent/silent-reply-stream.js');
-  vi.doUnmock('../src/audit/observability-ingest.js');
-  vi.doUnmock('../src/channels/discord/delivery.js');
-  vi.doUnmock('../src/channels/discord/mentions.js');
-  vi.doUnmock('../src/channels/discord/runtime.js');
-  vi.doUnmock('../src/channels/imessage/runtime.js');
-  vi.doUnmock('../src/channels/telegram/runtime.js');
-  vi.doUnmock('../src/channels/msteams/attachments.js');
-  vi.doUnmock('../src/channels/msteams/runtime.js');
-  vi.doUnmock('../src/channels/slack/runtime.js');
-  vi.doUnmock('../src/channels/email/runtime.js');
-  vi.doUnmock('../src/channels/whatsapp/runtime.js');
-  vi.doUnmock('../src/channels/whatsapp/auth.js');
-  vi.doUnmock('../src/config/config.js');
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/memory/db.js');
-  vi.doUnmock('../src/memory/memory-service.js');
-  vi.doUnmock('../src/agents/agent-registry.js');
-  vi.doUnmock('../src/providers/local-discovery.js');
-  vi.doUnmock('../src/providers/local-health.js');
-  vi.doUnmock('../src/scheduler/heartbeat.js');
-  vi.doUnmock('../src/scheduler/scheduler.js');
-  vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/gateway/gateway-chat-service.js');
-  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
-  vi.doUnmock('../src/gateway/gateway-http-server.js');
-  vi.doUnmock('../src/gateway/proactive-delivery.js');
-  vi.doUnmock('../src/gateway/managed-media-cleanup.js');
-  vi.doUnmock('../src/workflow/executor.js');
-  vi.doUnmock('../src/workflow/service.js');
-  vi.resetModules();
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unstubAllGlobals: true,
+  unmock: [
+    '../src/agent/executor.js',
+    '../src/agent/proactive-policy.js',
+    '../src/agent/silent-reply.js',
+    '../src/agent/silent-reply-stream.js',
+    '../src/audit/observability-ingest.js',
+    '../src/channels/discord/delivery.js',
+    '../src/channels/discord/mentions.js',
+    '../src/channels/discord/runtime.js',
+    '../src/channels/imessage/runtime.js',
+    '../src/channels/telegram/runtime.js',
+    '../src/channels/voice/runtime.js',
+    '../src/channels/msteams/attachments.js',
+    '../src/channels/msteams/runtime.js',
+    '../src/channels/slack/runtime.js',
+    '../src/channels/email/runtime.js',
+    '../src/channels/whatsapp/runtime.js',
+    '../src/channels/whatsapp/auth.js',
+    '../src/config/config.js',
+    '../src/logger.js',
+    '../src/memory/db.js',
+    '../src/memory/memory-service.js',
+    '../src/agents/agent-registry.js',
+    '../src/providers/local-discovery.js',
+    '../src/providers/local-health.js',
+    '../src/scheduler/heartbeat.js',
+    '../src/scheduler/scheduler.js',
+    '../src/gateway/gateway-service.js',
+    '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/gateway-scheduled-task-service.js',
+    '../src/gateway/gateway-http-server.js',
+    '../src/gateway/proactive-delivery.js',
+    '../src/gateway/managed-media-cleanup.js',
+    '../src/workflow/executor.js',
+    '../src/workflow/service.js',
+  ],
 });
 
 describe('gateway bootstrap', () => {
@@ -708,6 +746,118 @@ describe('gateway bootstrap', () => {
         imessage: true,
       }),
     );
+  });
+
+  test('starts voice integration automatically when enabled in config', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+
+    expect(state.initVoice).toHaveBeenCalledTimes(1);
+    expect(state.voiceMessageHandler).not.toBeNull();
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        voice: true,
+      }),
+    );
+  });
+
+  test('starts voice integration when the Twilio auth token comes from shared secret resolution', async () => {
+    const state = await importFreshGatewayMain({
+      voiceEnabled: true,
+      voiceConfigAuthToken: '',
+      twilioAuthToken: 'twilio-auth-token',
+    });
+
+    expect(state.initVoice).toHaveBeenCalledTimes(1);
+    expect(state.voiceMessageHandler).not.toBeNull();
+  });
+
+  test('voice integration batches streamed text and strips markdown before speaking', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockImplementation(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('**Yes');
+        onTextDelta?.('** that works.');
+        return {
+          status: 'success' as const,
+          result: '**Yes** that works.',
+          toolsUsed: [],
+          artifacts: [],
+        };
+      },
+    );
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'hello',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(responseStream.push).toHaveBeenCalledTimes(1);
+    expect(responseStream.push).toHaveBeenCalledWith('Yes that works.');
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  test('voice integration normalizes approval phrases from speech transcripts', async () => {
+    const state = await importFreshGatewayMain({ voiceEnabled: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+
+    const reply = vi.fn(async () => {});
+    const responseStream = {
+      push: vi.fn(async () => {}),
+    };
+
+    await state.voiceMessageHandler?.(
+      'session-voice',
+      null,
+      'voice:CA123',
+      'user-voice',
+      'Caller',
+      'Yes for a session.',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        callSid: 'CA123',
+        twilioSessionId: 'VX123',
+        remoteIp: '127.0.0.1',
+        setupMessage: null,
+        responseStream,
+      },
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'yes for session',
+        channelId: 'voice:CA123',
+        source: 'voice',
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith('Approved.');
   });
 
   test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
@@ -2200,6 +2350,81 @@ describe('gateway bootstrap', () => {
         requireMention: true,
         replyStyle: 'top-level',
       }),
+    );
+  });
+
+  test('SIGTERM shutdown stops executors before draining', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (nextState) => {
+        nextState.getActiveExecutorCount.mockReturnValueOnce(1);
+        nextState.getActiveExecutorCount.mockReturnValue(0);
+      },
+    });
+    const sigtermHandler = state.processOn.mock.calls.find(
+      ([event]) => event === 'SIGTERM',
+    )?.[1] as (() => void) | undefined;
+    const executorModule = await import('../src/agent/executor.js');
+    const stopAllExecutionsMock = vi.mocked(executorModule.stopAllExecutions);
+
+    expect(sigtermHandler).toBeTypeOf('function');
+
+    sigtermHandler?.();
+    await settle();
+
+    expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
+    expect(stopAllExecutionsMock.mock.invocationCallOrder[0]).toBeLessThan(
+      state.getActiveExecutorCount.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(
+      state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {
+    const state = await importFreshGatewayMain({
+      voiceEnabled: false,
+      twilioAuthToken: '',
+      voiceConfigAuthToken: '',
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      voice: {
+        enabled: true,
+        provider: 'twilio',
+        twilio: {
+          accountSid: 'AC123',
+          authToken: 'config-token',
+          fromNumber: '+14155550123',
+        },
+        relay: {
+          ...state.currentConfig.voice.relay,
+        },
+        webhookPath: '/voice',
+        maxConcurrentCalls: 8,
+      },
+    };
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.initVoice).toHaveBeenCalledTimes(0);
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountSidConfigured: true,
+        authTokenConfigured: false,
+        configAuthTokenConfigured: true,
+        fromNumberConfigured: true,
+        sharedAuthTokenConfigured: false,
+      }),
+      'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Voice integration disabled: Twilio credentials are incomplete',
     );
   });
 });

@@ -1,13 +1,11 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   discoverCodexModels,
   getDiscoveredCodexModelNames,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from './huggingface-discovery.js';
+import { discoverHuggingFaceModels } from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
@@ -20,7 +18,6 @@ import {
 } from './local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
@@ -32,38 +29,52 @@ import {
 } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
+  discoverOpenAICompatRemoteModels,
+  getDiscoveredOpenAICompatRemoteModelNames,
+} from './openai-compat-discovery.js';
+import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
+import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
+import { PROVIDER_ALIASES } from './provider-aliases.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
-type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
+export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
 const VLLM_MODEL_PREFIX = 'vllm/';
+const GEMINI_MODEL_PREFIX = 'gemini/';
+const DEEPSEEK_MODEL_PREFIX = 'deepseek/';
+const XAI_MODEL_PREFIX = 'xai/';
+const ZAI_MODEL_PREFIX = 'zai/';
+const KIMI_MODEL_PREFIX = 'kimi/';
+const MINIMAX_MODEL_PREFIX = 'minimax/';
+const DASHSCOPE_MODEL_PREFIX = 'dashscope/';
+const XIAOMI_MODEL_PREFIX = 'xiaomi/';
+const KILO_MODEL_PREFIX = 'kilo/';
+
 const PREFIX_BY_PROVIDER: Record<
-  Extract<
-    ModelCatalogProviderFilter,
-    | 'openai-codex'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-  >,
+  Exclude<ModelCatalogProviderFilter, 'hybridai' | 'local'>,
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
   mistral: MISTRAL_MODEL_PREFIX,
   huggingface: HUGGINGFACE_MODEL_PREFIX,
+  gemini: GEMINI_MODEL_PREFIX,
+  deepseek: DEEPSEEK_MODEL_PREFIX,
+  xai: XAI_MODEL_PREFIX,
+  zai: ZAI_MODEL_PREFIX,
+  kimi: KIMI_MODEL_PREFIX,
+  minimax: MINIMAX_MODEL_PREFIX,
+  dashscope: DASHSCOPE_MODEL_PREFIX,
+  xiaomi: XIAOMI_MODEL_PREFIX,
+  kilo: KILO_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   llamacpp: LLAMACPP_MODEL_PREFIX,
@@ -119,7 +130,8 @@ export function normalizeModelCatalogProviderFilter(
     .trim()
     .toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'codex') return 'openai-codex';
+  const alias = PROVIDER_ALIASES[normalized];
+  if (alias) return alias;
   if (normalized === 'local' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
@@ -176,28 +188,72 @@ function dedupeModelList(models: string[]): string[] {
   return deduped;
 }
 
-export function getAvailableModelList(provider?: string): string[] {
-  return getAvailableModelListWithOptions(provider);
+function collectModelsForProvider(
+  filter: ModelCatalogProviderFilter,
+): string[] {
+  switch (filter) {
+    case 'hybridai':
+      return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
+    case 'openai-codex':
+      return getDiscoveredCodexModelNames();
+    case 'local':
+    case 'ollama':
+    case 'lmstudio':
+    case 'llamacpp':
+    case 'vllm':
+      return getDiscoveredLocalModelNames();
+    case 'openrouter':
+    case 'mistral':
+    case 'huggingface':
+      return getDiscoveredOpenAICompatRemoteModelNames();
+    case 'gemini':
+    case 'deepseek':
+    case 'xai':
+    case 'zai':
+    case 'kimi':
+    case 'minimax':
+    case 'dashscope':
+    case 'xiaomi':
+    case 'kilo': {
+      const section = (
+        getRuntimeConfig() as unknown as Record<string, unknown>
+      )[filter] as { enabled: boolean; models: string[] } | undefined;
+      return [
+        ...getDiscoveredOpenAICompatRemoteModelNames(),
+        ...(section?.enabled ? section.models : []),
+      ];
+    }
+  }
 }
 
-export function getAvailableModelListWithOptions(
-  provider?: string,
-  _opts?: { expanded?: boolean },
-): string[] {
-  const models = dedupeModelList([
-    HYBRIDAI_MODEL,
-    ...getDiscoveredCodexModelNames(),
-    ...getDiscoveredHuggingFaceModelNames(),
-    ...getDiscoveredHybridAIModelNames(),
-    ...getDiscoveredLocalModelNames(),
-    ...getDiscoveredMistralModelNames(),
-    ...getDiscoveredOpenRouterModelNames(),
-  ]);
+export function getAvailableModelList(provider?: string): string[] {
+  const config = getRuntimeConfig();
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
-  if (!provider) {
+
+  if (provider && normalizedProvider === null) return [];
+
+  const rawModels = normalizedProvider
+    ? collectModelsForProvider(normalizedProvider)
+    : [
+        HYBRIDAI_MODEL,
+        ...getDiscoveredCodexModelNames(),
+        ...getDiscoveredHybridAIModelNames(),
+        ...getDiscoveredLocalModelNames(),
+        ...getDiscoveredOpenAICompatRemoteModelNames(),
+        ...OPENAI_COMPAT_REMOTE_PROVIDERS.flatMap((def) => {
+          const section = (config as unknown as Record<string, unknown>)[
+            def.id
+          ] as { enabled: boolean; models: string[] } | undefined;
+          return section?.enabled ? section.models : [];
+        }),
+      ];
+
+  const models = dedupeModelList(rawModels);
+
+  if (!normalizedProvider) {
     return models.sort((left, right) => compareModelNames(left, right));
   }
-  if (normalizedProvider === null) return [];
+
   const filteredModels = models.filter((model) =>
     matchesProviderFilter(model, normalizedProvider),
   );
@@ -215,6 +271,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
     discoverHuggingFaceModels(),
     discoverMistralModels(),
     discoverOpenRouterModels(),
+    discoverOpenAICompatRemoteModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
 }

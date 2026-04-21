@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js 22 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.9.7 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.12.6 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -45,8 +45,9 @@ src/
   agent/                Agent execution: conversation loop, tool executor, prompt hooks, delegation
   audit/                Append-only audit trail, approval tracking, hash-chain integrity
   auth/                 HybridAI and OpenAI Codex authentication flows
-  channels/discord/     Discord integration and delivery logic
+  channels/             Channel transports (discord, slack, telegram, email, whatsapp, msteams, voice, imessage)
   config/               CLI flag parsing, runtime config management
+  doctor/               Doctor checks and resource hygiene maintenance
   gateway/              Core gateway service: HTTP APIs, health, session mgmt, approvals
   infra/                Container setup, IPC (file-based), worker signatures, runners
   memory/               SQLite database, semantic memory, compaction, consolidation, chunking
@@ -89,6 +90,26 @@ User message → Gateway (HTTP/Discord) → ContainerInput (JSON)
 | MCP Server    | `~/.hybridclaw/config.json` (`mcpServers.*`) → tool namespace | §7.3     |
 | Approval rule | `.hybridclaw/policy.yaml`                                    | §7.4     |
 | Template      | `templates/<name>.md` + `src/workspace.ts`                   | §7.5     |
+
+### OpenTelemetry (Distributed Tracing)
+
+The gateway supports optional OpenTelemetry instrumentation for distributed
+tracing in cloud deployments. OTel is OFF by default (zero overhead).
+
+| Env Var                          | Purpose                                                      |
+|----------------------------------|--------------------------------------------------------------|
+| `OTEL_ENABLED=true`             | Enable OTel SDK initialization                               |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OTLP collector endpoint (also enables OTel if set)           |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`   | `grpc` (default) or `http/protobuf`                          |
+| `OTEL_SERVICE_NAME`             | Service name reported in spans (default: `hybridclaw-gateway`)|
+
+When enabled, spans are emitted for: gateway message handling, agent runs,
+host/container execution, and skill loading. Trace context (traceId, spanId)
+is injected into structured log lines for correlation.
+
+Implementation: `src/observability/otel.ts`. The SDK packages
+(`@opentelemetry/sdk-node`, exporters) are dynamically imported only when
+OTel is active.
 
 ---
 
@@ -363,7 +384,7 @@ When the user says "bump release":
 - Do not include personal identity, real phone numbers, or live config values
   in tests, examples, docs, or commits.
 - Do not edit `.dockerignore` without verifying the resulting Docker image
-  still contains all runtime-required files (especially `docs/development/`).
+  still contains all runtime-required files (especially `docs/content/`).
   Build the image and confirm the affected paths exist inside it before
   marking the change complete.
 - Do not edit `node_modules/` or vendored files.
@@ -406,7 +427,7 @@ When multiple agents may be working on this repo concurrently:
 | `CONTRIBUTING.md`           | Human contributors  | Quickstart, PR workflow         |
 | `SECURITY.md`               | Security reviewers  | Runtime security controls       |
 | `TRUST_MODEL.md`            | Operators           | Trust acceptance policy         |
-| `docs/development/`         | Maintainers         | Architecture, runtime, testing  |
+| `docs/content/`             | Maintainers         | User docs, developer guide, reference |
 | `templates/*.md`            | Product runtime     | Agent workspace bootstrap       |
 
 ---

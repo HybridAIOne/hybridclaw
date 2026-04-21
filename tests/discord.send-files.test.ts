@@ -1,30 +1,15 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
-
+import { expect, test } from 'vitest';
 import {
   DISCORD_SEND_MEDIA_ROOT_DISPLAY,
   DISCORD_SEND_WORKSPACE_ROOT_DISPLAY,
   resolveDiscordLocalFileForSend,
 } from '../src/channels/discord/send-files.js';
+import { useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
-
-async function makeTempDir(prefix: string): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(async () => {
-  await Promise.all(
-    tempDirs.splice(0).map(async (dir) => {
-      await fs.rm(dir, { recursive: true, force: true });
-    }),
-  );
-});
+const makeTempDir = useTempDir();
 
 test('resolves relative file paths inside the session workspace', async () => {
   const workspaceRoot = await makeTempDir('hybridclaw-discord-workspace-');

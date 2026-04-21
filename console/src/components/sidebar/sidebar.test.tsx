@@ -5,6 +5,7 @@ import {
   render,
   renderHook,
   screen,
+  within,
 } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -72,7 +73,10 @@ function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
 }
 
 describe('SidebarProvider', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('exposes full context shape', () => {
@@ -177,7 +181,10 @@ describe('SidebarProvider', () => {
 });
 
 describe('Sidebar — desktop', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders expanded by default', () => {
@@ -215,7 +222,10 @@ describe('Sidebar — desktop', () => {
 });
 
 describe('Sidebar — mobile overlay', () => {
-  beforeEach(() => setViewport(900));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(900);
+  });
   afterEach(cleanup);
 
   it('renders as mobile overlay with data-mobile="true"', () => {
@@ -355,6 +365,7 @@ describe('Sidebar — mobile overlay', () => {
 });
 
 describe('SidebarTrigger', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('renders on desktop', () => {
@@ -425,7 +436,10 @@ describe('SidebarTrigger', () => {
 });
 
 describe('AppSidebar', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders brand and nav sections', () => {
@@ -502,7 +516,7 @@ describe('AppSidebar', () => {
     ).toBeDefined();
   });
 
-  it('renders logout button and calls onLogout when showLogout=true', () => {
+  it('opens a confirmation dialog before calling onLogout', () => {
     const onLogout = vi.fn();
     render(
       <SidebarProvider>
@@ -514,8 +528,15 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    const logout = screen.getByRole('button', { name: 'Forget token' });
-    fireEvent.click(logout);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget token' }));
+    expect(onLogout).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Forget token?')).toBeDefined();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Forget token' }),
+    );
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
@@ -532,7 +553,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('desktop sidebar starts expanded and collapses on trigger click', () => {
+  it('desktop sidebar is always expanded', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -540,16 +561,13 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarInset>
-          <SidebarTrigger />
-        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+    expect(
+      screen.queryByRole('button', { name: /sidebar$/i }),
+    ).toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {
@@ -598,6 +616,7 @@ describe('AppSidebar', () => {
 });
 
 describe('Editable-element guards', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('Escape does not close mobile drawer when focus is in an input', () => {
@@ -672,7 +691,7 @@ describe('Error boundaries', () => {
 describe('useHideOthers', () => {
   afterEach(cleanup);
 
-  it('sets aria-hidden on siblings when mobile drawer is open', () => {
+  it('sets inert on siblings when mobile drawer is open', () => {
     setViewport(800);
     const sibling = document.createElement('div');
     sibling.setAttribute('data-testid', 'app-sibling');
@@ -693,10 +712,10 @@ describe('useHideOthers', () => {
     );
 
     act(() => captured.value?.setOpenMobile(true));
-    expect(sibling.getAttribute('aria-hidden')).toBe('true');
+    expect((sibling as HTMLElement).inert).toBe(true);
 
     act(() => captured.value?.setOpenMobile(false));
-    expect(sibling.hasAttribute('aria-hidden')).toBe(false);
+    expect((sibling as HTMLElement).inert).toBe(false);
 
     document.body.removeChild(sibling);
   });

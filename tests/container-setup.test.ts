@@ -1,21 +1,16 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
-function createTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-container-'));
-  tempDirs.push(dir);
-  return dir;
-}
+const createTempDir = useTempDir('hybridclaw-container-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -84,15 +79,21 @@ function writeState(
 
 function makeSpawnResult(result: {
   code?: number | null;
+  out?: string;
   err?: string;
   error?: Error;
 }) {
   const proc = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
     stderr: EventEmitter;
   };
+  proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
 
   queueMicrotask(() => {
+    if (result.out) {
+      proc.stdout.emit('data', Buffer.from(result.out));
+    }
     if (result.err) {
       proc.stderr.emit('data', Buffer.from(result.err));
     }
@@ -136,26 +137,22 @@ async function importFreshContainerSetup(options?: {
   return import('../src/infra/container-setup.ts');
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('node:child_process');
-  vi.doUnmock('../src/config/config.ts');
-  vi.resetModules();
-  vi.unstubAllEnvs();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  Object.defineProperty(process.stdin, 'isTTY', {
-    value: ORIGINAL_STDIN_IS_TTY,
-    configurable: true,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    value: ORIGINAL_STDOUT_IS_TTY,
-    configurable: true,
-  });
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (!dir) continue;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: ORIGINAL_STDIN_IS_TTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: ORIGINAL_STDOUT_IS_TTY,
+      configurable: true,
+    });
+  },
+  resetModules: true,
+  unstubAllEnvs: true,
+  unmock: ['node:child_process', '../src/config/config.ts'],
 });
 
 describe('resolveContainerImageAcquisitionMode', () => {
@@ -224,6 +221,174 @@ describe('resolveContainerImageAcquisitionMode', () => {
         'custom-hybridclaw',
       ),
     ).toBe('pull-only');
+  });
+});
+
+describe('container image metadata resolution', () => {
+  test('returns the abbreviated image id alongside the resolved version', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              Id: 'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+              RepoTags: ['hybridclaw-agent:latest'],
+              Config: {
+                Labels: {
+                  'org.opencontainers.image.version': '0.4.1',
+                },
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageStatus('hybridclaw-agent'),
+    ).resolves.toEqual({
+      version: '0.4.1',
+      shortId: '1234567890ab',
+    });
+  });
+
+  test('prefers the OCI image version label when present', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              RepoTags: ['hybridclaw-agent:latest'],
+              Config: {
+                Labels: {
+                  'org.opencontainers.image.version': '0.4.1',
+                },
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageVersion('hybridclaw-agent'),
+    ).resolves.toBe('0.4.1');
+  });
+
+  test('keeps the abbreviated image id when no version is detectable', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              Id: 'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+              RepoTags: ['hybridclaw-agent:latest'],
+              Config: {
+                Labels: {},
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageStatus('hybridclaw-agent'),
+    ).resolves.toEqual({
+      version: null,
+      shortId: 'abcdef123456',
+    });
+  });
+
+  test('falls back to a version-like repo tag when labels are missing', async () => {
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({
+          code: 0,
+          out: JSON.stringify([
+            {
+              RepoTags: [
+                'hybridclaw-agent:latest',
+                'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
+              ],
+              Config: {
+                Labels: {},
+              },
+            },
+          ]),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageVersion('hybridclaw-agent'),
+    ).resolves.toBe('0.4.1');
+  });
+
+  test('falls back to the configured image tag when inspect is unavailable', async () => {
+    const taggedImage = 'ghcr.io/example/hybridclaw-agent:v0.4.1';
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect' &&
+        args[2] === taggedImage
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.resolveContainerImageVersion(taggedImage),
+    ).resolves.toBe('0.4.1');
   });
 });
 
@@ -555,7 +720,7 @@ describe('ensureContainerImageReady', () => {
     );
   });
 
-  test('falls back to GHCR only after Docker Hub pull attempts fail for packaged installs', async () => {
+  test('reuses the existing image after Docker Hub pull attempts fail for packaged installs', async () => {
     const cwd = createTempDir();
     const homeDir = createTempDir();
     writePackagedTrackedFiles(cwd);
@@ -600,21 +765,6 @@ describe('ensureContainerImageReady', () => {
         });
       }
       if (
-        command === 'docker' &&
-        args[0] === 'pull' &&
-        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1'
-      ) {
-        return makeSpawnResult({ code: 0 });
-      }
-      if (
-        command === 'docker' &&
-        args[0] === 'tag' &&
-        args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1' &&
-        args[2] === 'hybridclaw-agent'
-      ) {
-        return makeSpawnResult({ code: 0 });
-      }
-      if (
         command === 'npm' &&
         args[0] === 'run' &&
         args[1] === 'build:container'
@@ -645,7 +795,6 @@ describe('ensureContainerImageReady', () => {
     ).toEqual([
       'hybridaione/hybridclaw-agent:v0.4.1',
       'hybridaione/hybridclaw-agent:latest',
-      'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
     ]);
   });
 

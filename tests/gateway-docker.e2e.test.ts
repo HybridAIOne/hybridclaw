@@ -1,11 +1,11 @@
 import { execSync } from 'node:child_process';
-import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
   getAvailablePort,
-  waitForHealth,
-  startContainer,
   removeContainer,
+  startContainer,
+  waitForHealth,
 } from './helpers/docker-test-setup.js';
 
 /**
@@ -70,11 +70,11 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
 
   const requiredFiles = [
     // Browsable docs (markdown source)
-    'docs/development/README.md',
-    'docs/development/getting-started/README.md',
-    'docs/development/getting-started/installation.md',
-    'docs/development/getting-started/quickstart.md',
-    'docs/development/getting-started/authentication.md',
+    'docs/content/README.md',
+    'docs/content/getting-started/README.md',
+    'docs/content/getting-started/installation.md',
+    'docs/content/getting-started/quickstart.md',
+    'docs/content/getting-started/authentication.md',
     // SPA entry points
     'docs/index.html',
     'docs/chat.html',
@@ -144,23 +144,33 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   });
 
   test('/docs/getting-started/README.md serves raw markdown', async () => {
-    const res = await fetch(
-      `${GATEWAY_URL}/docs/getting-started/README.md`,
-      { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    );
+    const res = await fetch(`${GATEWAY_URL}/docs/getting-started/README.md`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/markdown');
     const md = await res.text();
     expect(md).toContain('# Getting Started');
   });
 
-  test('/ serves the landing page', async () => {
+  test('/ redirects to chat (auth enforced in container)', async () => {
     const res = await fetch(GATEWAY_URL, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
+  test('/about serves the landing page', async () => {
+    const res = await fetch(`${GATEWAY_URL}/about`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>');
+    expect(html).toContain(
+      '<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>',
+    );
   });
 
   test('/chat redirects to login (auth enforced in container)', async () => {
@@ -215,6 +225,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(308);
     expect(res.headers.get('location')).toBe('/docs');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
   test('/development/getting-started redirects to /docs/getting-started', async () => {
@@ -224,6 +235,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(308);
     expect(res.headers.get('location')).toBe('/docs/getting-started');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
   // ── Provider health (real key only) ──────────────────────────────────
@@ -231,14 +243,12 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   test.skipIf(!HAS_REAL_KEY)(
     '/health reports HybridAI provider reachable',
     async () => {
-      await waitForHealth(
-        `${GATEWAY_URL}/health`,
-        30_000,
-        (body) => {
-          const ph = body as { providerHealth?: { hybridai?: { reachable: boolean } } };
-          return ph.providerHealth?.hybridai?.reachable === true;
-        },
-      );
+      await waitForHealth(`${GATEWAY_URL}/health`, 30_000, (body) => {
+        const ph = body as {
+          providerHealth?: { hybridai?: { reachable: boolean } };
+        };
+        return ph.providerHealth?.hybridai?.reachable === true;
+      });
     },
   );
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   fetchConfig,
+  fetchEmailConfig,
   saveConfig,
   setRuntimeSecret,
   validateToken,
@@ -9,7 +10,9 @@ import {
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { ChannelLogo } from '../components/channel-logo';
+import { useToast } from '../components/toast';
 import { BooleanField, Panel } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
   buildChannelCatalog,
@@ -20,6 +23,7 @@ import {
 
 type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
+type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
@@ -54,6 +58,10 @@ function isTelegramInboundEnabled(config: AdminConfig): boolean {
   );
 }
 
+function isVoiceEnabled(config: AdminConfig): boolean {
+  return config.voice.enabled;
+}
+
 function ListField(props: {
   label: string;
   value: string[];
@@ -76,8 +84,30 @@ function ListField(props: {
   );
 }
 
-function capitalizeLabel(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function ChannelInstructionsField(props: {
+  kind: ChannelInstructionKind;
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+}) {
+  return (
+    <label className="field textarea-field">
+      <span>Channel instructions</span>
+      <textarea
+        rows={4}
+        value={props.draft.channelInstructions[props.kind]}
+        onChange={(event) =>
+          props.updateDraft((current) => ({
+            ...current,
+            channelInstructions: {
+              ...current.channelInstructions,
+              [props.kind]: event.target.value,
+            },
+          }))
+        }
+        placeholder="Optional extra instructions for this channel only."
+      />
+    </label>
+  );
 }
 
 function ManagedSecretField(props: {
@@ -87,6 +117,7 @@ function ManagedSecretField(props: {
     | 'SLACK_BOT_TOKEN'
     | 'SLACK_APP_TOKEN'
     | 'TELEGRAM_BOT_TOKEN'
+    | 'TWILIO_AUTH_TOKEN'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD';
   secretLabel: 'token' | 'password';
@@ -107,6 +138,7 @@ function ManagedSecretField(props: {
   const actionLabel = hasExistingPassword
     ? `Change ${props.secretLabel}`
     : `Set ${props.secretLabel}`;
+  const toast = useToast();
   const saveSecretMutation = useMutation({
     mutationFn: async (value: string) => {
       return setRuntimeSecret(props.token, props.secretName, value);
@@ -116,6 +148,10 @@ function ManagedSecretField(props: {
       props.onSecretSaved();
       setIsEditing(false);
       setNextValue('');
+      toast.success(`${props.label} updated in encrypted runtime secrets.`);
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -175,19 +211,6 @@ function ManagedSecretField(props: {
             </button>
           </div>
         </div>
-      ) : null}
-
-      {saveSecretMutation.isSuccess ? (
-        <p className="success-banner">
-          {`${capitalizeLabel(props.secretLabel)} updated in encrypted runtime secrets.`}
-        </p>
-      ) : null}
-      {saveSecretMutation.isError ? (
-        <p className="error-banner">
-          {saveSecretMutation.error instanceof Error
-            ? saveSecretMutation.error.message
-            : `Failed to update ${props.secretLabel}.`}
-        </p>
       ) : null}
     </div>
   );
@@ -546,6 +569,11 @@ function DiscordChannelEditor(props: {
           }))
         }
       />
+      <ChannelInstructionsField
+        kind="discord"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
       <p className="muted-copy">
         Discord guild defaults and explicit per-channel overrides stay intact.
         This page edits the transport defaults that apply across the space.
@@ -763,6 +791,11 @@ function WhatsAppChannelEditor(props: {
           }))
         }
       />
+      <ChannelInstructionsField
+        kind="whatsapp"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -958,6 +991,11 @@ function TelegramChannelEditor(props: {
           remain the only transports with per-channel override bindings.
         </p>
       ) : null}
+      <ChannelInstructionsField
+        kind="telegram"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -967,9 +1005,85 @@ function EmailChannelEditor(props: {
   updateDraft: ConfigUpdater;
   passwordConfigured: boolean;
   passwordSource: SecretSource;
+  hybridaiApiKeyConfigured: boolean;
   token: string;
   onSecretSaved: () => void;
 }) {
+  const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
+  const toast = useToast();
+
+  async function handleFetchEmailConfig() {
+    setFetchingEmailConfig(true);
+    try {
+      const result = (await fetchEmailConfig(props.token)) as {
+        handles?: Array<{
+          id?: string;
+          handle?: string;
+          status?: string;
+        }>;
+        credentials?: {
+          email?: string;
+          password?: string;
+          imap_host?: string;
+          imap_port?: number;
+          smtp_host?: string;
+          smtp_port?: number;
+        } | null;
+        handleId?: string;
+      };
+
+      const handles = result?.handles;
+      if (!Array.isArray(handles) || handles.length === 0) {
+        toast.info('No HybridAI agent handles found.');
+        return;
+      }
+
+      const creds = result?.credentials;
+      if (!creds) {
+        const summary = handles
+          .map((h) => `${h.handle} (${h.status})`)
+          .join(', ');
+        toast.info(
+          `Handles found: ${summary}. Could not retrieve mailbox credentials.`,
+        );
+        return;
+      }
+
+      props.updateDraft((current) => ({
+        ...current,
+        email: {
+          ...current.email,
+          ...(creds.email ? { address: creds.email } : {}),
+          ...(creds.imap_host ? { imapHost: creds.imap_host } : {}),
+          ...(creds.imap_port != null ? { imapPort: creds.imap_port } : {}),
+          ...(creds.smtp_host ? { smtpHost: creds.smtp_host } : {}),
+          ...(creds.smtp_port != null ? { smtpPort: creds.smtp_port } : {}),
+        },
+      }));
+
+      // Save password as runtime secret before showing success
+      if (creds.password) {
+        try {
+          await setRuntimeSecret(props.token, 'EMAIL_PASSWORD', creds.password);
+          props.onSecretSaved();
+        } catch (err) {
+          toast.error('Password could not be saved', getErrorMessage(err));
+          toast.info(
+            'Email fields were populated, but password was not saved.',
+          );
+          return;
+        }
+      }
+
+      const label = result.handleId || 'HybridAI';
+      toast.success(`Email config loaded from ${label}.`);
+    } catch (error) {
+      toast.error('Failed to fetch email config', getErrorMessage(error));
+    } finally {
+      setFetchingEmailConfig(false);
+    }
+  }
+
   return (
     <>
       <BooleanField
@@ -987,6 +1101,19 @@ function EmailChannelEditor(props: {
           }))
         }
       />
+
+      {props.hybridaiApiKeyConfigured ? (
+        <div className="button-row">
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={fetchingEmailConfig}
+            onClick={handleFetchEmailConfig}
+          >
+            {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
+          </button>
+        </div>
+      ) : null}
 
       <div className="field-grid">
         <label className="field">
@@ -1201,6 +1328,267 @@ function EmailChannelEditor(props: {
           }
         />
       </label>
+      <ChannelInstructionsField
+        kind="email"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+    </>
+  );
+}
+
+function VoiceChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  authTokenConfigured: boolean;
+  authTokenSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isVoiceEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            voice: {
+              ...current.voice,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Twilio account SID</span>
+          <input
+            value={props.draft.voice.twilio.accountSid}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  twilio: {
+                    ...current.voice.twilio,
+                    accountSid: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="AC..."
+          />
+        </label>
+        <label className="field">
+          <span>From number</span>
+          <input
+            value={props.draft.voice.twilio.fromNumber}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  twilio: {
+                    ...current.voice.twilio,
+                    fromNumber: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="+14155550123"
+          />
+        </label>
+      </div>
+
+      <ManagedSecretField
+        label="Twilio auth token"
+        secretName="TWILIO_AUTH_TOKEN"
+        secretLabel="token"
+        configValue={props.draft.voice.twilio.authToken}
+        configured={props.authTokenConfigured}
+        source={props.authTokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Webhook path</span>
+          <input
+            value={props.draft.voice.webhookPath}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  webhookPath: event.target.value,
+                },
+              }))
+            }
+            placeholder="/voice"
+          />
+        </label>
+        <label className="field">
+          <span>Max concurrent calls</span>
+          <input
+            type="number"
+            value={String(props.draft.voice.maxConcurrentCalls)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  maxConcurrentCalls: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>TTS provider</span>
+          <select
+            value={props.draft.voice.relay.ttsProvider}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    ttsProvider: event.target
+                      .value as AdminConfig['voice']['relay']['ttsProvider'],
+                  },
+                },
+              }))
+            }
+          >
+            <option value="default">default</option>
+            <option value="google">google</option>
+            <option value="amazon">amazon</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Voice</span>
+          <input
+            value={props.draft.voice.relay.voice}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    voice: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="en-US-Journey-D"
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Transcription provider</span>
+          <select
+            value={props.draft.voice.relay.transcriptionProvider}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    transcriptionProvider: event.target
+                      .value as AdminConfig['voice']['relay']['transcriptionProvider'],
+                  },
+                },
+              }))
+            }
+          >
+            <option value="default">default</option>
+            <option value="deepgram">deepgram</option>
+            <option value="google">google</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Language</span>
+          <input
+            value={props.draft.voice.relay.language}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                voice: {
+                  ...current.voice,
+                  relay: {
+                    ...current.voice.relay,
+                    language: event.target.value,
+                  },
+                },
+              }))
+            }
+            placeholder="en-US"
+          />
+        </label>
+      </div>
+
+      <BooleanField
+        label="Interruptible"
+        value={props.draft.voice.relay.interruptible}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(interruptible) =>
+          props.updateDraft((current) => ({
+            ...current,
+            voice: {
+              ...current.voice,
+              relay: {
+                ...current.voice.relay,
+                interruptible,
+              },
+            },
+          }))
+        }
+      />
+
+      <label className="field textarea-field">
+        <span>Welcome greeting</span>
+        <textarea
+          rows={3}
+          value={props.draft.voice.relay.welcomeGreeting}
+          onChange={(event) =>
+            props.updateDraft((current) => ({
+              ...current,
+              voice: {
+                ...current.voice,
+                relay: {
+                  ...current.voice.relay,
+                  welcomeGreeting: event.target.value,
+                },
+              },
+            }))
+          }
+        />
+      </label>
+      <ChannelInstructionsField
+        kind="voice"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+
+      <p className="muted-copy">
+        Voice uses Twilio ConversationRelay. Expose the configured webhook path
+        over public HTTPS and WSS so Twilio can reach both the webhook and the
+        relay socket.
+      </p>
     </>
   );
 }
@@ -1446,6 +1834,11 @@ function TeamsChannelEditor(props: {
           />
         </label>
       </div>
+      <ChannelInstructionsField
+        kind="msteams"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1649,6 +2042,11 @@ function SlackChannelEditor(props: {
         Slack runs through Socket Mode. HybridClaw needs both a bot token and an
         app token before the gateway can connect.
       </p>
+      <ChannelInstructionsField
+        kind="slack"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1944,6 +2342,11 @@ function IMessageChannelEditor(props: {
           />
         </label>
       </div>
+      <ChannelInstructionsField
+        kind="imessage"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
     </>
   );
 }
@@ -1968,6 +2371,10 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    voice: {
+      configured: boolean;
+      source: SecretSource;
+    };
     email: {
       configured: boolean;
       source: SecretSource;
@@ -1977,6 +2384,7 @@ function renderSelectedEditor(
       source: SecretSource;
     };
   },
+  hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
     linked: boolean;
     pairingQrText: string | null;
@@ -2028,6 +2436,17 @@ function renderSelectedEditor(
           onSecretSaved={onSecretSaved}
         />
       );
+    case 'voice':
+      return (
+        <VoiceChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          authTokenConfigured={secretStatus.voice.configured}
+          authTokenSource={secretStatus.voice.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
     case 'email':
       return (
         <EmailChannelEditor
@@ -2035,6 +2454,7 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
           passwordConfigured={secretStatus.email.configured}
           passwordSource={secretStatus.email.source}
+          hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -2058,6 +2478,7 @@ function renderSelectedEditor(
 export function ChannelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [selectedKind, setSelectedKind] = useState<ChannelKind | null>(null);
 
@@ -2079,6 +2500,10 @@ export function ChannelsPage() {
     onSuccess: (payload) => {
       queryClient.setQueryData(['config', auth.token], payload);
       setDraft(cloneConfig(payload.config));
+      toast.success('Channel settings saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
     },
   });
 
@@ -2093,6 +2518,7 @@ export function ChannelsPage() {
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
+        voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
@@ -2103,11 +2529,13 @@ export function ChannelsPage() {
   useEffect(() => {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
-    if (selectedKind && catalog.some((entry) => entry.kind === selectedKind)) {
-      return;
-    }
-    setSelectedKind(firstCatalogEntry.kind);
-  }, [catalog, selectedKind]);
+    setSelectedKind((current) => {
+      if (current && catalog.some((entry) => entry.kind === current)) {
+        return current;
+      }
+      return firstCatalogEntry.kind;
+    });
+  }, [catalog]);
 
   const updateDraft: ConfigUpdater = (updater) => {
     saveMutation.reset();
@@ -2142,6 +2570,10 @@ export function ChannelsPage() {
       configured: statusQuery.data?.telegram?.tokenConfigured ?? false,
       source: statusQuery.data?.telegram?.tokenSource ?? null,
     },
+    voice: {
+      configured: statusQuery.data?.voice?.authTokenConfigured ?? false,
+      source: statusQuery.data?.voice?.authTokenSource ?? null,
+    },
     email: {
       configured: statusQuery.data?.email?.passwordConfigured ?? false,
       source: statusQuery.data?.email?.passwordSource ?? null,
@@ -2155,6 +2587,8 @@ export function ChannelsPage() {
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
   };
+  const hybridaiApiKeyConfigured =
+    statusQuery.data?.hybridai?.apiKeyConfigured ?? false;
 
   return (
     <div className="page-stack">
@@ -2205,6 +2639,7 @@ export function ChannelsPage() {
                   updateDraft,
                   auth.token,
                   secretStatus,
+                  hybridaiApiKeyConfigured,
                   whatsappStatus,
                   () => {
                     void queryClient.invalidateQueries({
@@ -2236,15 +2671,6 @@ export function ChannelsPage() {
                 Reset changes
               </button>
             </div>
-
-            {saveMutation.isSuccess ? (
-              <p className="success-banner">Channel settings saved.</p>
-            ) : null}
-            {saveMutation.isError ? (
-              <p className="error-banner">
-                {(saveMutation.error as Error).message}
-              </p>
-            ) : null}
           </div>
         </Panel>
       </div>

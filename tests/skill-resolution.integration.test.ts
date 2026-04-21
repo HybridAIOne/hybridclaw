@@ -89,6 +89,37 @@ describe('skill resolution integration', () => {
     expect(names).toContain('current-time');
   });
 
+  it('bundled pdf skill description advertises creation and invoice workflows', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const pdfSkill = catalog.find((skill) => skill.name === 'pdf');
+
+    expect(pdfSkill).toBeDefined();
+    expect(pdfSkill?.description).toContain('Create new PDFs');
+    expect(pdfSkill?.description).toContain('invoice/document parsing');
+  });
+
+  it('advertises gog for Google Calendar event access', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const gogSkill = catalog.find((skill) => skill.name === 'gog');
+    const googleWorkspaceSkill = fs.readFileSync(
+      path.resolve('skills/google-workspace/SKILL.md'),
+      'utf-8',
+    );
+
+    expect(gogSkill?.description).toContain('Google Calendar');
+    expect(gogSkill?.description).toContain('events');
+    expect(gogSkill?.description).toContain('meetings');
+    const gogSkillBody = fs.readFileSync(
+      path.resolve('skills/gog/SKILL.md'),
+      'utf-8',
+    );
+    expect(gogSkillBody).toContain('searches all available calendars');
+    expect(gogSkillBody).toContain('Do not pipe `gog ... --json`');
+    expect(googleWorkspaceSkill).toContain(
+      'API-backed Google Workspace access',
+    );
+  });
+
   it('SKILL.md with valid frontmatter parses correctly (name, description, category, tags)', () => {
     const extraDir = path.join(tmpDir, 'extra-skills');
     writeSkill(
@@ -294,6 +325,62 @@ Beta body.
     const names = catalog.map((s) => s.name);
     expect(names).toContain('multi-alpha');
     expect(names).toContain('multi-beta');
+  });
+
+  it('loadSkills applies per-agent skill allowlists and preserves explicit empty lists', () => {
+    const extraDir = path.join(tmpDir, 'agent-filter-skills');
+    writeSkill(
+      extraDir,
+      'draft-outline',
+      `---
+name: draft-outline
+description: Outline drafting skill
+---
+
+Outline body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'copy-edit',
+      `---
+name: copy-edit
+description: Copy editing skill
+---
+
+Edit body.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+      draft.skills.disabled = [];
+      draft.agents.list = [
+        { id: 'main', name: 'Main Agent' },
+        {
+          id: 'writer',
+          name: 'Writer Agent',
+          skills: ['copy-edit', 'missing-skill'],
+        },
+        {
+          id: 'silent',
+          name: 'Silent Agent',
+          skills: [],
+        },
+      ];
+    });
+
+    const mainSkills = skillsMod.loadSkills('main');
+    expect(mainSkills.some((skill) => skill.name === 'draft-outline')).toBe(
+      true,
+    );
+    expect(mainSkills.some((skill) => skill.name === 'copy-edit')).toBe(true);
+
+    expect(skillsMod.loadSkills('writer').map((skill) => skill.name)).toEqual([
+      'copy-edit',
+    ]);
+    expect(skillsMod.loadSkills('silent')).toEqual([]);
   });
 
   it('sorts discovered skills by category and then by name', () => {

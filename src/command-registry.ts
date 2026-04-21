@@ -76,7 +76,9 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
   'bot',
+  'btw',
   'config',
+  'policy',
   'dream',
   'secret',
   'concierge',
@@ -96,6 +98,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'ralph',
   'mcp',
   'plugin',
+  'voice',
   'clear',
   'reset',
   'compact',
@@ -105,12 +108,13 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
 const APPROVAL_ACTION_CHOICES = [
   { name: 'view', value: 'view' },
   { name: 'yes', value: 'yes' },
-  { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
   { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
+const BTW_COMMAND_DESCRIPTION =
+  'Ask an ephemeral side question about the current session (no tools, not persisted)';
 
 const CHANNEL_MODE_CHOICES = [
   { name: 'off', value: 'off' },
@@ -158,6 +162,26 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'vllm', value: 'vllm' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const AUTH_STATUS_PROVIDERS = [
+  'hybridai',
+  'codex',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
+  'local',
+  'msteams',
+  'slack',
+] as const;
+
 const CONCIERGE_PROFILE_CHOICES = [
   { name: 'asap', value: 'asap' },
   { name: 'balanced', value: 'balanced' },
@@ -188,6 +212,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/bot [info|list|set <id|name>|clear]',
     description: 'Manage the chatbot for this session',
   },
+  btw: {
+    command: '/btw <question>',
+    description: BTW_COMMAND_DESCRIPTION,
+  },
   concierge: {
     command:
       '/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]',
@@ -196,6 +224,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  policy: {
+    command: '/policy [status|list|allow|deny|delete|preset|default|reset]',
+    description: 'Inspect or update workspace HTTP/network policy',
   },
   export: {
     command: '/export session [sessionId] | /export trace [sessionId|all]',
@@ -244,9 +276,13 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/secret [list|set|show|unset|route]',
     description: 'Manage stored secrets and URL auth routes',
   },
+  voice: {
+    command: '/voice [info|call <e164-number>]',
+    description: 'Inspect voice status or place an outbound Twilio call',
+  },
   skill: {
     command:
-      '/skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
@@ -335,6 +371,9 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
       return ['bot', 'set', ...parts.slice(1)];
     }
+
+    case 'btw':
+      return ['btw', ...parts.slice(1)];
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -505,8 +544,27 @@ export function mapCanonicalCommandToGatewayArgs(
       return null;
     }
 
+    case 'policy': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'status') return ['policy'];
+      return ['policy', ...parts.slice(1)];
+    }
+
     case 'secret':
       return parts.length > 1 ? ['secret', ...parts.slice(1)] : ['secret'];
+
+    case 'voice': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'info' || sub === 'status') {
+        return ['voice', 'info'];
+      }
+      if (sub === 'call') {
+        return parts.length > 2
+          ? ['voice', 'call', ...parts.slice(2)]
+          : ['voice', 'call'];
+      }
+      return null;
+    }
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
@@ -577,6 +635,18 @@ function buildSlashCommandCatalogDefinitions(
       description: 'Show HybridClaw runtime status (only visible to you)',
     },
     {
+      name: 'btw',
+      description: BTW_COMMAND_DESCRIPTION,
+      options: [
+        {
+          kind: 'string',
+          name: 'question',
+          description: 'The side question to answer',
+          required: true,
+        },
+      ],
+    },
+    {
       name: 'memory',
       description:
         'Inspect memory layers or preview prompt-time memory attachment',
@@ -640,13 +710,6 @@ function buildSlashCommandCatalogDefinitions(
           label: '/approve yes [approval_id]',
           insertText: '/approve yes',
           description: 'Approve the pending request once',
-        },
-        {
-          id: 'approve.always',
-          label: '/approve always [approval_id]',
-          insertText: '/approve always',
-          description:
-            'Approve the pending request for the rest of the conversation',
         },
         {
           id: 'approve.session',
@@ -1070,15 +1133,17 @@ function buildSlashCommandCatalogDefinitions(
       name: 'auth',
       description: 'Show local provider auth and config status',
       tuiOnly: true,
+      tuiMenuEntries: AUTH_STATUS_PROVIDERS.map((provider) => ({
+        id: `auth.status.${provider}`,
+        label: `/auth status ${provider}`,
+        insertText: `/auth status ${provider}`,
+        description: `Show ${provider} auth status`,
+      })),
       options: [
         {
           kind: 'subcommand',
           name: 'status',
-          description: 'Show local HybridAI auth status',
-          tuiMenu: {
-            label: '/auth status hybridai',
-            insertText: '/auth status hybridai',
-          },
+          description: 'Show auth status for a provider',
           options: [
             {
               kind: 'string',
@@ -1139,6 +1204,203 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'policy',
+      description: 'Inspect or update workspace HTTP/network access policy',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+      tuiMenuEntries: [
+        {
+          id: 'policy.status',
+          label: '/policy',
+          insertText: '/policy',
+          description:
+            'Show the current default stance, rule count, and presets',
+        },
+        {
+          id: 'policy.list',
+          label: '/policy list',
+          insertText: '/policy list',
+          description: 'List current workspace policy rules',
+        },
+        {
+          id: 'policy.allow',
+          label: '/policy allow <host>',
+          insertText: '/policy allow ',
+          description: 'Add an allow rule for one host or host glob',
+        },
+        {
+          id: 'policy.preset.list',
+          label: '/policy preset list',
+          insertText: '/policy preset list',
+          description: 'List bundled network policy presets',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show the current default stance and preset summary',
+        },
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List current workspace policy rules',
+          options: [
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent filter',
+            },
+            {
+              kind: 'string',
+              name: 'json',
+              description: 'Optional --json flag',
+              choices: [{ name: '--json', value: '--json' }],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'allow',
+          description: 'Add an allow rule',
+          options: [
+            {
+              kind: 'string',
+              name: 'host',
+              description: 'Host or host glob',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent id',
+            },
+            {
+              kind: 'string',
+              name: 'methods',
+              description: 'Comma-separated HTTP methods',
+            },
+            {
+              kind: 'string',
+              name: 'paths',
+              description: 'Comma-separated URL path globs',
+            },
+            {
+              kind: 'string',
+              name: 'port',
+              description: 'Optional port number',
+            },
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional human-readable note',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'deny',
+          description: 'Add a deny rule',
+          options: [
+            {
+              kind: 'string',
+              name: 'host',
+              description: 'Host or host glob',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'agent',
+              description: 'Optional agent id',
+            },
+            {
+              kind: 'string',
+              name: 'methods',
+              description: 'Comma-separated HTTP methods',
+            },
+            {
+              kind: 'string',
+              name: 'paths',
+              description: 'Comma-separated URL path globs',
+            },
+            {
+              kind: 'string',
+              name: 'port',
+              description: 'Optional port number',
+            },
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional human-readable note',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'delete',
+          description: 'Delete one rule by list index or host',
+          options: [
+            {
+              kind: 'string',
+              name: 'target',
+              description: 'Rule index or host pattern',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'reset',
+          description: 'Reset workspace policy to the default network rules',
+        },
+        {
+          kind: 'subcommand',
+          name: 'default',
+          description: 'Set the default allow or deny stance',
+          options: [
+            {
+              kind: 'string',
+              name: 'mode',
+              description: 'Default network stance',
+              required: true,
+              choices: [
+                { name: 'allow', value: 'allow' },
+                { name: 'deny', value: 'deny' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'preset',
+          description: 'List, apply, or remove bundled network presets',
+          options: [
+            {
+              kind: 'string',
+              name: 'action',
+              description: 'Preset action',
+              choices: [
+                { name: 'list', value: 'list' },
+                { name: 'add', value: 'add' },
+                { name: 'remove', value: 'remove' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Preset name',
+            },
+            {
+              kind: 'string',
+              name: 'dry-run',
+              description: 'Optional --dry-run flag for preset add',
+              choices: [{ name: '--dry-run', value: '--dry-run' }],
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'secret',
       description:
         'Manage encrypted local secrets and URL-based HTTP auth injection',
@@ -1186,6 +1448,47 @@ function buildSlashCommandCatalogDefinitions(
           name: 'value',
           description:
             'Secret value, URL prefix, or additional route arguments',
+        },
+      ],
+    },
+    {
+      name: 'voice',
+      description: 'Inspect voice status or place an outbound Twilio call',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'voice.info',
+          label: '/voice info',
+          insertText: '/voice info',
+          description: 'Show current voice config and webhook status',
+        },
+        {
+          id: 'voice.call',
+          label: '/voice call <e164-number>',
+          insertText: '/voice call ',
+          description:
+            'Place an outbound call through the configured Twilio number',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'info',
+          description: 'Show current voice config and webhook status',
+        },
+        {
+          kind: 'subcommand',
+          name: 'call',
+          description:
+            'Place an outbound call through the configured Twilio number',
+          options: [
+            {
+              kind: 'string',
+              name: 'number',
+              description: 'Destination phone number in E.164 format',
+              required: true,
+            },
+          ],
         },
       ],
     },
@@ -1912,6 +2215,55 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
+          name: 'enable',
+          description: 'Enable a skill globally or for a specific channel kind',
+          tuiMenu: {
+            label: '/skill enable <name> [--channel <kind>]',
+            insertText: '/skill enable ',
+            aliases: ['/skill enable <name> [--channel <kind>]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name to enable',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'channel',
+              description:
+                'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'disable',
+          description:
+            'Disable a skill globally or for a specific channel kind',
+          tuiMenu: {
+            label: '/skill disable <name> [--channel <kind>]',
+            insertText: '/skill disable ',
+            aliases: ['/skill disable <name> [--channel <kind>]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name to disable',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'channel',
+              description:
+                'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
           name: 'inspect',
           description: 'Inspect one skill or all observed skills',
           options: [
@@ -2189,6 +2541,11 @@ export function parseCanonicalSlashCommandArgs(
     case 'status':
       return ['status'];
 
+    case 'btw': {
+      const question = normalizeStringOption(interaction, 'question', true);
+      return question ? ['btw', question] : null;
+    }
+
     case 'auth': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand !== 'status') return null;
@@ -2207,6 +2564,73 @@ export function parseCanonicalSlashCommandArgs(
       return ['config', 'set', key, value];
     }
 
+    case 'policy': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'status') return ['policy'];
+      if (subcommand === 'list') {
+        const agent = normalizeStringOption(interaction, 'agent');
+        const json = normalizeStringOption(interaction, 'json');
+        return [
+          'policy',
+          'list',
+          ...(agent ? ['--agent', agent] : []),
+          ...(json === '--json' ? ['--json'] : []),
+        ];
+      }
+      if (subcommand === 'allow' || subcommand === 'deny') {
+        const host = normalizeStringOption(interaction, 'host', true);
+        if (!host) return null;
+        const agent = normalizeStringOption(interaction, 'agent');
+        const methods = normalizeStringOption(interaction, 'methods');
+        const paths = normalizeStringOption(interaction, 'paths');
+        const port = normalizeStringOption(interaction, 'port');
+        const comment = normalizeStringOption(interaction, 'comment');
+        return [
+          'policy',
+          subcommand,
+          host,
+          ...(agent ? ['--agent', agent] : []),
+          ...(methods ? ['--methods', methods] : []),
+          ...(paths ? ['--paths', paths] : []),
+          ...(port ? ['--port', port] : []),
+          ...(comment ? ['--comment', comment] : []),
+        ];
+      }
+      if (subcommand === 'delete') {
+        const target = normalizeStringOption(interaction, 'target', true);
+        return target ? ['policy', 'delete', target] : null;
+      }
+      if (subcommand === 'reset') return ['policy', 'reset'];
+      if (subcommand === 'default') {
+        const mode = normalizeStringOption(interaction, 'mode', true);
+        return mode === 'allow' || mode === 'deny'
+          ? ['policy', 'default', mode]
+          : null;
+      }
+      if (subcommand === 'preset') {
+        const action = normalizeStringOption(interaction, 'action');
+        const name = normalizeStringOption(interaction, 'name');
+        const dryRun = normalizeStringOption(interaction, 'dry-run');
+        if (!action || action === 'list') return ['policy', 'preset', 'list'];
+        if (action === 'add') {
+          return name
+            ? [
+                'policy',
+                'preset',
+                'add',
+                name,
+                ...(dryRun === '--dry-run' ? ['--dry-run'] : []),
+              ]
+            : null;
+        }
+        if (action === 'remove') {
+          return name ? ['policy', 'preset', 'remove', name] : null;
+        }
+        return null;
+      }
+      return null;
+    }
+
     case 'secret': {
       const action = normalizeStringOption(interaction, 'action');
       const name = normalizeStringOption(interaction, 'name');
@@ -2222,6 +2646,16 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'route' && name) {
         const routeArgs = value ? tokenizeFreeformText(value) : [];
         return ['secret', 'route', name, ...routeArgs];
+      }
+      return null;
+    }
+
+    case 'voice': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['voice', 'info'];
+      if (subcommand === 'call') {
+        const number = normalizeStringOption(interaction, 'number', true);
+        return number ? ['voice', 'call', number] : null;
       }
       return null;
     }

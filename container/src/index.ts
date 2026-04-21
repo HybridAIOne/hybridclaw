@@ -17,6 +17,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
@@ -28,8 +29,8 @@ import {
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
-  HybridAIRequestError,
   isHybridAIEmptyVisibleCompletion,
+  ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from './providers/shared.js';
 import {
@@ -77,11 +78,13 @@ import {
   getMessageToolDescription,
   getPendingSideEffects,
   getPluginToolDefinitions,
+  resetPersistentBashSessions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
+  setPersistentBashStateEnabled,
   setPluginTools,
   setScheduledTasks,
   setSessionContext,
@@ -131,6 +134,15 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
+
+function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
+  for (const [name, value] of Object.entries(runtimeEnv || {})) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) continue;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    process.env[name] = value;
+  }
+}
+
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
@@ -244,6 +256,7 @@ async function shutdownAgentProcess(
 
   shutdownPromise = (async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
@@ -809,6 +822,7 @@ async function callHybridAIWithRetry(params: {
       });
       return response;
     } catch (err) {
+      const formattedError = formatModelErrorForLog(err, baseUrl);
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
@@ -817,10 +831,10 @@ async function callHybridAIWithRetry(params: {
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
         retryable,
-        error: err instanceof Error ? err.message : String(err),
+        error: formattedError,
       });
       console.error(
-        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${err instanceof Error ? err.message : String(err)}`,
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
       if (!retryable) throw err;
       await sleep(delayMs);
@@ -857,6 +871,7 @@ async function processRequest(
   tools: ToolDefinition[],
   taskModels: ContainerInput['taskModels'] | undefined,
   contextGuard: ContainerInput['contextGuard'] | undefined,
+  channelId: string,
   skipContainerSystemPrompt = false,
   streamTextDeltas = false,
   maxTokens?: number,
@@ -1017,7 +1032,7 @@ async function processRequest(
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error:
-          err instanceof HybridAIRequestError
+          err instanceof ProviderRequestError
             ? err.message
             : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
@@ -1239,6 +1254,7 @@ async function processRequest(
             toolName: candidate.function.name,
             argsJson: candidate.function.arguments,
             latestUserPrompt: effectiveUserPrompt,
+            channelId,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1326,6 +1342,7 @@ async function processRequest(
           toolName,
           argsJson: call.function.arguments,
           latestUserPrompt: effectiveUserPrompt,
+          channelId,
         });
       logToolCallStart(toolName, call.function.arguments, approval);
 
@@ -1506,7 +1523,10 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
       ...tool,
       function: {
         ...tool.function,
-        description: getMessageToolDescription(input.channelId),
+        description: getMessageToolDescription(
+          input.channelId,
+          input.activeMessageChannels,
+        ),
       },
     };
   });
@@ -1529,6 +1549,7 @@ async function main(): Promise<void> {
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
+  applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
@@ -1541,6 +1562,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -1608,6 +1630,7 @@ async function main(): Promise<void> {
       resolveTools(firstInput),
       firstTaskModels,
       firstInput.contextGuard,
+      firstInput.channelId,
       firstInput.skipContainerSystemPrompt === true,
       firstInput.streamTextDeltas === true,
       firstInput.maxTokens,
@@ -1642,6 +1665,7 @@ async function main(): Promise<void> {
         resolveTools(firstInput),
         firstTaskModels,
         firstInput.contextGuard,
+        firstInput.channelId,
         firstInput.skipContainerSystemPrompt === true,
         firstInput.streamTextDeltas === true,
         firstInput.maxTokens,
@@ -1667,6 +1691,8 @@ async function main(): Promise<void> {
       return;
     }
 
+    applyRuntimeEnv(input.runtimeEnv);
+
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
     const requestHeaders =
@@ -1687,6 +1713,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,
@@ -1758,6 +1785,7 @@ async function main(): Promise<void> {
       resolveTools(input),
       taskModels,
       input.contextGuard,
+      input.channelId,
       input.skipContainerSystemPrompt === true,
       input.streamTextDeltas === true,
       input.maxTokens,
@@ -1791,6 +1819,7 @@ async function main(): Promise<void> {
         resolveTools(input),
         taskModels,
         input.contextGuard,
+        input.channelId,
         input.skipContainerSystemPrompt === true,
         input.streamTextDeltas === true,
         input.maxTokens,

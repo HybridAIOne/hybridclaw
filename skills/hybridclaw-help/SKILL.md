@@ -48,9 +48,9 @@ Start with the narrowest relevant source from this list:
 - `https://www.hybridclaw.io/docs/agents.md`
 - `https://www.hybridclaw.io/docs/?search=<terms>`
 - `https://www.hybridclaw.io/docs/agents.md?search=<terms>`
-- `https://www.hybridclaw.io/development/reference/configuration.md`
-- `https://www.hybridclaw.io/development/reference/commands.md`
-- `https://www.hybridclaw.io/development/README.md`
+- `https://www.hybridclaw.io/docs/reference/configuration`
+- `https://www.hybridclaw.io/docs/reference/commands`
+- `https://www.hybridclaw.io/docs/`
 - `https://www.hybridclaw.io/docs/`
 - `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
 - `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/README.md`
@@ -81,9 +81,9 @@ exists in the workspace.
 ## Source Selection Hints
 
 - Feature setup or runtime config:
-  `https://www.hybridclaw.io/development/reference/configuration.md`, then `https://www.hybridclaw.io/docs/?search=<feature>`, then `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
+  `https://www.hybridclaw.io/docs/reference/configuration`, then `https://www.hybridclaw.io/docs/?search=<feature>`, then `https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/config.example.json`
 - Commands or operational workflows:
-  `https://www.hybridclaw.io/development/reference/commands.md`, `https://www.hybridclaw.io/development/README.md`, then `https://www.hybridclaw.io/docs/?search=<command>`
+  `https://www.hybridclaw.io/docs/reference/commands`, `https://www.hybridclaw.io/docs/`, then `https://www.hybridclaw.io/docs/?search=<command>`
 - Architecture or runtime behavior:
   `https://www.hybridclaw.io/docs/agents.md`, then `https://www.hybridclaw.io/docs/?search=<topic>`, then the relevant GitHub source URL if the docs are insufficient
 - Release or migration questions:
@@ -95,7 +95,7 @@ exists in the workspace.
 
 - Do not dump broad documentation when the user asked a narrow question.
 - Do not cite stale knowledge if the repo has a fresher answer.
-- Do not assume repo-local paths such as `src/` or `docs/development/` are readable from the current workspace.
+- Do not assume repo-local paths such as `src/` or `docs/content/` are readable from the current workspace.
 - Do not browse unrelated files or URLs "just in case".
 - Do not invent config keys, env vars, commands, or defaults.
 - Do not defer to generic Gmail, SMTP, Google Workspace, or similar skills when

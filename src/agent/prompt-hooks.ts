@@ -1,14 +1,26 @@
 import os from 'node:os';
-import type { ChannelInfo } from '../channels/channel.js';
+import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
+import {
+  getChannelByContextId,
+  normalizeChannelKind,
+} from '../channels/channel-registry.js';
+import {
+  collectActiveMessageToolChannelKinds,
+  describeMessageToolChannelActions,
+  formatMessageToolChannelList,
+  type MessageToolChannelKind,
+} from '../channels/message-tool-advertising.js';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
   APP_VERSION,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_SANDBOX_MODE,
   HYBRIDAI_MODEL,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
+  type RuntimeChannelInstructionsConfig,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -218,10 +230,11 @@ function buildSkillsSection(skillsPrompt: string): string {
 
   return [
     '## Skills (mandatory)',
-    'Before replying: scan `<available_skills>` `<description>` entries.',
+    'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
     '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
+    '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',
     '- Do not claim a listed skill is unavailable when the user named it.',
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
@@ -274,6 +287,78 @@ function buildSessionContextHook(context: PromptHookContext): string {
   return buildSessionContextPrompt(sessionContext);
 }
 
+function buildMessageToolPromptLines(
+  activeChannels: readonly MessageToolChannelKind[],
+  channelMessageToolHints: readonly string[],
+): string[] {
+  const lines = [
+    `Use the \`message\` tool for sending or reading messages on active communication channels: ${formatMessageToolChannelList(activeChannels)}.`,
+  ];
+
+  const channelActionLines = describeMessageToolChannelActions(activeChannels);
+  if (channelActionLines.length > 0) {
+    lines.push(...channelActionLines);
+    lines.push(
+      'For `message` sends, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`).',
+      `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
+    );
+  } else {
+    lines.push('No active communication channels are registered right now.');
+  }
+
+  if (channelMessageToolHints.length > 0) {
+    lines.push('', '### Message Tool Hints', ...channelMessageToolHints);
+  }
+
+  const examples: string[] = [];
+  if (activeChannels.includes('discord')) {
+    examples.push(
+      'Example: "What did Bob say in #general?" -> `message` {"action":"read","channelId":"<discord-channel-id>","limit":50}',
+      'Example: "Send a message to #general saying hello" -> `message` {"action":"send","channelId":"<discord-channel-id>","content":"hello"}',
+    );
+  }
+  if (activeChannels.includes('msteams')) {
+    examples.push(
+      'Example: "Post this file in the current Teams chat" -> `message` {"action":"send","filePath":"path/in/workspace"}',
+    );
+  }
+  if (activeChannels.includes('slack')) {
+    examples.push(
+      'Example: "Read the current Slack thread" -> `message` {"action":"read","channelId":"slack:current","limit":50}',
+    );
+  }
+  if (activeChannels.includes('telegram')) {
+    examples.push(
+      'Example: "Send this to Telegram" -> `message` {"action":"send","to":"telegram:<chatId>","content":"message text"}',
+    );
+  }
+  if (activeChannels.includes('whatsapp')) {
+    examples.push(
+      'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
+    );
+  }
+  if (activeChannels.includes('email')) {
+    examples.push(
+      'Example: "Email ops@example.com that the deployment is complete" -> `message` {"action":"send","to":"ops@example.com","content":"[Subject: Deployment complete]\\n\\nDeployment is complete."}',
+    );
+  }
+  if (activeChannels.includes('imessage')) {
+    examples.push(
+      'Example: "Send this by iMessage" -> `message` {"action":"send","to":"+15551234567","content":"message text"}',
+    );
+  }
+  if (activeChannels.includes('tui')) {
+    examples.push(
+      'Example: "Post this to the local TUI" -> `message` {"action":"send","to":"tui","content":"message text"}',
+    );
+  }
+  if (examples.length > 0) {
+    lines.push('', '### Message Tool Examples', ...examples);
+  }
+
+  return lines;
+}
+
 function readSecurityPromptGuardrails(): string {
   return readRuntimeInstructionFile('SECURITY.md');
 }
@@ -294,6 +379,11 @@ function buildSafetyHook(context: PromptHookContext): string {
       guildId: context.runtimeInfo?.guildId,
     },
   });
+  const activeMessageChannels = collectActiveMessageToolChannelKinds();
+  const messageToolPromptLines = buildMessageToolPromptLines(
+    activeMessageChannels,
+    channelMessageToolHints,
+  );
 
   const lines = [
     '## Runtime Safety Guardrails',
@@ -320,22 +410,20 @@ function buildSafetyHook(context: PromptHookContext): string {
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
     CONTAINER_SANDBOX_MODE === 'host'
-      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, prefer `/tmp` for temporary artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
-      : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
+      ? CONTAINER_PERSIST_BASH_STATE
+        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
+        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
+      : CONTAINER_PERSIST_BASH_STATE
+        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.'
+        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.',
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
+    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
-    'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first. Do not start with `message` reads, `glob`, `find`, workspace-wide discovery, or skill reads unless the user explicitly asked for history or folder discovery.',
+    'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first.',
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not inspect or reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder unless the user explicitly asks to update them or use them as a template.',
-    'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`, `send`) instead of guessing channel members.',
-    'For questions like "what did X say", "who said", or channel recap requests, call `message` with `action="read"` first before answering.',
-    'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
-    'For ingested email conversations, `message` with `action="read"` can inspect stored thread history for the current email session or an explicit email address target. It does not query arbitrary mailbox-wide unseen mail.',
-    'For send intents like "send message", "post in", "DM", "tell X", "notify X", or "message X", call `message` with `action="send"`.',
-    'For `message` with `action="send"`, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`). `send` supports Discord targets, Telegram `telegram:<chatId>` targets, the current Teams conversation, WhatsApp JIDs/phone numbers, email addresses, and local channels like `tui`.',
-    'For local Discord, the current Teams conversation, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
-    'If you already created a file earlier in this session and the user asks to post/upload/send it here, reuse that existing `filePath` with `message action="send"` instead of replying with the path alone.',
+    ...messageToolPromptLines,
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
     'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',
@@ -346,59 +434,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
-    `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
-    ...(channelMessageToolHints.length > 0
-      ? ['', '### Message Tool Hints', ...channelMessageToolHints]
-      : []),
     '',
-    '### Message Tool Few-Shot Examples',
-    'Example 1',
-    'User: "Send a message to #general saying hello"',
-    'Tool call: `message` {"action":"send","channelId":"#general","content":"hello"}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 2',
-    'User: "DM @alice about the deploy"',
-    'Tool call 1: `message` {"action":"member-info","guildId":"<guild-id>","user":"@alice"}',
-    'Tool call 2: `message` {"action":"send","to":"<alice-user-or-dm-channel-id>","content":"Deploy finished. Please verify."}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 3',
-    'User: "Post `invoices/dashboard.html.png` here on Discord"',
-    'Tool call: `message` {"action":"send","filePath":"invoices/dashboard.html.png"}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 4',
-    'User: "Post `.browser-artifacts/hybridclaw-homepage.png` here in Teams"',
-    'Tool call: `message` {"action":"send","filePath":".browser-artifacts/hybridclaw-homepage.png"}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 5',
-    'Earlier in this session you created `.browser-artifacts/hybridclaw-homepage.png`.',
-    'User: "Post screenshot here"',
-    'Tool call: `message` {"action":"send","filePath":".browser-artifacts/hybridclaw-homepage.png"}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 6',
-    'User: "What did Bob say?"',
-    'Tool call: `message` {"action":"read","channelId":"<current-or-target-channel-id>","limit":50}',
-    'Then answer from fetched messages; do not guess.',
-    '',
-    'Example 7',
+    '### Attachment Example',
     'User: "Pull the key fields from this attached invoice PDF."',
     'Current-turn context already includes a local PDF path or injected `<file>` block.',
-    'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
+    'Action: use that attachment content directly and answer from the extracted text.',
     'Then answer with the extracted invoice fields.',
-    '',
-    'Example 8',
-    'User: "Send this to WhatsApp +491701234567: landed safely"',
-    'Tool call: `message` {"action":"send","to":"+491701234567","content":"landed safely"}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
-    '',
-    'Example 9',
-    'User: "Email ops@example.com that the deployment is complete"',
-    'Tool call: `message` {"action":"send","to":"ops@example.com","content":"[Subject: Deployment complete]\\n\\nDeployment is complete."}',
-    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
     '',
     '### Cron reminder few-shot examples',
     'Example 1',
@@ -413,7 +454,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
-    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
@@ -545,6 +586,7 @@ function buildProactivityHook(context: PromptHookContext): string {
 
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
+  const runtimeConfig = getRuntimeConfig();
   const model = sanitizePromptInlineValue(runtimeInfo.model) || HYBRIDAI_MODEL;
   const provider = sanitizePromptInlineValue(resolveModelProvider(model));
   if (!provider) {
@@ -560,6 +602,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
     formatRuntimeModelForPrompt(model, provider),
   );
   const modelSentence = `Model: ${formattedModel} served through ${provider}`;
+  const channelInstructions = buildChannelInstructions(
+    runtimeInfo,
+    runtimeConfig.channelInstructions,
+  );
 
   const lines = [
     '## Runtime Metadata',
@@ -583,9 +629,51 @@ function buildRuntimeHook(context: PromptHookContext): string {
     'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
+    ...(channelInstructions
+      ? ['', '## Channel Instructions', channelInstructions]
+      : []),
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function resolvePromptChannelKind(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+): ChannelKind | undefined {
+  if (runtimeInfo?.channel?.kind) {
+    return runtimeInfo.channel.kind;
+  }
+  const explicitKind = normalizeChannelKind(runtimeInfo?.channelType);
+  if (explicitKind) {
+    return explicitKind;
+  }
+  return getChannelByContextId(runtimeInfo?.channelId)?.kind;
+}
+
+function isChannelInstructionKind(
+  kind: ChannelKind | undefined,
+): kind is keyof RuntimeChannelInstructionsConfig {
+  return (
+    kind === 'discord' ||
+    kind === 'msteams' ||
+    kind === 'slack' ||
+    kind === 'telegram' ||
+    kind === 'voice' ||
+    kind === 'whatsapp' ||
+    kind === 'email' ||
+    kind === 'imessage'
+  );
+}
+
+function buildChannelInstructions(
+  runtimeInfo: PromptRuntimeInfo | undefined,
+  config: RuntimeChannelInstructionsConfig,
+): string {
+  const kind = resolvePromptChannelKind(runtimeInfo);
+  if (!isChannelInstructionKind(kind)) {
+    return '';
+  }
+  return String(config[kind] || '').trim();
 }
 
 function formatRuntimeModelForPrompt(model: string, provider: string): string {

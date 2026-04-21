@@ -1,32 +1,20 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
-const tempDirs: string[] = [];
 
-function makeTempHome(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-gateway-history-'),
-  );
-  tempDirs.push(dir);
-  return dir;
-}
+const makeTempHome = useTempDir('hybridclaw-gateway-history-');
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  if (ORIGINAL_HOME === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = ORIGINAL_HOME;
-  }
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
+useCleanMocks({
+  restoreAllMocks: true,
+  cleanup: () => {
+    if (ORIGINAL_HOME === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = ORIGINAL_HOME;
+    }
+  },
+  resetModules: true,
 });
 
 test('getGatewayHistorySummary reports windowed usage, tools, and file changes', async () => {
@@ -179,6 +167,81 @@ test('getGatewayHistorySummary returns zero counts for unknown sessions', async 
     fileChanges: {
       readCount: 0,
       modifiedCount: 0,
+      createdCount: 0,
+      deletedCount: 0,
+    },
+  });
+});
+
+test('getGatewayHistorySummary accepts canonical session keys and preserves tool/file summaries', async () => {
+  process.env.HOME = makeTempHome();
+  vi.resetModules();
+
+  const { initDatabase, recordUsageEvent } = await import(
+    '../src/memory/db.ts'
+  );
+  const { emitToolExecutionAuditEvents, makeAuditRunId } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { getGatewayHistorySummary } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const session = memoryService.getOrCreateSession(
+    'agent:main:channel:tui:chat:dm:peer:test-key',
+    null,
+    'tui',
+  );
+  const sinceMs = Date.now();
+
+  recordUsageEvent({
+    sessionId: session.id,
+    agentId: session.agent_id,
+    model: 'gpt-5',
+    inputTokens: 123,
+    outputTokens: 45,
+    toolCalls: 2,
+    costUsd: 0.01,
+    timestamp: new Date(sinceMs + 2_000).toISOString(),
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: session.id,
+    runId: makeAuditRunId('after'),
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"existing.txt"}',
+        result: 'ok',
+        durationMs: 8,
+      },
+      {
+        name: 'edit',
+        arguments: '{"path":"existing.txt","old":"a","new":"b"}',
+        result: 'ok',
+        durationMs: 12,
+      },
+    ],
+  });
+
+  expect(
+    getGatewayHistorySummary(session.session_key || session.id, { sinceMs }),
+  ).toEqual({
+    messageCount: 0,
+    userMessageCount: 0,
+    toolCallCount: 2,
+    inputTokenCount: 123,
+    outputTokenCount: 45,
+    costUsd: 0.01,
+    toolBreakdown: [
+      { toolName: 'edit', count: 1 },
+      { toolName: 'read', count: 1 },
+    ],
+    fileChanges: {
+      readCount: 1,
+      modifiedCount: 1,
       createdCount: 0,
       deletedCount: 0,
     },

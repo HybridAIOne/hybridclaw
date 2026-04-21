@@ -49,7 +49,7 @@ export function parseTuiApprovalPrompt(
     intent,
     reason,
     allowSession: lines.some((line) =>
-      /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
+      /^Reply `yes for session` to trust this action for this session\.$/.test(
         line,
       ),
     ),
@@ -60,4 +60,23 @@ export function parseTuiApprovalPrompt(
       'Reply `yes for all` to add this action to the workspace allowlist.',
     ),
   };
+}
+
+export function isTuiApprovalRestatement(prompt: string): boolean {
+  const normalized = String(prompt || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  if (
+    normalized.includes('reply with one of:') &&
+    normalized.includes('yes for session') &&
+    normalized.includes('yes for agent') &&
+    normalized.includes('yes for all')
+  ) {
+    return true;
+  }
+  return (
+    normalized.includes('need your explicit approval first') ||
+    normalized.includes('need your approval first')
+  );
 }

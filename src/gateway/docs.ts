@@ -7,7 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { resolveInstallPath } from '../infra/install-root.js';
 
 const SITE_DIR = resolveInstallPath('docs');
-const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'development');
+const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'content');
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
@@ -15,6 +15,25 @@ const DEVELOPMENT_DOCS_CACHE_TTL_MS = 1_000;
 
 export const DOCS_ROUTE = '/docs';
 const LEGACY_DEVELOPMENT_ROUTE = '/development';
+const LEGACY_DOCS_REDIRECT_WARNING =
+  '299 HybridClaw "Legacy docs redirect; update links to the canonical /docs/... path."';
+const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
+  ['getting-started/channels', 'channels/overview'],
+  ['getting-started/channels.md', 'channels/overview.md'],
+  ['imessage', 'channels/imessage'],
+  ['imessage.md', 'channels/imessage.md'],
+  ['msteams', 'channels/msteams'],
+  ['msteams.md', 'channels/msteams.md'],
+  ['slack', 'channels/slack'],
+  ['slack.md', 'channels/slack.md'],
+  ['internals', 'developer-guide'],
+  ['internals/README.md', 'developer-guide/README.md'],
+  ['tools/web-search', 'reference/tools/web-search'],
+  ['tools/web-search.md', 'reference/tools/web-search.md'],
+]);
+const LEGACY_DOCS_PREFIX_REWRITES: Array<{ from: string; to: string }> = [
+  { from: 'internals/', to: 'developer-guide/' },
+];
 
 const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -50,6 +69,7 @@ const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   ],
   allowedAttributes: {
     a: ['aria-hidden', 'class', 'href', 'rel', 'target', 'title'],
+    blockquote: ['class'],
     code: ['class'],
     h1: ['id'],
     h2: ['id'],
@@ -147,6 +167,14 @@ function humanizeSegment(segment: string): string {
     .join(' ');
 }
 
+function normalizeDocPath(input: string): string {
+  return String(input || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/');
+}
+
 function parseDevelopmentDoc(
   raw: string,
   relativePath: string,
@@ -240,45 +268,83 @@ function resolveDevelopmentDocFile(relativePath: string): string | null {
   return resolveContainedFilePath(DEVELOPMENT_DOCS_DIR, candidate);
 }
 
-function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
+function extractDocsRouteRelativePath(pathname: string): {
+  relativePath: string;
+  routeBase: string;
+} | null {
   const recognizedRoutes = [DOCS_ROUTE, LEGACY_DEVELOPMENT_ROUTE];
   for (const route of recognizedRoutes) {
     if (pathname === route || pathname === `${route}/`) {
-      return 'README.md';
+      return { routeBase: route, relativePath: '' };
     }
     if (!pathname.startsWith(`${route}/`)) continue;
-    const rawRelativePath = pathname.slice(route.length + 1);
-    if (!rawRelativePath) return 'README.md';
-
-    const normalized = path.posix
-      .normalize(rawRelativePath.replaceAll('\\', '/'))
-      .replace(/^\/+/, '')
-      .replace(/\/+$/, '');
-    if (!normalized || normalized === '.' || normalized.startsWith('../')) {
-      return null;
-    }
-
-    const extension = path.posix.extname(normalized);
-    if (extension && extension !== '.md') return null;
-
-    const withoutExtension =
-      extension === '.md' ? normalized.slice(0, -3) : normalized;
-    if (!withoutExtension || withoutExtension === 'README') return 'README.md';
-
-    const candidates =
-      extension === '.md'
-        ? [normalized]
-        : path.posix.basename(withoutExtension).toUpperCase() === 'README'
-          ? [`${withoutExtension}.md`]
-          : [`${withoutExtension}.md`, `${withoutExtension}/README.md`];
-
-    for (const candidate of candidates) {
-      if (resolveDevelopmentDocFile(candidate)) return candidate;
-    }
-
-    return candidates[0] || null;
+    return {
+      routeBase: route,
+      relativePath: pathname.slice(route.length + 1),
+    };
   }
   return null;
+}
+
+function rewriteLegacyDocsRelativePath(rawRelativePath: string): string {
+  const normalized = normalizeDocPath(rawRelativePath);
+  if (!normalized || normalized === 'index.html') return normalized;
+
+  const exactRewrite = LEGACY_DOCS_EXACT_REWRITES.get(normalized);
+  if (exactRewrite) return exactRewrite;
+
+  for (const rewrite of LEGACY_DOCS_PREFIX_REWRITES) {
+    if (normalized.startsWith(rewrite.from)) {
+      return `${rewrite.to}${normalized.slice(rewrite.from.length)}`;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeRequestedDevelopmentDocRelativePath(
+  rawRelativePath: string,
+): string | null {
+  if (!rawRelativePath) return 'README.md';
+
+  const normalized = path.posix
+    .normalize(rawRelativePath.replaceAll('\\', '/'))
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized === 'index.html' ||
+    normalized.startsWith('../')
+  ) {
+    return normalized === 'index.html' ? 'README.md' : null;
+  }
+
+  const extension = path.posix.extname(normalized);
+  if (extension && extension !== '.md') return null;
+
+  const withoutExtension =
+    extension === '.md' ? normalized.slice(0, -3) : normalized;
+  if (!withoutExtension || withoutExtension === 'README') return 'README.md';
+
+  const candidates =
+    extension === '.md'
+      ? [normalized]
+      : path.posix.basename(withoutExtension).toUpperCase() === 'README'
+        ? [`${withoutExtension}.md`]
+        : [`${withoutExtension}.md`, `${withoutExtension}/README.md`];
+
+  for (const candidate of candidates) {
+    if (resolveDevelopmentDocFile(candidate)) return candidate;
+  }
+
+  return candidates[0] || null;
+}
+
+function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
+  const extracted = extractDocsRouteRelativePath(pathname);
+  if (!extracted) return null;
+  return normalizeRequestedDevelopmentDocRelativePath(extracted.relativePath);
 }
 
 function routePathForDevelopmentDoc(relativePath: string): string {
@@ -293,6 +359,44 @@ function routePathForDevelopmentDoc(relativePath: string): string {
 function markdownPathForDevelopmentDoc(relativePath: string): string {
   const normalized = path.posix.normalize(relativePath).replace(/^\/+/, '');
   return `${DOCS_ROUTE}/${normalized}`;
+}
+
+function buildDocsRedirectLocation(
+  relativePath: string,
+  wantsMarkdown: boolean,
+): string {
+  if (!relativePath || relativePath === 'README.md') {
+    return wantsMarkdown ? `${DOCS_ROUTE}/README.md` : DOCS_ROUTE;
+  }
+  if (wantsMarkdown) {
+    const normalized = relativePath.endsWith('.md')
+      ? relativePath
+      : `${relativePath}.md`;
+    return `${DOCS_ROUTE}/${normalized}`;
+  }
+  return routePathForDevelopmentDoc(relativePath);
+}
+
+function resolveLegacyDocsRedirectLocation(url: URL): string | null {
+  const extracted = extractDocsRouteRelativePath(url.pathname);
+  if (!extracted) return null;
+
+  const wantsMarkdown = url.pathname.endsWith('.md');
+  const rewrittenRelativePath = rewriteLegacyDocsRelativePath(
+    extracted.relativePath,
+  );
+  const usesLegacyRoute = extracted.routeBase === LEGACY_DEVELOPMENT_ROUTE;
+  const usesLegacyPath =
+    normalizeDocPath(extracted.relativePath) !== rewrittenRelativePath;
+
+  if (!usesLegacyRoute && !usesLegacyPath) return null;
+
+  const normalizedRelativePath = normalizeRequestedDevelopmentDocRelativePath(
+    rewrittenRelativePath,
+  );
+  if (!normalizedRelativePath) return null;
+
+  return `${buildDocsRedirectLocation(normalizedRelativePath, wantsMarkdown)}${url.search}`;
 }
 
 function searchDevelopmentDocs(
@@ -778,6 +882,8 @@ function renderMarkdownSourceScript(source: string): string {
 function renderInteractiveScript(): string {
   return `<script>
 (() => {
+  const ICON_COPY = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  const ICON_CHECK = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
   const body = document.body;
   const copyMarkdownButton = document.querySelector('[data-doc-copy-markdown]');
   const searchInput = document.querySelector('[data-doc-search-input]');
@@ -1012,6 +1118,30 @@ function renderInteractiveScript(): string {
       observer.observe(section.target);
     }
   }
+
+  // Copy buttons for try-it prompts
+  document.querySelectorAll('blockquote.docs-try-it p').forEach((pEl) => {
+    const codeEl = pEl.querySelector('code');
+    if (!codeEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'docs-copy-inline';
+    btn.innerHTML = ICON_COPY;
+    btn.setAttribute('aria-label', 'Copy prompt');
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText((codeEl.textContent || '').replace(new RegExp('^[0-9]+[.][ ]*'), ''));
+        btn.innerHTML = ICON_CHECK;
+        btn.classList.add('is-copied');
+        window.setTimeout(() => {
+          btn.innerHTML = ICON_COPY;
+          btn.classList.remove('is-copied');
+        }, 1200);
+      } catch {}
+    });
+    codeEl.appendChild(btn);
+  });
 })();
 </script>`;
 }
@@ -1054,6 +1184,17 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     return `<a href="${escapeHtml(
       resolvedHref,
     )}"${titleAttr}${externalAttrs}>${text}</a>`;
+  };
+
+  // Callout detection: mirrors docs/static/docs.js blockquote handling.
+  // Client-side uses custom parser with blank-line grouping; here marked
+  // handles grouping natively. Both detect 🎯 (try-it) and 💡 (tip).
+  renderer.blockquote = function ({ tokens }) {
+    const body = this.parser.parse(tokens);
+    let bqClass = '';
+    if (body.includes('🎯')) bqClass = ' class="docs-try-it"';
+    else if (body.includes('💡')) bqClass = ' class="docs-tip"';
+    return `<blockquote${bqClass}>${body}</blockquote>\n`;
   };
 
   renderer.image = ({ href, title, text }) => {
@@ -1664,6 +1805,79 @@ function renderPage(
       color: var(--muted-strong);
     }
 
+    .docs-article blockquote p {
+      margin: 0 0 6px;
+    }
+
+    .docs-article blockquote p:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-article blockquote.docs-try-it,
+    .docs-article blockquote.docs-tip {
+      padding: 14px 18px;
+      border-radius: 0 12px 12px 0;
+    }
+
+    .docs-article blockquote.docs-try-it > p:first-child,
+    .docs-article blockquote.docs-tip > p:first-child {
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .docs-article blockquote.docs-try-it {
+      border-left-color: var(--success, #15803d);
+      background: rgba(21, 128, 61, 0.08);
+    }
+
+    .docs-article blockquote.docs-tip {
+      border-left-color: #e8a317;
+      background: rgba(232, 163, 23, 0.08);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-try-it {
+      background: rgba(126, 227, 165, 0.1);
+    }
+
+    [data-theme="dark"] .docs-article blockquote.docs-tip {
+      border-left-color: #f0c050;
+      background: rgba(240, 192, 80, 0.08);
+    }
+
+    .docs-article blockquote.docs-try-it code {
+      position: relative;
+    }
+
+    .docs-copy-inline {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      padding: 2px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      color: var(--muted, #6b7280);
+    }
+
+    .docs-article blockquote.docs-try-it code:hover .docs-copy-inline {
+      opacity: 0.6;
+    }
+
+    .docs-article blockquote.docs-try-it code .docs-copy-inline:hover {
+      opacity: 1;
+    }
+
+    .docs-article blockquote.docs-try-it code .docs-copy-inline.is-copied {
+      opacity: 1;
+      color: var(--success, #15803d);
+    }
+
     .docs-article table {
       width: 100%;
       border-collapse: collapse;
@@ -1848,7 +2062,7 @@ function renderPage(
       <span class="docs-brand-accent">Docs</span>
     </a>
     <nav class="docs-topnav" aria-label="Top navigation">
-      <a href="/">Home</a>
+      <a href="/about">Home</a>
       <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
       <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
     </nav>
@@ -2017,24 +2231,16 @@ function renderDevelopmentDocsErrorPage(message: string): string {
 export function serveDocs(url: URL, res: ServerResponse): boolean {
   const pathname = url.pathname;
   const searchQuery = String(url.searchParams.get('search') || '').trim();
-  if (
-    pathname === LEGACY_DEVELOPMENT_ROUTE ||
-    pathname === `${LEGACY_DEVELOPMENT_ROUTE}/` ||
-    pathname.startsWith(`${LEGACY_DEVELOPMENT_ROUTE}/`)
-  ) {
-    const wantsMarkdown = pathname.endsWith('.md');
-    if (!wantsMarkdown) {
-      const redirectLocation =
-        pathname === LEGACY_DEVELOPMENT_ROUTE
-          ? `${DOCS_ROUTE}${url.search}`
-          : `${pathname.replace(LEGACY_DEVELOPMENT_ROUTE, DOCS_ROUTE)}${url.search}`;
-      res.writeHead(308, {
-        'Cache-Control': 'no-cache',
-        Location: redirectLocation,
-      });
-      res.end();
-      return true;
-    }
+  const legacyRedirectLocation = resolveLegacyDocsRedirectLocation(url);
+  if (legacyRedirectLocation) {
+    res.writeHead(308, {
+      'Cache-Control': 'no-cache',
+      Location: legacyRedirectLocation,
+      Warning: LEGACY_DOCS_REDIRECT_WARNING,
+      'X-HybridClaw-Docs-Redirect': 'legacy',
+    });
+    res.end();
+    return true;
   }
 
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);

@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiApprovalSummary,
+  isTuiApprovalRestatement,
   parseTuiApprovalPrompt,
 } from '../src/tui-approval.js';
 
@@ -54,30 +55,6 @@ test('parses raw runtime approval prompts into TUI approval details', () => {
     allowSession: true,
     allowAgent: true,
     allowAll: true,
-  });
-});
-
-test('parses always-style durable approval prompts into TUI approval details', () => {
-  expect(
-    parseTuiApprovalPrompt(
-      [
-        'I need your approval before I control a local app with `open -a Calendar`.',
-        'Why: this command controls host GUI or application state',
-        'Approval ID: approve123',
-        'Reply `yes` to approve once.',
-        'Reply `yes always` to trust this action for this conversation.',
-        'Reply `yes for agent` to trust it for this agent.',
-        'Reply `no` to deny.',
-        'Approval expires in 120s.',
-      ].join('\n'),
-    ),
-  ).toEqual({
-    approvalId: 'approve123',
-    intent: 'control a local app with `open -a Calendar`',
-    reason: 'this command controls host GUI or application state',
-    allowSession: true,
-    allowAgent: true,
-    allowAll: false,
   });
 });
 
@@ -153,4 +130,31 @@ test('parses session-only approval prompts for command-style approvals', () => {
     allowAgent: false,
     allowAll: false,
   });
+});
+
+test('detects prose approval restatements that omit the canonical approval id block', () => {
+  expect(
+    isTuiApprovalRestatement(
+      [
+        '> Use web_fetch to read hybridclaw.com',
+        '',
+        'I can do that, but I need your explicit approval first.',
+        '',
+        'Reply with one of:',
+        '- `yes` (approve just this fetch)',
+        '- `yes for session`',
+        '- `yes for agent`',
+        '- `yes for all`',
+        '- `no`',
+      ].join('\n'),
+    ),
+  ).toBe(true);
+});
+
+test('does not treat ordinary assistant prose as an approval restatement', () => {
+  expect(
+    isTuiApprovalRestatement(
+      'I can explain the docs page from memory, but fetching it would be more accurate.',
+    ),
+  ).toBe(false);
 });

@@ -105,6 +105,9 @@ leak into the saved revision metadata.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `channelInstructions.*` for transport-specific prompt guidance injected into
+  the runtime prompt; `channelInstructions.voice` is the right place for
+  spoken-style rules such as "no markdown" or "keep replies short"
 - `skills.disabled` and `skills.channelDisabled.*` for skill availability
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
@@ -121,6 +124,11 @@ leak into the saved revision metadata.
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
+- `voice.*` for the Twilio ConversationRelay channel, including webhook path,
+  concurrency, relay voice/STT options, and Twilio number/account settings;
+  the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
+  in the encrypted runtime secret store or use a SecretRef-backed
+  `voice.twilio.authToken`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
@@ -168,16 +176,22 @@ native model audio input for supported sessions. Today that path is enabled for
 `vllm` and attaches the original current-turn audio when no transcript block
 was prepended already.
 
-For the full speech and fallback workflow, see
+For the Twilio phone channel, see [Twilio Voice](../guides/twilio-voice.md).
+For the local speech and fallback workflow, see
 [Voice And TTS](../guides/voice-tts.md).
 
 ## Secrets And Trust
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
-`HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`,
-`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`,
-`IMESSAGE_PASSWORD`, and `MSTEAMS_APP_PASSWORD`.
+`MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
+`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`,
+`XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
+`DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`, `VLLM_API_KEY`,
+`BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
+`TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
+`GATEWAY_API_TOKEN`.
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is
@@ -192,8 +206,8 @@ credential checks run.
   `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
   plaintext values
 - current built-in SecretRef surfaces include `ops.webApiToken`,
-  `ops.gatewayApiToken`, `email.password`, `imessage.password`, and
-  `local.backends.vllm.apiKey`
+  `ops.gatewayApiToken`, `email.password`, `imessage.password`,
+  `voice.twilio.authToken`, and `local.backends.vllm.apiKey`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the

@@ -23,7 +23,10 @@ import {
   handleGatewayCommand,
   renderGatewayCommand,
 } from './gateway-service.js';
-import type { GatewayCommandResult } from './gateway-types.js';
+import type {
+  GatewayChatResult,
+  GatewayCommandResult,
+} from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
@@ -41,6 +44,7 @@ export interface HandledTextChannelApprovalResult {
   sessionKey?: string;
   mainSessionKey?: string;
   approvalId?: string;
+  pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
   text: string | null;
   artifacts: ArtifactMetadata[];
 }
@@ -91,7 +95,6 @@ function buildApprovalUserMessage(params: {
   }
   if (
     (isApprovalScopeMode(action) && action !== 'once') ||
-    action === 'always' ||
     action === '2' ||
     action === '3' ||
     action === '4'
@@ -103,9 +106,7 @@ function buildApprovalUserMessage(params: {
           ? 'agent'
           : action === '4'
             ? 'all'
-            : action === 'always'
-              ? 'session'
-              : action;
+            : action;
     return approvalId ? `yes ${approvalId} for ${mode}` : `yes for ${mode}`;
   }
   if (
@@ -160,7 +161,7 @@ export async function handleTextChannelApprovalCommand(params: {
     return {
       handled: true,
       sessionId,
-      text: `${APPROVE_TEXT_CHANNEL_USAGE} (also accepts \`always\` as a \`session\` alias)`,
+      text: APPROVE_TEXT_CHANNEL_USAGE,
       artifacts: [],
     };
   }
@@ -186,7 +187,6 @@ export async function handleTextChannelApprovalCommand(params: {
       !(
         action === 'yes' ||
         action === '1' ||
-        action === 'always' ||
         action === 'session' ||
         action === '2' ||
         action === 'agent' ||
@@ -208,7 +208,7 @@ export async function handleTextChannelApprovalCommand(params: {
     }
 
     if (
-      (action === 'always' || action === 'session' || action === '2') &&
+      (action === 'session' || action === '2') &&
       pending.commandAction.allowSession !== true
     ) {
       return {
@@ -261,9 +261,7 @@ export async function handleTextChannelApprovalCommand(params: {
     }
 
     const approvalMode =
-      action === 'always' || action === 'session' || action === '2'
-        ? 'session'
-        : 'once';
+      action === 'session' || action === '2' ? 'session' : 'once';
     if (pending.commandAction.actionKey) {
       recordCommandApproval({
         sessionId,
@@ -371,6 +369,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionKey: approvalResult.sessionKey,
       mainSessionKey: approvalResult.mainSessionKey,
       approvalId: pendingApproval.approvalId,
+      pendingApproval: approvalResult.pendingApproval,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
     };
