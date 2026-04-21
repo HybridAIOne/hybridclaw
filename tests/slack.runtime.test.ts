@@ -253,6 +253,15 @@ describe('slack runtime', () => {
     });
   });
 
+  test('rejects text sends before Slack init', async () => {
+    const state = await importFreshSlackRuntime();
+
+    await expect(
+      state.runtime.sendToSlackTarget('slack:C1234567890', 'hello'),
+    ).rejects.toThrow('Slack runtime is not initialized.');
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
   test('formats Slack file captions before upload', async () => {
     const state = await importFreshSlackRuntime();
     const filePath = makeTempFile('report.txt', 'hello slack');
@@ -274,6 +283,19 @@ describe('slack runtime', () => {
         thread_ts: '1710000000.123456',
       }),
     );
+  });
+
+  test('rejects file sends before Slack init', async () => {
+    const state = await importFreshSlackRuntime();
+    const filePath = makeTempFile('report.txt', 'hello slack');
+
+    await expect(
+      state.runtime.sendSlackFileToTarget({
+        target: 'slack:C1234567890',
+        filePath,
+      }),
+    ).rejects.toThrow('Slack runtime is not initialized.');
+    expect(state.uploadV2).not.toHaveBeenCalled();
   });
 
   test('sends Slack approval prompts through the named helper', async () => {
