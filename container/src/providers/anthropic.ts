@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process';
 import { TextDecoder } from 'node:util';
+import {
+  isAnthropicOAuthToken,
+  normalizeAnthropicBaseUrl,
+  stripAnthropicModelPrefix,
+} from '../../shared/anthropic-utils.js';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
   ChatCompletionResponse,
@@ -116,26 +121,10 @@ function buildClaudeCliEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
-function normalizeAnthropicModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  if (!trimmed.toLowerCase().startsWith('anthropic/')) return trimmed;
-  return trimmed.slice('anthropic/'.length) || trimmed;
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
-
 function usesClaudeCliTransport(
   args: Pick<NormalizedCallArgs, 'providerMethod'>,
 ): boolean {
   return args.providerMethod === 'claude-cli';
-}
-
-function isAnthropicOAuthToken(apiKey: string): boolean {
-  return String(apiKey || '').includes('sk-ant-oat');
 }
 
 function buildHeaders(args: {
@@ -262,7 +251,7 @@ async function runClaudeCliCommand(
     '--permission-mode',
     'bypassPermissions',
     '--model',
-    normalizeAnthropicModelName(args.model),
+    stripAnthropicModelPrefix(args.model),
     ...(systemPrompt ? ['--append-system-prompt', systemPrompt] : []),
   ];
 
@@ -483,7 +472,7 @@ function buildRequestBody(
   stream: boolean,
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
-    model: normalizeAnthropicModelName(args.model),
+    model: stripAnthropicModelPrefix(args.model),
     max_tokens:
       typeof args.maxTokens === 'number' && args.maxTokens > 0
         ? Math.floor(args.maxTokens)
@@ -608,7 +597,7 @@ function adaptAnthropicResponse(
     model:
       typeof record.model === 'string' && record.model
         ? record.model
-        : normalizeAnthropicModelName(fallbackModel),
+        : stripAnthropicModelPrefix(fallbackModel),
     choices: [
       {
         message: {
@@ -712,7 +701,7 @@ export async function callAnthropicProvider(
     const result = await runClaudeCliCommand(args);
     return {
       id: result.responseId,
-      model: normalizeAnthropicModelName(args.model),
+      model: stripAnthropicModelPrefix(args.model),
       choices: [
         {
           message: {
@@ -725,12 +714,15 @@ export async function callAnthropicProvider(
     };
   }
 
-  const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/messages`, {
-    method: 'POST',
-    headers: buildHeaders(args),
-    body: JSON.stringify(buildRequestBody(args, false)),
-    signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
-  });
+  const response = await fetch(
+    `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+    {
+      method: 'POST',
+      headers: buildHeaders(args),
+      body: JSON.stringify(buildRequestBody(args, false)),
+      signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
+    },
+  );
 
   if (!response.ok) {
     throw new ProviderRequestError(
@@ -749,7 +741,7 @@ export async function callAnthropicProviderStream(
     const result = await runClaudeCliCommand(args);
     return {
       id: result.responseId,
-      model: normalizeAnthropicModelName(args.model),
+      model: stripAnthropicModelPrefix(args.model),
       choices: [
         {
           message: {
@@ -762,12 +754,15 @@ export async function callAnthropicProviderStream(
     };
   }
 
-  const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/messages`, {
-    method: 'POST',
-    headers: buildHeaders({ ...args, stream: true }),
-    body: JSON.stringify(buildRequestBody(args, true)),
-    signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
-  });
+  const response = await fetch(
+    `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+    {
+      method: 'POST',
+      headers: buildHeaders({ ...args, stream: true }),
+      body: JSON.stringify(buildRequestBody(args, true)),
+      signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
+    },
+  );
 
   if (!response.ok) {
     throw new ProviderRequestError(
@@ -784,7 +779,7 @@ export async function callAnthropicProviderStream(
   const blocks: AnthropicStreamBlock[] = [];
   let usage: ChatCompletionResponse['usage'] | undefined;
   let responseId = 'message';
-  let responseModel = normalizeAnthropicModelName(args.model);
+  let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
   let buffer = '';
 

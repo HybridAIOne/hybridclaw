@@ -50,8 +50,14 @@ describe('Anthropic container provider', () => {
   test('sets an inference timeout signal on non-streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe('https://api.anthropic.com/v1/messages');
         expect(init?.signal).toBeInstanceOf(AbortSignal);
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe('claude-sonnet-4-6');
         return new Response(
           JSON.stringify({
             id: 'msg_1',
@@ -73,7 +79,10 @@ describe('Anthropic container provider', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await callAnthropicProvider(baseArgs);
+    const result = await callAnthropicProvider({
+      ...baseArgs,
+      baseUrl: 'https://api.anthropic.com',
+    });
 
     expect(timeoutSpy).toHaveBeenCalledWith(300_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
