@@ -43,6 +43,76 @@ interface ClaudeCliResult {
   text: string;
 }
 
+const CLAUDE_CLI_ENV_ALLOWLIST = [
+  'HOME',
+  'PATH',
+  'SHELL',
+  'TERM',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'USER',
+  'LOGNAME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'SSH_AUTH_SOCK',
+] as const;
+
+const CLAUDE_CLI_SECRET_ENV_DENYLIST = [
+  'HYBRIDAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+  'MISTRAL_API_KEY',
+  'HF_TOKEN',
+  'HUGGINGFACE_API_KEY',
+  'OPENAI_API_KEY',
+  'GROQ_API_KEY',
+  'DEEPGRAM_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'VLLM_API_KEY',
+  'BRAVE_API_KEY',
+  'TAVILY_API_KEY',
+  'DISCORD_TOKEN',
+  'EMAIL_PASSWORD',
+  'TELEGRAM_BOT_TOKEN',
+  'IMESSAGE_PASSWORD',
+  'TWILIO_AUTH_TOKEN',
+  'MSTEAMS_APP_PASSWORD',
+  'SLACK_BOT_TOKEN',
+  'SLACK_APP_TOKEN',
+  'WEB_API_TOKEN',
+  'GATEWAY_API_TOKEN',
+  'DEEPSEEK_API_KEY',
+  'XAI_API_KEY',
+  'ZAI_API_KEY',
+  'Z_AI_API_KEY',
+  'GLM_API_KEY',
+  'KIMI_API_KEY',
+  'MINIMAX_API_KEY',
+  'DASHSCOPE_API_KEY',
+  'XIAOMI_API_KEY',
+  'KILO_API_KEY',
+  'KILOCODE_API_KEY',
+] as const;
+
+function buildClaudeCliEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of CLAUDE_CLI_ENV_ALLOWLIST) {
+    const value = sourceEnv[key];
+    if (value) env[key] = value;
+  }
+  env.PATH ||= '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+  for (const key of CLAUDE_CLI_SECRET_ENV_DENYLIST) {
+    delete env[key];
+  }
+  return env;
+}
+
 function normalizeAnthropicModelName(model: string): string {
   const trimmed = String(model || '').trim();
   if (!trimmed.toLowerCase().startsWith('anthropic/')) return trimmed;
@@ -192,7 +262,7 @@ async function runClaudeCliCommand(
 
   const child = spawn('claude', commandArgs, {
     cwd: process.cwd(),
-    env: { ...process.env },
+    env: buildClaudeCliEnv(process.env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

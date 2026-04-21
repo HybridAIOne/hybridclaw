@@ -2,6 +2,14 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, expect, test, vi } from 'vitest';
 
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
 afterEach(() => {
   vi.resetModules();
   vi.restoreAllMocks();
@@ -10,7 +18,15 @@ afterEach(() => {
 
 test('routes Anthropic claude-cli calls through `claude -p`', async () => {
   const originalSandboxMode = process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
+  const originalHybridAIKey = process.env.HYBRIDAI_API_KEY;
+  const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
+  const originalTestLeak = process.env.HYBRIDCLAW_TEST_SHOULD_NOT_LEAK;
   process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = 'host';
+  process.env.HYBRIDAI_API_KEY = 'hybridai-secret';
+  process.env.OPENROUTER_API_KEY = 'openrouter-secret';
+  process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+  process.env.HYBRIDCLAW_TEST_SHOULD_NOT_LEAK = 'not-allowlisted';
   try {
     const spawnMock = vi.fn(() => {
       const child = new EventEmitter() as EventEmitter & {
@@ -80,6 +96,15 @@ test('routes Anthropic claude-cli calls through `claude -p`', async () => {
         }),
       }),
     );
+    const childEnv = spawnMock.mock.calls[0]?.[2]?.env as
+      | Record<string, string | undefined>
+      | undefined;
+    expect(childEnv).toBeDefined();
+    expect(childEnv?.PATH).toBeTruthy();
+    expect(childEnv?.HYBRIDAI_API_KEY).toBeUndefined();
+    expect(childEnv?.OPENROUTER_API_KEY).toBeUndefined();
+    expect(childEnv?.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(childEnv?.HYBRIDCLAW_TEST_SHOULD_NOT_LEAK).toBeUndefined();
     expect(spawnMock.mock.calls[0]?.[1]).not.toContain('--cwd');
     expect(response).toMatchObject({
       id: 'session_123',
@@ -100,6 +125,10 @@ test('routes Anthropic claude-cli calls through `claude -p`', async () => {
     } else {
       process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = originalSandboxMode;
     }
+    restoreEnvVar('HYBRIDAI_API_KEY', originalHybridAIKey);
+    restoreEnvVar('OPENROUTER_API_KEY', originalOpenRouterKey);
+    restoreEnvVar('ANTHROPIC_API_KEY', originalAnthropicKey);
+    restoreEnvVar('HYBRIDCLAW_TEST_SHOULD_NOT_LEAK', originalTestLeak);
   }
 });
 
