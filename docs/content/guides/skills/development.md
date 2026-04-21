@@ -1,6 +1,6 @@
 ---
 title: Development Skills
-description: Code review, GitHub PR workflows, Salesforce inspection, and skill creation tools.
+description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, and skill creation tools.
 sidebar_position: 3
 ---
 

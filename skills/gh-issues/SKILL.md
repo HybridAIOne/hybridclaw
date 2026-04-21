@@ -63,6 +63,7 @@ Derived values:
 
 - `SOURCE_REPO`: issue and PR target repository.
 - `PUSH_REPO`: `--fork` value, otherwise `SOURCE_REPO`.
+- `PUSH_OWNER`: owner portion of `PUSH_REPO`.
 - `PUSH_REMOTE`: `fork` when `--fork` is used, otherwise `origin`.
 - `FORK_MODE`: true when `--fork` is used.
 
@@ -154,7 +155,8 @@ Run these checks before delegating fixes:
 5. Skip issues whose intended branch already exists in `PUSH_REPO`.
 
    ```bash
-   gh api "repos/$PUSH_REPO/branches/fix/issue-$ISSUE_NUMBER" --silent
+   BRANCH_REF="fix%2Fissue-$ISSUE_NUMBER"
+   gh api "repos/$PUSH_REPO/branches/$BRANCH_REF" --silent
    ```
 
 Only delegate remaining issues.

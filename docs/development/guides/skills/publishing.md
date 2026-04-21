@@ -1,6 +1,6 @@
 ---
 title: Publishing Skills
-description: Manim video creation, WordPress publishing, and blog post writing.
+description: Excalidraw diagrams, Manim video creation, WordPress publishing, and blog post writing.
 sidebar_position: 8
 ---
 

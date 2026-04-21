@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **37 bundled skills** across nine categories. Each page below
+HybridClaw ships **37 bundled skills** across eight categories. Each page below
 covers every skill in its category with prerequisites, install commands,
 tips & tricks, ready-to-try example prompts, and troubleshooting.
 
