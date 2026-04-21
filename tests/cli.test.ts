@@ -3921,7 +3921,7 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
     expect(logSpy).toHaveBeenCalledWith('Configured method: api-key');
-    expect(logSpy).toHaveBeenCalledWith('Detected auth method: claude-cli');
+    expect(logSpy).toHaveBeenCalledWith('Method: claude-cli');
     expect(logSpy).toHaveBeenCalledWith(
       'Configured method is not ready: detected claude-cli credentials, but Anthropic is configured for api-key.',
     );
