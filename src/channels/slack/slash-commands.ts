@@ -4,7 +4,7 @@ import {
 } from '../../command-registry.js';
 import { resolveTextChannelSlashCommands } from '../../gateway/text-channel-commands.js';
 import { normalizeTrimmedString } from '../../utils/normalized-strings.js';
-import { isRecord } from '../../utils/shared-utils.js';
+import { isRecord } from '../../utils/type-guards.js';
 
 export interface SlackManifestSlashCommand {
   command: string;

@@ -24,7 +24,7 @@ import { withSpanSync } from '../observability/otel.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
-import { isRecord } from '../utils/shared-utils.js';
+import { isRecord } from '../utils/type-guards.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =

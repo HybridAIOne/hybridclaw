@@ -3,8 +3,6 @@ import path from 'node:path';
 
 import { SkillImportError } from './skill-errors.js';
 
-export { ensureText } from '../utils/shared-utils.js';
-
 export const MAX_IMPORT_FILE_COUNT = 256;
 export const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 
@@ -44,6 +42,10 @@ export function trimSlashes(value: string): string {
 
 export function normalizeRepoPath(value: string): string {
   return trimSlashes(value).replace(/\/+/g, '/');
+}
+
+export function ensureText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 export function assertSafeRelativePath(relativePath: string): void {
