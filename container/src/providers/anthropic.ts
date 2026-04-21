@@ -233,7 +233,6 @@ async function runClaudeCliCommand(
   }
   let responseId = 'claude-cli';
   let finalText = '';
-  let streamedText = '';
   let stderr = '';
   let buffer = '';
 
@@ -277,23 +276,13 @@ async function runClaudeCliCommand(
         if (typeof payload.session_id === 'string' && payload.session_id) {
           responseId = payload.session_id;
         }
-        const text = extractClaudeCliText(payload);
         if (typeof payload.type === 'string' && payload.type === 'result') {
+          const text = extractClaudeCliText(payload);
           finalText = text;
-          continue;
+          if (text) args.onTextDelta?.(text);
         }
-        if (!text) continue;
-        if (text.startsWith(streamedText)) {
-          const delta = text.slice(streamedText.length);
-          if (delta) args.onTextDelta?.(delta);
-          streamedText = text;
-          continue;
-        }
-        streamedText += text;
-        args.onTextDelta?.(text);
       } catch {
-        streamedText += line;
-        args.onTextDelta?.(line);
+        // Ignore malformed stdout lines from the CLI stream-json transport.
       }
     }
   });
@@ -306,22 +295,13 @@ async function runClaudeCliCommand(
   if (buffer.trim()) {
     try {
       const payload = JSON.parse(buffer.trim()) as Record<string, unknown>;
-      const text = extractClaudeCliText(payload);
       if (typeof payload.type === 'string' && payload.type === 'result') {
+        const text = extractClaudeCliText(payload);
         finalText = text || finalText;
-      } else if (text) {
-        if (text.startsWith(streamedText)) {
-          const delta = text.slice(streamedText.length);
-          if (delta) args.onTextDelta?.(delta);
-          streamedText = text;
-        } else {
-          streamedText += text;
-          args.onTextDelta?.(text);
-        }
+        if (text) args.onTextDelta?.(text);
       }
     } catch {
-      streamedText += buffer.trim();
-      args.onTextDelta?.(buffer.trim());
+      // Ignore malformed trailing stdout from the CLI stream-json transport.
     }
   }
 
@@ -331,7 +311,7 @@ async function runClaudeCliCommand(
 
   return {
     responseId,
-    text: finalText || streamedText,
+    text: finalText,
   };
 }
 

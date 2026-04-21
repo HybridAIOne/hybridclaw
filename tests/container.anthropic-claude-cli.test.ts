@@ -210,6 +210,97 @@ test('uses the real host HOME for Anthropic claude-cli in host sandbox mode', as
   }
 });
 
+test('ignores non-result text events from Anthropic claude-cli stream-json output', async () => {
+  const originalSandboxMode = process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
+  process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = 'host';
+
+  const spawnMock = vi.fn(() => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+
+    queueMicrotask(() => {
+      child.stdout.write(
+        `${JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'partial' }],
+          },
+        })}\n`,
+      );
+      child.stdout.write(
+        `${JSON.stringify({
+          type: 'content_block_delta',
+          text: 'partial prefix that should not be emitted',
+        })}\n`,
+      );
+      child.stdout.write('not-json\n');
+      child.stdout.write(
+        `${JSON.stringify({
+          type: 'result',
+          session_id: 'session_result_only',
+          result: 'final cli response',
+        })}\n`,
+      );
+      child.stdout.end();
+      child.emit('close', 0);
+    });
+
+    return child;
+  });
+
+  vi.doMock('node:child_process', () => ({
+    spawn: spawnMock,
+  }));
+
+  try {
+    const { callAnthropicProviderStream } = await import(
+      '../container/src/providers/anthropic.js'
+    );
+    const deltas: string[] = [];
+
+    const response = await callAnthropicProviderStream({
+      provider: 'anthropic',
+      providerMethod: 'claude-cli',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: '',
+      model: 'anthropic/claude-sonnet-4-6',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+      maxTokens: 128,
+      isLocal: false,
+      contextWindow: undefined,
+      thinkingFormat: undefined,
+      onTextDelta: (delta) => deltas.push(delta),
+      onActivity: () => undefined,
+    });
+
+    expect(deltas).toEqual(['final cli response']);
+    expect(response).toMatchObject({
+      id: 'session_result_only',
+      choices: [
+        {
+          message: {
+            content: 'final cli response',
+          },
+        },
+      ],
+    });
+  } finally {
+    if (originalSandboxMode == null) {
+      delete process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
+    } else {
+      process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = originalSandboxMode;
+    }
+  }
+});
+
 test('rejects Anthropic claude-cli in container sandbox mode', async () => {
   const originalSandboxMode = process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE;
   process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE = 'container';
