@@ -43,7 +43,7 @@ export function isAnthropicOAuthToken(value: string): boolean {
   return String(value || '').includes('sk-ant-oat');
 }
 
-export function buildAnthropicRequestHeaders(params: {
+export function buildAnthropicSupportingHeaders(params: {
   apiKey: string;
 }): Record<string, string> {
   return isAnthropicOAuthToken(params.apiKey)

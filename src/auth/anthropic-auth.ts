@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
-  buildAnthropicRequestHeaders,
+  buildAnthropicSupportingHeaders,
   isAnthropicOAuthToken,
 } from '../providers/anthropic-utils.js';
 import {
@@ -243,7 +243,7 @@ export function requireAnthropicApiKey(): AnthropicResolvedAuth {
       method: 'api-key',
       source: storedApiKey.source || 'runtime-secrets',
       apiKey: storedApiKey.apiKey,
-      headers: buildAnthropicRequestHeaders({ apiKey: storedApiKey.apiKey }),
+      headers: buildAnthropicSupportingHeaders({ apiKey: storedApiKey.apiKey }),
       path: runtimeSecretsPath(),
       expiresAt: null,
     };

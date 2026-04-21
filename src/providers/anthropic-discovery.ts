@@ -9,7 +9,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
-  buildAnthropicRequestHeaders,
+  buildAnthropicSupportingHeaders,
   normalizeAnthropicBaseUrl,
   normalizeAnthropicModelName,
 } from './anthropic-utils.js';
@@ -52,7 +52,7 @@ function resolveAnthropicModelDiscoveryHeaders(): Record<
         credential.type === 'oauth' ? credential.accessToken : credential.token;
       return {
         Authorization: `Bearer ${token}`,
-        ...buildAnthropicRequestHeaders({ apiKey: token }),
+        ...buildAnthropicSupportingHeaders({ apiKey: token }),
       };
     }
 
