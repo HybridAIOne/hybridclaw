@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **35 bundled skills** across nine categories. Each page below
+HybridClaw ships **37 bundled skills** across eight categories. Each page below
 covers every skill in its category with prerequisites, install commands,
 tips & tricks, ready-to-try example prompts, and troubleshooting.
 
@@ -26,12 +26,12 @@ resolution rules and runtime internals see
 | Category | Skills | Page |
 |---|---|---|
 | Office | pdf, xlsx, docx, pptx, office-workflows | [Office Skills](./office.md) |
-| Development | code-review, github-pr-workflow, salesforce, skill-creator | [Development Skills](./development.md) |
+| Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator | [Development Skills](./development.md) |
 | Communication | discord, channel-catchup | [Communication Skills](./communication.md) |
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
-| Publishing | manim-video, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
+| Publishing | excalidraw, manim-video, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
 | Integrations & Utilities | 1password, stripe, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position | [Integrations & Utilities](./integrations.md) |
 
 ## Evaluating Example Prompts
