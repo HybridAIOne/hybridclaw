@@ -1,9 +1,7 @@
 export { isRecord } from '../utils/type-guards.js';
 
 export function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
+  return baseUrl.trim().replace(/\/+$/g, '');
 }
 
 export function readPositiveInteger(value: unknown): number | null {
