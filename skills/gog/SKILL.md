@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Google Workspace CLI for Gmail, Google Calendar events, meetings, schedules, availability, Drive, Contacts, Sheets, and Docs.
+description: Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs
 user-invocable: true
 requires:
   bins:
@@ -34,24 +34,19 @@ Use `gog` for Gmail/Calendar/Drive/Contacts/Sheets/Docs. Requires OAuth setup.
 
 ```bash
 hybridclaw skill install gog brew
-```
-
-```bash
 hybridclaw auth login google --client-id <id> --client-secret <secret> --account you@gmail.com
 hybridclaw auth status google
 ```
 
 HybridClaw stores the Google OAuth client secret and refresh token in encrypted runtime secrets, mints a short-lived access token on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT` into the agent runtime for `gog`.
 
-If the user already has a refresh token, they can store it directly:
-
-```bash
-hybridclaw auth login google --client-id <id> --client-secret <secret> --account you@gmail.com --refresh-token <token>
-```
-
 ## Common commands
 
-- Help about a gog command: `gog <service> <command> --help`
+`gog` support the commands: calendar, chat, contacts, docs, drive, forms, gmail, groups, people,
+slides, tasks, sheets
+
+- Help about a gog command: `gog <command> --help`
+
 - Gmail search: `gog gmail search 'newer_than:7d' --max 10`
 - Gmail messages search (per email, ignores threading): `gog gmail messages search "in:inbox from:ryanair.com" --max 20 --account you@example.com`
 - Gmail send (plain): `gog gmail send --to a@b.com --subject "Hi" --body "Hello"`

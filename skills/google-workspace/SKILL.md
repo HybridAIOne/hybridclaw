@@ -1,11 +1,11 @@
 ---
 name: google-workspace
-description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs.
+description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs
 user-invocable: true
 metadata:
   hybridclaw:
     category: productivity
-    short_description: "Gmail, Drive, Docs, and Sheets."
+    short_description: "Browser-based Gmail, Drive, Docs, and Sheets."
     tags:
       - google
       - workspace
