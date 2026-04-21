@@ -590,6 +590,8 @@ function getOrSpawnContainer(
     `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
     '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+    '-e',
+    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
 
   for (const [name, value] of [
@@ -819,6 +821,7 @@ async function runContainerInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
+    providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
@@ -879,6 +882,7 @@ async function runContainerInner(
   const workerSignature = computeWorkerSignature({
     agentId,
     provider: input.provider,
+    providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,

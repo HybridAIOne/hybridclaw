@@ -8,6 +8,7 @@ export const LOCAL_BACKEND_IDS = [
 export const RUNTIME_PROVIDER_IDS = [
   'hybridai',
   'openai-codex',
+  'anthropic',
   'openrouter',
   'mistral',
   'huggingface',
@@ -23,7 +24,7 @@ export const RUNTIME_PROVIDER_IDS = [
   ...LOCAL_BACKEND_IDS,
 ] as const;
 
-export const AI_PROVIDER_IDS = [...RUNTIME_PROVIDER_IDS, 'anthropic'] as const;
+export const AI_PROVIDER_IDS = [...RUNTIME_PROVIDER_IDS] as const;
 
 export const OPENAI_COMPAT_PROVIDER_IDS = [
   'openrouter',

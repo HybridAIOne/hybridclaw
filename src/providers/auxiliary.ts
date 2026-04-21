@@ -28,6 +28,7 @@ type RuntimeProvider = RuntimeProviderId;
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -120,6 +121,7 @@ function validateContext(
 ): asserts context is AuxiliaryTextCallContext {
   const contextError = getProviderContextError({
     provider: context.provider,
+    providerMethod: context.providerMethod,
     baseUrl: context.baseUrl,
     apiKey: context.apiKey,
     model: context.model,
@@ -132,6 +134,7 @@ function validateContext(
 function buildResolvedContext(params: {
   task: AuxiliaryTextTask;
   provider: RuntimeProvider;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -144,6 +147,7 @@ function buildResolvedContext(params: {
 }): AuxiliaryTextCallContext {
   const context: Partial<AuxiliaryTextCallContext> = {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
     apiKey: params.apiKey.trim(),
     model: params.model.trim(),
@@ -189,6 +193,7 @@ async function resolveContextFromModel(params: {
   return buildResolvedContext({
     task: params.task,
     provider: resolved.provider,
+    providerMethod: resolved.providerMethod,
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
     model,
@@ -248,6 +253,12 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
 
   const providerPrefix = detectRuntimeProviderPrefix(trimmed);
   if (providerPrefix === 'openrouter') return trimmed;
+  if (providerPrefix === 'anthropic') {
+    return normalizeAuxiliaryProviderModel({
+      provider: 'openrouter',
+      model: trimmed,
+    });
+  }
   if (providerPrefix) {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }

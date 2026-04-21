@@ -57,6 +57,7 @@ export interface ContainerInput {
   apiKey: string;
   baseUrl: string;
   provider?: ProviderKind;
+  providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;

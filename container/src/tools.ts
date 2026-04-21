@@ -102,6 +102,7 @@ let gatewayChannelId = '';
 let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -718,6 +719,7 @@ export function setModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -726,6 +728,7 @@ export function setModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -745,6 +748,7 @@ export function setModelContext(
       : undefined;
   setBrowserModelContext(
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
