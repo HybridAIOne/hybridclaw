@@ -154,16 +154,10 @@ export async function probeAnthropic(): Promise<ProviderProbeResult> {
 
   const headers: Record<string, string> = {
     ...auth.headers,
+    ...(isAnthropicOAuthToken(auth.apiKey)
+      ? { Authorization: `Bearer ${auth.apiKey}` }
+      : { 'x-api-key': auth.apiKey }),
   };
-  if (auth.method === 'api-key') {
-    if (isAnthropicOAuthToken(auth.apiKey)) {
-      headers.Authorization = `Bearer ${auth.apiKey}`;
-      delete headers['x-api-key'];
-    } else {
-      headers['x-api-key'] = auth.apiKey;
-      delete headers.Authorization;
-    }
-  }
 
   const startedAt = Date.now();
   const response = await fetch(
