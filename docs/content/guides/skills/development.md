@@ -108,19 +108,19 @@ on actionable PR review comments.
 
 > 🎯 **Try it yourself**
 >
-> `/gh-issues HybridAIOne/hybridclaw --label bug --limit 3 --dry-run`
+> `/gh-issues <your repo> --label bug --limit 3 --dry-run`
 >
-> `/gh-issues HybridAIOne/hybridclaw --label bug --limit 2`
+> `/gh-issues <your repo> --label bug --limit 2`
 >
-> `/gh-issues HybridAIOne/hybridclaw --reviews-only`
+> `/gh-issues <your repo> --reviews-only`
 >
-> `/gh-issues HybridAIOne/hybridclaw --fork my-user/hybridclaw --label help-wanted --limit 1`
+> `/gh-issues <your repo> --fork <your fork> --label help-wanted --limit 1`
 >
 > **Conversation flow:**
 >
-> `1. /gh-issues HybridAIOne/hybridclaw --label bug --limit 5 --dry-run`
+> `1. /gh-issues <your repo> --label bug --limit 5 --dry-run`
 > `2. Process issues 42 and 48 only`
-> `3. After the PRs are open, run /gh-issues HybridAIOne/hybridclaw --reviews-only`
+> `3. After the PRs are open, run /gh-issues <your repo> --reviews-only`
 
 **Troubleshooting**
 
