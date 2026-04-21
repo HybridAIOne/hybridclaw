@@ -214,13 +214,17 @@ export async function callHybridAIProviderStream(
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
       if (typeof message.content === 'string') {
-        usedMessageContent = true;
         const nextContent = message.content;
-        const delta = nextContent.startsWith(textContent)
-          ? nextContent.slice(textContent.length)
-          : nextContent;
-        textContent = nextContent;
-        if (delta) args.onTextDelta(delta);
+        const messageDelta = nextContent
+          ? nextContent.startsWith(textContent)
+            ? nextContent.slice(textContent.length)
+            : nextContent
+          : '';
+        if (messageDelta) {
+          textContent = nextContent;
+          usedMessageContent = true;
+          args.onTextDelta(messageDelta);
+        }
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         toolCalls.length = 0;

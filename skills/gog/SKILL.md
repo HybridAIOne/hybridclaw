@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs
+description: Google Workspace CLI for Gmail, Google Calendar events, meetings, schedules, availability, Drive, Contacts, Sheets, and Docs
 user-invocable: true
 requires:
   bins:
@@ -42,7 +42,7 @@ HybridClaw stores the Google OAuth client secret and refresh token in encrypted 
 
 ## Common commands
 
-`gog` support the commands: calendar, chat, contacts, docs, drive, forms, gmail, groups, people,
+`gog` supports the commands: calendar, chat, contacts, docs, drive, forms, gmail, groups, people,
 slides, tasks, sheets
 
 - Help about a gog command: `gog <command> --help`
@@ -59,6 +59,7 @@ slides, tasks, sheets
 - Calendar search events: `gog calendar search <calendarId> "Meeting" --from <iso> --to <iso> --max 10`
 - Calendar list events: `gog calendar events <calendarId> --from <iso> --to <iso>`
 - Calendar create event: `gog calendar create <calendarId> --summary "Title" --from <iso> --to <iso>`
+- Calendar create with attendees: `gog calendar create <calendarId> --summary "Title" --from <iso> --to <iso> --attendees a@b.com,c@d.com --send-updates all`
 - Calendar create with color: `gog calendar create <calendarId> --summary "Title" --from <iso> --to <iso> --event-color 7`
 - Calendar update event: `gog calendar update <calendarId> <eventId> --summary "New Title" --event-color 4`
 - Calendar show colors: `gog calendar colors`
@@ -122,6 +123,8 @@ Email Formatting
 
 ## Notes
 - For scripting, prefer `--json` plus `--no-input`.
+- When the user asks for calendar events without naming a calendar ID, `gog` searches all available calendars.
+- Do not pipe `gog ... --json` through ad hoc Python filters unless the JSON shape has been inspected first.
 - Sheets values can be passed via `--values-json` (recommended) or as inline rows.
 - Docs supports export/cat/copy. In-place edits require a Docs API client (not in gog).
 - Confirm before sending mail or creating events.

@@ -45,7 +45,6 @@ export interface GoogleLoginInput {
   scopes: string[];
   refreshToken?: string;
   redirectPort?: number;
-  callbackTimeoutMs?: number;
 }
 
 export interface GoogleLoginResult {
@@ -64,6 +63,8 @@ interface GoogleTokenResponse {
   error_description?: unknown;
 }
 
+// HybridClaw currently stores one Google account per runtime secret store. Keep
+// this cache single-account unless Google auth grows an explicit account key.
 let cachedGogAccessToken: {
   accessToken: string;
   account: string;
@@ -196,7 +197,7 @@ async function waitForAuthorizationCode(input: {
   scopes: string[];
   redirectPort?: number;
   timeoutMs?: number;
-}): Promise<{ code: string; redirectUri: string; authorizeUrl: string }> {
+}): Promise<{ code: string; redirectUri: string }> {
   const state = makeState();
   const timeoutMs = input.timeoutMs || DEFAULT_CALLBACK_TIMEOUT_MS;
 
@@ -244,12 +245,6 @@ async function waitForAuthorizationCode(input: {
         resolve({
           code,
           redirectUri,
-          authorizeUrl: buildAuthorizeUrl({
-            clientId: input.clientId,
-            redirectUri,
-            state,
-            scopes: input.scopes,
-          }),
         });
       } catch (error) {
         settled = true;
@@ -308,7 +303,6 @@ export async function loginGoogle(
       clientId: input.clientId,
       scopes,
       redirectPort: input.redirectPort,
-      timeoutMs: input.callbackTimeoutMs,
     });
     const exchanged = await exchangeAuthorizationCode({
       clientId: input.clientId,

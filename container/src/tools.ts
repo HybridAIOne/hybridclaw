@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  formatMessageToolChannelList,
+  normalizeMessageToolChannelKinds,
+} from '../shared/message-tool-channels.js';
+import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
@@ -177,16 +181,6 @@ const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
-const MESSAGE_TOOL_CHANNEL_LABELS: Record<string, string> = {
-  discord: 'Discord',
-  email: 'email',
-  imessage: 'iMessage',
-  msteams: 'Microsoft Teams',
-  slack: 'Slack',
-  telegram: 'Telegram',
-  tui: 'local TUI',
-  whatsapp: 'WhatsApp',
-};
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
@@ -613,28 +607,6 @@ function resolveGatewayMessageSendChannelFallback(): string {
   );
 }
 
-function normalizeActiveMessageChannels(
-  activeMessageChannels?: string[],
-): string[] {
-  if (!Array.isArray(activeMessageChannels)) return [];
-  const normalized = new Set<string>();
-  for (const channel of activeMessageChannels) {
-    const candidate = String(channel || '')
-      .trim()
-      .toLowerCase();
-    if (MESSAGE_TOOL_CHANNEL_LABELS[candidate]) normalized.add(candidate);
-  }
-  return [...normalized].sort();
-}
-
-function formatActiveMessageChannels(activeMessageChannels?: string[]): string {
-  const channels = normalizeActiveMessageChannels(activeMessageChannels);
-  if (channels.length === 0) return 'none';
-  return channels
-    .map((channel) => MESSAGE_TOOL_CHANNEL_LABELS[channel])
-    .join(', ');
-}
-
 export function getMessageToolDescription(
   channelId?: string,
   activeMessageChannels?: string[],
@@ -645,14 +617,14 @@ export function getMessageToolDescription(
       ? explicitChannelId
       : resolveGatewayDiscordChannelFallback();
   const activeTeamsChannelId = resolveGatewayMSTeamsChannelFallback();
-  let activeChannels = normalizeActiveMessageChannels(activeMessageChannels);
+  let activeChannels = normalizeMessageToolChannelKinds(activeMessageChannels);
   if (activeMessageChannels === undefined) {
     const inferredChannels = new Set(activeChannels);
     if (activeChannelId) inferredChannels.add('discord');
     if (activeTeamsChannelId) inferredChannels.add('msteams');
     activeChannels = [...inferredChannels].sort();
   }
-  const activeChannelList = formatActiveMessageChannels(activeChannels);
+  const activeChannelList = formatMessageToolChannelList(activeChannels);
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );

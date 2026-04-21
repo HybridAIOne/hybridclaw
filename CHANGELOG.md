@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Added
+
+- **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
+  Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
+  including the Homebrew install helper and Google OAuth setup via
+  `hybridclaw auth login google`. HybridClaw stores the OAuth client secret
+  and refresh token in encrypted runtime secrets, mints short-lived access
+  tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
+  into the agent runtime.
+
+### Changed
+
+- **Google Workspace skill routing prefers `gog` for API access**: The
+  browser-oriented `google-workspace` skill now defers to the bundled `gog`
+  skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
+  access is available.
+
+### Fixed
+
+- **Google Workspace replies preserve user-visible addresses**: Assistant
+  replies and streamed chat text no longer redact ordinary email addresses
+  before they reach the user. Redaction still applies to audit, logging,
+  approval/control previews, and observability paths.
+- **HybridAI streaming avoids duplicate assistant text**: The HybridAI stream
+  adapter now handles chunks that include both cumulative `message.content` and
+  incremental `delta.content` without emitting the same text twice.
+
 ## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
 
 ### Added

@@ -58,10 +58,12 @@ test('ContainerExecutor preserves user-visible result and error strings from age
   const spawn = vi.fn(() => makeFakeChildProcess() as never);
   const readOutput = vi.fn(async () => ({
     status: 'error' as const,
-    result: 'Invited max.noller@hybridai.one and stephan.noller@hybridai.one.',
+    result:
+      'Invited max.noller@hybridai.one and used OPENAI_API_KEY=sk-1234567890abcdefghijklmnop.',
     toolsUsed: [],
     artifacts: [],
-    error: 'Could not notify max.noller@hybridai.one.',
+    error:
+      'Could not notify stephan.noller@hybridai.one with Authorization: Bearer 1234567890abcdefghijklmnopqrstuv',
   }));
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
@@ -128,12 +130,14 @@ test('ContainerExecutor preserves user-visible result and error strings from age
   });
 
   expect(output.result).toBe(
-    'Invited max.noller@hybridai.one and stephan.noller@hybridai.one.',
+    'Invited max.noller@hybridai.one and used OPENAI_API_KEY=sk-123...mnop.',
   );
-  expect(output.error).toBe('Could not notify max.noller@hybridai.one.');
+  expect(output.error).toBe(
+    'Could not notify stephan.noller@hybridai.one with Authorization: Bearer 123456...stuv',
+  );
 });
 
-test('ContainerExecutor preserves user-visible streamed text deltas', async () => {
+test('ContainerExecutor preserves user-visible streamed text and tool progress while redacting credentials', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -142,10 +146,16 @@ test('ContainerExecutor preserves user-visible streamed text deltas', async () =
   const spawn = vi.fn(() => proc as never);
   const readOutput = vi.fn(async () => {
     const delta = Buffer.from(
-      'Invited max.noller@hybridai.one.',
+      'Invited max.noller@hybridai.one with token sk-1234567890abcdefghijklmnop.',
       'utf-8',
     ).toString('base64');
     proc.stderr.emit('data', Buffer.from(`[stream] ${delta}\n`));
+    proc.stderr.emit(
+      'data',
+      Buffer.from(
+        '[tool] bash result (12ms): emailed user@example.com with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop\n',
+      ),
+    );
     return {
       status: 'success' as const,
       result: 'ok',
@@ -208,6 +218,7 @@ test('ContainerExecutor preserves user-visible streamed text deltas', async () =
   );
   const executor = new ContainerExecutor();
   const deltas: string[] = [];
+  const toolEvents: Array<{ preview?: string }> = [];
   await executor.exec({
     sessionId: 'session-stream-visible',
     messages: [{ role: 'user', content: 'hello' }],
@@ -217,12 +228,18 @@ test('ContainerExecutor preserves user-visible streamed text deltas', async () =
     agentId: 'default',
     channelId: 'tui',
     onTextDelta: (delta) => deltas.push(delta),
+    onToolProgress: (event) => toolEvents.push(event),
   });
 
-  expect(deltas).toEqual(['Invited max.noller@hybridai.one.']);
+  expect(deltas).toEqual([
+    'Invited max.noller@hybridai.one with token sk-123...mnop.',
+  ]);
+  expect(toolEvents[0]?.preview).toBe(
+    'emailed user@example.com with OPENAI_API_KEY=sk-123...mnop',
+  );
 });
 
-test('ContainerExecutor preserves approval ids while redacting approval text fields', async () => {
+test('ContainerExecutor preserves user-visible approval details while redacting credentials', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -236,7 +253,7 @@ test('ContainerExecutor preserves approval ids while redacting approval text fie
     pendingApproval: {
       approvalId: '089 4233232',
       prompt:
-        'I need your approval before I call +49 170 3330160 and contact user@example.com.',
+        'I need your approval before I call +49 170 3330160, contact user@example.com, and use OPENAI_API_KEY=sk-1234567890abcdefghijklmnop.',
       intent: 'contact +49 170 3330160',
       reason: 'notify user@example.com',
       allowSession: true,
@@ -310,10 +327,13 @@ test('ContainerExecutor preserves approval ids while redacting approval text fie
   });
 
   expect(output.pendingApproval?.approvalId).toBe('089 4233232');
-  expect(output.pendingApproval?.prompt).toContain('***PHONE_REDACTED***');
-  expect(output.pendingApproval?.prompt).toContain('***EMAIL_REDACTED***');
-  expect(output.pendingApproval?.intent).toContain('***PHONE_REDACTED***');
-  expect(output.pendingApproval?.reason).toContain('***EMAIL_REDACTED***');
+  expect(output.pendingApproval?.prompt).toContain('+49 170 3330160');
+  expect(output.pendingApproval?.prompt).toContain('user@example.com');
+  expect(output.pendingApproval?.prompt).toContain(
+    'OPENAI_API_KEY=sk-123...mnop',
+  );
+  expect(output.pendingApproval?.intent).toContain('+49 170 3330160');
+  expect(output.pendingApproval?.reason).toContain('user@example.com');
 });
 
 test('ContainerExecutor stops and respawns a timed out pooled container', async () => {

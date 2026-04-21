@@ -848,76 +848,35 @@ function isLocalProviderModel(modelName: string): boolean {
   return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
 }
 
-function printOpenRouterStatus(): void {
+type ApiKeyProviderConfigKey =
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'gemini'
+  | 'deepseek'
+  | 'xai'
+  | 'zai'
+  | 'kimi'
+  | 'minimax'
+  | 'dashscope'
+  | 'xiaomi'
+  | 'kilo';
+
+function printApiKeyProviderStatus(options: {
+  providerLabel?: string;
+  configKey: ApiKeyProviderConfigKey;
+  secretKey: string;
+  envVarNames: string[];
+  showProviderLabel?: boolean;
+  catalog?: string;
+}): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('OPENROUTER_API_KEY');
-  const envApiKey = process.env.OPENROUTER_API_KEY?.trim() || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.openrouter.baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  console.log('Catalog: auto-discovered');
-}
-
-function printMistralStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('MISTRAL_API_KEY');
-  const envApiKey = process.env.MISTRAL_API_KEY?.trim() || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.mistral.baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  console.log('Catalog: auto-discovered');
-}
-
-function printHuggingFaceStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('HF_TOKEN');
+  const storedApiKey = readStoredRuntimeSecret(options.secretKey);
   const envApiKey =
-    process.env.HF_TOKEN?.trim() ||
-    process.env.HUGGINGFACE_API_KEY?.trim() ||
-    '';
+    options.envVarNames
+      .map((name) => process.env[name]?.trim())
+      .find((value) => value) || '';
   const source = envApiKey
     ? storedApiKey && envApiKey === storedApiKey
       ? 'runtime-secrets'
@@ -927,6 +886,9 @@ function printHuggingFaceStatus(): void {
       : null;
   const apiKey = envApiKey || storedApiKey || '';
 
+  if (options.showProviderLabel && options.providerLabel) {
+    console.log(`Provider: ${options.providerLabel}`);
+  }
   console.log(`Path: ${runtimeSecretsPath()}`);
   console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
   if (source) {
@@ -936,12 +898,14 @@ function printHuggingFaceStatus(): void {
     console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.huggingface.baseUrl}`);
+  console.log(`Enabled: ${config[options.configKey].enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config[options.configKey].baseUrl}`);
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log('Catalog: auto-discovered');
+  if (options.catalog) {
+    console.log(`Catalog: ${options.catalog}`);
+  }
 }
 
 function clearOpenRouterCredentials(): void {
@@ -996,6 +960,12 @@ function parseGoogleLoginArgs(args: string[]): {
   scopes?: string;
   redirectPort?: number;
 } {
+  type GoogleStringFlagKey =
+    | 'account'
+    | 'clientId'
+    | 'clientSecret'
+    | 'refreshToken'
+    | 'scopes';
   const parsed: {
     account?: string;
     clientId?: string;
@@ -1004,74 +974,46 @@ function parseGoogleLoginArgs(args: string[]): {
     scopes?: string;
     redirectPort?: number;
   } = {};
+  const stringFlags: Array<{
+    key: GoogleStringFlagKey;
+    name: string;
+    placeholder: string;
+  }> = [
+    { key: 'account', name: '--account', placeholder: '<email>' },
+    { key: 'clientId', name: '--client-id', placeholder: '<id>' },
+    {
+      key: 'clientSecret',
+      name: '--client-secret',
+      placeholder: '<secret>',
+    },
+    {
+      key: 'refreshToken',
+      name: '--refresh-token',
+      placeholder: '<token>',
+    },
+    { key: 'scopes', name: '--scopes', placeholder: '<scopes>' },
+  ];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
-    const accountFlag = parseValueFlag({
-      arg,
-      args,
-      index,
-      name: '--account',
-      placeholder: '<email>',
-      allowEmptyEquals: true,
-    });
-    if (accountFlag) {
-      parsed.account = accountFlag.value || undefined;
-      index = accountFlag.nextIndex;
-      continue;
+    let matchedStringFlag = false;
+    for (const flag of stringFlags) {
+      const parsedFlag = parseValueFlag({
+        arg,
+        args,
+        index,
+        name: flag.name,
+        placeholder: flag.placeholder,
+        allowEmptyEquals: true,
+      });
+      if (!parsedFlag) continue;
+      parsed[flag.key] = parsedFlag.value || undefined;
+      index = parsedFlag.nextIndex;
+      matchedStringFlag = true;
+      break;
     }
-    const clientIdFlag = parseValueFlag({
-      arg,
-      args,
-      index,
-      name: '--client-id',
-      placeholder: '<id>',
-      allowEmptyEquals: true,
-    });
-    if (clientIdFlag) {
-      parsed.clientId = clientIdFlag.value || undefined;
-      index = clientIdFlag.nextIndex;
-      continue;
-    }
-    const clientSecretFlag = parseValueFlag({
-      arg,
-      args,
-      index,
-      name: '--client-secret',
-      placeholder: '<secret>',
-      allowEmptyEquals: true,
-    });
-    if (clientSecretFlag) {
-      parsed.clientSecret = clientSecretFlag.value || undefined;
-      index = clientSecretFlag.nextIndex;
-      continue;
-    }
-    const refreshTokenFlag = parseValueFlag({
-      arg,
-      args,
-      index,
-      name: '--refresh-token',
-      placeholder: '<token>',
-      allowEmptyEquals: true,
-    });
-    if (refreshTokenFlag) {
-      parsed.refreshToken = refreshTokenFlag.value || undefined;
-      index = refreshTokenFlag.nextIndex;
-      continue;
-    }
-    const scopesFlag = parseValueFlag({
-      arg,
-      args,
-      index,
-      name: '--scopes',
-      placeholder: '<scopes>',
-      allowEmptyEquals: true,
-    });
-    if (scopesFlag) {
-      parsed.scopes = scopesFlag.value || undefined;
-      index = scopesFlag.nextIndex;
-      continue;
-    }
+    if (matchedStringFlag) continue;
+
     const redirectPortFlag = parseValueFlag({
       arg,
       args,
@@ -1121,12 +1063,10 @@ async function resolveInteractiveGoogleLogin(params: {
     );
   }
 
-  const createPromptInterface = () =>
-    readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-  let rl = createPromptInterface();
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   try {
     const account = await promptWithDefault({
@@ -1139,13 +1079,12 @@ async function resolveInteractiveGoogleLogin(params: {
       question: 'Google OAuth desktop client id',
       defaultValue: params.clientId || undefined,
     });
-    rl.close();
-    const clientSecret =
-      params.clientSecret ||
-      (await promptForSecretInput({
-        prompt: 'Google OAuth desktop client secret: ',
-      }));
-    rl = createPromptInterface();
+    const clientSecret = await promptWithDefault({
+      rl,
+      question: 'Google OAuth desktop client secret',
+      defaultValue: params.clientSecret || undefined,
+      secret: true,
+    });
     return {
       account,
       clientId,
@@ -1203,52 +1142,6 @@ async function configureGoogleAuth(args: string[]): Promise<void> {
   );
   console.log(
     'Agent containers will receive a fresh short-lived GOG_ACCESS_TOKEN for gog.',
-  );
-}
-
-function printGenericProviderStatus(
-  providerLabel: string,
-  configKey:
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo',
-  secretKey: string,
-  envVarNames: string[],
-): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret(secretKey);
-  const envApiKey =
-    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Provider: ${providerLabel}`);
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config[configKey].enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config[configKey].baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
 }
 
@@ -1891,7 +1784,12 @@ async function dispatchProviderAction(
   }
   if (provider === 'openrouter') {
     if (action === 'status') {
-      printOpenRouterStatus();
+      printApiKeyProviderStatus({
+        configKey: 'openrouter',
+        secretKey: 'OPENROUTER_API_KEY',
+        envVarNames: ['OPENROUTER_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearOpenRouterCredentials();
@@ -1899,7 +1797,12 @@ async function dispatchProviderAction(
   }
   if (provider === 'mistral') {
     if (action === 'status') {
-      printMistralStatus();
+      printApiKeyProviderStatus({
+        configKey: 'mistral',
+        secretKey: 'MISTRAL_API_KEY',
+        envVarNames: ['MISTRAL_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearMistralCredentials();
@@ -1907,7 +1810,12 @@ async function dispatchProviderAction(
   }
   if (provider === 'huggingface') {
     if (action === 'status') {
-      printHuggingFaceStatus();
+      printApiKeyProviderStatus({
+        configKey: 'huggingface',
+        secretKey: 'HF_TOKEN',
+        envVarNames: ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearHuggingFaceCredentials();
@@ -1924,12 +1832,13 @@ async function dispatchProviderAction(
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
-      printGenericProviderStatus(
-        genericDef.label,
-        genericDef.id,
-        genericDef.secretKey,
-        genericDef.envVarNames,
-      );
+      printApiKeyProviderStatus({
+        providerLabel: genericDef.label,
+        configKey: genericDef.id,
+        secretKey: genericDef.secretKey,
+        envVarNames: genericDef.envVarNames,
+        showProviderLabel: true,
+      });
       return;
     }
     clearGenericProviderCredentials(

@@ -63,7 +63,8 @@ export function ensureAgentDirs(agentId: string): void {
 /**
  * Write input for the container agent.
  * When omitApiKey is set, auth material is excluded from the file on disk
- * (the agent already has it in memory from the initial stdin payload).
+ * (the agent already has it in memory from the initial stdin payload). Runtime
+ * env is preserved so short-lived host-minted tokens can refresh per request.
  */
 export function writeInput(
   sessionId: string,
@@ -78,10 +79,11 @@ export function writeInput(
         apiKey: '',
         requestHeaders: {},
         taskModels: redactTaskModelSecrets(input.taskModels),
-        runtimeEnv: {},
       }
     : input;
-  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
+  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
+    mode: 0o600,
+  });
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');
   return inputPath;
 }
