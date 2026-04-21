@@ -474,7 +474,6 @@ test('probeAnthropic sends bearer auth for OAuth tokens', async () => {
         'x-app': 'cli',
       },
       path: '/tmp/credentials.json',
-      expiresAt: null,
     })),
     requireAnthropicClaudeCliCredential: vi.fn(),
   }));
@@ -528,7 +527,6 @@ test('probeAnthropic sends x-api-key auth for API keys', async () => {
         'anthropic-version': '2023-06-01',
       },
       path: '/tmp/credentials.json',
-      expiresAt: null,
     })),
     requireAnthropicClaudeCliCredential: vi.fn(),
   }));

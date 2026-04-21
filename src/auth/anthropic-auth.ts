@@ -41,7 +41,6 @@ export interface AnthropicResolvedAuth {
   apiKey: string;
   headers: Record<string, string>;
   path: string;
-  expiresAt: number | null;
 }
 
 export interface AnthropicAuthStatus {
@@ -259,7 +258,6 @@ export function requireAnthropicApiKey(): AnthropicResolvedAuth {
       apiKey: storedApiKey.apiKey,
       headers: buildAnthropicSupportingHeaders({ apiKey: storedApiKey.apiKey }),
       path: runtimeSecretsPath(),
-      expiresAt: null,
     };
   }
   throw new Error(
