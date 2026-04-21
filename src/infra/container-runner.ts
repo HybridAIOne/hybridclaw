@@ -9,6 +9,7 @@ import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGogRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
+import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -836,6 +837,7 @@ async function runContainerInner(
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
+    activeMessageChannels: collectActiveMessageToolChannelKinds(),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
