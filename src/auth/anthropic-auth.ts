@@ -14,6 +14,8 @@ import type { AnthropicMethod } from '../types/models.js';
 
 const CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH = '.claude/.credentials.json';
 const CLAUDE_CLI_KEYCHAIN_SERVICE = 'Claude Code-credentials';
+const CLAUDE_CLI_CREDENTIAL_CACHE_MAX_TTL_MS = 60_000;
+const CLAUDE_CLI_CREDENTIAL_CACHE_EXPIRY_SKEW_MS = 5_000;
 
 type CliSource = 'claude-cli-keychain' | 'claude-cli-file';
 type ApiKeySource = 'env' | 'runtime-secrets';
@@ -52,6 +54,11 @@ export interface AnthropicAuthStatus {
   expiresAt: number | null;
   isOauthToken: boolean;
 }
+
+let cachedClaudeCliCredential: {
+  credential: ClaudeCliCredential;
+  cacheUntilMs: number;
+} | null = null;
 
 export function claudeCliCredentialsPath(): string {
   return path.join(homedir(), CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH);
@@ -143,6 +150,33 @@ export function readClaudeCliCredentials(): ClaudeCliCredential | null {
   }
 }
 
+function readCachedClaudeCliCredentials(): ClaudeCliCredential | null {
+  const now = Date.now();
+  if (
+    cachedClaudeCliCredential &&
+    cachedClaudeCliCredential.cacheUntilMs > now &&
+    cachedClaudeCliCredential.credential.expiresAt > now
+  ) {
+    return cachedClaudeCliCredential.credential;
+  }
+  cachedClaudeCliCredential = null;
+
+  const credential = readClaudeCliCredentials();
+  if (!credential) return null;
+
+  const cacheUntilMs = Math.min(
+    now + CLAUDE_CLI_CREDENTIAL_CACHE_MAX_TTL_MS,
+    credential.expiresAt - CLAUDE_CLI_CREDENTIAL_CACHE_EXPIRY_SKEW_MS,
+  );
+  if (cacheUntilMs > now) {
+    cachedClaudeCliCredential = {
+      credential,
+      cacheUntilMs,
+    };
+  }
+  return credential;
+}
+
 function resolveStoredAnthropicApiKey(): {
   apiKey: string;
   source: ApiKeySource | null;
@@ -221,7 +255,7 @@ export function isAnthropicAuthReadyForMethod(
 }
 
 export function requireAnthropicClaudeCliCredential(): ClaudeCliCredential {
-  const credential = readClaudeCliCredentials();
+  const credential = readCachedClaudeCliCredentials();
   if (!credential) {
     throw new Error(
       [
