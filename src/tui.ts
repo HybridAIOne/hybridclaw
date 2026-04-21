@@ -1332,7 +1332,6 @@ function spinner(): {
   let i = 0;
   let stopped = false;
   let cursorHidden = false;
-  let transientToolLines = 0;
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
@@ -1355,17 +1354,21 @@ function spinner(): {
     const previewText = entry.preview
       ? ` ${MUTED}${entry.preview}${RESET}`
       : '';
-    if (entry.status === 'done') {
-      return `  ${GREEN}${CHECKMARK}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
-    }
-    const frame =
-      JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
-    return `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+    const body =
+      entry.status === 'done'
+        ? `  ${GREEN}${CHECKMARK}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`
+        : (() => {
+            const frame =
+              JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
+            return `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+          })();
+    return truncateAnsiTuiEnd(body, terminalColumns());
   };
   const repaintToolLines = (frameIdx: number) => {
-    if (transientToolLines <= 0) return;
+    const count = toolEntries.length;
+    if (count <= 0) return;
     clearLine();
-    process.stdout.write(`\x1b[${transientToolLines}A`);
+    process.stdout.write(`\x1b[${count}A`);
     for (const entry of toolEntries) {
       clearLine();
       process.stdout.write(`${formatToolLine(entry, frameIdx)}\n`);
@@ -1375,8 +1378,8 @@ function spinner(): {
   const render = () => {
     if (stopped) return;
     if (hasVisibleText || thinkingPreviewRows > 0) return;
-    if (transientToolLines === 0 && !showActivityPreview) return;
-    if (transientToolLines > 0) {
+    if (toolEntries.length === 0 && !showActivityPreview) return;
+    if (toolEntries.length > 0) {
       repaintToolLines(i);
     }
     if (showActivityPreview) {
@@ -1390,14 +1393,14 @@ function spinner(): {
   };
 
   const clearTools = () => {
-    if (transientToolLines <= 0) return;
-    process.stdout.write(`\x1b[${transientToolLines}A`);
-    for (let i = 0; i < transientToolLines; i++) {
+    const count = toolEntries.length;
+    if (count <= 0) return;
+    process.stdout.write(`\x1b[${count}A`);
+    for (let idx = 0; idx < count; idx += 1) {
       clearLine();
       process.stdout.write('\x1b[M');
     }
     clearLine();
-    transientToolLines = 0;
     toolEntries.length = 0;
     if (
       !stopped &&
@@ -1431,7 +1434,7 @@ function spinner(): {
       return;
     }
     if (hasVisibleText) return;
-    if (transientToolLines > 0) return;
+    if (toolEntries.length > 0) return;
     clearThinkingPreview();
     clearLine();
     const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
@@ -1440,15 +1443,14 @@ function spinner(): {
   };
 
   hideCursor();
-  const interval =
-    showActivityPreview || showTools ? setInterval(render, 350) : null;
+  const interval = showActivityPreview ? setInterval(render, 350) : null;
   if (showActivityPreview) render();
   return {
     stop: () => {
       stopped = true;
       if (interval) clearInterval(interval);
       if (
-        transientToolLines > 0 &&
+        toolEntries.length > 0 &&
         !hasVisibleText &&
         thinkingPreviewRows === 0
       ) {
@@ -1471,7 +1473,6 @@ function spinner(): {
       };
       toolEntries.push(entry);
       process.stdout.write(`${formatToolLine(entry, i)}\n`);
-      transientToolLines++;
       render();
     },
     finishTool: (toolName: string) => {
