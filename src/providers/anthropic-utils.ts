@@ -1,5 +1,3 @@
-import { ANTHROPIC_API_KEY } from '../config/config.js';
-import { readProviderApiKey } from './provider-api-key-utils.js';
 import { normalizeBaseUrl } from './utils.js';
 
 export const ANTHROPIC_MODEL_PREFIX = 'anthropic/';
@@ -59,12 +57,4 @@ export function buildAnthropicRequestHeaders(params: {
         'anthropic-version': ANTHROPIC_VERSION,
         'anthropic-beta': ANTHROPIC_TOOL_STREAMING_BETA,
       };
-}
-
-export function readAnthropicApiKey(opts?: { required?: boolean }): string {
-  return readProviderApiKey(
-    () => [process.env.ANTHROPIC_API_KEY, ANTHROPIC_API_KEY],
-    'ANTHROPIC_API_KEY',
-    opts,
-  );
 }

@@ -253,6 +253,12 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
 
   const providerPrefix = detectRuntimeProviderPrefix(trimmed);
   if (providerPrefix === 'openrouter') return trimmed;
+  if (providerPrefix === 'anthropic') {
+    return normalizeAuxiliaryProviderModel({
+      provider: 'openrouter',
+      model: trimmed,
+    });
+  }
   if (providerPrefix) {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }

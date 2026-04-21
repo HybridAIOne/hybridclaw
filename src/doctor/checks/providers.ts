@@ -117,7 +117,7 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
-  const anthropicConfiguredMethod = config.anthropic.method;
+  const anthropicConfiguredMethod = config.anthropic?.method ?? 'api-key';
   const anthropicMethodReady =
     anthropicConfiguredMethod === 'claude-cli'
       ? anthropicStatus.method === 'claude-cli'

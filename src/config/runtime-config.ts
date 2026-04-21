@@ -5325,6 +5325,12 @@ function buildSerializableConfig(
     unknown
   >;
   preserveSecretInputs(serializable, sourceConfig ?? {});
+  const serializableCodex = isRecord(serializable.codex)
+    ? serializable.codex
+    : null;
+  if (serializableCodex) {
+    delete (serializableCodex as { models?: string[] }).models;
+  }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container
     : null;
