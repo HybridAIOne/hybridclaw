@@ -121,6 +121,7 @@ import type { SessionShowMode } from './types/session.js';
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const JELLYFISH = '🪼';
+const CHECKMARK = '✓';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
@@ -1306,9 +1307,16 @@ function pickOceanActivityVerb(): string {
   return OCEAN_ACTIVITY_VERBS[index] || 'floating';
 }
 
+interface SpinnerToolEntry {
+  name: string;
+  preview: string;
+  status: 'running' | 'done';
+}
+
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
+  finishTool: (toolName: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
   trailingNewlinesAfterVisibleText: () => string;
@@ -1325,6 +1333,7 @@ function spinner(): {
   let stopped = false;
   let cursorHidden = false;
   let transientToolLines = 0;
+  const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
   let thinkingPreviewRows = 0;
@@ -1339,15 +1348,44 @@ function spinner(): {
     process.stdout.write(SHOW_CURSOR);
     cursorHidden = false;
   };
+  const formatToolLine = (
+    entry: SpinnerToolEntry,
+    frameIdx: number,
+  ): string => {
+    const previewText = entry.preview
+      ? ` ${MUTED}${entry.preview}${RESET}`
+      : '';
+    if (entry.status === 'done') {
+      return `  ${GREEN}${CHECKMARK}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+    }
+    const frame =
+      JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
+    return `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+  };
+  const repaintToolLines = (frameIdx: number) => {
+    if (transientToolLines <= 0) return;
+    clearLine();
+    process.stdout.write(`\x1b[${transientToolLines}A`);
+    for (const entry of toolEntries) {
+      clearLine();
+      process.stdout.write(`${formatToolLine(entry, frameIdx)}\n`);
+    }
+    clearLine();
+  };
   const render = () => {
     if (stopped) return;
-    if (!showActivityPreview) return;
     if (hasVisibleText || thinkingPreviewRows > 0) return;
-    clearLine();
-    const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length];
-    process.stdout.write(
-      `\r  ${frame.emojiColor}${JELLYFISH}${RESET} ${frame.verbColor}${activityVerb}${RESET}`,
-    );
+    if (transientToolLines === 0 && !showActivityPreview) return;
+    if (transientToolLines > 0) {
+      repaintToolLines(i);
+    }
+    if (showActivityPreview) {
+      clearLine();
+      const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length];
+      process.stdout.write(
+        `\r  ${frame.emojiColor}${JELLYFISH}${RESET} ${frame.verbColor}${activityVerb}${RESET}`,
+      );
+    }
     i++;
   };
 
@@ -1360,6 +1398,7 @@ function spinner(): {
     }
     clearLine();
     transientToolLines = 0;
+    toolEntries.length = 0;
     if (
       !stopped &&
       showActivityPreview &&
@@ -1401,12 +1440,20 @@ function spinner(): {
   };
 
   hideCursor();
-  const interval = showActivityPreview ? setInterval(render, 350) : null;
+  const interval =
+    showActivityPreview || showTools ? setInterval(render, 350) : null;
   if (showActivityPreview) render();
   return {
     stop: () => {
       stopped = true;
       if (interval) clearInterval(interval);
+      if (
+        transientToolLines > 0 &&
+        !hasVisibleText &&
+        thinkingPreviewRows === 0
+      ) {
+        repaintToolLines(i);
+      }
       if (showActivityPreview && !hasVisibleText && thinkingPreviewRows === 0) {
         clearLine();
       }
@@ -1417,12 +1464,27 @@ function spinner(): {
       if (hasVisibleText) return;
       clearThinkingPreview();
       clearLine();
-      const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
-      process.stdout.write(
-        `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
-      );
+      const entry: SpinnerToolEntry = {
+        name: toolName,
+        preview: preview || '',
+        status: 'running',
+      };
+      toolEntries.push(entry);
+      process.stdout.write(`${formatToolLine(entry, i)}\n`);
       transientToolLines++;
-      if (showActivityPreview) render();
+      render();
+    },
+    finishTool: (toolName: string) => {
+      if (!showTools) return;
+      if (hasVisibleText) return;
+      for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
+        const entry = toolEntries[idx];
+        if (entry && entry.name === toolName && entry.status === 'running') {
+          entry.status = 'done';
+          break;
+        }
+      }
+      render();
     },
     addVisibleTextDelta: (delta: string) => {
       if (!delta) return;
@@ -2204,14 +2266,14 @@ async function processMessage(
             streamedApproval = event;
             return;
           }
-          if (
-            event.type !== 'tool' ||
-            event.phase !== 'start' ||
-            !event.toolName
-          )
-            return;
+          if (event.type !== 'tool' || !event.toolName) return;
           sawStreamEvent = true;
           sawResponse = true;
+          if (event.phase === 'finish') {
+            s.finishTool(event.toolName);
+            return;
+          }
+          if (event.phase !== 'start') return;
           const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
           const previewText =
             preview.length > TOOL_PREVIEW_MAX_CHARS
