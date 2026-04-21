@@ -204,9 +204,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -217,6 +217,7 @@ Examples:
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
@@ -226,11 +227,13 @@ Examples:
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
+  hybridclaw auth status google
   hybridclaw auth status msteams
   hybridclaw auth status slack
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
+  hybridclaw auth logout google
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -245,6 +248,29 @@ Notes:
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
+}
+
+export function printGoogleUsage(): void {
+  console.log(`Usage: hybridclaw auth login google [options]
+
+Options:
+  --client-id <id>          Google OAuth desktop client id
+  --client-secret <secret>  Google OAuth desktop client secret
+  --account <email>         Google account used by gog
+  --scopes <scopes>         Space- or comma-separated OAuth scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com --scopes "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar"
+  hybridclaw auth status google
+  hybridclaw auth logout google
+
+Notes:
+  - The Google refresh token and client secret are stored in encrypted runtime secrets.
+  - Agent containers receive only a short-lived \`GOG_ACCESS_TOKEN\` minted by the host.
+  - Use a Google OAuth desktop client with an authorized redirect URI matching the printed localhost callback URL.`);
 }
 
 export function printChannelsUsage(): void {

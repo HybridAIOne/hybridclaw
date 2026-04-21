@@ -1,11 +1,11 @@
 ---
 name: google-workspace
-description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs.
+description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs
 user-invocable: true
 metadata:
   hybridclaw:
     category: productivity
-    short_description: "Gmail, Drive, Docs, and Sheets."
+    short_description: "Browser-based Gmail, Drive, Docs, and Sheets."
     tags:
       - google
       - workspace
@@ -19,6 +19,8 @@ metadata:
 
 Use this skill for Google Workspace workflows that go beyond HybridClaw's built-in email and Discord channels.
 
+For API-backed Google Workspace access, prefer the bundled `gog` skill when available.
+
 ## Scope
 
 - Gmail searches and draft/send workflows
@@ -29,10 +31,10 @@ Use this skill for Google Workspace workflows that go beyond HybridClaw's built-
 
 ## Default Strategy
 
-1. For email-only tasks, prefer the optional `himalaya` community skill if it is installed, or the existing email channel when that is simpler.
-2. For Calendar, Drive, Docs, or Sheets tasks, **default to browser automation** using the persistent browser profile. Do not ask which method to use — just try the browser first.
-3. If the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
-4. Only fall back to API-based access if the user explicitly requests it or browser automation is unavailable.
+1. For API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs tasks, prefer the bundled `gog` skill when it is installed and authenticated.
+2. For email-only tasks where `gog` is unavailable, prefer the optional `himalaya` community skill if it is installed, or the existing email channel when that is simpler.
+3. Use browser automation only when `gog` is unavailable, the user explicitly asks for browser-based work, or the task needs visual inspection in the Google web UI.
+4. If the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
 
 ## Proactive Behavior
 

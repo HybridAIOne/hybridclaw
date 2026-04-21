@@ -46,6 +46,10 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     },
     model: 'openai-codex/gpt-5-codex',
     channelId: 'channel-1',
+    runtimeEnv: {
+      GOG_ACCESS_TOKEN: 'short-lived-access-token',
+      GOG_ACCOUNT: 'user@example.com',
+    },
     taskModels: {
       compression: {
         provider: 'openrouter' as const,
@@ -70,6 +74,10 @@ test('writeInput omits auth material from IPC files when requested', async () =>
 
   expect(written.apiKey).toBe('');
   expect(written.requestHeaders).toEqual({});
+  expect(written.runtimeEnv).toEqual({
+    GOG_ACCESS_TOKEN: 'short-lived-access-token',
+    GOG_ACCOUNT: 'user@example.com',
+  });
   expect(written.taskModels).toEqual({
     compression: {
       provider: 'openrouter',

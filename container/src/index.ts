@@ -134,6 +134,15 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
+
+function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
+  for (const [name, value] of Object.entries(runtimeEnv || {})) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) continue;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    process.env[name] = value;
+  }
+}
+
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
@@ -1514,7 +1523,10 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
       ...tool,
       function: {
         ...tool.function,
-        description: getMessageToolDescription(input.channelId),
+        description: getMessageToolDescription(
+          input.channelId,
+          input.activeMessageChannels,
+        ),
       },
     };
   });
@@ -1537,6 +1549,7 @@ async function main(): Promise<void> {
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
+  applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
@@ -1677,6 +1690,8 @@ async function main(): Promise<void> {
       await shutdownAgentProcess(0, 'idle timeout');
       return;
     }
+
+    applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
