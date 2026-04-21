@@ -1,11 +1,7 @@
-export function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
+export { isRecord } from '../utils/type-guards.js';
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
+export function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/g, '');
 }
 
 export function readPositiveInteger(value: unknown): number | null {
