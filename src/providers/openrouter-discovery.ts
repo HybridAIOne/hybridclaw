@@ -1,12 +1,17 @@
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
+import { logger } from '../logger.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
   buildOpenRouterAttributionHeaders,
   OPENROUTER_MODEL_PREFIX,
 } from './openrouter-utils.js';
-import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
+import {
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
-const OPENROUTER_DISCOVERY_TTL_MS = 3_600_000;
 const OPENROUTER_PRICING_KEYS = [
   'prompt',
   'completion',
@@ -91,32 +96,30 @@ export interface OpenRouterDiscoveryStore {
   isModelVisionCapable: (model: string) => boolean;
 }
 
+interface OpenRouterDiscoveryState {
+  discoveredModelNames: string[];
+  freeModelNames: Set<string>;
+  contextWindowByModel: Map<string, number>;
+  maxTokensByModel: Map<string, number>;
+  visionCapableModels: Set<string>;
+}
+
+const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
+  discoveredModelNames: [],
+  freeModelNames: new Set(),
+  contextWindowByModel: new Map(),
+  maxTokensByModel: new Map(),
+  visionCapableModels: new Set(),
+});
+
 export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let freeModelNames = new Set<string>();
-  let contextWindowByModel = new Map<string, number>();
-  let maxTokensByModel = new Map<string, number>();
-  let visionCapableModels = new Set<string>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyOpenRouterDiscoveryState(),
+  );
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextFreeModelNames: Iterable<string> = [],
-    nextContextWindows: Iterable<[string, number]> = [],
-    nextMaxTokens: Iterable<[string, number]> = [],
-    nextVisionCapable: Iterable<string> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    freeModelNames = new Set(nextFreeModelNames);
-    contextWindowByModel = new Map(nextContextWindows);
-    maxTokensByModel = new Map(nextMaxTokens);
-    visionCapableModels = new Set(nextVisionCapable);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchOpenRouterModels(apiKey: string): Promise<string[]> {
+  async function fetchOpenRouterModels(
+    apiKey: string,
+  ): Promise<OpenRouterDiscoveryState> {
     const response = await fetch(
       `${normalizeBaseUrl(OPENROUTER_BASE_URL)}/models`,
       {
@@ -175,19 +178,20 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
         }
       }
     }
-    replaceDiscoveryCache(
-      [...discovered],
-      freeDiscovered,
-      contextWindows,
-      maxTokens,
-      visionCapable,
-    );
-    return [...discovered];
+    return {
+      discoveredModelNames: [...discovered],
+      freeModelNames: freeDiscovered,
+      contextWindowByModel: contextWindows,
+      maxTokensByModel: maxTokens,
+      visionCapableModels: visionCapable,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!OPENROUTER_ENABLED) {
-      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenRouterDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
@@ -195,52 +199,46 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       required: false,
     });
     if (!apiKey) {
-      replaceDiscoveryCache([], [], [], [], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenRouterDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < OPENROUTER_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchOpenRouterModels(apiKey);
-        return [...discoveredModelNames];
-      } catch {
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(
+      () => fetchOpenRouterModels(apiKey),
+      {
+        force: opts?.force,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'OpenRouter model discovery failed');
+          return staleState;
+        },
+      },
+    );
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
-    isModelFree: (model: string) =>
-      freeModelNames.has(String(model || '').trim()),
-    getModelContextWindow: (model: string) => {
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
+    isModelFree: (model: string) => {
       const normalized = normalizeOpenRouterModelName(model);
-      return contextWindowByModel.get(normalized) ?? null;
+      return discoveryStore.getState().freeModelNames.has(normalized);
+    },
+    getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeOpenRouterModelName(model);
+      return state.contextWindowByModel.get(normalized) ?? null;
     },
     getModelMaxTokens: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeOpenRouterModelName(model);
-      return maxTokensByModel.get(normalized) ?? null;
+      return state.maxTokensByModel.get(normalized) ?? null;
     },
     isModelVisionCapable: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeOpenRouterModelName(model);
-      return visionCapableModels.has(normalized);
+      return state.visionCapableModels.has(normalized);
     },
   };
 }

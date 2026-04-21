@@ -336,6 +336,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
             size="icon"
             className={cx(css.actionButton, copied && css.actionButtonSuccess)}
             title="Copy"
+            aria-label={copied ? 'Copied' : 'Copy message'}
             onClick={handleCopy}
           >
             {copied ? '✓' : '⧉'}
@@ -346,6 +347,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               size="icon"
               className={css.actionButton}
               title="Edit"
+              aria-label="Edit message"
               onClick={() => props.onEdit(msg)}
             >
               ✎
@@ -357,6 +359,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
               size="icon"
               className={css.actionButton}
               title="Regenerate"
+              aria-label="Regenerate response"
               onClick={() => props.onRegenerate(msg)}
             >
               ↻
@@ -368,6 +371,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 variant="ghost"
                 size="icon"
                 className={css.branchButton}
+                aria-label="Previous branch"
                 disabled={props.branchInfo.current <= 1}
                 onClick={() => props.onBranchNav(-1)}
               >
@@ -380,6 +384,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 variant="ghost"
                 size="icon"
                 className={css.branchButton}
+                aria-label="Next branch"
                 disabled={props.branchInfo.current >= props.branchInfo.total}
                 onClick={() => props.onBranchNav(1)}
               >
@@ -405,6 +410,7 @@ export function EditInline(props: {
         className={css.editArea}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        aria-label="Edit message"
         // biome-ignore lint/a11y/noAutofocus: edit mode should focus the textarea immediately
         autoFocus
       />

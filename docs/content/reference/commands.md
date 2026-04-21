@@ -372,6 +372,7 @@ actions. Common examples:
 ```text
 !claw <message>
 /agent
+/btw <question>
 /agent list
 /agent switch <id>
 /agent create <id> [--model <model>]
@@ -398,8 +399,8 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, and related slash commands route through
-the same gateway command surface used by TUI and web chat.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
+through the same gateway command surface used by TUI and web chat.
 
 ## In Session
 
@@ -407,6 +408,11 @@ the same gateway command surface used by TUI and web chat.
   chat, filtered per surface and kept in a consistent alphabetical order
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id
+- local TUI/web sessions support `/btw <question>` for ephemeral side
+  questions that use recent conversation context, return a tool-less answer,
+  and do not persist the side exchange to session history
+- in built-in web chat, `/btw` is the only slash command accepted while the
+  current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
