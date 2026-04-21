@@ -142,12 +142,46 @@ Set `SOKOSUMI_API_KEY` as an environment variable or provide when prompted.
 Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or
 APIs.
 
-**Prerequisites** — a Google account. For browser automation, run
-`hybridclaw browser login` once to set up a persistent browser profile.
+**Prerequisites** — a Google account.
+
+For browser automation, run `hybridclaw browser login` once to set up a
+persistent browser profile.
+
+For API access through the bundled `gog` skill:
+
+1. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
+2. Select or create a project.
+3. Open **OAuth consent screen** and finish the required app setup. If the app
+   is in testing mode, add your Google account as a test user.
+4. Open **Library** and enable the APIs you need, such as Gmail API, Google
+   Calendar API, Google Drive API, Google Docs API, Google Sheets API, and
+   People API.
+5. Open **Credentials**.
+6. Click **Create credentials**.
+7. Choose **OAuth client ID**.
+8. Choose application type **Desktop app**.
+9. Name it, for example `HybridClaw local auth`.
+10. Click **Create**.
+11. Copy the generated **Client ID** and **Client secret**.
+12. Save them in HybridClaw:
+
+```bash
+hybridclaw auth login google --client-id "<client-id>" --client-secret "<client-secret>" --account you@example.com
+```
+
+13. Install the `gog` dependency:
+
+```bash
+hybridclaw skill install gog brew
+```
+
+Use **OAuth client ID**, not **API key** or **Service account**, for normal
+personal Gmail, Calendar, Drive, Docs, and Sheets access.
 
 > 💡 **Tips & Tricks**
 >
-> The skill prefers browser automation over API calls — no OAuth setup needed for basic operations.
+> Browser automation does not need OAuth setup. API access through `gog` needs
+> the Google OAuth client setup above.
 >
 > If a Google login page appears, it directs you to run `hybridclaw browser login` rather than entering credentials.
 >
