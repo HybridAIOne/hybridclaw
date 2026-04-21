@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { GATEWAY_BASE_URL, getConfigSnapshot } from '../../config/config.js';
-import { isRecord } from './utils.js';
+import { isRecord, normalizeBaseUrl } from '../../utils/type-guards.js';
 
 export interface VoiceWebhookPaths {
   basePath: string;
@@ -33,12 +33,6 @@ function firstForwardedHeader(
   return String(value || '')
     .split(',')[0]
     .trim();
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/, '');
 }
 
 export function resolveVoiceWebhookPaths(
