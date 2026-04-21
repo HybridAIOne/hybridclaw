@@ -17,21 +17,16 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- The admin console's Channels page centralizes transport status and
-  browser-based setup across Discord, Telegram, WhatsApp, email, Microsoft
-  Teams, and iMessage, including managed secrets and live WhatsApp pairing QR
-  display.
-- The gateway exposes a loopback OpenAI-compatible API at `/v1/models` and
-  `/v1/chat/completions` for local eval harnesses and OpenAI-compatible tools.
-- Built-in email delivery and the repo-shipped `brevo-email` plugin can
-  continue existing mail threads by forwarding explicit `inReplyTo` and
-  `references` Message-ID headers on outbound replies.
-- Provider and channel setup flows keep secrets hidden during interactive
-  prompts, and local `auth status` commands report sensitive credentials as
-  `configured` instead of echoing partial values.
-- `hybridclaw tui` follows the active sandbox mode from a reachable gateway
-  during preflight, which keeps host-mode MCP and containerized deployments
-  aligned.
+- The built-in `/chat` sidebar can search recent conversations by title and
+  show contextual match snippets, which makes browser-session recovery faster
+  during day-to-day operator work.
+- Browser chat and the console chat now restore focus to the composer after
+  streamed replies finish, improving keyboard-only follow-up flows.
+- The bundled PDF creator wraps long lines, respects explicit `\n` line
+  breaks, and adds pages automatically when content overflows the first page.
+- Generated artifacts now keep resolving correctly even when the sandbox maps a
+  custom workspace display root such as `/app`, keeping browser downloads and
+  attachments stable under alternate runtime layouts.
 
 ## Browse By Section
 

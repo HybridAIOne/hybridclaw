@@ -373,7 +373,8 @@
     "binds": [],
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
-    "maxConcurrent": 5
+    "maxConcurrent": 5,
+    "persistBashState": true
   },
   "mcpServers": {
     "filesystem": {

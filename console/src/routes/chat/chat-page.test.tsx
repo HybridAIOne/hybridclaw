@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
   within,
 } from '@testing-library/react';
 import { Suspense } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BranchResponse,
   ChatHistoryResponse,
@@ -20,7 +21,15 @@ import { ChatPage } from './chat-page';
 
 const fetchAppStatusMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
 const fetchChatRecentMock =
-  vi.fn<(token: string, userId: string) => Promise<ChatRecentResponse>>();
+  vi.fn<
+    (
+      token: string,
+      userId: string,
+      channelId?: string,
+      limit?: number,
+      query?: string,
+    ) => Promise<ChatRecentResponse>
+  >();
 const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
 const createChatBranchMock =
@@ -41,8 +50,13 @@ const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
   fetchAppStatus: (token: string) => fetchAppStatusMock(token),
-  fetchChatRecent: (token: string, userId: string) =>
-    fetchChatRecentMock(token, userId),
+  fetchChatRecent: (
+    token: string,
+    userId: string,
+    channelId?: string,
+    limit?: number,
+    query?: string,
+  ) => fetchChatRecentMock(token, userId, channelId, limit, query),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
   createChatBranch: (
@@ -83,6 +97,10 @@ function renderChatPage() {
 }
 
 describe('ChatPage', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
     localStorage.clear();
@@ -114,22 +132,34 @@ describe('ChatPage', () => {
       ragDefault: false,
       timestamp: '2026-04-14T10:00:00.000Z',
     });
-    fetchChatRecentMock.mockResolvedValue({
-      sessions: [
-        {
-          sessionId: 'session-a',
-          title: 'Session A',
-          lastActive: '2026-04-14T10:00:00.000Z',
-          messageCount: 2,
-        },
-        {
-          sessionId: 'session-b',
-          title: 'Session B',
-          lastActive: '2026-04-14T09:30:00.000Z',
-          messageCount: 3,
-        },
-      ],
-    });
+    fetchChatRecentMock.mockImplementation(
+      async (_token, _userId, _channelId, _limit, query) => ({
+        sessions: query
+          ? [
+              {
+                sessionId: 'session-search',
+                title: 'Deployment checklist',
+                searchSnippet: '...deployment rollback steps from yesterday...',
+                lastActive: '2026-04-13T09:30:00.000Z',
+                messageCount: 4,
+              },
+            ]
+          : [
+              {
+                sessionId: 'session-a',
+                title: 'Session A',
+                lastActive: '2026-04-14T10:00:00.000Z',
+                messageCount: 2,
+              },
+              {
+                sessionId: 'session-b',
+                title: 'Session B',
+                lastActive: '2026-04-14T09:30:00.000Z',
+                messageCount: 3,
+              },
+            ],
+      }),
+    );
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -272,6 +302,157 @@ describe('ChatPage', () => {
         'test-token',
         'session-b',
       ),
+    );
+  });
+
+  it('searches conversation titles beyond the default recent list', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: sessionId === 'session-search' ? 301 : 101,
+            role: 'assistant',
+            content:
+              sessionId === 'session-search'
+                ? 'Opened deployment thread'
+                : 'Opened session A',
+          },
+        ],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'deploy' },
+    });
+
+    expect(await screen.findByText('Deployment checklist')).not.toBeNull();
+    expect(
+      await screen.findByText('...deployment rollback steps from yesterday...'),
+    ).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatRecentMock).toHaveBeenCalledWith(
+        'test-token',
+        'web-user-1',
+        'web',
+        50,
+        'deploy',
+      ),
+    );
+
+    fireEvent.click(
+      screen
+        .getByText('Deployment checklist')
+        .closest('button') as HTMLButtonElement,
+    );
+
+    expect(await screen.findByText('Opened deployment thread')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-search',
+      ),
+    );
+  });
+
+  it('renders title-only search matches without a snippet', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: sessionId === 'session-title-only' ? 401 : 101,
+            role: 'assistant',
+            content:
+              sessionId === 'session-title-only'
+                ? 'Opened title-only deployment thread'
+                : 'Opened session A',
+          },
+        ],
+      }),
+    );
+    fetchChatRecentMock.mockImplementation(
+      async (_token, _userId, _channelId, _limit, query) => ({
+        sessions: query
+          ? [
+              {
+                sessionId: 'session-title-only',
+                title: 'Deployment checklist',
+                lastActive: '2026-04-13T09:30:00.000Z',
+                messageCount: 1,
+              },
+            ]
+          : [
+              {
+                sessionId: 'session-a',
+                title: 'Session A',
+                lastActive: '2026-04-14T10:00:00.000Z',
+                messageCount: 2,
+              },
+            ],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'deploy' },
+    });
+
+    expect(await screen.findByText('Deployment checklist')).not.toBeNull();
+    expect(
+      screen.queryByText('...deployment rollback steps from yesterday...'),
+    ).toBeNull();
+  });
+
+  it('debounces recent-session searches while typing', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 101,
+          role: 'assistant',
+          content: 'Opened session A',
+        },
+      ],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    const searchInput = screen.getByLabelText('Search conversations');
+    for (const value of ['d', 'de', 'dep', 'depl', 'deplo', 'deploy']) {
+      fireEvent.change(searchInput, { target: { value } });
+    }
+
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(159);
+    });
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
+    expect(fetchChatRecentMock).toHaveBeenLastCalledWith(
+      'test-token',
+      'web-user-1',
+      'web',
+      50,
+      'deploy',
     );
   });
 

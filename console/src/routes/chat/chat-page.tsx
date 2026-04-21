@@ -5,6 +5,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   useTransition,
 } from 'react';
 import {
@@ -33,7 +34,9 @@ import {
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
+import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
+import { useDebouncedValue } from '../../lib/use-debounced-value';
 import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -183,6 +186,12 @@ export function ChatPage() {
   } = state;
 
   const [isPending, startTransition] = useTransition();
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const debouncedSessionSearchQuery = useDebouncedValue(
+    sessionSearchQuery,
+    160,
+  );
+  const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
@@ -270,8 +279,17 @@ export function ChatPage() {
   }, [appStatusQuery.error]);
 
   const recentQuery = useQuery({
-    queryKey: ['chat-recent', auth.token, userId],
-    queryFn: () => fetchChatRecent(auth.token, userId),
+    queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    queryFn: () =>
+      fetchChatRecent(
+        auth.token,
+        userId,
+        'web',
+        trimmedSessionSearchQuery
+          ? CHAT_UI_CONFIG.maxSearchResults
+          : CHAT_UI_CONFIG.maxRecentSessions,
+        trimmedSessionSearchQuery || undefined,
+      ),
     staleTime: 10_000,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
@@ -522,6 +540,9 @@ export function ChatPage() {
     onOpenSession: handleOpenSession,
     onHoverSession: handleHoverSession,
     isPending,
+    searchQuery: sessionSearchQuery,
+    onSearchQueryChange: setSessionSearchQuery,
+    isLoading: recentQuery.isFetching,
   } as const;
 
   return (

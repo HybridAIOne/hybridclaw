@@ -115,6 +115,12 @@
   color: var(--muted-foreground);
 }
 
+.sidebarStatus {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+
 .chatTopbar {
   display: flex;
   justify-content: flex-end;

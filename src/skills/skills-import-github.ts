@@ -5,11 +5,18 @@ import type { Readable } from 'node:stream';
 
 import * as yauzl from 'yauzl';
 import { SkillImportError, SkillImportNotFoundError } from './skill-errors.js';
+import {
+  assertImportBudget,
+  ensureText,
+  type ImportState,
+  MAX_IMPORT_TOTAL_BYTES,
+  normalizeRepoPath,
+  readResponseBytesWithinImportBudget,
+  writeImportedFile,
+} from './skill-import-commons.js';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const GITHUB_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
-const MAX_IMPORT_FILE_COUNT = 256;
-const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 512 * 1024;
 
 interface GitHubRepoMetadata {
@@ -21,11 +28,6 @@ interface GitHubContentsEntry {
   path?: unknown;
   type?: unknown;
   download_url?: unknown;
-}
-
-interface ImportState {
-  fileCount: number;
-  totalBytes: number;
 }
 
 interface GitHubArchiveEntryInfo {
@@ -56,29 +58,11 @@ export interface GitHubSkillPathResolution {
   requestedPath: string;
 }
 
-export function normalizeImportedSkillRelativePath(
-  relativePath: string,
-): string {
-  return relativePath.toLowerCase() === 'skill.md' ? 'SKILL.md' : relativePath;
-}
-
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, '');
-}
-
-function normalizeRepoPath(value: string): string {
-  return trimSlashes(value).replace(/\/+/g, '/');
-}
-
 function normalizeComparableName(value: string): string {
   return value
     .trim()
     .toLowerCase()
     .replace(/[\s_]+/g, '-');
-}
-
-function ensureText(value: unknown): string {
-  return typeof value === 'string' ? value : '';
 }
 
 function encodeUrlPath(value: string): string {
@@ -163,41 +147,6 @@ function parseContentLength(response: Response): number | null {
   return parsed;
 }
 
-function assertSafeRelativePath(relativePath: string): void {
-  const normalized = relativePath.replace(/\\/g, '/');
-  if (!normalized || normalized.startsWith('/')) {
-    throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
-  }
-
-  const parts = normalized.split('/');
-  if (
-    parts.some(
-      (segment) => segment === '' || segment === '.' || segment === '..',
-    )
-  ) {
-    throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
-  }
-}
-
-function assertImportBudget(state: ImportState, bytes: number): void {
-  if (state.fileCount + 1 > MAX_IMPORT_FILE_COUNT) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_FILE_COUNT}-file import limit.`,
-    );
-  }
-  if (state.totalBytes + bytes > MAX_IMPORT_TOTAL_BYTES) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_TOTAL_BYTES} byte import limit.`,
-    );
-  }
-}
-
-function recordImportedFile(state: ImportState, bytes: number): void {
-  assertImportBudget(state, bytes);
-  state.fileCount += 1;
-  state.totalBytes += bytes;
-}
-
 async function downloadBytes(
   fetchImpl: typeof fetch,
   url: string,
@@ -211,7 +160,7 @@ async function downloadBytes(
 
   const contentLength = parseContentLength(response);
   assertImportBudget(state, contentLength ?? 0);
-  return new Uint8Array(await response.arrayBuffer());
+  return await readResponseBytesWithinImportBudget(response, state);
 }
 
 async function downloadArchiveBytes(
@@ -239,21 +188,6 @@ async function downloadArchiveBytes(
     );
   }
   return bytes;
-}
-
-function writeImportedFile(
-  rootDir: string,
-  relativePath: string,
-  bytes: Uint8Array,
-  state: ImportState,
-): void {
-  const normalizedRelativePath =
-    normalizeImportedSkillRelativePath(relativePath);
-  assertSafeRelativePath(normalizedRelativePath);
-  recordImportedFile(state, bytes.byteLength);
-  const targetPath = path.join(rootDir, normalizedRelativePath);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, Buffer.from(bytes));
 }
 
 async function fetchGitHubRepoMetadata(
