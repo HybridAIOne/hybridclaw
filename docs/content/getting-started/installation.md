@@ -22,6 +22,62 @@ Prerequisites:
 The published package installs the packaged container runtime dependencies
 automatically during `npm install -g`.
 
+## Install From Nix (Flake)
+
+HybridClaw ships a multi-arch Nix flake (`x86_64-linux`, `aarch64-linux`,
+`aarch64-darwin`, `x86_64-darwin`). With flakes enabled:
+
+```bash
+# Run without installing
+nix run github:HybridAIOne/hybridclaw -- onboarding
+
+# Install into your profile
+nix profile install github:HybridAIOne/hybridclaw
+```
+
+The flake also exposes a NixOS module. In your system flake:
+
+```nix
+{
+  inputs.hybridclaw.url = "github:HybridAIOne/hybridclaw";
+
+  outputs = { self, nixpkgs, hybridclaw, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        hybridclaw.nixosModules.default
+        {
+          services.hybridclaw = {
+            enable = true;
+            openFirewall = true;
+            settings = {
+              gateway = { host = "127.0.0.1"; port = 9090; };
+            };
+            environmentFiles = [ "/run/secrets/hybridclaw.env" ];
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The module provisions a system user, runs the gateway under systemd, points
+`HYBRIDCLAW_HOME` at `/var/lib/hybridclaw/.hybridclaw`, and enables Docker
+so the default container sandbox works out of the box.
+
+## Install From Homebrew (Preview)
+
+A Homebrew formula is drafted at [packaging/homebrew/hybridclaw.rb](https://github.com/HybridAIOne/hybridclaw/blob/main/packaging/homebrew/hybridclaw.rb)
+and will ship through a dedicated tap (`hybridaione/hybridclaw`) once the
+first signed release tarball is published:
+
+```bash
+brew tap hybridaione/hybridclaw
+brew install hybridclaw
+```
+
+Until then, macOS users should install via npm or the Nix flake.
+
 ## Install From a Source Checkout
 
 Use this flow when you are developing HybridClaw locally or want to run from
