@@ -4,6 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import {
   getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
   requireAnthropicClaudeCliCredential,
 } from './auth/anthropic-auth.js';
 import {
@@ -101,20 +102,6 @@ function isLocalProvider(
   provider: ReturnType<typeof resolveModelProvider>,
 ): boolean {
   return isLocalBackendType(provider);
-}
-
-function isAnthropicReadyForMethod(
-  status: ReturnType<typeof getAnthropicAuthStatus>,
-  method: 'api-key' | 'claude-cli',
-): boolean {
-  if (method === 'claude-cli') {
-    return (
-      status.method === 'claude-cli' &&
-      status.authenticated === true &&
-      (status.expiresAt == null || status.expiresAt > Date.now())
-    );
-  }
-  return status.method === 'api-key';
 }
 
 function trustModelDocPath(): string {
@@ -1537,7 +1524,7 @@ export async function ensureRuntimeCredentials(
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
   const anthropicConfiguredMethod = runtimeConfig.anthropic.method;
-  const anthropicReady = isAnthropicReadyForMethod(
+  const anthropicReady = isAnthropicAuthReadyForMethod(
     anthropicStatus,
     anthropicConfiguredMethod,
   );
@@ -1670,7 +1657,7 @@ export async function ensureRuntimeCredentials(
     const refreshedAnthropicStatus = getAnthropicAuthStatus();
     const refreshedAnthropicConfiguredMethod =
       refreshedRuntimeConfig.anthropic.method;
-    const refreshedAnthropicReady = isAnthropicReadyForMethod(
+    const refreshedAnthropicReady = isAnthropicAuthReadyForMethod(
       refreshedAnthropicStatus,
       refreshedAnthropicConfiguredMethod,
     );

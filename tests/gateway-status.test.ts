@@ -64,6 +64,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/hybridai-discovery.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
+  vi.doUnmock('../src/auth/anthropic-auth.js');
   vi.doUnmock('../src/providers/hybridai-health.js');
   vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/infra/container-setup.js');
@@ -2195,6 +2196,65 @@ test('model list anthropic falls back to configured models when discovery fails'
   expect(result.title).toBe('Available Models (anthropic)');
   expect(result.text).toContain('anthropic/claude-sonnet-4-6');
   expect(result.text).toContain('1 model');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
+test('model list anthropic reports unauthorized when detected auth does not match configured method', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    getAnthropicAuthStatus: vi.fn(() => ({
+      authenticated: true,
+      method: 'claude-cli',
+      source: 'claude-cli-keychain',
+      path: 'macOS Keychain (Claude Code-credentials)',
+      maskedValue: 'sk-ant-oat-...test',
+      expiresAt: Date.now() + 60_000,
+      isOauthToken: true,
+    })),
+    isAnthropicAuthReadyForMethod: vi.fn(
+      (
+        status: { method: string | null; authenticated: boolean },
+        method: 'api-key' | 'claude-cli',
+      ) => status.authenticated === true && status.method === method,
+    ),
+    requireAnthropicApiKey: vi.fn(() => {
+      throw new Error('api key missing');
+    }),
+    requireAnthropicClaudeCliCredential: vi.fn(),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-anthropic-method-mismatch',
+    guildId: null,
+    channelId: 'channel-model-list-anthropic-method-mismatch',
+    args: ['model', 'list', 'anthropic'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (anthropic)');
+  expect(result.text).toContain('Anthropic is not authorized.');
+  expect(result.text).toContain('hybridclaw auth login anthropic');
   expect(result.text).not.toContain('No models available for provider');
 });
 

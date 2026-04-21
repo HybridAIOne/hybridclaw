@@ -1,4 +1,7 @@
-import { getAnthropicAuthStatus } from '../auth/anthropic-auth.js';
+import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -140,7 +143,8 @@ export function diagnoseProviderForModels(
       if (!config.anthropic.enabled) {
         return disabled(filter, buildProviderEnableCommand(filter));
       }
-      if (!getAnthropicAuthStatus().authenticated) {
+      const status = getAnthropicAuthStatus();
+      if (!isAnthropicAuthReadyForMethod(status, config.anthropic.method)) {
         return unauthorized(filter);
       }
       if (providerHealth?.anthropic?.reachable !== true) {

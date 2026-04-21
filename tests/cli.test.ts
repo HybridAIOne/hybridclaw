@@ -514,6 +514,17 @@ async function importFreshCli(options?: {
         isOauthToken: false,
       },
   );
+  const isAnthropicAuthReadyForMethod = vi.fn(
+    (
+      status: NonNullable<ImportFreshCliOptions['anthropicStatus']>,
+      method: 'api-key' | 'claude-cli',
+    ) =>
+      method === 'claude-cli'
+        ? status.method === 'claude-cli' &&
+          status.authenticated === true &&
+          (status.expiresAt == null || status.expiresAt > Date.now())
+        : status.method === 'api-key' && status.authenticated === true,
+  );
   const requireAnthropicClaudeCliCredential = vi.fn(
     () =>
       options?.anthropicCliAuthResult || {
@@ -1133,6 +1144,7 @@ async function importFreshCli(options?: {
   vi.doMock('../src/auth/anthropic-auth.ts', () => ({
     claudeCliCredentialsPath: vi.fn(() => '/tmp/.claude/.credentials.json'),
     getAnthropicAuthStatus,
+    isAnthropicAuthReadyForMethod,
     requireAnthropicClaudeCliCredential,
   }));
   vi.doMock('../src/auth/codex-auth.ts', () => ({
@@ -3907,9 +3919,15 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['auth', 'status', 'anthropic']);
 
-    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
     expect(logSpy).toHaveBeenCalledWith('Configured method: api-key');
     expect(logSpy).toHaveBeenCalledWith('Detected auth method: claude-cli');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured method is not ready: detected claude-cli credentials, but Anthropic is configured for api-key.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Run `hybridclaw auth login anthropic --method claude-cli --set-default` to use the Claude login, or configure an Anthropic API key.',
+    );
     expect(logSpy).toHaveBeenCalledWith('Enabled: no');
     expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
   });

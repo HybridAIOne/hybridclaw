@@ -1,4 +1,7 @@
-import { getAnthropicAuthStatus } from '../../auth/anthropic-auth.js';
+import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+} from '../../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../../auth/codex-auth.js';
 import { getRuntimeConfig } from '../../config/runtime-config.js';
 import { resolveModelProvider } from '../../providers/factory.js';
@@ -118,10 +121,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
   const anthropicConfiguredMethod = config.anthropic?.method ?? 'api-key';
-  const anthropicMethodReady =
-    anthropicConfiguredMethod === 'claude-cli'
-      ? anthropicStatus.method === 'claude-cli'
-      : anthropicStatus.method === 'api-key';
+  const anthropicMethodReady = isAnthropicAuthReadyForMethod(
+    anthropicStatus,
+    anthropicConfiguredMethod,
+  );
   const discoveredModels = await readDiscoveredModelNamesSafely();
   const anthropicEnabled = config.anthropic?.enabled === true;
   const openRouterEnabled = config.openrouter?.enabled === true;

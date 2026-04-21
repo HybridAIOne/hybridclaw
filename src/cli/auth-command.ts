@@ -1122,12 +1122,27 @@ function printAnthropicStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
   const status = getAnthropicAuthApi().getAnthropicAuthStatus();
+  const configuredMethodReady =
+    getAnthropicAuthApi().isAnthropicAuthReadyForMethod(
+      status,
+      config.anthropic.method,
+    );
 
   console.log(`Path: ${status.path}`);
-  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  console.log(`Authenticated: ${configuredMethodReady ? 'yes' : 'no'}`);
   console.log(`Configured method: ${config.anthropic.method}`);
   if (status.method) {
     console.log(`Detected auth method: ${status.method}`);
+  }
+  if (status.method && status.method !== config.anthropic.method) {
+    console.log(
+      `Configured method is not ready: detected ${status.method} credentials, but Anthropic is configured for ${config.anthropic.method}.`,
+    );
+    console.log(
+      status.method === 'claude-cli'
+        ? 'Run `hybridclaw auth login anthropic --method claude-cli --set-default` to use the Claude login, or configure an Anthropic API key.'
+        : 'Run `hybridclaw auth login anthropic --method api-key --set-default` to use the API key, or switch Anthropic to claude-cli.',
+    );
   }
   if (status.source) {
     console.log(`Source: ${status.source}`);

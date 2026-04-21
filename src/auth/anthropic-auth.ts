@@ -215,6 +215,20 @@ export function getAnthropicAuthStatus(): AnthropicAuthStatus {
   };
 }
 
+export function isAnthropicAuthReadyForMethod(
+  status: AnthropicAuthStatus,
+  method: AnthropicMethod,
+): boolean {
+  if (method === 'claude-cli') {
+    return (
+      status.method === 'claude-cli' &&
+      status.authenticated === true &&
+      (status.expiresAt == null || status.expiresAt > Date.now())
+    );
+  }
+  return status.method === 'api-key' && status.authenticated === true;
+}
+
 export function requireAnthropicClaudeCliCredential(): ClaudeCliCredential {
   const credential = readClaudeCliCredentials();
   if (!credential) {
