@@ -1,5 +1,10 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  discoverAnthropicModels,
+  getDiscoveredAnthropicModelNames,
+  isDiscoveredAnthropicModelVisionCapable,
+} from './anthropic-discovery.js';
 import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
 import {
   discoverCodexModels,
@@ -199,9 +204,7 @@ function collectModelsForProvider(
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
     case 'anthropic':
-      return getRuntimeConfig().anthropic.enabled
-        ? getRuntimeConfig().anthropic.models
-        : [];
+      return getDiscoveredAnthropicModelNames();
     case 'local':
     case 'ollama':
     case 'lmstudio':
@@ -243,7 +246,7 @@ export function getAvailableModelList(provider?: string): string[] {
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),
-        ...(config.anthropic.enabled ? config.anthropic.models : []),
+        ...getDiscoveredAnthropicModelNames(),
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
         ...getDiscoveredOpenAICompatRemoteModelNames(),
@@ -264,6 +267,7 @@ export function getAvailableModelList(provider?: string): string[] {
   const filteredModels = models.filter((model) =>
     matchesProviderFilter(model, normalizedProvider),
   );
+  if (normalizedProvider === 'anthropic') return filteredModels;
   return filteredModels.sort((left, right) =>
     compareModelNames(left, right, normalizedProvider),
   );
@@ -274,6 +278,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
 }): Promise<void> {
   await Promise.allSettled([
     discoverCodexModels(),
+    discoverAnthropicModels(),
     discoverAllLocalModels(),
     discoverHuggingFaceModels(),
     discoverMistralModels(),
@@ -292,6 +297,7 @@ export function isModelVisionCapable(model: string): boolean {
   if (!normalized) return false;
   return (
     isDiscoveredMistralModelVisionCapable(normalized) ||
+    isDiscoveredAnthropicModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
   );

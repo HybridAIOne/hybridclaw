@@ -13,6 +13,7 @@ const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-model-catalog-'));
@@ -88,6 +89,12 @@ afterEach(async () => {
   } else {
     process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
   }
+  if (ORIGINAL_ANTHROPIC_API_KEY === undefined) {
+    delete process.env.ANTHROPIC_API_KEY;
+  } else {
+    process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_API_KEY;
+  }
+  vi.doUnmock('../src/auth/anthropic-auth.js');
 });
 
 test('available model catalog falls back to HybridAI /v1/models when /models is unavailable', async () => {
@@ -362,7 +369,7 @@ test('available model catalog discovers Codex models from the models endpoint', 
     homeDir,
   );
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&
@@ -430,6 +437,126 @@ test('available model catalog discovers Codex models from the models endpoint', 
   });
 });
 
+test('available model catalog discovers Anthropic models from /v1/models', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/old-configured-model'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'claude-opus-4-20250514',
+              max_input_tokens: 200_000,
+              max_tokens: 32_000,
+              capabilities: { vision: true },
+            },
+            {
+              id: 'claude-sonnet-4-20250514',
+              max_input_tokens: 200_000,
+              max_tokens: 64_000,
+            },
+          ],
+          has_more: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+  const models = catalog.getAvailableModelList('anthropic');
+
+  expect(models).toEqual([
+    'anthropic/claude-opus-4-20250514',
+    'anthropic/claude-sonnet-4-20250514',
+  ]);
+  expect(catalog.isModelVisionCapable('anthropic/claude-opus-4-20250514')).toBe(
+    true,
+  );
+  const anthropicRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://api.anthropic.com' &&
+        url.pathname === '/v1/models',
+    );
+  expect(anthropicRequest?.init?.headers).toMatchObject({
+    'x-api-key': 'sk-ant-model-catalog-test',
+    'anthropic-version': '2023-06-01',
+  });
+});
+
+test('available model catalog uses Claude CLI auth for Anthropic model discovery', async () => {
+  const homeDir = makeTempHome();
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    requireAnthropicApiKey: vi.fn(() => {
+      throw new Error('unexpected api-key auth');
+    }),
+    requireAnthropicClaudeCliCredential: vi.fn(() => ({
+      type: 'oauth' as const,
+      provider: 'anthropic' as const,
+      accessToken: 'sk-ant-oat-model-catalog-test',
+      refreshToken: 'refresh-test',
+      expiresAt: Date.now() + 60_000,
+      source: 'claude-cli-file' as const,
+    })),
+  }));
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'claude-cli';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'claude-sonnet-4-6' }, { id: 'claude-opus-4-1' }],
+          has_more: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+  const models = catalog.getAvailableModelList('anthropic');
+
+  expect(models).toEqual([
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-opus-4-1',
+  ]);
+  expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+    Authorization: 'Bearer sk-ant-oat-model-catalog-test',
+    'anthropic-version': '2023-06-01',
+    'x-app': 'cli',
+  });
+});
+
 test('available model catalog discovers Codex models from the current models payload', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -465,7 +592,7 @@ test('available model catalog discovers Codex models from the current models pay
     homeDir,
   );
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&

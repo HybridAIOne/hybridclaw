@@ -5,6 +5,11 @@ import {
 } from '../auth/anthropic-auth.js';
 import { ANTHROPIC_BASE_URL, ANTHROPIC_METHOD } from '../config/config.js';
 import {
+  discoverAnthropicModels,
+  getDiscoveredAnthropicModelContextWindow,
+  getDiscoveredAnthropicModelMaxTokens,
+} from './anthropic-discovery.js';
+import {
   isAnthropicModel,
   normalizeAnthropicBaseUrl,
 } from './anthropic-utils.js';
@@ -19,6 +24,7 @@ async function resolveAnthropicRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  await discoverAnthropicModels();
   if (ANTHROPIC_METHOD === 'claude-cli') {
     requireAnthropicClaudeCliCredential();
     return {
@@ -32,7 +38,11 @@ async function resolveAnthropicRuntimeCredentials(
       agentId,
       isLocal: false,
       contextWindow:
-        resolveModelContextWindowFallback(params.model) ?? undefined,
+        getDiscoveredAnthropicModelContextWindow(params.model) ??
+        resolveModelContextWindowFallback(params.model) ??
+        undefined,
+      maxTokens:
+        getDiscoveredAnthropicModelMaxTokens(params.model) ?? undefined,
     };
   }
 
@@ -47,7 +57,11 @@ async function resolveAnthropicRuntimeCredentials(
     requestHeaders: auth.headers,
     agentId,
     isLocal: false,
-    contextWindow: resolveModelContextWindowFallback(params.model) ?? undefined,
+    contextWindow:
+      getDiscoveredAnthropicModelContextWindow(params.model) ??
+      resolveModelContextWindowFallback(params.model) ??
+      undefined,
+    maxTokens: getDiscoveredAnthropicModelMaxTokens(params.model) ?? undefined,
   };
 }
 

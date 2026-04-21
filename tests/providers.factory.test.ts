@@ -73,6 +73,7 @@ async function importFreshFactory(homeDir: string) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar(
@@ -459,6 +460,16 @@ test('provider factory resolves Anthropic runtime credentials', async () => {
     config.anthropic.baseUrl = 'https://api.anthropic.com/v1/';
   });
   process.env.ANTHROPIC_API_KEY = 'anthropic-provider-test';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [], has_more: false }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ),
+  );
   const factory = await importFreshFactory(homeDir);
 
   const credentials = await factory.resolveModelRuntimeCredentials({

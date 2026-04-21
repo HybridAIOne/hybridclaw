@@ -55,6 +55,7 @@ async function importFreshTaskRouting(homeDir: string) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.resetModules();
   vi.doUnmock('../src/auth/anthropic-auth.js');
   vi.doUnmock('../src/logger.js');
@@ -214,6 +215,19 @@ test('resolves configured Anthropic task models on the host', async () => {
     config.auxiliaryModels.compression.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.compression.maxTokens = 256;
   });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'claude-3-7-sonnet', max_tokens: 32_000 }],
+            has_more: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    ),
+  );
   const taskRouting = await importFreshTaskRouting(homeDir);
 
   const taskModels = await taskRouting.resolveTaskModelPolicies({
@@ -507,14 +521,12 @@ test('warns when no vision fallback is available after OpenRouter discovery refr
   );
 });
 
-test('returns a deferred policy error when fallback credential resolution fails', async () => {
+test('returns a deferred policy error when no discovered vision fallback is available', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = false;
     config.hybridai.defaultModel = 'gpt-5-nano';
     config.hybridai.models = ['gpt-5-nano'];
-    config.anthropic.enabled = true;
-    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -537,19 +549,18 @@ test('returns a deferred policy error when fallback credential resolution fails'
   });
 
   expect(policy).toMatchObject({
-    provider: 'anthropic',
-    model: 'anthropic/claude-sonnet-4-6',
-    error: expect.stringContaining(
-      'fallback model "anthropic/claude-sonnet-4-6" could not be resolved',
-    ),
+    provider: undefined,
+    model: 'gpt-5-nano',
+    error:
+      'Session model "gpt-5-nano" does not support vision/image inputs, and no vision-capable fallback model is available.',
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      visionFallback: 'anthropic/claude-sonnet-4-6',
-      err: expect.any(Error),
+      sessionModel: 'gpt-5-nano',
+      openrouterDiscoveredModels: 0,
     }),
-    'Failed to resolve vision fallback model credentials',
+    'Session model lacks vision support and no capable fallback model is available',
   );
 });
 
