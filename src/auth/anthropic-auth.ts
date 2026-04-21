@@ -69,17 +69,6 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeTimestamp(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return parsed;
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) return numeric;
-  }
-  return 0;
-}
-
 function maskValue(value: string): string {
   const normalized = value.trim();
   if (!normalized) return '';
@@ -94,7 +83,10 @@ function parseClaudeCliCredential(
   if (!isRecord(value)) return null;
   const accessToken = normalizeString(value.accessToken);
   const refreshToken = normalizeString(value.refreshToken);
-  const expiresAt = normalizeTimestamp(value.expiresAt);
+  const expiresAt =
+    typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
+      ? value.expiresAt
+      : 0;
   if (!accessToken || expiresAt <= 0) return null;
   if (refreshToken) {
     return {
