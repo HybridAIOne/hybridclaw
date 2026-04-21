@@ -5,7 +5,6 @@ user-invocable: true
 disable-model-invocation: false
 requires:
   bins:
-    - gh
     - git
 metadata:
   hybridclaw:
@@ -33,6 +32,13 @@ metadata:
 You are an issue queue orchestrator. Follow the phases in order. Do not run
 processing preflight before the user has selected issues.
 
+Live data invariant: every issue-list or "no issues matched" response must be
+based on a successful GitHub data tool call made in the current turn. Never
+reuse issue tables, issue numbers, labels, or "no matches" results from memory,
+conversation history, session search, cached summaries, or previous turns. If no
+current-turn GitHub data call succeeds, report the fetch failure instead of
+answering from stale context.
+
 Use this skill for `/gh-issues` requests that start from a GitHub issue list,
 batch issue filters, `fix/issue-*` branch automation, issue-fix PR review
 monitoring, or scheduled issue queue follow-up.
@@ -49,6 +55,9 @@ Positional:
 
 - `owner/repo`: source repository. If omitted, infer it from
   `git remote get-url origin`; if that is unavailable, ask for `owner/repo`.
+  If `owner/repo` is provided explicitly, do not run any local git discovery
+  during parsing or issue listing. Local checkout checks belong only to Phase 4
+  after issue selection.
 
 Flags:
 
@@ -60,7 +69,7 @@ Flags:
 | `--assignee <assignee>` | none | Filter by assignee; resolve `@me` with `gh api user --jq .login`. |
 | `--state <open\|closed\|all>` | `open` | Issue state. |
 | `--fork <owner/repo>` | none | Push branches to a fork while PRs target the source repo. |
-| `--watch` | false | Schedule recurring issue and review follow-up. |
+| `--watch` | false | Fetch the issue list normally, then schedule recurring issue and review follow-up after the first confirmed run. |
 | `--interval <minutes>` | `5` | Watch interval; only valid with `--watch`. |
 | `--cron` | false | Recurring-run mode: process at most one eligible item and exit. |
 | `--dry-run` | false | Fetch and display issues only. |
@@ -82,21 +91,36 @@ Mode routing:
 
 - If `--reviews-only` is set, run authentication, then jump to Phase 6.
 - If `--cron` is set, force `--yes`.
-- If `--watch` is set, use `--interval`, defaulting to 5 minutes.
+- If `--watch` is set, use `--interval`, defaulting to 5 minutes. Do not skip
+  issue fetching or confirmation. The first watch turn follows Phases 2 and 3
+  like a normal run.
 
 ## Phase 2 - Authenticate And Fetch Issues
 
-Prefer GitHub CLI authentication:
+GitHub CLI is preferred but optional. First check whether it exists:
+
+```bash
+command -v gh
+```
+
+If `gh` exists, prefer GitHub CLI authentication:
 
 ```bash
 gh auth status
 ```
 
 If that fails and `GH_TOKEN` is set, retry `gh` commands with `GH_TOKEN` in the
-environment. If authentication still fails, ask the user to run `gh auth login`
-or provide `GH_TOKEN`. Never print tokens or put them in git remote URLs.
+environment.
 
-When not in `--reviews-only`, fetch issues with `gh issue list`:
+If `gh` is unavailable or authentication fails, use the GitHub REST API fallback
+with a token. Prefer the `http_request` tool when available using a stored
+`GH_TOKEN` secret. Otherwise use `curl` with `GH_TOKEN` from the environment.
+If neither `gh` auth nor an API token is available, ask the user to install and
+authenticate `gh`, or provide `GH_TOKEN`. Never print tokens or put them in git
+remote URLs.
+
+When not in `--reviews-only`, fetch issues with a current-turn GitHub data call.
+Primary `gh` path:
 
 ```bash
 gh issue list --repo "$SOURCE_REPO" --state "$STATE" --limit "$LIMIT" \
@@ -109,8 +133,35 @@ Add optional filters only when present:
 - `--milestone "$MILESTONE"`
 - `--assignee "$ASSIGNEE"` after resolving `@me`
 
-`gh issue list` excludes pull requests. If another API path is used, exclude
-items that contain a `pull_request` field.
+API fallback path:
+
+```bash
+gh api "repos/$SOURCE_REPO/issues" \
+  -f state="$STATE" -f per_page="$LIMIT"
+```
+
+Or, without `gh`:
+
+```bash
+curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/$SOURCE_REPO/issues?state=$STATE&per_page=$LIMIT"
+```
+
+Add API query parameters only when present:
+
+- `labels=$LABEL`
+- `assignee=$ASSIGNEE` after resolving `@me` through `GET /user`
+- `milestone=$MILESTONE_NUMBER`; if the user supplied a title, first list
+  milestones and match the title to a number
+
+`gh issue list` excludes pull requests. API issue endpoints include pull
+requests, so exclude any item with a `pull_request` field.
+
+Hard failure rule: if the current turn did not execute a successful `gh issue
+list`, GitHub Issues API, or equivalent `http_request` call, do not display an
+issue table and do not say no issues matched. Report that live issue fetch did
+not complete.
 
 If watch context includes `PROCESSED_ISSUES`, filter those issue numbers out.
 If no issues match, report that directly and, in watch mode, continue to Phase 6
@@ -139,8 +190,10 @@ Otherwise ask:
 
 Wait for the user response. Continue only with selected issue numbers.
 
-Watch behavior: ask on the first interactive poll unless `--yes` is set. For
-subsequent scheduled runs, auto-process eligible issues with `--yes`.
+Watch behavior: ask on the first interactive poll unless `--yes` is set. Do not
+schedule watch follow-up from a parse-only turn. After the user confirms issues
+or after a `--yes` run completes, schedule the next run in Watch Mode.
+Subsequent scheduled runs use `--cron --yes`.
 
 ## Phase 4 - Issue Processing Preflight
 
@@ -191,12 +244,23 @@ delegating fixes, not for issue listing.
      --jq ".[] | select(.headRepositoryOwner.login == \"$PUSH_OWNER\")"
    ```
 
+   If `gh` is unavailable, use the GitHub REST API:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+     -H "Accept: application/vnd.github+json" \
+     "https://api.github.com/repos/$SOURCE_REPO/pulls?head=$PUSH_OWNER:fix/issue-$ISSUE_NUMBER&state=open&per_page=1"
+   ```
+
 6. Skip issues whose intended branch exists in `PUSH_REPO`.
 
    ```bash
    BRANCH_REF="fix%2Fissue-$ISSUE_NUMBER"
    gh api "repos/$PUSH_REPO/branches/$BRANCH_REF" --silent
    ```
+
+   If `gh` is unavailable, use `GET /repos/$PUSH_REPO/branches/fix%2Fissue-N`
+   through the GitHub REST API.
 
 7. Track claims for cron/watch dedupe when durable state storage is available.
 
@@ -422,6 +486,15 @@ Track addressed comment IDs in `ADDRESSED_COMMENTS` for watch context.
 
 HybridClaw must not sleep in the active turn. If `--watch` is set, use `cron`
 to schedule a recurring follow-up prompt using the same repository and filters.
+
+The initial `--watch` invocation is not a parse-only request. It must fetch the
+current issue list first, present the table, and either ask for selected issue
+numbers or honor `--yes`. Only schedule the recurring follow-up after that first
+selection/processing path has run.
+
+Use the `cron` tool for scheduled follow-up. Do not send a local `message` as a
+substitute for scheduling. If `cron` is unavailable or scheduling fails, report
+that watch scheduling failed.
 
 The scheduled prompt must include:
 

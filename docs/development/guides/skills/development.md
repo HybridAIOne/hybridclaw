@@ -91,9 +91,14 @@ Process GitHub issues as an automation queue: list and filter issues, confirm
 selected issue numbers, deduplicate `fix/issue-*` work, delegate one focused PR
 per issue, and monitor review feedback on issue-fix PRs.
 
-**Prerequisites** — `git`, `gh` (GitHub CLI, authenticated).
+**Prerequisites** — `git` for processing selected issues. `gh` is preferred for
+GitHub access, but the skill can fall back to the GitHub REST API with
+`GH_TOKEN` when `gh` is unavailable.
 
 > 💡 **Tips & Tricks**
+>
+> Every issue table comes from a live GitHub fetch in the current turn. The
+> skill must not reuse issue lists from memory, transcripts, or earlier prompts.
 >
 > Use `--dry-run` first to inspect the issue set without creating branches or
 > delegations.
@@ -108,7 +113,8 @@ per issue, and monitor review feedback on issue-fix PRs.
 > target the source repo.
 >
 > Use `--watch --interval 15` for recurring queue follow-up. HybridClaw
-> schedules the next run instead of sleeping in the current turn.
+> fetches the first issue list normally, then schedules the next run instead of
+> sleeping in the current turn.
 >
 > Use `--cron --yes` for scheduled runs that process at most one eligible item
 > and exit.
@@ -136,9 +142,39 @@ per issue, and monitor review feedback on issue-fix PRs.
 > `2. Process issues 42 and 48 only`
 > `3. After the PRs are open, run /gh-issues <your repo> --reviews-only`
 
+> **QA prompts**
+>
+> `/gh-issues <your repo>`
+>
+> Lists the latest open issues from GitHub and asks which issue numbers to
+> process. If `<your repo>` is explicit, the skill must not probe the local git
+> checkout before listing issues.
+>
+> `/gh-issues <your repo> --label bug --limit 5 --dry-run`
+>
+> Fetches live matching issues and stops after the table or "no matches"
+> response. It must not run processing preflight or delegate work.
+>
+> `/gh-issues <your repo> --label enhancement --limit 3`
+>
+> Fetches live enhancement issues and asks for `all`, comma-separated issue
+> numbers, or `cancel`. Git preflight happens only after a selection.
+>
+> `/gh-issues <your repo> --watch --interval 15 --label bug --limit 5`
+>
+> Fetches the first issue list normally and asks for selection, then uses
+> HybridClaw scheduling for future `--cron --yes` follow-ups. It must not send a
+> local message as a substitute for scheduling.
+>
+> `/gh-issues <your repo> --reviews-only --yes`
+>
+> Skips issue listing, finds open `fix/issue-*` PRs, gathers review sources, and
+> delegates only actionable review feedback.
+
 **Troubleshooting**
 
-- **`gh` not authenticated** — run `gh auth login` or provide `GH_TOKEN`.
+- **`gh` missing or not authenticated** — install and authenticate `gh`, or
+  provide `GH_TOKEN` so the skill can use the GitHub REST API fallback.
 - **Existing branch or PR** — the skill skips issues that already have a
   `fix/issue-*` branch or open PR.
 - **Local checkout missing** — issue listing can run with only `owner/repo`,
@@ -147,6 +183,10 @@ per issue, and monitor review feedback on issue-fix PRs.
   of opening speculative PRs.
 - **Wrong workflow** — use `github-pr-workflow` for current-branch PR work, CI
   fixes, or a known PR; use `gh-issues` when the entry point is an issue queue.
+- **Feature parity note** — HybridClaw supports the OpenClaw issue queue flow
+  (filters, confirmation, fork mode, dedupe, claims/cursor state, cron/watch,
+  notifications, and review handling) with HybridClaw-native tools instead of
+  OpenClaw config paths or `sessions_spawn`.
 
 ---
 
