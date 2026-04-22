@@ -102,6 +102,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   return (
     <Link
       to={props.item.to}
+      title={props.item.label}
       activeProps={{
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}

@@ -327,6 +327,7 @@
 /* Collapsed desktop state — placed after base selectors for specificity */
 
 .root[data-state="collapsed"] {
+  flex: 0 0 var(--sidebar-width-icon);
   width: var(--sidebar-width-icon);
   overflow: hidden;
 }
