@@ -312,6 +312,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -347,7 +348,6 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
-import { buildContextUsageSnapshot } from './context-usage.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
