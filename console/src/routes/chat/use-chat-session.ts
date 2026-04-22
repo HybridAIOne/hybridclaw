@@ -14,6 +14,13 @@ export interface UseChatSessionReturn {
     id: string,
     opts?: { replace?: boolean },
   ) => Promise<void>;
+  /**
+   * Imperatively bind the ref-backed current session id AND navigate to it.
+   * Use this instead of `navigateToSession` when the caller plans to read
+   * `getSessionId()` on the very next line — it closes the render-lag window
+   * where `sessionIdRef` would otherwise still point at the previous session.
+   */
+  switchToSession: (id: string, opts?: { replace?: boolean }) => Promise<void>;
   startFreshChat: () => void;
   ensureSessionForSend: () => void;
   handleSessionIdCorrection: (serverSessionId: string) => void;
@@ -58,6 +65,15 @@ export function useChatSession(
     [navigate],
   );
 
+  const switchToSession = useCallback(
+    (id: string, opts?: { replace?: boolean }) => {
+      draftSessionIdRef.current = id;
+      sessionIdRef.current = id;
+      return navigateToSession(id, opts);
+    },
+    [navigateToSession],
+  );
+
   const startFreshChat = useCallback(() => {
     draftSessionIdRef.current = null;
     void navigate({ to: '/chat' });
@@ -83,6 +99,7 @@ export function useChatSession(
     sessionId,
     getSessionId,
     navigateToSession,
+    switchToSession,
     startFreshChat,
     ensureSessionForSend,
     handleSessionIdCorrection,

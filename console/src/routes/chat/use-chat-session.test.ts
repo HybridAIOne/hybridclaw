@@ -139,6 +139,22 @@ describe('useChatSession', () => {
     expect(router.navigate).not.toHaveBeenCalled();
   });
 
+  it('switchToSession updates getSessionId synchronously before navigation resolves', async () => {
+    const router = await getTestRouter();
+    router.setSessionId('session-origin');
+    const { result } = setup();
+    expect(result.current.getSessionId()).toBe('session-origin');
+
+    // Kick off the navigation but do NOT await it — simulate a caller that
+    // reads getSessionId() on the very next synchronous line.
+    act(() => {
+      void result.current.switchToSession('session-branch');
+    });
+
+    expect(result.current.getSessionId()).toBe('session-branch');
+    expect(router.lastTo).toBe('/chat/$sessionId');
+  });
+
   it('clears the draft once the URL catches up to a real session', async () => {
     const router = await getTestRouter();
     const { result, rerender } = setup();

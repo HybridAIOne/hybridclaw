@@ -93,6 +93,7 @@ export function ChatPage() {
     sessionId,
     getSessionId,
     navigateToSession,
+    switchToSession,
     startFreshChat,
     ensureSessionForSend,
     handleSessionIdCorrection,
@@ -224,13 +225,15 @@ export function ChatPage() {
           queryKey: chatHistoryQueryKey(auth.token, branch.sessionId),
           queryFn: () => loadChatHistoryUi(auth.token, branch.sessionId),
         });
-        await navigateToSession(branch.sessionId);
+        // Bind the ref before sending so the stream captures the branch's
+        // sessionId even if React hasn't committed the URL-driven re-render yet.
+        await switchToSession(branch.sessionId);
         void stream.sendMessage(newContent, msg.media ?? []);
       } catch (err) {
         setError(getErrorMessage(err));
       }
     },
-    [auth.token, queryClient, navigateToSession, stream.sendMessage],
+    [auth.token, queryClient, switchToSession, stream.sendMessage],
   );
 
   const handleRegenerate = useCallback(
