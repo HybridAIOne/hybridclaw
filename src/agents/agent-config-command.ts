@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { updateRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { ensureBootstrapFiles } from '../workspace.js';
@@ -10,6 +9,7 @@ import {
   getStoredAgentConfig,
   upsertRegisteredAgent,
 } from './agent-registry.js';
+import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
 import type { AgentConfig, AgentModelConfig } from './agent-types.js';
 
 const MARKDOWN_MAX_BYTES = 200_000;
@@ -36,14 +36,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function hasOwn(value: Record<string, unknown>, key: string): boolean {
-  return Object.hasOwn(value, key);
-}
-
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim();
   return normalized || undefined;
+}
+
+function normalizeRequiredStringField(
+  fieldName: string,
+  value: unknown,
+): string {
+  if (typeof value !== 'string') {
+    throw new Error(`\`${fieldName}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`Agent config JSON requires a non-empty \`${fieldName}\`.`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalStringField(
+  fieldName: string,
+  value: unknown,
+): string | undefined {
+  if (value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`\`${fieldName}\` must be a string or null.`);
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function normalizeOptionalStringArrayField(
+  fieldName: string,
+  value: unknown,
+): string[] | undefined {
+  if (value === null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`\`${fieldName}\` must be an array of strings or null.`);
+  }
+  if (value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`\`${fieldName}\` must be an array of strings or null.`);
+  }
+  return normalizeOptionalTrimmedUniqueStringArray(value);
 }
 
 function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
@@ -99,52 +135,65 @@ function applyAgentConfigFieldUpdates(
   base: AgentConfig,
   updates: Record<string, unknown>,
 ): AgentConfig {
-  const id = normalizeOptionalString(updates.id) || base.id;
-  if (!id) {
-    throw new Error('Agent config JSON requires a non-empty `id`.');
-  }
+  const id = Object.hasOwn(updates, 'id')
+    ? normalizeRequiredStringField('id', updates.id)
+    : base.id;
 
   const next: AgentConfig = { ...base, id };
-  if (hasOwn(updates, 'name')) {
-    const name = normalizeOptionalString(updates.name);
+  if (Object.hasOwn(updates, 'name')) {
+    const name = normalizeOptionalStringField('name', updates.name);
     if (name) next.name = name;
     else delete next.name;
   }
-  if (hasOwn(updates, 'displayName')) {
-    const displayName = normalizeOptionalString(updates.displayName);
+  if (Object.hasOwn(updates, 'displayName')) {
+    const displayName = normalizeOptionalStringField(
+      'displayName',
+      updates.displayName,
+    );
     if (displayName) next.displayName = displayName;
     else delete next.displayName;
   }
-  if (hasOwn(updates, 'imageAsset')) {
-    const imageAsset = normalizeOptionalString(updates.imageAsset);
+  if (Object.hasOwn(updates, 'imageAsset')) {
+    const imageAsset = normalizeOptionalStringField(
+      'imageAsset',
+      updates.imageAsset,
+    );
     if (imageAsset) next.imageAsset = imageAsset;
     else delete next.imageAsset;
   }
-  if (hasOwn(updates, 'model')) {
+  if (Object.hasOwn(updates, 'model')) {
     const model = normalizeModelConfig(updates.model);
     if (model) next.model = model;
     else delete next.model;
   }
-  if (hasOwn(updates, 'skills')) {
-    const skills = normalizeOptionalTrimmedUniqueStringArray(updates.skills);
+  if (Object.hasOwn(updates, 'skills')) {
+    const skills = normalizeOptionalStringArrayField('skills', updates.skills);
     if (skills !== undefined) next.skills = skills;
     else delete next.skills;
   }
-  if (hasOwn(updates, 'workspace')) {
-    const workspace = normalizeOptionalString(updates.workspace);
+  if (Object.hasOwn(updates, 'workspace')) {
+    const workspace = normalizeOptionalStringField(
+      'workspace',
+      updates.workspace,
+    );
     if (workspace) next.workspace = workspace;
     else delete next.workspace;
   }
-  if (hasOwn(updates, 'chatbotId')) {
-    const chatbotId = normalizeOptionalString(updates.chatbotId);
+  if (Object.hasOwn(updates, 'chatbotId')) {
+    const chatbotId = normalizeOptionalStringField(
+      'chatbotId',
+      updates.chatbotId,
+    );
     if (chatbotId) next.chatbotId = chatbotId;
     else delete next.chatbotId;
   }
-  if (hasOwn(updates, 'enableRag')) {
+  if (Object.hasOwn(updates, 'enableRag')) {
     if (typeof updates.enableRag === 'boolean') {
       next.enableRag = updates.enableRag;
-    } else {
+    } else if (updates.enableRag === null) {
       delete next.enableRag;
+    } else {
+      throw new Error('`enableRag` must be a boolean or null.');
     }
   }
   return next;
@@ -153,16 +202,15 @@ function applyAgentConfigFieldUpdates(
 function resolveMarkdownInput(
   payload: AgentConfigJsonPayload,
 ): Record<string, string> {
-  const markdownMaps = [payload.markdown, payload.files].filter(
-    (entry) => entry !== undefined,
-  );
-  if (markdownMaps.length === 0) return {};
-  if (markdownMaps.length > 1) {
+  if (payload.markdown !== undefined && payload.files !== undefined) {
     throw new Error('Provide either `markdown` or `files`, not both.');
   }
-  const markdown = markdownMaps[0];
+  const markdown = payload.markdown ?? payload.files;
+  if (markdown === undefined) return {};
   if (!isRecord(markdown)) {
-    throw new Error('`markdown`/`files` must be an object of filename to text.');
+    throw new Error(
+      '`markdown`/`files` must be an object of filename to text.',
+    );
   }
   const result: Record<string, string> = {};
   for (const [fileName, content] of Object.entries(markdown)) {
@@ -184,22 +232,14 @@ function normalizeTopLevelMarkdownFileName(fileName: string): string {
   return normalized;
 }
 
-function writeWorkspaceMarkdownFile(params: {
-  workspacePath: string;
-  fileName: string;
-  content: string;
-}): void {
-  const sizeBytes = Buffer.byteLength(params.content, 'utf-8');
-  if (sizeBytes > MARKDOWN_MAX_BYTES) {
-    throw new Error(
-      `Markdown file "${params.fileName}" exceeds the ${MARKDOWN_MAX_BYTES}-byte limit.`,
-    );
-  }
-
-  const filePath = path.join(params.workspacePath, params.fileName);
-  fs.mkdirSync(params.workspacePath, { recursive: true });
+function writeWorkspaceMarkdownFile(
+  workspacePath: string,
+  fileName: string,
+  content: string,
+): void {
+  const filePath = path.join(workspacePath, fileName);
   const tempPath = `${filePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, params.content, 'utf-8');
+  fs.writeFileSync(tempPath, content, 'utf-8');
   fs.renameSync(tempPath, filePath);
 }
 
@@ -221,25 +261,6 @@ function normalizeMarkdownEntries(
   });
 }
 
-function activateAgent(agent: AgentConfig): void {
-  updateRuntimeConfig((draft) => {
-    draft.agents ??= {};
-    const nextAgents = Array.isArray(draft.agents.list)
-      ? [...draft.agents.list]
-      : [];
-    const existingIndex = nextAgents.findIndex(
-      (entry) => entry?.id?.trim() === agent.id,
-    );
-    if (existingIndex >= 0) {
-      nextAgents[existingIndex] = agent;
-    } else {
-      nextAgents.push(agent);
-    }
-    draft.agents.list = nextAgents;
-    draft.agents.defaultAgentId = agent.id;
-  });
-}
-
 export function applyAgentConfigJson(
   rawJson: string,
   options: ApplyAgentConfigJsonOptions = {},
@@ -250,7 +271,9 @@ export function applyAgentConfigJson(
   if (!id) {
     throw new Error('Agent config JSON requires a non-empty `id`.');
   }
-  const markdownEntries = normalizeMarkdownEntries(resolveMarkdownInput(payload));
+  const markdownEntries = normalizeMarkdownEntries(
+    resolveMarkdownInput(payload),
+  );
 
   const existing = getStoredAgentConfig(id) ?? getAgentById(id) ?? { id };
   const saved = upsertRegisteredAgent(
@@ -258,23 +281,20 @@ export function applyAgentConfigJson(
   );
   ensureBootstrapFiles(saved.id);
   const workspacePath = path.resolve(agentWorkspaceDir(saved.id));
+  fs.mkdirSync(workspacePath, { recursive: true });
   const markdownFiles: string[] = [];
   for (const entry of markdownEntries) {
-    writeWorkspaceMarkdownFile({
-      workspacePath,
-      fileName: entry.fileName,
-      content: entry.content,
-    });
+    writeWorkspaceMarkdownFile(workspacePath, entry.fileName, entry.content);
     markdownFiles.push(entry.fileName);
   }
-  if (options.activate) {
-    activateAgent(saved);
-  }
+  const runtimeConfigChanged = options.activate
+    ? activateAgentInRuntimeConfig(saved)
+    : false;
 
   return {
     agent: saved,
     workspacePath,
     markdownFiles,
-    runtimeConfigChanged: Boolean(options.activate),
+    runtimeConfigChanged,
   };
 }

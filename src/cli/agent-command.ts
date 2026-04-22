@@ -5,7 +5,6 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
@@ -656,22 +655,10 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       throw new Error(`Unknown agent: ${targetAgentId}`);
     }
 
-    updateRuntimeConfig((draft) => {
-      draft.agents ??= {};
-      const nextAgents = Array.isArray(draft.agents.list)
-        ? [...draft.agents.list]
-        : [];
-      const existingIndex = nextAgents.findIndex(
-        (entry) => entry?.id?.trim() === agent.id,
-      );
-      if (existingIndex >= 0) {
-        nextAgents[existingIndex] = agent;
-      } else {
-        nextAgents.push(agent);
-      }
-      draft.agents.list = nextAgents;
-      draft.agents.defaultAgentId = agent.id;
-    });
+    const { activateAgentInRuntimeConfig } = await import(
+      '../agents/agent-runtime-config.js'
+    );
+    activateAgentInRuntimeConfig(agent);
     console.log(
       `🎯 Activated agent ${agent.id} as the default at ${runtimeConfigPath()}.`,
     );
