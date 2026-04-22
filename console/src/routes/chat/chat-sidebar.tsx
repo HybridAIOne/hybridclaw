@@ -1,13 +1,14 @@
-import type { ReactNode } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { HybridClaw } from '../../components/icons';
+import {
+  SidebarBrand,
+  SidebarMeta,
+} from '../../components/sidebar/app-sidebar';
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarProvider,
   SidebarTrigger,
 } from '../../components/sidebar/index';
 import sidebarStyles from '../../components/sidebar/index.module.css';
@@ -15,6 +16,8 @@ import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
+
+export { SidebarProvider as ChatSidebarProvider } from '../../components/sidebar/index';
 
 export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
@@ -28,14 +31,6 @@ export interface ChatSidebarProps {
   isLoading: boolean;
 }
 
-export function ChatSidebarProvider(props: { children: ReactNode }) {
-  return (
-    <SidebarProvider defaultOpen storageKey={false}>
-      {props.children}
-    </SidebarProvider>
-  );
-}
-
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
   const isSearching = props.searchQuery.trim().length > 0;
@@ -43,16 +38,7 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
     <Sidebar side="left" collapsible="icon">
       <SidebarHeader>
         <div className={sidebarStyles.headerRow}>
-          <div className={sidebarStyles.brand}>
-            <div className={sidebarStyles.brandTitle}>
-              <span className={sidebarStyles.brandMark} aria-hidden="true">
-                <HybridClaw />
-              </span>
-              <div className={sidebarStyles.brandText}>
-                <h1>HybridClaw</h1>
-              </div>
-            </div>
-          </div>
+          <SidebarBrand />
           <SidebarTrigger className={sidebarStyles.sidebarToggle} />
         </div>
         <button
@@ -78,15 +64,9 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         <ChatSessionList {...props} isSearching={isSearching} />
       </SidebarContent>
       <SidebarFooter>
-        <div className={css.sidebarFooter}>
-          {auth.gatewayStatus?.version ? (
-            <span className={css.sidebarVersion}>
-              HybridClaw v.{auth.gatewayStatus.version}
-            </span>
-          ) : (
-            <span />
-          )}
-          <ThemeToggle />
+        <div className={sidebarStyles.footerBlock}>
+          <SidebarMeta version={auth.gatewayStatus?.version} />
+          <ThemeToggle labelClassName={sidebarStyles.themeToggleLabel} />
         </div>
       </SidebarFooter>
     </Sidebar>
@@ -99,55 +79,48 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
       <div className={css.sidebarLabel}>
         {props.isSearching ? 'Search Results' : 'Recent Chats'}
       </div>
-      {renderSessionListBody(props)}
+      {props.isLoading && props.isSearching ? (
+        <div className={css.sidebarStatus}>Searching...</div>
+      ) : props.sessions.length === 0 ? (
+        <div className={css.sidebarStatus}>
+          {props.isSearching
+            ? 'No matching conversations.'
+            : 'No recent chats yet.'}
+        </div>
+      ) : (
+        <ul className={css.sessionList} aria-live="polite">
+          {props.sessions.map((s) => (
+            <li key={s.sessionId}>
+              <button
+                type="button"
+                className={cx(
+                  css.sessionItem,
+                  s.sessionId === props.activeSessionId &&
+                    css.sessionItemActive,
+                  s.sessionId === props.activeSessionId &&
+                    props.isPending &&
+                    css.sessionItemPending,
+                )}
+                aria-current={
+                  s.sessionId === props.activeSessionId ? 'page' : undefined
+                }
+                onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
+                onClick={() => props.onOpenSession(s.sessionId)}
+              >
+                <span className={css.sessionTitle}>
+                  {s.title || 'Untitled'}
+                </span>
+                {s.searchSnippet ? (
+                  <span className={css.sessionSnippet}>{s.searchSnippet}</span>
+                ) : null}
+                <span className={css.sessionTime}>
+                  {formatRelativeTime(s.lastActive)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
-  );
-}
-
-function renderSessionListBody(
-  props: ChatSidebarProps & { isSearching: boolean },
-) {
-  if (props.isLoading && props.isSearching) {
-    return <div className={css.sidebarStatus}>Searching...</div>;
-  }
-  if (props.sessions.length === 0) {
-    return (
-      <div className={css.sidebarStatus}>
-        {props.isSearching
-          ? 'No matching conversations.'
-          : 'No recent chats yet.'}
-      </div>
-    );
-  }
-  return (
-    <ul className={css.sessionList} aria-live="polite">
-      {props.sessions.map((s) => (
-        <li key={s.sessionId}>
-          <button
-            type="button"
-            className={cx(
-              css.sessionItem,
-              s.sessionId === props.activeSessionId && css.sessionItemActive,
-              s.sessionId === props.activeSessionId &&
-                props.isPending &&
-                css.sessionItemPending,
-            )}
-            aria-current={
-              s.sessionId === props.activeSessionId ? 'page' : undefined
-            }
-            onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
-            onClick={() => props.onOpenSession(s.sessionId)}
-          >
-            <span className={css.sessionTitle}>{s.title || 'Untitled'}</span>
-            {s.searchSnippet ? (
-              <span className={css.sessionSnippet}>{s.searchSnippet}</span>
-            ) : null}
-            <span className={css.sessionTime}>
-              {formatRelativeTime(s.lastActive)}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
   );
 }

@@ -60,19 +60,6 @@
   justify-content: center;
 }
 
-.sidebarFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 6px;
-}
-
-.sidebarVersion {
-  font-size: 0.78rem;
-  color: var(--muted-foreground);
-}
-
 .sidebarLabel {
   margin: 12px 0 4px;
   padding: 0 6px;

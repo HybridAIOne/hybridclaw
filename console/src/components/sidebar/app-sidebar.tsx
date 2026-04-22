@@ -41,7 +41,7 @@ export function AppSidebar(props: {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className={styles.headerRow}>
-          <SidebarBrand />
+          <SidebarBrand subtitle="Admin console" />
           <SidebarTrigger className={styles.sidebarToggle} />
         </div>
       </SidebarHeader>
@@ -80,7 +80,7 @@ export function AppSidebar(props: {
   );
 }
 
-function SidebarBrand() {
+export function SidebarBrand(props: { subtitle?: string }) {
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
@@ -89,7 +89,9 @@ function SidebarBrand() {
         </span>
         <div className={styles.brandText}>
           <h1>HybridClaw</h1>
-          <span className={styles.eyebrow}>Admin console</span>
+          {props.subtitle ? (
+            <span className={styles.eyebrow}>{props.subtitle}</span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -122,7 +124,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   );
 }
 
-function SidebarMeta(props: { version?: string }) {
+export function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>

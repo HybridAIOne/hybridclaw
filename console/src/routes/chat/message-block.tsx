@@ -188,7 +188,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   onApprovalAction: (action: ApprovalAction, approvalId: string) => void;
   approvalBusy: boolean;
   branchInfo: { current: number; total: number } | null;
-  onBranchNav: (direction: -1 | 1) => void;
+  onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -373,7 +373,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 className={css.branchButton}
                 aria-label="Previous branch"
                 disabled={props.branchInfo.current <= 1}
-                onClick={() => props.onBranchNav(-1)}
+                onClick={() => props.onBranchNav(msg, -1)}
               >
                 ‹
               </Button>
@@ -386,7 +386,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 className={css.branchButton}
                 aria-label="Next branch"
                 disabled={props.branchInfo.current >= props.branchInfo.total}
-                onClick={() => props.onBranchNav(1)}
+                onClick={() => props.onBranchNav(msg, 1)}
               >
                 ›
               </Button>

@@ -95,7 +95,6 @@ type ChatAction =
       updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]);
     }
   | { type: 'ERROR_SET'; error: string }
-  | { type: 'ERROR_CLEAR' }
   | { type: 'EDIT_START'; id: string }
   | { type: 'EDIT_CANCEL' }
   | { type: 'APPROVAL_BUSY_SET'; busy: boolean };
@@ -130,8 +129,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
     case 'ERROR_SET':
       return { ...state, error: action.error };
-    case 'ERROR_CLEAR':
-      return { ...state, error: '' };
     case 'EDIT_START':
       return { ...state, editingId: action.id };
     case 'EDIT_CANCEL':
@@ -224,8 +221,7 @@ export function ChatPage() {
   }, []);
 
   const setError = useCallback((err: string) => {
-    if (err === '') dispatch({ type: 'ERROR_CLEAR' });
-    else dispatch({ type: 'ERROR_SET', error: err });
+    dispatch({ type: 'ERROR_SET', error: err });
   }, []);
 
   const stream = useChatStream({
@@ -329,11 +325,11 @@ export function ChatPage() {
     let lastUserContent: string | null = null;
     const loaded: ChatMessage[] = history.map((msg) => {
       if (msg.role === 'user') lastUserContent = msg.content;
-      const replayRequest =
+      const replayContent =
         msg.role === 'user'
-          ? { content: msg.content, media: [] }
-          : msg.role === 'assistant' && lastUserContent !== null
-            ? { content: lastUserContent, media: [] }
+          ? msg.content
+          : msg.role === 'assistant'
+            ? lastUserContent
             : null;
       return {
         id: nextMsgId(),
@@ -344,7 +340,10 @@ export function ChatPage() {
         messageId: msg.id ?? null,
         media: [],
         artifacts: [],
-        replayRequest,
+        replayRequest:
+          replayContent !== null
+            ? { content: replayContent, media: [] }
+            : null,
         assistantPresentation: data.assistantPresentation ?? null,
         branchKey:
           msg.id !== undefined && msg.id !== null
@@ -513,6 +512,10 @@ export function ChatPage() {
     [queryClient, auth.token],
   );
 
+  const handleEditOpen = useCallback((m: ChatMessage) => {
+    dispatch({ type: 'EDIT_START', id: m.id });
+  }, []);
+
   const handleBranchNav = useCallback(
     (msg: ChatMessage, direction: -1 | 1) => {
       const key = msg.branchKey;
@@ -582,15 +585,12 @@ export function ChatPage() {
                       token={auth.token}
                       isStreaming={msg.id === stream.streamingMsgId}
                       onCopy={copyToClipboard}
-                      onEdit={(m) => dispatch({ type: 'EDIT_START', id: m.id })}
+                      onEdit={handleEditOpen}
                       onRegenerate={handleRegenerate}
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
-                      onBranchNav={(dir) => {
-                        if (msg.role === 'thinking') return;
-                        handleBranchNav(msg, dir);
-                      }}
+                      onBranchNav={handleBranchNav}
                     />
                   ),
                 )}
