@@ -425,12 +425,20 @@
   padding: 0 4px;
 }
 
-.actionButton {
-  width: 28px;
-  height: 28px;
+.messageActions .actionButton {
+  width: 24px;
+  height: 24px;
   min-height: unset;
-  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: var(--radius-sm);
   font-size: 0.82rem;
+}
+
+.messageActions .actionButton:hover {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .actionButtonSuccess {
