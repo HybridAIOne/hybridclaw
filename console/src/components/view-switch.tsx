@@ -20,8 +20,30 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { to: '/development', label: 'Docs', icon: Docs },
 ];
 
-function isActive(pathname: string, path: string): boolean {
+function isOnAdminChat(pathname: string): boolean {
+  return pathname === '/admin/chat' || pathname.startsWith('/admin/chat/');
+}
+
+function pathMatches(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+function isItemActive(pathname: string, item: ViewSwitchItem): boolean {
+  // The React /admin/chat route is part of the chat experience, so the
+  // "Chat" tab (not the "Admin" tab) should highlight — matching static
+  // /chat's active-tab behavior.
+  const onAdminChat = isOnAdminChat(pathname);
+  if (item.external) {
+    if (item.href === '/chat') {
+      return onAdminChat || pathMatches(pathname, '/chat');
+    }
+    if (item.href === '/agents') return pathMatches(pathname, '/agents');
+    return false;
+  }
+  if (item.to === '/admin') {
+    return !onAdminChat && pathMatches(pathname, '/admin');
+  }
+  return pathMatches(pathname, item.to);
 }
 
 export function ViewSwitchNav() {
@@ -32,6 +54,10 @@ export function ViewSwitchNav() {
   return (
     <nav className="view-switch" aria-label="Switch view">
       {VIEW_SWITCH_ITEMS.map((item) => {
+        const active = isItemActive(pathname, item);
+        const linkClass = active
+          ? 'view-switch-link active'
+          : 'view-switch-link';
         const inner = (
           <>
             <span className="nav-link-icon" aria-hidden="true">
@@ -45,8 +71,9 @@ export function ViewSwitchNav() {
           return (
             <a
               key={item.href}
-              className="view-switch-link"
+              className={linkClass}
               href={item.href}
+              aria-current={active ? 'page' : undefined}
               target={isCrossOrigin ? '_blank' : undefined}
               rel={isCrossOrigin ? 'noopener noreferrer' : undefined}
             >
@@ -54,17 +81,12 @@ export function ViewSwitchNav() {
             </a>
           );
         }
-        const active = isActive(pathname, item.to);
         return active ? (
-          <span
-            key={item.to}
-            className="view-switch-link active"
-            aria-current="page"
-          >
+          <span key={item.to} className={linkClass} aria-current="page">
             {inner}
           </span>
         ) : (
-          <Link key={item.to} className="view-switch-link" to={item.to}>
+          <Link key={item.to} className={linkClass} to={item.to}>
             {inner}
           </Link>
         );
