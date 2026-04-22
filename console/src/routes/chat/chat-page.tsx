@@ -13,6 +13,7 @@ import type {
 } from '../../api/chat-types';
 import { validateToken } from '../../api/client';
 import { useAuth } from '../../auth';
+import { ViewSwitchNav } from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -35,6 +36,7 @@ import css from './chat-page.module.css';
 import { ChatSidebar } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
+import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatStream } from './use-chat-stream';
 
@@ -413,6 +415,10 @@ export function ChatPage() {
       </div>
 
       <div className={css.chatMain}>
+        <div className={css.chatTopbar}>
+          <ContextRing />
+          <ViewSwitchNav />
+        </div>
         <div className={css.mobileHeader}>
           <button
             type="button"

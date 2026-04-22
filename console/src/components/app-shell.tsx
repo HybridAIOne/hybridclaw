@@ -3,7 +3,6 @@ import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
 import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
-import { ContextRing } from '../routes/chat/context-ring';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
@@ -15,6 +14,10 @@ import {
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 import { ViewSwitchNav } from './view-switch';
+
+// The /admin/chat route renders its own full layout (chat sidebar + right
+// column with topbar). AppShell just provides the outer full-height shell so
+// the admin sidebar and page title don't appear.
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
@@ -48,18 +51,13 @@ export function AppShell(props: { children: ReactNode }) {
   const configContextValue = { configReady, emailEnabled };
 
   if (onChatRoute) {
-    // Chat has its own sidebar (session list). Skip the admin sidebar and
-    // title heading so only the chat UI + topbar (with context ring + view
-    // switch) is visible.
+    // Chat has its own full layout (sidebar + right column with an inline
+    // topbar). AppShell only provides the outer full-height shell; the
+    // topbar (ContextRing + ViewSwitchNav) is rendered inside ChatPage so
+    // the sidebar can span the entire page height as in static /chat.
     return (
       <AppShellConfigContext.Provider value={configContextValue}>
-        <div className="chat-shell">
-          <div className="topbar topbar-chat">
-            <ContextRing />
-            <ViewSwitchNav />
-          </div>
-          <div className="page-content page-content-chat">{props.children}</div>
-        </div>
+        <div className="chat-shell">{props.children}</div>
       </AppShellConfigContext.Provider>
     );
   }
@@ -89,7 +87,6 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
-            <ContextRing />
             <ViewSwitchNav />
           </div>
           <div className="page-content">{props.children}</div>

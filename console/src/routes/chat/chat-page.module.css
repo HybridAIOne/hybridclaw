@@ -178,22 +178,32 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  background: var(--panel-bg);
+}
+
+.chatTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-bg);
+  flex-shrink: 0;
 }
 
 .messageArea {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 24px 12px;
+  padding: 20px;
   scroll-behavior: smooth;
 }
 
 .messageList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 860px;
-  margin: 0 auto;
+  gap: 10px;
   width: 100%;
 }
 
@@ -219,11 +229,14 @@
 .messageBlock {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
+  max-width: 860px;
+  width: fit-content;
 }
 
 .messageBlockUser {
   align-items: flex-end;
+  margin-left: auto;
 }
 
 .messageBlockAssistant,
@@ -264,7 +277,6 @@
 .bubble {
   padding: 10px 14px;
   border-radius: 14px;
-  max-width: 85%;
   word-wrap: break-word;
   overflow-wrap: break-word;
   line-height: 1.55;
@@ -419,11 +431,21 @@
 }
 
 .actionButton {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   min-height: unset;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 1rem;
+  /* Override the Button "ghost" variant — static /chat action buttons are
+     borderless and transparent until hovered. */
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-foreground);
+}
+
+.actionButton:hover:not(:disabled):not([data-disabled]) {
+  background: var(--muted);
+  color: var(--foreground, var(--text));
 }
 
 .actionButtonSuccess {
@@ -445,6 +467,14 @@
   min-height: unset;
   border-radius: 999px;
   font-size: 0.8rem;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-foreground);
+}
+
+.branchButton:hover:not(:disabled):not([data-disabled]) {
+  background: var(--muted);
+  color: var(--foreground, var(--text));
 }
 
 .approvalActions {
@@ -644,14 +674,12 @@
   color: var(--text);
   font-size: 0.92rem;
   line-height: 1.5;
-  padding: 2px 0;
+  padding: 2px 4px;
 }
 
-.composerInput:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: -2px;
-  border-radius: var(--radius-sm);
-}
+/* No inner :focus-visible outline — the outer composer already shows focus
+   via :focus-within, and an inner outline rendered a second visible
+   rectangle inside the pill. */
 
 .composerInput::placeholder {
   color: var(--muted-foreground);

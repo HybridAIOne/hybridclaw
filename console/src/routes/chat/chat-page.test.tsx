@@ -76,6 +76,12 @@ vi.mock('./use-chat-stream', () => ({
   useChatStream: (...args: unknown[]) => useChatStreamMock(...args),
 }));
 
+// ViewSwitchNav uses TanStack Router's useRouterState, which requires a
+// RouterProvider that these unit tests intentionally don't mount.
+vi.mock('../../components/view-switch', () => ({
+  ViewSwitchNav: () => null,
+}));
+
 function renderChatPage() {
   const queryClient = new QueryClient({
     defaultOptions: {

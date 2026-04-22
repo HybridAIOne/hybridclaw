@@ -46,30 +46,11 @@ code {
 }
 
 .chat-shell {
-  display: flex;
-  flex-direction: column;
+  display: block;
   width: 100%;
   min-width: 0;
   height: 100vh;
   background: var(--page-bg);
-}
-
-.chat-shell .topbar-chat {
-  justify-content: flex-end;
-  padding: 12px 20px;
-  margin-bottom: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel-bg);
-  flex-shrink: 0;
-  gap: 10px;
-}
-
-.chat-shell .page-content-chat {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: block;
-  gap: 0;
-  padding: 0;
 }
 
 .page-content,

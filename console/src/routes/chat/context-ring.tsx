@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { useRouterState } from '@tanstack/react-router';
 import { fetchChatContext } from '../../api/chat';
 import { useAuth } from '../../auth';
 import { useActiveSessionId } from '../../lib/chat-session-store';
@@ -39,22 +38,12 @@ function severityFor(percent: number | null): 'nominal' | 'warn' | 'danger' {
   return 'nominal';
 }
 
-function isChatRoute(pathname: string): boolean {
-  return (
-    pathname === '/chat' ||
-    pathname.startsWith('/chat/') ||
-    pathname === '/admin/chat' ||
-    pathname.startsWith('/admin/chat/')
-  );
-}
-
+// ContextRing is only rendered on the chat route (via ChatPage). Callers
+// must not mount it elsewhere — there's no route-based opt-out here.
 export function ContextRing() {
   const auth = useAuth();
   const sessionId = useActiveSessionId();
-  const onChatRoute = useRouterState({
-    select: (state) => isChatRoute(state.location.pathname),
-  });
-  const enabled = onChatRoute && Boolean(auth.token) && Boolean(sessionId);
+  const enabled = Boolean(auth.token) && Boolean(sessionId);
   const query = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
     queryFn: () => fetchChatContext(auth.token, sessionId),
@@ -63,7 +52,7 @@ export function ContextRing() {
     refetchOnWindowFocus: false,
   });
 
-  if (!onChatRoute || !sessionId) return null;
+  if (!sessionId) return null;
 
   const snapshot = query.data?.snapshot ?? null;
   const isLoading = query.isFetching;
