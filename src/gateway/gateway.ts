@@ -47,6 +47,13 @@ import {
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
+  initSignal,
+  type SignalReplyFn,
+  sendToSignalChat,
+  shutdownSignal,
+} from '../channels/signal/runtime.js';
+import { isSignalChannelId } from '../channels/signal/target.js';
+import {
   initSlack,
   sendSlackFileToTarget,
   sendToSlackTarget,
@@ -227,6 +234,23 @@ function hasTelegramConfigChanged(
   );
 }
 
+function hasSignalConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['signal'],
+  prev: ReturnType<typeof getConfigSnapshot>['signal'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.daemonUrl !== prev.daemonUrl ||
+    next.account !== prev.account ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.reconnectIntervalMs !== prev.reconnectIntervalMs
+  );
+}
+
 function hasSlackConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['slack'],
   prev: ReturnType<typeof getConfigSnapshot>['slack'],
@@ -302,6 +326,7 @@ function logGatewayStartup(params: {
   channels: {
     discord: boolean;
     msteams: boolean;
+    signal: boolean;
     slack: boolean;
     email: boolean;
     imessage: boolean;
@@ -825,6 +850,41 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Slack conversation',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isSignalChannelId(channelId)) {
+    const signalConfig = getConfigSnapshot().signal;
+    if (
+      !signalConfig.enabled ||
+      !signalConfig.daemonUrl ||
+      !signalConfig.account
+    ) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Signal message suppressed: Signal channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToSignalChat(channelId, text);
+      }
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Signal channel does not yet support proactive attachments; dropping artifacts',
+        );
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Signal chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1876,6 +1936,156 @@ async function startTelegramIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startSignalIntegration(): Promise<boolean> {
+  const signalConfig = getConfigSnapshot().signal;
+  const hasInboundPolicy =
+    signalConfig.dmPolicy !== 'disabled' ||
+    signalConfig.groupPolicy !== 'disabled';
+
+  if (!signalConfig.enabled) {
+    logger.info('Signal integration disabled: signal.enabled=false');
+    return false;
+  }
+  if (!hasInboundPolicy) {
+    logger.info('Signal integration disabled: transport is off');
+    return false;
+  }
+  if (!signalConfig.daemonUrl) {
+    logger.info('Signal integration disabled: signal.daemonUrl is not set');
+    return false;
+  }
+  if (!signalConfig.account) {
+    logger.info('Signal integration disabled: signal.account is not set');
+    return false;
+  }
+
+  try {
+    await initSignal(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        reply: SignalReplyFn,
+        context,
+      ) => {
+        try {
+          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
+            sessionId,
+            userId,
+            content,
+          });
+          if (implicitApprovalArgs) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            await handleTextChannelCommand({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              args: implicitApprovalArgs,
+              reply: bridgedReply,
+            });
+            return;
+          }
+
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: bridgedReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'signal',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayFailure(result.error));
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            );
+            await reply(responseText);
+          }
+          if (artifacts.length > 0) {
+            logger.warn(
+              { channelId, artifactCount: artifacts.length },
+              'Signal channel does not yet support outbound artifacts; dropping',
+            );
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Signal message handling failed',
+          );
+          await reply(formatChannelGatewayFailure(text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'Signal integration failed to start');
+    return false;
+  }
+
+  logger.info('Signal integration started inside gateway');
+  return true;
+}
+
 function trimValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -2106,6 +2316,31 @@ async function refreshTelegramIntegrationForConfigChange(
     );
   });
   await startTelegramIntegration();
+}
+
+async function refreshSignalIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasSignalConfigChanged(next.signal, prev.signal)) return;
+
+  logger.info(
+    {
+      enabled: next.signal.enabled,
+      daemonUrl: next.signal.daemonUrl,
+      account: next.signal.account,
+      dmPolicy: next.signal.dmPolicy,
+      groupPolicy: next.signal.groupPolicy,
+    },
+    'Config changed, restarting Signal integration',
+  );
+  await shutdownSignal().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Signal runtime during config-change restart',
+    );
+  });
+  await startSignalIntegration();
 }
 
 async function refreshSlackIntegrationForConfigChange(
@@ -2537,6 +2772,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       setDiscordMaintenancePresence,
     );
     await runShutdownStep('stop email runtime', shutdownEmail);
+    await runShutdownStep('stop Signal runtime', shutdownSignal);
     await runShutdownStep('stop Slack runtime', shutdownSlack);
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
@@ -2767,6 +3003,7 @@ async function main(): Promise<void> {
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
+  const signalActive = await startSignalIntegration();
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
@@ -2798,6 +3035,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshSignalIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Signal integration restart failed after config change',
+      );
+    });
     void refreshSlackIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -2890,6 +3133,7 @@ async function main(): Promise<void> {
     channels: {
       discord: discordActive,
       msteams: msteamsActive,
+      signal: signalActive,
       slack: slackActive,
       email: emailActive,
       imessage: imessageActive,

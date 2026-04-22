@@ -3791,6 +3791,11 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       jobs: getSchedulerStatus(),
     },
     discord,
+    signal: {
+      enabled: runtimeConfig.signal.enabled,
+      daemonUrlConfigured: Boolean(runtimeConfig.signal.daemonUrl.trim()),
+      accountConfigured: Boolean(runtimeConfig.signal.account.trim()),
+    },
     slack,
     telegram,
     email,

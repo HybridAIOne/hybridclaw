@@ -43,6 +43,9 @@ function createGatewayMainTestState(options?: {
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     slackMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    signalMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     telegramMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -81,6 +84,17 @@ function createGatewayMainTestState(options?: {
         textChunkLimit: 12_000,
         replyStyle: 'thread',
         mediaMaxMb: 20,
+      },
+      signal: {
+        enabled: false,
+        daemonUrl: '',
+        account: '',
+        dmPolicy: 'disabled',
+        groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        textChunkLimit: 4_000,
+        reconnectIntervalMs: 5_000,
       },
       telegram: {
         enabled: false,
@@ -185,6 +199,7 @@ function createGatewayMainTestState(options?: {
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initSignal: vi.fn(),
     initSlack: vi.fn(),
     initTelegram: vi.fn(),
     initVoice: vi.fn(),
@@ -203,6 +218,7 @@ function createGatewayMainTestState(options?: {
     loggerWarn: vi.fn(),
     shutdownDiscord: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
     shutdownWhatsApp: vi.fn(async () => {}),
@@ -317,6 +333,9 @@ async function importFreshGatewayMain(options?: {
     }
     state.slackMessageHandler = messageHandler;
   });
+  state.initSignal.mockImplementation((messageHandler) => {
+    state.signalMessageHandler = messageHandler;
+  });
   state.initTelegram.mockImplementation((messageHandler) => {
     state.telegramMessageHandler = messageHandler;
   });
@@ -416,6 +435,11 @@ async function importFreshGatewayMain(options?: {
     sendIMessageMediaToChat: vi.fn(async () => {}),
     sendToIMessageChat: vi.fn(async () => {}),
     shutdownIMessage: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/signal/runtime.js', () => ({
+    initSignal: state.initSignal,
+    sendToSignalChat: vi.fn(async () => {}),
+    shutdownSignal: state.shutdownSignal,
   }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
     hasTelegramBotToken: vi.fn(() =>
@@ -614,6 +638,7 @@ useCleanMocks({
     '../src/channels/discord/mentions.js',
     '../src/channels/discord/runtime.js',
     '../src/channels/imessage/runtime.js',
+    '../src/channels/signal/runtime.js',
     '../src/channels/telegram/runtime.js',
     '../src/channels/voice/runtime.js',
     '../src/channels/msteams/attachments.js',

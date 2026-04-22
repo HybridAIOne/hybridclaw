@@ -411,6 +411,11 @@ export interface GatewayStatus {
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
   };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
