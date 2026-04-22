@@ -562,7 +562,9 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Original question')).not.toBeNull();
 
     fireEvent.click(screen.getByTitle('Edit'));
-    const editBox = screen.getByLabelText('Edit message') as HTMLTextAreaElement;
+    const editBox = screen.getByLabelText(
+      'Edit message',
+    ) as HTMLTextAreaElement;
     fireEvent.change(editBox, { target: { value: 'Edited question' } });
     expect(screen.getByDisplayValue('Edited question')).not.toBeNull();
     const saveButtons = screen.getAllByRole('button', { name: 'Save' });
