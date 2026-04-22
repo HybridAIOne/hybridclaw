@@ -195,6 +195,8 @@ function resolveTaskModelsForRequest(
       !incomingTaskModel.error &&
       String(incomingTaskModel.provider || '') ===
         String(storedTaskModel?.provider || '') &&
+      String(incomingTaskModel.providerMethod || '') ===
+        String(storedTaskModel?.providerMethod || '') &&
       normalizeTaskModelBaseUrl(incomingTaskModel.baseUrl) ===
         normalizeTaskModelBaseUrl(storedTaskModel?.baseUrl) &&
       String(incomingTaskModel.model || '').trim() ===
@@ -703,6 +705,7 @@ async function callHybridAIWithRetry(params: {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -710,6 +713,7 @@ async function callHybridAIWithRetry(params: {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -727,6 +731,7 @@ async function callHybridAIWithRetry(params: {
 }): Promise<ChatCompletionResponse> {
   const {
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
@@ -758,6 +763,7 @@ async function callHybridAIWithRetry(params: {
         try {
           response = await callRoutedModelStream({
             provider,
+            providerMethod,
             baseUrl,
             apiKey,
             model,
@@ -781,6 +787,7 @@ async function callHybridAIWithRetry(params: {
           if (!fallbackEligible) throw streamErr;
           response = await callRoutedModel({
             provider,
+            providerMethod,
             baseUrl,
             apiKey,
             model,
@@ -853,6 +860,7 @@ async function processRequest(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -861,6 +869,7 @@ async function processRequest(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   isLocal: boolean | undefined,
   contextWindow: number | undefined,
   thinkingFormat: 'qwen' | undefined,
@@ -1008,6 +1017,7 @@ async function processRequest(
     try {
       response = await callHybridAIWithRetry({
         provider,
+        providerMethod,
         baseUrl,
         apiKey,
         model,
@@ -1573,6 +1583,7 @@ async function main(): Promise<void> {
   setWebSearchConfig(firstInput.webSearch);
   setModelContext(
     firstInput.provider,
+    firstInput.providerMethod,
     firstInput.baseUrl,
     storedApiKey,
     firstInput.model,
@@ -1620,6 +1631,7 @@ async function main(): Promise<void> {
       storedApiKey,
       firstInput.baseUrl,
       firstInput.provider,
+      firstInput.providerMethod,
       firstInput.isLocal,
       firstInput.contextWindow,
       firstInput.thinkingFormat,
@@ -1655,6 +1667,7 @@ async function main(): Promise<void> {
         storedApiKey,
         firstInput.baseUrl,
         firstInput.provider,
+        firstInput.providerMethod,
         firstInput.isLocal,
         firstInput.contextWindow,
         firstInput.thinkingFormat,
@@ -1724,6 +1737,7 @@ async function main(): Promise<void> {
     setWebSearchConfig(input.webSearch);
     setModelContext(
       input.provider,
+      input.providerMethod,
       input.baseUrl,
       apiKey,
       input.model,
@@ -1775,6 +1789,7 @@ async function main(): Promise<void> {
       apiKey,
       input.baseUrl,
       input.provider,
+      input.providerMethod,
       input.isLocal,
       input.contextWindow,
       input.thinkingFormat,
@@ -1809,6 +1824,7 @@ async function main(): Promise<void> {
         apiKey,
         input.baseUrl,
         input.provider,
+        input.providerMethod,
         input.isLocal,
         input.contextWindow,
         input.thinkingFormat,

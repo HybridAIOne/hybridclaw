@@ -1,5 +1,6 @@
 export interface ProviderContextValidationParams {
   provider?: string;
+  providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
   model?: string;

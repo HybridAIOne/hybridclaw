@@ -24,6 +24,7 @@ import { withSpanSync } from '../observability/otel.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -222,10 +223,6 @@ function toPosixPath(p: string): string {
 
 function normalizeComparablePath(p: string): string {
   return toPosixPath(p).replace(/\\/g, '/').toLowerCase();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function leadingWhitespaceCount(line: string): number {

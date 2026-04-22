@@ -37,6 +37,7 @@ const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
   'openai-codex': 'openai-codex/',
+  anthropic: 'anthropic/',
   openrouter: 'openrouter/',
   mistral: 'mistral/',
   huggingface: 'huggingface/',
@@ -222,6 +223,10 @@ export function normalizeAuxiliaryProviderModel(params: {
     return trimmed;
   }
 
+  if (params.provider === 'openrouter' && explicitPrefix !== 'openrouter') {
+    return `${RUNTIME_PROVIDER_PREFIXES.openrouter}${trimmed}`;
+  }
+
   if (explicitPrefix && explicitPrefix !== params.provider) {
     throw new Error(
       `${params.provider} provider override cannot be used with model "${trimmed}".`,
@@ -282,6 +287,7 @@ export async function resolveTaskModelPolicy(
             });
             return {
               provider: resolved.provider,
+              providerMethod: resolved.providerMethod,
               baseUrl: resolved.baseUrl,
               apiKey: resolved.apiKey,
               requestHeaders: { ...resolved.requestHeaders },
@@ -367,6 +373,7 @@ export async function resolveTaskModelPolicy(
     }
     return {
       provider: resolved.provider,
+      providerMethod: resolved.providerMethod,
       baseUrl: resolved.baseUrl,
       apiKey: resolved.apiKey,
       requestHeaders: { ...resolved.requestHeaders },
