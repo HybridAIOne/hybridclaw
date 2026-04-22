@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createChatBranch,
-  fetchChatContext,
   fetchChatHistory,
   fetchChatRecent,
   uploadMedia,
@@ -22,10 +21,13 @@ import {
   generateWebSessionId,
   isScrolledNearBottom,
   nextMsgId,
-  readStoredSessionId,
   readStoredUserId,
-  storeSessionId,
 } from '../../lib/chat-helpers';
+import {
+  getActiveSessionId,
+  setActiveSessionId,
+  useActiveSessionId,
+} from '../../lib/chat-session-store';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { cx } from '../../lib/cx';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
@@ -33,7 +35,6 @@ import css from './chat-page.module.css';
 import { ChatSidebar } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
-import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatStream } from './use-chat-stream';
 
@@ -70,10 +71,17 @@ export function ChatPage() {
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
 
-  const [sessionId, setSessionId] = useState<string>(() => {
-    const stored = readStoredSessionId();
-    return stored || generateWebSessionId();
+  // Ensure an active session id exists before rendering; this writes to the
+  // shared store synchronously so both ChatPage and the topbar ContextRing
+  // observe the same id on their very first render.
+  useState(() => {
+    if (!getActiveSessionId()) {
+      setActiveSessionId(generateWebSessionId());
+    }
+    return null;
   });
+  const sessionId = useActiveSessionId();
+  const setSessionId = setActiveSessionId;
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -125,10 +133,6 @@ export function ChatPage() {
   sendMessageRef.current = stream.sendMessage;
 
   useEffect(() => {
-    storeSessionId(sessionId);
-  }, [sessionId]);
-
-  useEffect(() => {
     void validateToken(auth.token)
       .then((status) => {
         if (status.defaultAgentId) {
@@ -168,14 +172,6 @@ export function ChatPage() {
     queryFn: () => fetchChatHistory(auth.token, sessionId),
     enabled: Boolean(sessionId),
     staleTime: 45_000,
-    refetchOnWindowFocus: false,
-  });
-
-  const contextQuery = useQuery({
-    queryKey: ['chat-context', auth.token, sessionId],
-    queryFn: () => fetchChatContext(auth.token, sessionId),
-    enabled: Boolean(sessionId),
-    staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
 
@@ -427,18 +423,6 @@ export function ChatPage() {
             ☰
           </button>
           <span style={{ fontWeight: 600 }}>HybridClaw</span>
-          <div className={css.mobileHeaderSpacer} />
-          <ContextRing
-            snapshot={contextQuery.data?.snapshot ?? null}
-            isLoading={contextQuery.isFetching}
-          />
-        </div>
-
-        <div className={css.chatHeader}>
-          <ContextRing
-            snapshot={contextQuery.data?.snapshot ?? null}
-            isLoading={contextQuery.isFetching}
-          />
         </div>
 
         {isEmpty ? (

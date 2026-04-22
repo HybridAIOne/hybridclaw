@@ -471,7 +471,7 @@ describe('ChatPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
 
-    expect(screen.getAllByText('Recent')).toHaveLength(1);
+    expect(screen.getAllByText('Recent chats')).toHaveLength(1);
     expect(
       screen.getByRole('button', { name: 'Close sidebar' }),
     ).not.toBeNull();

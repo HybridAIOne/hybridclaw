@@ -8,8 +8,8 @@ type ViewSwitchItem = {
 } & ({ href: string; external: true } | { to: string; external?: false });
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
-  { to: '/chat', label: 'Chat', icon: Chat },
-  { to: '/agents', label: 'Agents', icon: Agents },
+  { href: '/chat', label: 'Chat', icon: Chat, external: true },
+  { href: '/agents', label: 'Agents', icon: Agents, external: true },
   { to: '/admin', label: 'Admin', icon: Admin },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -41,13 +41,14 @@ export function ViewSwitchNav() {
           </>
         );
         if (item.external) {
+          const isCrossOrigin = /^https?:\/\//i.test(item.href);
           return (
             <a
               key={item.href}
               className="view-switch-link"
               href={item.href}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={isCrossOrigin ? '_blank' : undefined}
+              rel={isCrossOrigin ? 'noopener noreferrer' : undefined}
             >
               {inner}
             </a>

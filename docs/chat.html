@@ -398,6 +398,138 @@
       height: 16px;
     }
 
+    .context-ring {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      cursor: default;
+      font-family: inherit;
+    }
+    .context-ring[hidden] {
+      display: none;
+    }
+    .context-ring-svg {
+      position: absolute;
+      inset: 2px;
+      transform: rotate(-90deg);
+    }
+    .context-ring-track {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.3);
+      stroke-width: 3;
+    }
+    .context-ring-fill {
+      fill: none;
+      stroke: var(--brand-blue);
+      stroke-width: 3;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.3s ease, stroke 0.15s ease;
+    }
+    .context-ring.is-warn .context-ring-fill {
+      stroke: #f59e0b;
+    }
+    .context-ring.is-danger .context-ring-fill {
+      stroke: #dc2626;
+    }
+    .context-ring-label {
+      position: relative;
+      font-size: 10px;
+      font-weight: 700;
+      color: #334155;
+      line-height: 1;
+    }
+    .context-ring-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      width: 260px;
+      padding: 10px 12px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+      font-size: 12px;
+      line-height: 1.4;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 40;
+      text-align: left;
+    }
+    .context-ring:hover .context-ring-popover,
+    .context-ring:focus-visible .context-ring-popover {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .context-ring-popover-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .context-ring-popover-model {
+      font-weight: 400;
+      color: #94a3b8;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .context-ring-popover-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .context-ring-popover-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #38bdf8;
+      transition: width 0.3s ease, background 0.15s ease;
+    }
+    .context-ring.is-warn .context-ring-popover-bar-fill {
+      background: #f59e0b;
+    }
+    .context-ring.is-danger .context-ring-popover-bar-fill {
+      background: #dc2626;
+    }
+    .context-ring-popover-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 0;
+      color: #94a3b8;
+    }
+    .context-ring-popover-row > span:last-child {
+      color: #e2e8f0;
+    }
+    .context-ring-popover-foot {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      color: #94a3b8;
+      font-size: 11px;
+    }
+    .context-ring-popover-foot code {
+      padding: 0 4px;
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.15);
+      font-family: inherit;
+    }
+
     .chat-body {
       min-height: 0;
       display: grid;
@@ -1401,6 +1533,24 @@
         <div class="mobile-brand" aria-hidden="true">
           <img src="/static/hybridclaw-logo.svg" alt="">
         </div>
+        <button id="contextRing" class="context-ring" type="button" aria-label="Context usage unavailable" hidden>
+          <svg viewBox="0 0 34 34" class="context-ring-svg" aria-hidden="true" width="34" height="34">
+            <circle cx="17" cy="17" r="14" class="context-ring-track"></circle>
+            <circle cx="17" cy="17" r="14" class="context-ring-fill" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"></circle>
+          </svg>
+          <span class="context-ring-label">–</span>
+          <div class="context-ring-popover" role="tooltip">
+            <div class="context-ring-popover-title">
+              <span>Context</span>
+              <span class="context-ring-popover-model">unknown model</span>
+            </div>
+            <div class="context-ring-popover-bar"><div class="context-ring-popover-bar-fill"></div></div>
+            <div class="context-ring-popover-row"><span>Used</span><span class="context-ring-popover-used">–</span></div>
+            <div class="context-ring-popover-row"><span>Headroom</span><span class="context-ring-popover-head">–</span></div>
+            <div class="context-ring-popover-row"><span>Compactions</span><span class="context-ring-popover-compact">–</span></div>
+            <div class="context-ring-popover-foot">Run <code>/context</code> for full details · <code>/compact</code> to archive older history.</div>
+          </div>
+        </button>
         <nav class="view-switch" aria-label="Switch view">
           <a class="view-switch-link is-active" href="/chat" aria-current="page" aria-label="Chat" title="Chat">
             <span class="sidebar-link-icon">
@@ -3489,6 +3639,123 @@
       return payload;
     }
 
+    const contextRingEl = document.getElementById('contextRing');
+    const contextRingLabelEl = contextRingEl?.querySelector('.context-ring-label');
+    const contextRingFillEl = contextRingEl?.querySelector('.context-ring-fill');
+    const contextRingBarEl = contextRingEl?.querySelector('.context-ring-popover-bar-fill');
+    const contextRingModelEl = contextRingEl?.querySelector('.context-ring-popover-model');
+    const contextRingUsedEl = contextRingEl?.querySelector('.context-ring-popover-used');
+    const contextRingHeadEl = contextRingEl?.querySelector('.context-ring-popover-head');
+    const contextRingCompactEl = contextRingEl?.querySelector('.context-ring-popover-compact');
+
+    function formatContextTokens(value) {
+      if (value == null || !Number.isFinite(value)) return 'n/a';
+      const abs = Math.abs(value);
+      if (abs >= 1e6) {
+        const scaled = abs >= 1e7 ? (value / 1e6).toFixed(0) : (value / 1e6).toFixed(1);
+        return `${scaled.replace(/\.0$/, '')}M`;
+      }
+      if (abs >= 1e3) {
+        const scaled = abs >= 1e4 ? (value / 1e3).toFixed(0) : (value / 1e3).toFixed(1);
+        return `${scaled.replace(/\.0$/, '')}k`;
+      }
+      return String(Math.round(value));
+    }
+
+    function renderContextRing(snapshot) {
+      if (!contextRingEl) return;
+      if (!snapshot) {
+        contextRingEl.hidden = true;
+        return;
+      }
+      contextRingEl.hidden = false;
+      const percent = typeof snapshot.contextUsagePercent === 'number'
+        ? snapshot.contextUsagePercent
+        : null;
+      const rawPercent = percent != null && Number.isFinite(percent)
+        ? Math.max(0, Math.round(percent))
+        : null;
+      const clamped = Math.max(0, Math.min(100, percent ?? 0));
+      const hasBudget = snapshot.contextBudgetTokens != null
+        && snapshot.contextUsedTokens != null;
+      contextRingEl.classList.remove('is-warn', 'is-danger');
+      if (rawPercent != null && rawPercent >= 90) {
+        contextRingEl.classList.add('is-danger');
+      } else if (rawPercent != null && rawPercent >= 70) {
+        contextRingEl.classList.add('is-warn');
+      }
+      if (contextRingFillEl) {
+        contextRingFillEl.setAttribute(
+          'stroke-dashoffset',
+          String(hasBudget ? 100 - clamped : 100),
+        );
+      }
+      if (contextRingLabelEl) {
+        contextRingLabelEl.textContent = rawPercent != null ? `${rawPercent}%` : '–';
+      }
+      if (contextRingBarEl) {
+        contextRingBarEl.style.width = `${clamped}%`;
+      }
+      if (contextRingModelEl) {
+        contextRingModelEl.textContent = snapshot.model || 'unknown model';
+      }
+      if (contextRingUsedEl) {
+        if (hasBudget) {
+          contextRingUsedEl.textContent = `${formatContextTokens(snapshot.contextUsedTokens)} / ${formatContextTokens(snapshot.contextBudgetTokens)} tokens`;
+        } else if (snapshot.contextUsedTokens != null) {
+          contextRingUsedEl.textContent = `${formatContextTokens(snapshot.contextUsedTokens)} tokens`;
+        } else {
+          contextRingUsedEl.textContent = 'no usage recorded yet';
+        }
+      }
+      if (contextRingHeadEl) {
+        contextRingHeadEl.textContent = hasBudget
+          ? `${formatContextTokens(snapshot.contextRemainingTokens)} tokens`
+          : '–';
+      }
+      if (contextRingCompactEl) {
+        contextRingCompactEl.textContent = `${snapshot.compactionCount} · ${formatContextTokens(snapshot.compactionMessageThreshold)} msgs / ${formatContextTokens(snapshot.compactionTokenBudget)} tokens`;
+      }
+      contextRingEl.setAttribute(
+        'aria-label',
+        hasBudget && rawPercent != null
+          ? `Context usage ${rawPercent} percent (${formatContextTokens(snapshot.contextUsedTokens)} of ${formatContextTokens(snapshot.contextBudgetTokens)} tokens)`
+          : 'Context usage unavailable',
+      );
+    }
+
+    let contextRingAbort = null;
+    let contextRingTimer = 0;
+    async function refreshContextRing() {
+      if (!contextRingEl) return;
+      const sessionId = String(activeSessionId || '').trim();
+      if (!sessionId) {
+        renderContextRing(null);
+        return;
+      }
+      contextRingAbort?.abort();
+      contextRingAbort = new AbortController();
+      try {
+        const payload = await requestJson(
+          `/api/chat/context?sessionId=${encodeURIComponent(sessionId)}`,
+          { headers: apiHeaders(null), signal: contextRingAbort.signal },
+        );
+        renderContextRing(payload?.snapshot ?? null);
+      } catch (err) {
+        if (err?.name !== 'AbortError') {
+          renderContextRing(null);
+        }
+      }
+    }
+
+    function scheduleContextRingRefresh(delay = 500) {
+      if (contextRingTimer) window.clearTimeout(contextRingTimer);
+      contextRingTimer = window.setTimeout(() => {
+        contextRingTimer = 0;
+        void refreshContextRing();
+      }, delay);
+    }
+
     async function requestChatStream(url, options = {}) {
       const { onEvent: rawOnEvent, ...requestOptions } = options;
       const response = await fetch(url, requestOptions);
@@ -4044,6 +4311,7 @@
           renderMessageActions(assistantBlock);
         }
         void refreshRecentSessions();
+        scheduleContextRingRefresh();
         return {
           payload,
           sessionId: activeSessionId,
@@ -4226,6 +4494,7 @@
       setError('');
       hideSlashSuggestions();
       await loadHistory();
+      void refreshContextRing();
       messageEl.focus();
     }
 
@@ -4254,6 +4523,7 @@
       renderRecentSessions();
       setError('');
       hideSlashSuggestions();
+      renderContextRing(null);
       messageEl.focus();
     }
 
@@ -4410,6 +4680,7 @@
       await loadStatus();
       await refreshRecentSessions();
       await loadHistory();
+      void refreshContextRing();
     })();
   </script>
 </body>

@@ -166,8 +166,8 @@ const toolsRoute = createRoute({
 });
 
 const chatRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/chat',
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/chat',
   component: ChatRouteComponent,
 });
 
@@ -190,8 +190,8 @@ const routeTree = rootRoute.addChildren([
     skillsRoute,
     pluginsRoute,
     toolsRoute,
+    chatRoute,
   ]),
-  chatRoute,
 ]);
 
 export const router = createRouter({

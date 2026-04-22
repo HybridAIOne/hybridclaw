@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { ChatContextSnapshot } from '../../api/chat-types';
+import { useQuery } from '@tanstack/react-query';
+import { useRouterState } from '@tanstack/react-router';
+import { fetchChatContext } from '../../api/chat';
+import { useAuth } from '../../auth';
+import { useActiveSessionId } from '../../lib/chat-session-store';
 import { cx } from '../../lib/cx';
 import css from './context-ring.module.css';
 
@@ -25,9 +28,7 @@ function formatCompact(value: number | null | undefined): string {
 }
 
 function clampPercent(value: number | null): number {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
-    return 0;
-  }
+  if (value == null || !Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
 }
 
@@ -38,73 +39,56 @@ function severityFor(percent: number | null): 'nominal' | 'warn' | 'danger' {
   return 'nominal';
 }
 
-export interface ContextRingProps {
-  snapshot: ChatContextSnapshot | null;
-  isLoading?: boolean;
+function isChatRoute(pathname: string): boolean {
+  return (
+    pathname === '/chat' ||
+    pathname.startsWith('/chat/') ||
+    pathname === '/admin/chat' ||
+    pathname.startsWith('/admin/chat/')
+  );
 }
 
-export function ContextRing({ snapshot, isLoading }: ContextRingProps) {
-  const [open, setOpen] = useState(false);
-  const popoverId = useId();
+export function ContextRing() {
+  const auth = useAuth();
+  const sessionId = useActiveSessionId();
+  const onChatRoute = useRouterState({
+    select: (state) => isChatRoute(state.location.pathname),
+  });
+  const enabled = onChatRoute && Boolean(auth.token) && Boolean(sessionId);
+  const query = useQuery({
+    queryKey: ['chat-context', auth.token, sessionId],
+    queryFn: () => fetchChatContext(auth.token, sessionId),
+    enabled,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  });
 
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelCloseTimer = useCallback(() => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  }, []);
-  const scheduleClose = useCallback(() => {
-    cancelCloseTimer();
-    closeTimerRef.current = setTimeout(() => setOpen(false), 120);
-  }, [cancelCloseTimer]);
-  const openNow = useCallback(() => {
-    cancelCloseTimer();
-    setOpen(true);
-  }, [cancelCloseTimer]);
-  useEffect(() => cancelCloseTimer, [cancelCloseTimer]);
+  if (!onChatRoute || !sessionId) return null;
 
+  const snapshot = query.data?.snapshot ?? null;
+  const isLoading = query.isFetching;
   const percent = snapshot?.contextUsagePercent ?? null;
   const clamped = clampPercent(percent);
   const severity = severityFor(percent);
-  const offset =
-    snapshot?.contextBudgetTokens != null && snapshot.contextUsedTokens != null
-      ? RING_CIRCUMFERENCE * (1 - clamped / 100)
-      : RING_CIRCUMFERENCE;
-
-  const label =
-    snapshot?.contextUsagePercent != null
-      ? `${Math.round(snapshot.contextUsagePercent)}%`
-      : isLoading
-        ? '…'
-        : '–';
+  const hasBudget =
+    snapshot?.contextBudgetTokens != null && snapshot.contextUsedTokens != null;
+  const offset = hasBudget
+    ? RING_CIRCUMFERENCE * (1 - clamped / 100)
+    : RING_CIRCUMFERENCE;
 
   const rawPercent =
-    snapshot?.contextUsagePercent != null &&
-    Number.isFinite(snapshot.contextUsagePercent)
-      ? Math.max(0, Math.round(snapshot.contextUsagePercent))
+    percent != null && Number.isFinite(percent)
+      ? Math.max(0, Math.round(percent))
       : null;
+  const label = rawPercent != null ? `${rawPercent}%` : isLoading ? '…' : '–';
   const ariaLabel =
-    snapshot?.contextBudgetTokens != null &&
-    snapshot.contextUsedTokens != null &&
-    rawPercent != null
+    hasBudget && rawPercent != null && snapshot
       ? `Context usage ${rawPercent} percent (${formatCompact(snapshot.contextUsedTokens)} of ${formatCompact(snapshot.contextBudgetTokens)} tokens)`
       : 'Context usage unavailable';
 
   return (
     <div className={css.wrap}>
-      <button
-        type="button"
-        className={css.trigger}
-        onMouseEnter={openNow}
-        onMouseLeave={scheduleClose}
-        onFocus={openNow}
-        onBlur={scheduleClose}
-        onClick={() => setOpen((prev) => !prev)}
-        aria-label={ariaLabel}
-        aria-expanded={open}
-        aria-describedby={open ? popoverId : undefined}
-      >
+      <button type="button" className={css.trigger} aria-label={ariaLabel}>
         <svg
           width={34}
           height={34}
@@ -130,81 +114,72 @@ export function ContextRing({ snapshot, isLoading }: ContextRingProps) {
         <span
           className={cx(
             css.ringLabel,
-            snapshot?.contextUsagePercent == null && css.ringLabelUnknown,
+            rawPercent == null && css.ringLabelUnknown,
           )}
         >
           {label}
         </span>
       </button>
-      {open ? (
-        <div
-          id={popoverId}
-          role="tooltip"
-          className={css.popover}
-          onMouseEnter={openNow}
-          onMouseLeave={scheduleClose}
-        >
-          <div className={css.popoverTitle}>
-            <span>Context</span>
-            <span className={css.popoverTitleValue}>
-              {snapshot?.model || 'unknown model'}
-            </span>
-          </div>
-          {snapshot?.contextBudgetTokens != null &&
-          snapshot.contextUsedTokens != null ? (
-            <>
-              <div className={css.popoverProgress}>
-                <div
-                  className={cx(
-                    css.popoverProgressFill,
-                    severity === 'warn' && css.popoverProgressFillWarn,
-                    severity === 'danger' && css.popoverProgressFillDanger,
-                  )}
-                  style={{ width: `${clamped}%` }}
-                />
-              </div>
-              <div className={css.popoverRow}>
-                <span>Used</span>
-                <span className={css.popoverRowValue}>
-                  {formatCompact(snapshot.contextUsedTokens)} /{' '}
-                  {formatCompact(snapshot.contextBudgetTokens)} tokens
-                </span>
-              </div>
-              <div className={css.popoverRow}>
-                <span>Headroom</span>
-                <span className={css.popoverRowValue}>
-                  {formatCompact(snapshot.contextRemainingTokens)} tokens
-                </span>
-              </div>
-            </>
-          ) : (
+      <div role="tooltip" className={css.popover}>
+        <div className={css.popoverTitle}>
+          <span>Context</span>
+          <span className={css.popoverTitleValue}>
+            {snapshot?.model || 'unknown model'}
+          </span>
+        </div>
+        {hasBudget && snapshot ? (
+          <>
+            <div className={css.popoverProgress}>
+              <div
+                className={cx(
+                  css.popoverProgressFill,
+                  severity === 'warn' && css.popoverProgressFillWarn,
+                  severity === 'danger' && css.popoverProgressFillDanger,
+                )}
+                style={{ width: `${clamped}%` }}
+              />
+            </div>
             <div className={css.popoverRow}>
               <span>Used</span>
               <span className={css.popoverRowValue}>
-                {snapshot?.contextUsedTokens != null
-                  ? `${formatCompact(snapshot.contextUsedTokens)} tokens`
-                  : isLoading
-                    ? 'loading…'
-                    : 'no usage recorded yet'}
+                {formatCompact(snapshot.contextUsedTokens)} /{' '}
+                {formatCompact(snapshot.contextBudgetTokens)} tokens
               </span>
             </div>
-          )}
-          {snapshot ? (
             <div className={css.popoverRow}>
-              <span>Compactions</span>
+              <span>Headroom</span>
               <span className={css.popoverRowValue}>
-                {snapshot.compactionCount} ·{' '}
-                {formatCompact(snapshot.compactionMessageThreshold)} msgs /{' '}
-                {formatCompact(snapshot.compactionTokenBudget)} tokens
+                {formatCompact(snapshot.contextRemainingTokens)} tokens
               </span>
             </div>
-          ) : null}
-          <div className={css.popoverFoot}>
-            Run <code>/context</code> for full details · <code>/compact</code>{' '}
-            to archive older history.
+          </>
+        ) : (
+          <div className={css.popoverRow}>
+            <span>Used</span>
+            <span className={css.popoverRowValue}>
+              {snapshot?.contextUsedTokens != null
+                ? `${formatCompact(snapshot.contextUsedTokens)} tokens`
+                : isLoading
+                  ? 'loading…'
+                  : 'no usage recorded yet'}
+            </span>
           </div>
+        )}
+        {snapshot ? (
+          <div className={css.popoverRow}>
+            <span>Compactions</span>
+            <span className={css.popoverRowValue}>
+              {snapshot.compactionCount} ·{' '}
+              {formatCompact(snapshot.compactionMessageThreshold)} msgs /{' '}
+              {formatCompact(snapshot.compactionTokenBudget)} tokens
+            </span>
+          </div>
+        ) : null}
+        <div className={css.popoverFoot}>
+          Run <code>/context</code> for full details · <code>/compact</code> to
+          archive older history.
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

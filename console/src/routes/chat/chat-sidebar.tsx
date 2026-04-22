@@ -30,7 +30,10 @@ export function ChatSidebar(props: {
         className={css.newChatButton}
         onClick={props.onNewChat}
       >
-        + New Conversation
+        <span className={css.newChatIcon} aria-hidden="true">
+          +
+        </span>
+        <span>New Conversation</span>
       </button>
       <div className={css.sidebarSearchWrap}>
         <input
@@ -47,7 +50,7 @@ export function ChatSidebar(props: {
       ) : props.sessions.length > 0 ? (
         <>
           <div className={css.sidebarLabel}>
-            {isSearching ? 'Search Results' : 'Recent'}
+            {isSearching ? 'Search results' : 'Recent chats'}
           </div>
           <ul className={css.sessionList} aria-live="polite">
             {props.sessions.map((s) => (
@@ -83,6 +86,7 @@ export function ChatSidebar(props: {
       ) : isSearching ? (
         <div className={css.sidebarStatus}>No matching conversations.</div>
       ) : null}
+      <div className={css.sidebarSpacer} />
     </>
   );
 }

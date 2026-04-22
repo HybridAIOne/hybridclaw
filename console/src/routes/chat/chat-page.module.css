@@ -13,49 +13,60 @@
   overflow-y: auto;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
-  padding: 16px 12px;
-  gap: 8px;
+  padding: 14px 14px 10px;
+  gap: 10px;
 }
 
 .sidebarHeader {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 6px 12px;
+  padding: 2px 0 6px;
 }
 
 .sidebarLogo {
-  width: 28px;
-  height: 28px;
+  width: 46px;
+  height: auto;
   flex-shrink: 0;
 }
 
 .sidebarBrand {
-  font-size: 1rem;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .newChatButton {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
-  padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
-  background: var(--panel-bg);
+  padding: 10px 2px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 15px;
   font-weight: 500;
-  transition: background 0.15s;
+  transition: color 0.2s ease;
+  text-align: left;
+}
+
+.newChatIcon {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--muted-foreground);
+  transform: translateY(-1px);
+  display: inline-block;
 }
 
 .newChatButton:hover {
-  background: var(--accent-soft);
+  color: var(--foreground, var(--text));
+  background: transparent;
 }
 
 .sidebarSearchWrap {
@@ -83,13 +94,18 @@
 }
 
 .sidebarLabel {
-  margin: 12px 0 4px;
-  padding: 0 6px;
+  margin: 4px 0 0;
+  padding: 4px 2px 0;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.7rem;
+  font-size: 11px;
   color: var(--muted-foreground);
   font-weight: 700;
+}
+
+.sidebarSpacer {
+  flex: 1 1 auto;
+  min-height: 10px;
 }
 
 .sessionList {
@@ -162,19 +178,6 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
-}
-
-.chatHeader {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.mobileHeaderSpacer {
-  flex: 1 1 auto;
 }
 
 .messageArea {
@@ -784,10 +787,6 @@
   }
 
   .sidebar {
-    display: none;
-  }
-
-  .chatHeader {
     display: none;
   }
 

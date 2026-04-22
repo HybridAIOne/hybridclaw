@@ -3,6 +3,7 @@ import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
 import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
+import { ContextRing } from '../routes/chat/context-ring';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
@@ -27,6 +28,10 @@ const AppShellConfigContext = createContext<AppShellConfigContextValue>({
   emailEnabled: false,
 });
 
+function isChatRoute(pathname: string): boolean {
+  return pathname === '/admin/chat' || pathname.startsWith('/admin/chat/');
+}
+
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
   const pathname = useRouterState({
@@ -38,6 +43,27 @@ export function AppShell(props: { children: ReactNode }) {
   });
   const configReady = Boolean(configQuery.data);
   const emailEnabled = configQuery.data?.config.email.enabled === true;
+  const onChatRoute = isChatRoute(pathname);
+
+  const configContextValue = { configReady, emailEnabled };
+
+  if (onChatRoute) {
+    // Chat has its own sidebar (session list). Skip the admin sidebar and
+    // title heading so only the chat UI + topbar (with context ring + view
+    // switch) is visible.
+    return (
+      <AppShellConfigContext.Provider value={configContextValue}>
+        <div className="chat-shell">
+          <div className="topbar topbar-chat">
+            <ContextRing />
+            <ViewSwitchNav />
+          </div>
+          <div className="page-content page-content-chat">{props.children}</div>
+        </div>
+      </AppShellConfigContext.Provider>
+    );
+  }
+
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
@@ -47,7 +73,7 @@ export function AppShell(props: { children: ReactNode }) {
   const currentNavItem = resolveCurrentAdminNavItem(pathname);
 
   return (
-    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
+    <AppShellConfigContext.Provider value={configContextValue}>
       <SidebarProvider style={SIDEBAR_STYLE}>
         <AppSidebar
           groups={sidebarGroups}
@@ -63,6 +89,7 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
+            <ContextRing />
             <ViewSwitchNav />
           </div>
           <div className="page-content">{props.children}</div>
