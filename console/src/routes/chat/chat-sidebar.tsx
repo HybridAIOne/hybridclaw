@@ -11,7 +11,6 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '../../components/sidebar/index';
-import sidebarStyles from '../../components/sidebar/index.module.css';
 import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
@@ -45,16 +44,12 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
     <Sidebar side="left" collapsible="icon">
       <SidebarHeader>
-        <div className={sidebarStyles.headerRow}>
-          <div className={sidebarStyles.brand}>
-            <div className={sidebarStyles.brandTitle}>
-              <span className={sidebarStyles.brandMark} aria-hidden="true">
-                <HybridClaw />
-              </span>
-              <div className={sidebarStyles.brandText}>
-                <h1>HybridClaw</h1>
-              </div>
-            </div>
+        <div className={css.chatBrandRow}>
+          <div className={css.chatBrand}>
+            <span className={css.chatBrandLogo} aria-hidden="true">
+              <HybridClaw />
+            </span>
+            <span className={css.chatBrandName}>HybridClaw</span>
           </div>
           <SidebarTrigger className={css.sidebarCollapseButton} />
         </div>

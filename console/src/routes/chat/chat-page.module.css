@@ -14,6 +14,45 @@
   height: 100%;
 }
 
+.chatBrandRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 14px;
+}
+
+.chatBrand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.chatBrandLogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+}
+
+.chatBrandLogo svg {
+  width: 46px;
+  height: 46px;
+}
+
+.chatBrandName {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chatSidebarHeader {
   display: flex;
   align-items: center;
@@ -34,14 +73,14 @@
   appearance: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   border: none;
   background: transparent;
   color: inherit;
   font: inherit;
   font-weight: 500;
-  padding: 8px 6px;
+  padding: 18px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.12s;
@@ -156,7 +195,7 @@
 }
 
 .sidebarSearchWrap {
-  padding: 2px 0 4px;
+  padding: 10px 0 4px;
 }
 
 .sidebarSearch {
