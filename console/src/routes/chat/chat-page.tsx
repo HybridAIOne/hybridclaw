@@ -1,17 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
+import { useNavigate, useParams } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
   fetchAppStatus,
-  fetchChatHistory,
   fetchChatRecent,
   uploadMedia,
 } from '../../api/chat';
@@ -30,14 +22,17 @@ import {
   DEFAULT_AGENT_ID,
   generateWebSessionId,
   isScrolledNearBottom,
-  nextMsgId,
-  readStoredSessionId,
   readStoredUserId,
   storeSessionId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
+import {
+  chatHistoryQueryKey,
+  EMPTY_BRANCH_FAMILIES,
+  loadChatHistoryUi,
+} from './chat-history-query';
 import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -49,6 +44,8 @@ type BranchInfo = {
   current: number;
   total: number;
 };
+
+const EMPTY_MESSAGES: ChatUiMessage[] = [];
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -73,112 +70,18 @@ function buildBranchInfoMap(
   return map;
 }
 
-interface ChatState {
-  sessionId: string;
-  messages: ChatUiMessage[];
-  error: string;
-  editingId: string | null;
-  approvalBusy: boolean;
-  branchFamilies: Map<string, BranchVariant[]>;
-}
-
-type ChatAction =
-  | { type: 'SESSION_SWITCH'; sessionId: string }
-  | { type: 'SESSION_ID_UPDATE'; sessionId: string }
-  | {
-      type: 'HISTORY_LOADED';
-      messages: ChatMessage[];
-      branchFamilies: Map<string, BranchVariant[]>;
-      sessionId?: string;
-    }
-  | {
-      type: 'MESSAGES_SET';
-      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]);
-    }
-  | { type: 'ERROR_SET'; error: string }
-  | { type: 'EDIT_START'; id: string }
-  | { type: 'EDIT_CANCEL' }
-  | { type: 'APPROVAL_BUSY_SET'; busy: boolean };
-
-function chatReducer(state: ChatState, action: ChatAction): ChatState {
-  switch (action.type) {
-    case 'SESSION_ID_UPDATE':
-      return { ...state, sessionId: action.sessionId };
-    case 'SESSION_SWITCH':
-      return {
-        ...state,
-        sessionId: action.sessionId,
-        messages: [],
-        error: '',
-        editingId: null,
-        approvalBusy: false,
-        branchFamilies: new Map(),
-      };
-    case 'HISTORY_LOADED':
-      return {
-        ...state,
-        messages: action.messages,
-        branchFamilies: action.branchFamilies,
-        ...(action.sessionId ? { sessionId: action.sessionId } : {}),
-      };
-    case 'MESSAGES_SET': {
-      const messages =
-        typeof action.updater === 'function'
-          ? action.updater(state.messages)
-          : action.updater;
-      return { ...state, messages };
-    }
-    case 'ERROR_SET':
-      return { ...state, error: action.error };
-    case 'EDIT_START':
-      return { ...state, editingId: action.id };
-    case 'EDIT_CANCEL':
-      return { ...state, editingId: null };
-    case 'APPROVAL_BUSY_SET':
-      return { ...state, approvalBusy: action.busy };
-    default:
-      return state;
-  }
-}
-
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { sessionId } = useParams({ from: '/chat/$sessionId' });
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
 
-  const [state, dispatch] = useReducer(
-    chatReducer,
-    undefined,
-    (): ChatState => {
-      const stored = readStoredSessionId();
-      const sessionId =
-        stored ||
-        (() => {
-          const id = generateWebSessionId();
-          storeSessionId(id);
-          return id;
-        })();
-      return {
-        sessionId,
-        messages: [],
-        error: '',
-        editingId: null,
-        approvalBusy: false,
-        branchFamilies: new Map(),
-      };
-    },
-  );
-  const {
-    sessionId,
-    messages,
-    error,
-    editingId,
-    approvalBusy,
-    branchFamilies,
-  } = state;
+  const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
 
-  const [isPending, startTransition] = useTransition();
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
@@ -191,52 +94,44 @@ export function ChatPage() {
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
-  const pendingEditRef = useRef<{
-    content: string;
-    media: MediaItem[];
-  } | null>(null);
-
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ['chat-recent', auth.token, userId],
     });
     void queryClient.invalidateQueries({
-      queryKey: ['chat-history', auth.token, sessionIdRef.current],
+      queryKey: chatHistoryQueryKey(auth.token, sessionIdRef.current),
       refetchType: 'none',
     });
   }, [queryClient, auth.token, userId]);
 
   const getSessionId = useCallback(() => sessionIdRef.current, []);
 
-  const setMessages = useCallback(
-    (
-      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
-    ) => {
-      dispatch({ type: 'MESSAGES_SET', updater });
-    },
-    [],
+  const navigateToSession = useCallback(
+    (id: string, opts?: { replace?: boolean }) =>
+      navigate({
+        to: '/chat/$sessionId',
+        params: { sessionId: id },
+        ...opts,
+      }),
+    [navigate],
   );
 
-  const setSessionId = useCallback((id: string) => {
-    dispatch({ type: 'SESSION_ID_UPDATE', sessionId: id });
-  }, []);
-
-  const setError = useCallback((err: string) => {
-    dispatch({ type: 'ERROR_SET', error: err });
-  }, []);
+  const handleSessionIdCorrection = useCallback(
+    (serverId: string) => {
+      if (serverId === sessionIdRef.current) return;
+      void navigateToSession(serverId, { replace: true });
+    },
+    [navigateToSession],
+  );
 
   const stream = useChatStream({
     token: auth.token,
     userId,
     getSessionId,
-    setMessages,
-    setSessionId,
     setError,
     refreshRecent,
+    onSessionIdCorrection: handleSessionIdCorrection,
   });
-
-  const sendMessageRef = useRef(stream.sendMessage);
-  sendMessageRef.current = stream.sendMessage;
 
   useEffect(() => {
     storeSessionId(sessionId);
@@ -261,11 +156,9 @@ export function ChatPage() {
       'Failed to load gateway status for chat page',
       appStatusQuery.error,
     );
-    dispatch({
-      type: 'ERROR_SET',
-      error:
-        'Failed to load the default agent. New chats will use main until gateway status loads.',
-    });
+    setError(
+      'Failed to load the default agent. New chats will use main until gateway status loads.',
+    );
   }, [appStatusQuery.error]);
 
   const recentQuery = useQuery({
@@ -285,87 +178,30 @@ export function ChatPage() {
   const recentSessions = recentQuery.data?.sessions ?? [];
 
   const historyQuery = useQuery({
-    queryKey: ['chat-history', auth.token, sessionId],
-    queryFn: () => fetchChatHistory(auth.token, sessionId),
+    queryKey: chatHistoryQueryKey(auth.token, sessionId),
+    queryFn: () => loadChatHistoryUi(auth.token, sessionId),
     enabled: Boolean(sessionId),
     staleTime: Infinity,
   });
+
+  const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
+  const branchFamilies =
+    historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
 
   // Forward fetch errors inline rather than throwing to the page-level error
   // boundary — a failed background refetch (invalidated after each stream)
   // would otherwise tear down ChatPage and lose composer/session state.
   useEffect(() => {
     if (!historyQuery.error) return;
-    dispatch({
-      type: 'ERROR_SET',
-      error: getErrorMessage(historyQuery.error),
-    });
+    setError(getErrorMessage(historyQuery.error));
   }, [historyQuery.error]);
 
+  // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
-    const data = historyQuery.data;
-    if (!data) return;
-
-    const resolvedSessionId = data.sessionId ?? sessionId;
-    const loadedBranchFamilies = new Map(
-      (data.branchFamilies ?? []).map((bf) => [
-        `${bf.anchorSessionId}:${bf.anchorMessageId}`,
-        bf.variants,
-      ]),
-    );
-    const branchKeysByMessageId = new Map<number | string, string>();
-    for (const [branchKey, variants] of loadedBranchFamilies.entries()) {
-      const currentVariant = variants.find(
-        (variant) => variant.sessionId === resolvedSessionId,
-      );
-      if (!currentVariant) continue;
-      branchKeysByMessageId.set(currentVariant.messageId, branchKey);
-    }
-
-    const history = data.history ?? [];
-    let lastUserContent: string | null = null;
-    const loaded: ChatMessage[] = history.map((msg) => {
-      if (msg.role === 'user') lastUserContent = msg.content;
-      const replayContent =
-        msg.role === 'user'
-          ? msg.content
-          : msg.role === 'assistant'
-            ? lastUserContent
-            : null;
-      return {
-        id: nextMsgId(),
-        role: msg.role,
-        content: msg.content,
-        rawContent: msg.content,
-        sessionId: resolvedSessionId,
-        messageId: msg.id ?? null,
-        media: [],
-        artifacts: [],
-        replayRequest:
-          replayContent !== null
-            ? { content: replayContent, media: [] }
-            : null,
-        assistantPresentation: data.assistantPresentation ?? null,
-        branchKey:
-          msg.id !== undefined && msg.id !== null
-            ? (branchKeysByMessageId.get(msg.id) ?? null)
-            : null,
-      };
-    });
-
-    dispatch({
-      type: 'HISTORY_LOADED',
-      messages: loaded,
-      branchFamilies: loadedBranchFamilies,
-      sessionId: data.sessionId !== sessionId ? data.sessionId : undefined,
-    });
-
-    const pending = pendingEditRef.current;
-    if (pending) {
-      pendingEditRef.current = null;
-      void sendMessageRef.current(pending.content, pending.media);
-    }
-  }, [historyQuery.data, sessionId]);
+    const resolved = historyQuery.data?.resolvedSessionId;
+    if (!resolved || resolved === sessionId) return;
+    void navigateToSession(resolved, { replace: true });
+  }, [historyQuery.data?.resolvedSessionId, sessionId, navigateToSession]);
 
   const branchInfoMap = useMemo(
     () => buildBranchInfoMap(messages, branchFamilies),
@@ -392,34 +228,29 @@ export function ChatPage() {
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
       if (!msg.messageId || !msg.sessionId) {
-        dispatch({
-          type: 'ERROR_SET',
-          error: 'This message cannot be edited right now.',
-        });
+        setError('This message cannot be edited right now.');
         return;
       }
-      dispatch({ type: 'EDIT_CANCEL' });
+      setEditingId(null);
       try {
         const branch = await createChatBranch(
           auth.token,
           msg.sessionId,
           msg.messageId,
         );
-        pendingEditRef.current = {
-          content: newContent,
-          media: msg.media ?? [],
-        };
-        startTransition(() => {
-          dispatch({ type: 'SESSION_SWITCH', sessionId: branch.sessionId });
+        // Prefetch the branch's history so the message list doesn't flash empty
+        // before the deferred sendMessage fires.
+        await queryClient.ensureQueryData({
+          queryKey: chatHistoryQueryKey(auth.token, branch.sessionId),
+          queryFn: () => loadChatHistoryUi(auth.token, branch.sessionId),
         });
+        await navigateToSession(branch.sessionId);
+        void stream.sendMessage(newContent, msg.media ?? []);
       } catch (err) {
-        dispatch({
-          type: 'ERROR_SET',
-          error: getErrorMessage(err),
-        });
+        setError(getErrorMessage(err));
       }
     },
-    [auth.token],
+    [auth.token, queryClient, navigateToSession, stream.sendMessage],
   );
 
   const handleRegenerate = useCallback(
@@ -438,11 +269,11 @@ export function ChatPage() {
     async (action: ApprovalAction, approvalId: string) => {
       const cmd = buildApprovalCommand(action, approvalId);
       if (!cmd) return;
-      dispatch({ type: 'APPROVAL_BUSY_SET', busy: true });
+      setApprovalBusy(true);
       try {
         await stream.sendMessage(cmd, [], { hideUser: true });
       } finally {
-        dispatch({ type: 'APPROVAL_BUSY_SET', busy: false });
+        setApprovalBusy(false);
       }
     },
     [stream.sendMessage],
@@ -458,11 +289,7 @@ export function ChatPage() {
         if (r.status === 'fulfilled' && r.value.media) {
           uploaded.push(r.value.media);
         } else if (r.status === 'rejected') {
-          const err = r.reason;
-          dispatch({
-            type: 'ERROR_SET',
-            error: getErrorMessage(err),
-          });
+          setError(getErrorMessage(r.reason));
         }
       }
       return uploaded;
@@ -472,41 +299,30 @@ export function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
-      dispatch({
-        type: 'ERROR_SET',
-        error: 'Stop the current run before starting a new chat.',
-      });
+      setError('Stop the current run before starting a new chat.');
       return;
     }
-    dispatch({
-      type: 'SESSION_SWITCH',
-      sessionId: generateWebSessionId(defaultAgentIdRef.current),
-    });
+    void navigateToSession(generateWebSessionId(defaultAgentIdRef.current));
     refreshRecent();
-  }, [stream, refreshRecent]);
+  }, [stream.isActive, navigateToSession, refreshRecent]);
 
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
-        dispatch({
-          type: 'ERROR_SET',
-          error: 'Stop the current run before switching chats.',
-        });
+        setError('Stop the current run before switching chats.');
         return;
       }
-      startTransition(() => {
-        dispatch({ type: 'SESSION_SWITCH', sessionId: targetId });
-      });
+      void navigateToSession(targetId);
     },
-    [stream],
+    [stream.isActive, navigateToSession],
   );
 
   const handleHoverSession = useCallback(
     (targetId: string) => {
       if (targetId === sessionIdRef.current) return;
       void queryClient.prefetchQuery({
-        queryKey: ['chat-history', auth.token, targetId],
-        queryFn: () => fetchChatHistory(auth.token, targetId),
+        queryKey: chatHistoryQueryKey(auth.token, targetId),
+        queryFn: () => loadChatHistoryUi(auth.token, targetId),
         staleTime: 30_000,
       });
     },
@@ -514,7 +330,7 @@ export function ChatPage() {
   );
 
   const handleEditOpen = useCallback((m: ChatMessage) => {
-    dispatch({ type: 'EDIT_START', id: m.id });
+    setEditingId(m.id);
   }, []);
 
   const handleBranchNav = useCallback(
@@ -537,6 +353,7 @@ export function ChatPage() {
   );
 
   const isEmpty = messages.length === 0;
+  const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
     sessions: recentSessions,
@@ -544,7 +361,7 @@ export function ChatPage() {
     onNewChat: handleNewChat,
     onOpenSession: handleOpenSession,
     onHoverSession: handleHoverSession,
-    isPending,
+    isPending: isSwitchingSession,
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
     isLoading: recentQuery.isFetching,
@@ -552,7 +369,7 @@ export function ChatPage() {
 
   return (
     <ChatSidebarProvider>
-      <div className={css.chatPage} aria-busy={isPending}>
+      <div className={css.chatPage} aria-busy={isSwitchingSession}>
         <ChatSidebarPanel {...sidebarProps} />
 
         <div className={css.chatMain}>
@@ -577,7 +394,7 @@ export function ChatPage() {
                         onSave={(newContent) =>
                           void handleEditSave(msg, newContent)
                         }
-                        onCancel={() => dispatch({ type: 'EDIT_CANCEL' })}
+                        onCancel={() => setEditingId(null)}
                       />
                     </div>
                   ) : (

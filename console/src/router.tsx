@@ -3,9 +3,15 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import {
+  generateWebSessionId,
+  readStoredSessionId,
+  storeSessionId,
+} from './lib/chat-helpers';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
@@ -165,9 +171,24 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
-const chatRoute = createRoute({
+const chatIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
+  beforeLoad: () => {
+    const stored = readStoredSessionId();
+    const target = stored || generateWebSessionId();
+    if (!stored) storeSessionId(target);
+    throw redirect({
+      to: '/chat/$sessionId',
+      params: { sessionId: target },
+      replace: true,
+    });
+  },
+});
+
+const chatSessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat/$sessionId',
   component: ChatRouteComponent,
 });
 
@@ -191,7 +212,8 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
-  chatRoute,
+  chatIndexRoute,
+  chatSessionRoute,
 ]);
 
 export const router = createRouter({

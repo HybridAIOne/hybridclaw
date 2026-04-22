@@ -9,6 +9,56 @@ import {
 } from '@testing-library/react';
 import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+interface TestRouter {
+  reset(): void;
+  setSessionId(id: string): void;
+  navigate: ReturnType<typeof vi.fn>;
+}
+
+vi.mock('@tanstack/react-router', async () => {
+  const React = await vi.importActual<typeof import('react')>('react');
+  const store = {
+    snapshot: { sessionId: 'session-a' as string },
+  };
+  const listeners = new Set<() => void>();
+  const emit = () => {
+    for (const l of listeners) l();
+  };
+  const update = (id: string) => {
+    if (id === store.snapshot.sessionId) return;
+    store.snapshot = { sessionId: id };
+    emit();
+  };
+  const navigate = vi.fn(async (opts: { params?: { sessionId?: string } }) => {
+    const t = opts?.params?.sessionId;
+    if (typeof t === 'string') update(t);
+  });
+  const testRouter: TestRouter = {
+    reset() {
+      store.snapshot = { sessionId: 'session-a' };
+      navigate.mockClear();
+    },
+    setSessionId: update,
+    navigate,
+  };
+  return {
+    useNavigate: () => navigate,
+    useParams: () =>
+      React.useSyncExternalStore(
+        (cb) => {
+          listeners.add(cb);
+          return () => {
+            listeners.delete(cb);
+          };
+        },
+        () => store.snapshot,
+        () => store.snapshot,
+      ),
+    __testRouter: testRouter,
+  };
+});
+
 import type {
   BranchResponse,
   ChatHistoryResponse,
@@ -109,11 +159,18 @@ describe('ChatPage', () => {
     vi.useRealTimers();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
     localStorage.clear();
     localStorage.setItem('hybridclaw_session', 'session-a');
     localStorage.setItem('hybridclaw_user_id', 'web-user-1');
+
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.reset();
 
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
@@ -462,6 +519,82 @@ describe('ChatPage', () => {
       50,
       'deploy',
     );
+  });
+
+  it('does not refetch or clear messages when the already-active session is clicked', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    const callsBefore = fetchChatHistoryMock.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByText('Session A').closest('button') as HTMLButtonElement,
+    );
+
+    // Flush any pending microtasks so an erroneous refetch would have landed.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Opened session A')).not.toBeNull();
+    expect(fetchChatHistoryMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('creates a branch, prefetches its history, then sends the edited message', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history:
+          sessionId === 'session-branch'
+            ? []
+            : [{ id: 501, role: 'user', content: 'Original question' }],
+      }),
+    );
+    createChatBranchMock.mockResolvedValue({ sessionId: 'session-branch' });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Original question')).not.toBeNull();
+
+    fireEvent.click(screen.getByTitle('Edit'));
+    const editBox = screen.getByLabelText('Edit message') as HTMLTextAreaElement;
+    fireEvent.change(editBox, { target: { value: 'Edited question' } });
+    expect(screen.getByDisplayValue('Edited question')).not.toBeNull();
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' });
+    expect(saveButtons).toHaveLength(1);
+    fireEvent.click(saveButtons[0] as HTMLButtonElement);
+
+    await waitFor(() =>
+      expect(createChatBranchMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        501,
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-branch',
+      ),
+    );
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('Edited question', []),
+    );
+
+    // Branch history must resolve before the deferred sendMessage fires.
+    const branchFetchIdx = fetchChatHistoryMock.mock.calls.findIndex(
+      (call) => call[1] === 'session-branch',
+    );
+    expect(branchFetchIdx).toBeGreaterThanOrEqual(0);
+    const branchFetchOrder =
+      fetchChatHistoryMock.mock.invocationCallOrder[branchFetchIdx];
+    const sendOrder = sendMessageMock.mock.invocationCallOrder[0];
+    expect(branchFetchOrder).toBeLessThan(sendOrder);
   });
 
   it('shows an error and keeps edit mode open when the message cannot be branched', async () => {
