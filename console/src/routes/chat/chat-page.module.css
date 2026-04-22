@@ -738,9 +738,14 @@
 }
 
 .sendButton {
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
   font-size: 0.9rem;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .sendButton:disabled {
