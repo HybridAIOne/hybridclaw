@@ -63,8 +63,6 @@ interface GoogleTokenResponse {
   error_description?: unknown;
 }
 
-// HybridClaw currently stores one Google account per runtime secret store. Keep
-// this cache single-account unless Google auth grows an explicit account key.
 let cachedGogAccessToken: {
   accessToken: string;
   account: string;

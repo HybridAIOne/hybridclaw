@@ -38,6 +38,14 @@ describe('docs viewer helpers', () => {
     expect(resolveDocPathFromPathname('/docs/guides/')).toBe(
       'guides/README.md',
     );
+    expect(resolveDocPathFromPathname('/docs/guides/tutorials')).toBe(
+      'tutorials/README.md',
+    );
+    expect(
+      resolveDocPathFromPathname(
+        '/docs/guides/sme/morning-competitor-briefing',
+      ),
+    ).toBe('tutorials/morning-competitor-briefing.md');
   });
 
   test('builds clean and raw doc hrefs', () => {
@@ -61,6 +69,29 @@ describe('docs viewer helpers', () => {
     expect(
       guides?.pages.some((page) => page.path === 'guides/remote-access.md'),
     ).toBe(true);
+  });
+
+  test('exposes tutorials as a top-level docs section', () => {
+    const tutorials = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Tutorials',
+    );
+    expect(
+      tutorials?.pages.some((page) => page.path === 'tutorials/README.md'),
+    ).toBe(true);
+  });
+
+  test('exposes skills as a top-level docs section', () => {
+    const skills = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Skills',
+    );
+    expect(
+      skills?.pages.some((page) => page.path === 'guides/skills/README.md'),
+    ).toBe(true);
+  });
+
+  test('orders tutorials immediately after skills in the top-level docs nav', () => {
+    const titles = DEVELOPMENT_DOCS_SECTIONS.map((section) => section.title);
+    expect(titles.indexOf('Tutorials')).toBe(titles.indexOf('Skills') + 1);
   });
 
   test('exposes the new channel IA in the docs section metadata', () => {

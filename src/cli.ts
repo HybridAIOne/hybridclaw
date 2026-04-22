@@ -1669,12 +1669,14 @@ function isWhatsAppAuthLockError(err: unknown): err is Error {
 function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarMessage: Record<string, string> = {
     HYBRIDAI_API_KEY: 'HybridAI provider is not configured.',
+    ANTHROPIC_API_KEY: 'Anthropic provider is not configured.',
     OPENROUTER_API_KEY: 'OpenRouter provider is not configured.',
     MISTRAL_API_KEY: 'Mistral provider is not configured.',
     HF_TOKEN: 'Hugging Face provider is not configured.',
   };
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,

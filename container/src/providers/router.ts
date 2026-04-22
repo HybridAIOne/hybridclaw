@@ -9,6 +9,10 @@ import type {
 export { extractResponseTextContent } from '../../shared/response-text.js';
 
 import {
+  callAnthropicProvider,
+  callAnthropicProviderStream,
+} from './anthropic.js';
+import {
   callHybridAIProvider,
   callHybridAIProviderStream,
 } from './hybridai.js';
@@ -36,6 +40,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
 
 export interface RoutedModelContext {
   provider: RuntimeProvider | undefined;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -68,6 +73,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
     apiKey: params.apiKey.trim(),
     model: params.model.trim(),
@@ -98,6 +104,9 @@ function buildStreamCallArgs(
 export async function callProviderModel(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (args.provider === 'anthropic') {
+    return callAnthropicProvider(args);
+  }
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProvider(args);
   }
@@ -113,6 +122,9 @@ export async function callProviderModel(
 export async function callProviderModelStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (args.provider === 'anthropic') {
+    return callAnthropicProviderStream(args);
+  }
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProviderStream(args);
   }
@@ -157,6 +169,7 @@ function shouldStreamVisionRequest(
   return (
     provider === undefined ||
     provider === 'hybridai' ||
+    provider === 'anthropic' ||
     provider === 'openai-codex'
   );
 }
@@ -187,6 +200,7 @@ export function getVisionModelContextError(
 ): string | null {
   return getProviderContextError({
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl,
     apiKey: params.apiKey,
     model: params.model,
@@ -207,6 +221,7 @@ export async function callVisionProviderModel(
 
   const request = {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: normalizeVisionBaseUrl(params.provider, params.baseUrl),
     apiKey: params.apiKey,
     model: params.model,

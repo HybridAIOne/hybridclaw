@@ -20,9 +20,17 @@ const LEGACY_DOC_PATH_REWRITES = new Map([
   ['internals/README.md', 'developer-guide/README.md'],
   ['tools/web-search', 'reference/tools/web-search'],
   ['tools/web-search.md', 'reference/tools/web-search.md'],
+  ['guides/sme', 'tutorials/README.md'],
+  ['guides/sme.md', 'tutorials/README.md'],
+  ['guides/sme/README.md', 'tutorials/README.md'],
+  ['guides/tutorials', 'tutorials/README.md'],
+  ['guides/tutorials.md', 'tutorials/README.md'],
+  ['guides/tutorials/README.md', 'tutorials/README.md'],
 ]);
 const LEGACY_DOC_PREFIX_REWRITES = [
   { from: 'internals/', to: 'developer-guide/' },
+  { from: 'guides/sme/', to: 'tutorials/' },
+  { from: 'guides/tutorials/', to: 'tutorials/' },
 ];
 
 export const DEVELOPMENT_DOCS_SECTIONS = [
@@ -80,7 +88,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
-    title: 'Skills Catalog',
+    title: 'Skills',
     pages: [
       { title: 'Overview', path: 'guides/skills/README.md' },
       { title: 'Office', path: 'guides/skills/office.md' },
@@ -96,6 +104,84 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       {
         title: 'Integrations & Utilities',
         path: 'guides/skills/integrations.md',
+      },
+    ],
+  },
+  {
+    title: 'Tutorials',
+    pages: [
+      { title: 'Overview', path: 'tutorials/README.md' },
+      {
+        title: 'Morning Competitor Briefing',
+        path: 'tutorials/morning-competitor-briefing.md',
+      },
+      {
+        title: 'Customer Feedback Digest',
+        path: 'tutorials/customer-feedback-digest.md',
+      },
+      {
+        title: 'Team Telegram Deal Desk',
+        path: 'tutorials/team-telegram-deal-desk.md',
+      },
+      {
+        title: 'Forwarded Lead Triage Inbox',
+        path: 'tutorials/forwarded-lead-triage.md',
+      },
+      {
+        title: 'WhatsApp Lead Follow-Up Copilot',
+        path: 'tutorials/whatsapp-lead-follow-up.md',
+      },
+      {
+        title: 'Daily Pipeline Standup In Slack',
+        path: 'tutorials/daily-pipeline-standup.md',
+      },
+      {
+        title: 'Post-Demo Follow-Up Pack',
+        path: 'tutorials/post-demo-follow-up-pack.md',
+      },
+      {
+        title: 'Proposal Generator From Discovery Notes',
+        path: 'tutorials/proposal-generator.md',
+      },
+      {
+        title: 'Campaign Pulse Digest From CSV Exports',
+        path: 'tutorials/campaign-pulse-digest.md',
+      },
+      {
+        title: 'Weekly Content Calendar With HybridClaw',
+        path: 'tutorials/weekly-content-calendar.md',
+      },
+      {
+        title: 'Release Launch Kit For X, LinkedIn, And Newsletter',
+        path: 'tutorials/release-launch-kit.md',
+      },
+      {
+        title: 'Newsletter Engine With Substack Sections And Notes',
+        path: 'tutorials/newsletter-engine.md',
+      },
+      {
+        title: 'Founder-Led Feature Explainer Videos',
+        path: 'tutorials/feature-explainer-videos.md',
+      },
+      {
+        title: 'Mini Feature Manual From A One-Line Brief',
+        path: 'tutorials/mini-feature-manual.md',
+      },
+      {
+        title: 'Developer Relations Engine For GitHub And X',
+        path: 'tutorials/devrel-engine.md',
+      },
+      {
+        title: 'Webinar Prep And Nachfassen Machine',
+        path: 'tutorials/webinar-machine.md',
+      },
+      {
+        title: 'Collect Invoices And Receipts From Email And Web Platforms',
+        path: 'tutorials/invoice-receipt-collector.md',
+      },
+      {
+        title: 'Check If A Document Adheres To Our Brand Guidelines',
+        path: 'tutorials/brand-guidelines-check.md',
       },
     ],
   },

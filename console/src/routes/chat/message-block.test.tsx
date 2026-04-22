@@ -12,9 +12,13 @@ import { MessageBlock } from './message-block';
 
 const fetchArtifactBlobMock =
   vi.fn<(token: string, artifactPath: string) => Promise<Blob>>();
+const fetchAgentAvatarBlobMock =
+  vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 const renderMarkdownMock = vi.fn<(content: string) => string>();
 
 vi.mock('../../api/chat', () => ({
+  fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
+    fetchAgentAvatarBlobMock(token, imageUrl),
   fetchArtifactBlob: (token: string, artifactPath: string) =>
     fetchArtifactBlobMock(token, artifactPath),
 }));
@@ -40,6 +44,7 @@ function makeMessage(
 
 describe('MessageBlock artifacts', () => {
   beforeEach(() => {
+    fetchAgentAvatarBlobMock.mockReset();
     fetchArtifactBlobMock.mockReset();
     renderMarkdownMock.mockReset();
     renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
@@ -95,6 +100,45 @@ describe('MessageBlock artifacts', () => {
     );
     expect(
       container.querySelector('[src*="token="], [href*="token="]'),
+    ).toBeNull();
+  });
+
+  it('renders assistant avatars through the authenticated blob helper', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar-bytes'], { type: 'image/jpeg' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([], {
+          assistantPresentation: {
+            agentId: 'stephan',
+            displayName: 'Stephan',
+            imageUrl: '/api/agent-avatar?agentId=stephan',
+          },
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=stephan',
+      ),
+    );
+    const avatar = container.querySelector('img');
+    expect(avatar?.getAttribute('src')).toBe('blob:artifact');
+    expect(
+      container.querySelector('img[src="/api/agent-avatar?agentId=stephan"]'),
     ).toBeNull();
   });
 

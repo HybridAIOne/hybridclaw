@@ -281,6 +281,4 @@ export function buildChmodFix(
   };
 }
 
-// `pluralize` is re-exported from `src/utils/text-format.ts`; keep this alias
-// so existing doctor call sites don't need import-path churn.
 export { pluralize } from '../utils/text-format.js';

@@ -114,6 +114,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
+- `hybridclaw agent config` accepts generated JSON payloads to upsert agent
+  metadata, write bootstrap markdown, import profile images into the agent
+  workspace, and optionally activate the agent.
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Twilio voice settings, and per-channel instructions that are injected into
   prompts at runtime.
@@ -135,6 +138,9 @@ Once the gateway is running, open HybridClaw locally:
   `config.json` becomes invalid.
 - `hybridclaw skill import` supports community sources, local directories,
   and `.zip` archives.
+- The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
+  invoicing, webinar, and release-launch workflows that can run from the TUI,
+  web chat, or connected channels.
 - `hybridclaw eval hybridai-skills` turns the bundled skills pages' "Try it
   yourself" prompts into a local eval suite, and live summaries surface the
   observed skill, artifact presence, and counted tool-call totals.
@@ -146,14 +152,22 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Models, Skills, and Memory
 
-- `hybridclaw auth login` and `/model list` cover HybridAI, Codex, OpenRouter,
-  Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
-  DashScope, Xiaomi, Kilo Code, and local backends such as Ollama, LM Studio,
-  llama.cpp, and vLLM. Remote OpenAI-compatible providers can merge
-  runtime-discovered model catalogs with operator-pinned lists.
+- `hybridclaw auth login` and `/model list` cover HybridAI, Codex,
+  Anthropic, OpenRouter, Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI,
+  Kimi, MiniMax, DashScope, Xiaomi, Kilo Code, and local backends such as
+  Ollama, LM Studio, llama.cpp, and vLLM. Remote OpenAI-compatible providers
+  can merge runtime-discovered model catalogs with operator-pinned lists.
+- Anthropic can run through the direct Messages API with `ANTHROPIC_API_KEY`
+  or through the official Claude CLI transport in host sandbox mode.
+- Google OAuth credentials for Workspace skills live in the encrypted runtime
+  secret store; agent runtimes receive short-lived access tokens for `gog` and
+  `gws` instead of long-lived refresh tokens.
 - Skills can be enabled or disabled globally or per channel from
   `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
   `Skills` page.
+- Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
+  GitHub issue queue processing (`gh-issues`), and editable Excalidraw diagram
+  creation.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
   PDF creator wraps long lines, honors explicit `\n`, and adds pages
   automatically when reports or invoices spill past the first page.
@@ -250,6 +264,10 @@ Browse the full manual at
   [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
   [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
   [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
+- Tutorials:
+  [Practical Workflows](https://www.hybridclaw.io/docs/tutorials) for owner,
+  GTM, marketing, sales, DevRel, content, invoicing, webinar, and release
+  launch workflows
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),

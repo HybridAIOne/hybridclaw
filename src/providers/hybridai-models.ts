@@ -3,10 +3,7 @@ interface HybridAIModel {
   contextWindowTokens: number | null;
 }
 
-// Models known to accept image_url content parts (vision-capable).
-// Keep in sync with upstream provider documentation.
 const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
-  // GPT-5 family (vision-enabled variants)
   'gpt-4.1-mini',
   'gpt-5',
   'gpt-5-mini',
@@ -22,13 +19,11 @@ const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
   'gpt-5.3-codex',
   'gpt-5.4',
 
-  // Claude family
   'claude-opus-4-6',
   'claude-opus-4.6',
   'claude-sonnet-4-6',
   'claude-sonnet-4.6',
 
-  // Gemini family
   'gemini-3',
   'gemini-3-pro',
   'gemini-3-flash',
@@ -41,16 +36,12 @@ const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
   'gemini-3.1-pro-preview',
 ]);
 
-// Source: ../../examples/pi-mono/packages/ai/src/models.generated.ts
-// Keep this list intentionally small and focused on the GPT-5 family we use.
 const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  // Claude 4.6
   'claude-opus-4-6': 200_000,
   'claude-opus-4.6': 200_000,
   'claude-sonnet-4-6': 200_000,
   'claude-sonnet-4.6': 200_000,
 
-  // Gemini 3 / 3.1
   'gemini-3': 1_048_576,
   'gemini-3-pro': 1_048_576,
   'gemini-3-flash': 1_048_576,
@@ -62,7 +53,6 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-3-flash-preview': 1_048_576,
   'gemini-3.1-pro-preview': 1_048_576,
 
-  // GPT-5 family
   'gpt-4.1-mini': 1_047_576,
   'gpt-5': 400_000,
   'gpt-5-chat-latest': 128_000,

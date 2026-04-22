@@ -44,12 +44,6 @@ function hasResolvedConfig<Handler, Config>(
   return typeof options.resolveConfig === 'function';
 }
 
-// Keep this helper scoped to runtimes that only need init dedupe,
-// registerChannel(), and a no-arg shutdown cleanup. Current intentional
-// opt-outs:
-// - Discord owns client login/readiness and returns a live Client from init.
-// - Telegram caches resolved bot identity/config state alongside its poll task.
-// - Voice supports drain-aware shutdown and websocket availability transitions.
 export function createChannelRuntime<Handler = void>() {
   return <Config = never>(
     options: RuntimeOptions<Handler, Config>,

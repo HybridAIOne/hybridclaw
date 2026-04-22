@@ -1988,7 +1988,8 @@
       const avatar = document.createElement('img');
       avatar.className = 'msg-agent-avatar';
       avatar.alt = displayName;
-      avatar.loading = 'lazy';
+      avatar.loading = 'eager';
+      avatar.decoding = 'async';
 
       await new Promise((resolve) => {
         avatar.addEventListener('load', resolve, { once: true });

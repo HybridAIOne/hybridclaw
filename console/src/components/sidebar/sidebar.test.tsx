@@ -65,7 +65,6 @@ function setViewport(width: number) {
 
 type SidebarCtx = SidebarContextSnapshot;
 
-// Helper: expose useSidebar return value to assertions
 function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
   const ctx = useSidebar();
   props.onRender(ctx);
@@ -553,7 +552,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('desktop sidebar is always expanded', () => {
+  it('desktop sidebar starts expanded and exposes a collapse trigger', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -566,8 +565,8 @@ describe('AppSidebar', () => {
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
     expect(
-      screen.queryByRole('button', { name: /sidebar$/i }),
-    ).toBeNull();
+      screen.queryByRole('button', { name: /collapse sidebar/i }),
+    ).not.toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {

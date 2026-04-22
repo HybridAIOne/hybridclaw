@@ -6,7 +6,7 @@ export function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
-  agent      Export, inspect, install, or uninstall portable agent archives
+  agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
@@ -204,9 +204,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -214,6 +214,8 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login anthropic --method claude-cli --set-default
+  hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
@@ -224,12 +226,14 @@ Examples:
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
+  hybridclaw auth status anthropic
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status google
   hybridclaw auth status msteams
   hybridclaw auth status slack
+  hybridclaw auth logout anthropic
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
@@ -243,6 +247,8 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()} and uses the direct Anthropic Messages API.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
@@ -479,6 +485,21 @@ Notes:
   - \`auth logout openrouter\` clears the stored API key but leaves runtime config unchanged.`);
 }
 
+export function printAnthropicUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth status anthropic
+  hybridclaw auth logout anthropic
+
+Notes:
+  - Model IDs use the \`anthropic/\` prefix in HybridClaw, for example \`anthropic/claude-sonnet-4-6\`.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\`, uses the direct Anthropic API transport, and can set the global default model.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
+  - If \`--method\` is omitted, HybridClaw defaults to \`api-key\`.
+  - If \`--api-key\` is omitted for \`--method api-key\`, HybridClaw prompts you to paste the key.
+  - \`auth logout anthropic\` clears the stored API key, but Claude Code credentials are managed separately by the \`claude\` CLI.`);
+}
+
 export function printHuggingFaceUsage(): void {
   console.log(`Usage:
   hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
@@ -708,6 +729,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -716,6 +738,10 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
+  - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
+  - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
+  - Use \`--activate\` with \`config\` to make the configured agent the default for new requests.
   - \`export\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
   - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during export.
   - Use \`--dry-run\` to preview the generated manifest path and archive entries without writing a file.
@@ -860,6 +886,10 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'openrouter':
       printOpenRouterUsage();
+      return true;
+    case 'anthropic':
+    case 'claude':
+      printAnthropicUsage();
       return true;
     case 'mistral':
       printMistralUsage();
