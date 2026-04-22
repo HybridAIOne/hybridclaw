@@ -227,6 +227,7 @@ examples and current CLI-only limitations such as WhatsApp pairing.
 
 ```bash
 hybridclaw agent list
+hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -238,6 +239,19 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
+
+`agent config` is the JSON provisioning path for generated agents. It upserts
+agent metadata directly, can overwrite top-level workspace markdown files, and
+imports `imageAsset` URLs or local file paths into the agent workspace:
+
+```bash
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
+```
+
+Use `agent config` for metadata plus bootstrap markdown. Use `agent install`
+when you need a portable `.claw` archive with arbitrary workspace files,
+bundled skills, bundled plugins, or install-time imports.
+
 For archive flags such as `--description`, `--author`, skill/plugin bundling,
 and GitHub install sources, see
 [Agent Packages](../extensibility/agent-packages.md).
