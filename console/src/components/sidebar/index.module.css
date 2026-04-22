@@ -27,6 +27,12 @@
   overflow: visible;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+}
+
 .header,
 .footer {
   position: relative;
