@@ -1,4 +1,5 @@
 import type { ChatRecentSession } from '../../api/chat-types';
+import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
@@ -11,6 +12,7 @@ export function ChatSidebar(props: {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   isLoading: boolean;
+  version?: string;
 }) {
   const trimmedSearch = props.searchQuery.trim();
   const isSearching = trimmedSearch.length > 0;
@@ -87,6 +89,14 @@ export function ChatSidebar(props: {
         <div className={css.sidebarStatus}>No matching conversations.</div>
       ) : null}
       <div className={css.sidebarSpacer} />
+      <div className={css.sidebarFooter}>
+        {props.version ? (
+          <span className={css.sidebarFooterVersion}>v{props.version}</span>
+        ) : (
+          <span />
+        )}
+        <ThemeToggle labelClassName={css.sidebarFooterThemeLabel} />
+      </div>
     </>
   );
 }

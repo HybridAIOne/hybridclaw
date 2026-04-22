@@ -227,7 +227,20 @@ export function Composer(props: {
             ) : null}
           </div>
         ) : null}
-        <div className={css.composerRow}>
+        {/* Match static /chat .prompt-wrap: textarea stacked above a
+            button bar (attach on the left, send on the right), not inline. */}
+        <textarea
+          ref={textareaRef}
+          className={css.composerInput}
+          rows={1}
+          placeholder="Message HybridClaw"
+          disabled={props.isStreaming}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          aria-label="Message input"
+        />
+        <div className={css.composerBar}>
           <button
             type="button"
             className={css.attachButton}
@@ -236,58 +249,49 @@ export function Composer(props: {
           >
             +
           </button>
-          <textarea
-            ref={textareaRef}
-            className={css.composerInput}
-            rows={1}
-            placeholder="Message HybridClaw"
-            disabled={props.isStreaming}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            aria-label="Message input"
-          />
-          <button
-            type="button"
-            className={cx(css.sendButton, props.isStreaming && css.stopping)}
-            onClick={submit}
-            aria-label={props.isStreaming ? 'Stop' : 'Send message'}
-          >
-            {props.isStreaming ? (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 19V5" />
-                <path d="m5 12 7-7 7 7" />
-              </svg>
-            )}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            multiple
-            onChange={handleFileChange}
-          />
+          <div className={css.composerBarRight}>
+            <button
+              type="button"
+              className={cx(css.sendButton, props.isStreaming && css.stopping)}
+              onClick={submit}
+              aria-label={props.isStreaming ? 'Stop' : 'Send message'}
+            >
+              {props.isStreaming ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          hidden
+          multiple
+          onChange={handleFileChange}
+        />
       </div>
     </div>
   );

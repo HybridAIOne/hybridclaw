@@ -108,10 +108,38 @@
   min-height: 10px;
 }
 
+/* Chat sidebar footer mirrors the /admin AppSidebar: version on the left,
+   theme toggle on the right — both pinned to the bottom of the rail. */
+.sidebarFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 2px 2px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+
+.sidebarFooterVersion {
+  padding: 0 6px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.sidebarFooterThemeLabel {
+  font-size: 0.82rem;
+}
+
+/* Match static /chat .sidebar-nav: 4px gap between items, each item is a
+   12px-radius pill with 10px 12px padding and 15px label. Active item is a
+   white card with blue text + soft shadow (exactly like .sidebar-link.is-active
+   in docs/chat.html). */
 .sessionList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -125,14 +153,16 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
   overflow: hidden;
   text-align: left;
   font: inherit;
-  color: inherit;
+  color: var(--text);
 }
 
 .sessionItem:hover {
@@ -141,20 +171,21 @@
 
 .sessionItemActive {
   background: var(--panel-bg);
-  box-shadow: var(--shadow-raised);
+  color: var(--primary);
+  box-shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
 }
 
 .sessionTitle {
-  font-size: 0.875rem;
+  font-size: 15px;
   font-weight: 500;
-  color: var(--text);
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sessionSnippet {
-  font-size: 0.76rem;
+  font-size: 12px;
   color: var(--muted-foreground);
   white-space: nowrap;
   overflow: hidden;
@@ -162,7 +193,7 @@
 }
 
 .sessionTime {
-  font-size: 0.72rem;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 
@@ -247,54 +278,65 @@
 .agentLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--muted-foreground);
-  padding: 0 4px;
+}
+
+.agentAvatar,
+.agentInitial {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  flex: 0 0 auto;
 }
 
 .agentAvatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
   object-fit: cover;
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 20%, transparent);
+  background: var(--accent-soft);
 }
 
 .agentInitial {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary) 20%, transparent),
+    color-mix(in srgb, var(--primary) 32%, transparent)
+  );
+  color: var(--primary);
+  font-size: 12px;
   font-weight: 700;
+  text-transform: uppercase;
 }
 
+/* Match static /chat .msg: uniform 12px radius, 10px 12px padding,
+   tighter 1.45 line-height, no explicit font-size (inherit 14px body). */
 .bubble {
-  padding: 10px 14px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  line-height: 1.55;
-  font-size: 0.92rem;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
 }
 
 .bubbleUser {
   background: linear-gradient(135deg, var(--primary), var(--ring));
   color: var(--primary-foreground);
-  border-bottom-right-radius: 4px;
+  border-color: transparent;
 }
 
 .bubbleAssistant {
-  background: var(--card);
-  color: var(--card-foreground);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 4px;
-  box-shadow: var(--shadow-card);
+  /* uses the base .bubble styles (white card, line border, soft shadow) */
 }
 
 .bubbleSystem {
@@ -306,33 +348,40 @@
   text-align: center;
 }
 
+/* Markdown content matches static /chat .msg.markdown tokens so assistant
+   bubbles have identical inner rhythm: zero margin on paragraphs, 10px
+   between consecutive paragraphs, tighter headings. */
 .markdownContent {
-  line-height: 1.6;
+  line-height: 1.45;
 }
 
 .markdownContent h1,
 .markdownContent h2,
 .markdownContent h3 {
-  margin: 0.6em 0 0.3em;
-  font-weight: 600;
+  margin: 0 0 8px;
+  font-weight: 700;
   color: var(--foreground);
-  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .markdownContent h1 {
-  font-size: 1.25rem;
+  font-size: 21px;
 }
 
 .markdownContent h2 {
-  font-size: 1.12rem;
+  font-size: 19px;
 }
 
 .markdownContent h3 {
-  font-size: 1rem;
+  font-size: 17px;
 }
 
 .markdownContent p {
-  margin: 0.4em 0;
+  margin: 0;
+}
+
+.markdownContent p + p {
+  margin-top: 10px;
 }
 
 .markdownContent ul,
@@ -421,14 +470,12 @@
   display: flex;
   gap: 4px;
   padding: 0 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
 }
 
-.messageBlock:hover .messageActions,
-.messageBlock:focus-within .messageActions {
-  opacity: 1;
-}
+/* The scoped .messageActions/.branchSwitcher selectors below intentionally
+   use a parent class to bump specificity above the Button "ghost" variant's
+   single-class rule so the icon buttons are borderless & transparent (like
+   static /chat's .msg-action-btn) until hovered. */
 
 .actionButton {
   width: 30px;
@@ -436,14 +483,27 @@
   min-height: unset;
   border-radius: 999px;
   font-size: 1rem;
-  /* Override the Button "ghost" variant — static /chat action buttons are
-     borderless and transparent until hovered. */
+}
+
+.branchButton {
+  width: 22px;
+  height: 22px;
+  min-height: unset;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.messageActions .actionButton,
+.messageActions .branchButton,
+.branchSwitcher .branchButton {
   background: transparent;
   border-color: transparent;
   color: var(--muted-foreground);
 }
 
-.actionButton:hover:not(:disabled):not([data-disabled]) {
+.messageActions .actionButton:hover:not(:disabled):not([data-disabled]),
+.messageActions .branchButton:hover:not(:disabled):not([data-disabled]),
+.branchSwitcher .branchButton:hover:not(:disabled):not([data-disabled]) {
   background: var(--muted);
   color: var(--foreground, var(--text));
 }
@@ -459,22 +519,6 @@
   font-size: 0.75rem;
   color: var(--muted-foreground);
   padding: 0 4px;
-}
-
-.branchButton {
-  width: 22px;
-  height: 22px;
-  min-height: unset;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted-foreground);
-}
-
-.branchButton:hover:not(:disabled):not([data-disabled]) {
-  background: var(--muted);
-  color: var(--foreground, var(--text));
 }
 
 .approvalActions {
@@ -594,17 +638,19 @@
   padding: 0 24px 20px;
 }
 
+/* Match static /chat .prompt-wrap: always-expanded pill that fills the full
+   width of its parent (no max-width cap — static /chat only clamps when
+   .chat.is-empty). 14px top / 16px sides / 10px bottom padding + 24px radius
+   + subtle shadow. */
 .composer {
   display: flex;
   flex-direction: column;
-  max-width: 860px;
-  margin: 0 auto;
   width: 100%;
+  padding: 14px 16px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 24px;
   background: var(--panel-bg);
-  box-shadow: var(--shadow-raised);
-  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(31, 48, 77, 0.06);
   transition: border-color 0.15s;
 }
 
@@ -615,8 +661,8 @@
 .pendingMediaRow {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 14px 0;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .mediaChip {
@@ -656,15 +702,26 @@
   color: var(--danger);
 }
 
-.composerRow {
+/* static /chat .composer-bar: horizontal row under the textarea with
+   8px top gap; attach on the left, send pinned to the right. */
+.composerBar {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 14px;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
 }
 
+.composerBarRight {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Full-width textarea matching static /chat: 16px font, 24px line-height,
+   transparent, borderless — the pill frame is the .composer wrapper. */
 .composerInput {
-  flex: 1 1 auto;
+  width: 100%;
   min-height: 24px;
   max-height: 180px;
   resize: none;
@@ -672,8 +729,9 @@
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 0.92rem;
-  line-height: 1.5;
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
   padding: 2px 4px;
 }
 
@@ -685,6 +743,9 @@
   color: var(--muted-foreground);
 }
 
+/* Match static /chat .composer-action: 36px circular buttons. Attach is
+   transparent/grey (hover → soft blue wash); send is the grey-to-primary
+   circle with the ↑ icon, switching to red when streaming. */
 .attachButton:focus-visible,
 .sendButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
@@ -693,45 +754,65 @@
 
 .attachButton,
 .sendButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
   width: 36px;
   height: 36px;
+  padding: 0;
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  flex-shrink: 0;
   transition:
-    background 0.12s,
-    color 0.12s;
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .attachButton {
   background: transparent;
   color: var(--muted-foreground);
-  font-size: 1.2rem;
+  font-size: 22px;
+  line-height: 1;
 }
 
-.attachButton:hover {
+.attachButton:hover:not(:disabled) {
   background: var(--muted);
   color: var(--text);
 }
 
+/* Match static /chat #send: light grey disc by default, darker grey on
+   hover — never blue. Disabled drops opacity to 0.45 (empty prompt state).
+   Stop variant uses red. */
 .sendButton {
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.9rem;
+  background: #d1d5db;
+  color: #ffffff;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: #9ca3af;
+  color: #ffffff;
 }
 
 .sendButton:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
 .sendButton.stopping {
-  background: var(--danger-soft);
-  color: var(--danger);
+  background: #bf5b4d;
+  color: #ffffff;
+  opacity: 1;
+}
+
+.sendButton.stopping:hover:not(:disabled) {
+  background: #aa4d40;
+}
+
+.attachButton svg,
+.sendButton svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .slashSuggestions {

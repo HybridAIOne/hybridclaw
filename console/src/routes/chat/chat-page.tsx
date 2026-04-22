@@ -201,23 +201,39 @@ export function ChatPage() {
       branchKeysByMessageId.set(currentVariant.messageId, branchKey);
     }
 
-    const loaded: ChatMessage[] = (data.history ?? []).map((msg) => ({
-      id: nextMsgId(),
-      role: msg.role,
-      content: msg.content,
-      rawContent: msg.content,
-      sessionId: resolvedSessionId,
-      messageId: msg.id ?? null,
-      media: [],
-      artifacts: [],
-      replayRequest:
-        msg.role === 'user' ? { content: msg.content, media: [] } : null,
-      assistantPresentation: data.assistantPresentation ?? null,
-      branchKey:
-        msg.id !== undefined && msg.id !== null
-          ? (branchKeysByMessageId.get(msg.id) ?? null)
-          : null,
-    }));
+    // Track the most recent user prompt while walking history so each
+    // assistant message can carry a replayRequest that points at the
+    // preceding user turn. Without this, the regenerate (↻) button never
+    // renders on historic messages — matching static /chat's behavior
+    // where loadHistory() threads the lastUserPrompt into each assistant.
+    let lastUserPrompt: { content: string; media: MediaItem[] } | null = null;
+    const loaded: ChatMessage[] = (data.history ?? []).map((msg) => {
+      const isUser = msg.role === 'user';
+      if (isUser) {
+        lastUserPrompt = { content: msg.content, media: [] };
+      }
+      const replayRequest = isUser
+        ? { content: msg.content, media: [] }
+        : msg.role === 'assistant'
+          ? lastUserPrompt
+          : null;
+      return {
+        id: nextMsgId(),
+        role: msg.role,
+        content: msg.content,
+        rawContent: msg.content,
+        sessionId: resolvedSessionId,
+        messageId: msg.id ?? null,
+        media: [],
+        artifacts: [],
+        replayRequest,
+        assistantPresentation: data.assistantPresentation ?? null,
+        branchKey:
+          msg.id !== undefined && msg.id !== null
+            ? (branchKeysByMessageId.get(msg.id) ?? null)
+            : null,
+      };
+    });
     setMessages(loaded);
     setBranchFamilies(loadedBranchFamilies);
     setBranchInfoMap(buildBranchInfoMap(loaded, loadedBranchFamilies));
@@ -396,6 +412,7 @@ export function ChatPage() {
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
     isLoading: recentQuery.isFetching,
+    version: auth.gatewayStatus?.version,
   } as const;
 
   return (

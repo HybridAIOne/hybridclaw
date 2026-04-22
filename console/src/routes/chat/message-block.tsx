@@ -261,24 +261,24 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   return (
     <div className={blockClass}>
-      {isAssistant ? (
-        <div className={css.agentLabel}>
-          {presentation?.imageUrl ? (
-            <img
-              className={css.agentAvatar}
-              src={presentation.imageUrl}
-              alt=""
-            />
-          ) : (
-            <span className={css.agentInitial}>
-              {displayName.charAt(0).toUpperCase()}
-            </span>
-          )}
-          <span>{displayName}</span>
-        </div>
-      ) : null}
-
       <div className={bubbleClass}>
+        {isAssistant ? (
+          <div className={css.agentLabel}>
+            {presentation?.imageUrl ? (
+              <img
+                className={css.agentAvatar}
+                src={presentation.imageUrl}
+                alt=""
+              />
+            ) : (
+              <span className={css.agentInitial}>
+                {displayName.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span>{displayName}</span>
+          </div>
+        ) : null}
+
         {isAssistant || isApproval ? (
           <div
             className={css.markdownContent}
@@ -331,28 +331,8 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {!props.isStreaming ? (
         <div className={css.messageActions}>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cx(css.actionButton, copied && css.actionButtonSuccess)}
-            title="Copy"
-            aria-label={copied ? 'Copied' : 'Copy message'}
-            onClick={handleCopy}
-          >
-            {copied ? '✓' : '⧉'}
-          </Button>
-          {isUser ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={css.actionButton}
-              title="Edit"
-              aria-label="Edit message"
-              onClick={() => props.onEdit(msg)}
-            >
-              ✎
-            </Button>
-          ) : null}
+          {/* Match static /chat button ordering: primary action first
+              (regenerate / edit), then copy. */}
           {isAssistant && msg.replayRequest ? (
             <Button
               variant="ghost"
@@ -365,6 +345,28 @@ export const MessageBlock = memo(function MessageBlock(props: {
               ↻
             </Button>
           ) : null}
+          {isUser ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={css.actionButton}
+              title="Edit"
+              aria-label="Edit message"
+              onClick={() => props.onEdit(msg)}
+            >
+              ✎
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cx(css.actionButton, copied && css.actionButtonSuccess)}
+            title="Copy"
+            aria-label={copied ? 'Copied' : 'Copy message'}
+            onClick={handleCopy}
+          >
+            {copied ? '✓' : '⧉'}
+          </Button>
           {props.branchInfo && props.branchInfo.total > 1 ? (
             <div className={css.branchSwitcher}>
               <Button
