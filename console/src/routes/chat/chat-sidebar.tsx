@@ -3,7 +3,6 @@ import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
 import { HybridClaw } from '../../components/icons';
 import {
-  getSidebarStyleVars,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -11,12 +10,11 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '../../components/sidebar/index';
+import sidebarStyles from '../../components/sidebar/index.module.css';
 import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
-
-const CHAT_SIDEBAR_STYLE = getSidebarStyleVars('260px', '280px');
 
 export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
@@ -32,7 +30,7 @@ export interface ChatSidebarProps {
 
 export function ChatSidebarProvider(props: { children: ReactNode }) {
   return (
-    <SidebarProvider style={CHAT_SIDEBAR_STYLE} defaultOpen storageKey={false}>
+    <SidebarProvider defaultOpen storageKey={false}>
       {props.children}
     </SidebarProvider>
   );
@@ -44,14 +42,18 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
   return (
     <Sidebar side="left" collapsible="icon">
       <SidebarHeader>
-        <div className={css.chatBrandRow}>
-          <div className={css.chatBrand}>
-            <span className={css.chatBrandLogo} aria-hidden="true">
-              <HybridClaw />
-            </span>
-            <span className={css.chatBrandName}>HybridClaw</span>
+        <div className={sidebarStyles.headerRow}>
+          <div className={sidebarStyles.brand}>
+            <div className={sidebarStyles.brandTitle}>
+              <span className={sidebarStyles.brandMark} aria-hidden="true">
+                <HybridClaw />
+              </span>
+              <div className={sidebarStyles.brandText}>
+                <h1>HybridClaw</h1>
+              </div>
+            </div>
           </div>
-          <SidebarTrigger className={css.sidebarCollapseButton} />
+          <SidebarTrigger className={sidebarStyles.sidebarToggle} />
         </div>
         <button
           type="button"

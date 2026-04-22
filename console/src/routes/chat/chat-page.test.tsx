@@ -79,6 +79,10 @@ vi.mock('../../components/view-switch', () => ({
   ViewSwitchNav: () => null,
 }));
 
+vi.mock('../../components/theme-toggle', () => ({
+  ThemeToggle: () => null,
+}));
+
 function renderChatPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
