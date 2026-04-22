@@ -1,7 +1,16 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import {
   createChatBranch,
+  fetchAppStatus,
   fetchChatHistory,
   fetchChatRecent,
   uploadMedia,
@@ -11,8 +20,8 @@ import type {
   ChatMessage,
   MediaItem,
 } from '../../api/chat-types';
-import { validateToken } from '../../api/client';
 import { useAuth } from '../../auth';
+import { ViewSwitchNav } from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -26,10 +35,10 @@ import {
   storeSessionId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
-import { cx } from '../../lib/cx';
+import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import css from './chat-page.module.css';
-import { ChatSidebar } from './chat-sidebar';
+import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
@@ -45,6 +54,7 @@ function buildBranchInfoMap(
   branchFamilies: Map<string, BranchVariant[]>,
 ): Map<string, BranchInfo> {
   const map = new Map<string, BranchInfo>();
+  if (branchFamilies.size === 0) return map;
   for (const msg of messages) {
     const key = msg.branchKey;
     if (!key) continue;
@@ -62,28 +72,121 @@ function buildBranchInfoMap(
   return map;
 }
 
+interface ChatState {
+  sessionId: string;
+  messages: ChatUiMessage[];
+  error: string;
+  editingId: string | null;
+  approvalBusy: boolean;
+  branchFamilies: Map<string, BranchVariant[]>;
+}
+
+type ChatAction =
+  | { type: 'SESSION_SWITCH'; sessionId: string }
+  | { type: 'SESSION_ID_UPDATE'; sessionId: string }
+  | {
+      type: 'HISTORY_LOADED';
+      messages: ChatMessage[];
+      branchFamilies: Map<string, BranchVariant[]>;
+      sessionId?: string;
+    }
+  | {
+      type: 'MESSAGES_SET';
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]);
+    }
+  | { type: 'ERROR_SET'; error: string }
+  | { type: 'ERROR_CLEAR' }
+  | { type: 'EDIT_START'; id: string }
+  | { type: 'EDIT_CANCEL' }
+  | { type: 'APPROVAL_BUSY_SET'; busy: boolean };
+
+function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case 'SESSION_ID_UPDATE':
+      return { ...state, sessionId: action.sessionId };
+    case 'SESSION_SWITCH':
+      return {
+        ...state,
+        sessionId: action.sessionId,
+        messages: [],
+        error: '',
+        editingId: null,
+        approvalBusy: false,
+        branchFamilies: new Map(),
+      };
+    case 'HISTORY_LOADED':
+      return {
+        ...state,
+        messages: action.messages,
+        branchFamilies: action.branchFamilies,
+        ...(action.sessionId ? { sessionId: action.sessionId } : {}),
+      };
+    case 'MESSAGES_SET': {
+      const messages =
+        typeof action.updater === 'function'
+          ? action.updater(state.messages)
+          : action.updater;
+      return { ...state, messages };
+    }
+    case 'ERROR_SET':
+      return { ...state, error: action.error };
+    case 'ERROR_CLEAR':
+      return { ...state, error: '' };
+    case 'EDIT_START':
+      return { ...state, editingId: action.id };
+    case 'EDIT_CANCEL':
+      return { ...state, editingId: null };
+    case 'APPROVAL_BUSY_SET':
+      return { ...state, approvalBusy: action.busy };
+    default:
+      return state;
+  }
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
 
-  const [sessionId, setSessionId] = useState<string>(() => {
-    const stored = readStoredSessionId();
-    return stored || generateWebSessionId();
-  });
-  const [messages, setMessages] = useState<ChatUiMessage[]>([]);
-  const [error, setError] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [approvalBusy, setApprovalBusy] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
-  const [branchFamilies, setBranchFamilies] = useState<
-    Map<string, BranchVariant[]>
-  >(new Map());
-  const [branchInfoMap, setBranchInfoMap] = useState<Map<string, BranchInfo>>(
-    new Map(),
+  const [state, dispatch] = useReducer(
+    chatReducer,
+    undefined,
+    (): ChatState => {
+      const stored = readStoredSessionId();
+      const sessionId =
+        stored ||
+        (() => {
+          const id = generateWebSessionId();
+          storeSessionId(id);
+          return id;
+        })();
+      return {
+        sessionId,
+        messages: [],
+        error: '',
+        editingId: null,
+        approvalBusy: false,
+        branchFamilies: new Map(),
+      };
+    },
   );
+  const {
+    sessionId,
+    messages,
+    error,
+    editingId,
+    approvalBusy,
+    branchFamilies,
+  } = state;
+
+  const [isPending, startTransition] = useTransition();
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const debouncedSessionSearchQuery = useDebouncedValue(
+    sessionSearchQuery,
+    160,
+  );
+  const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
@@ -94,19 +197,36 @@ export function ChatPage() {
     content: string;
     media: MediaItem[];
   } | null>(null);
-  const debouncedSessionSearchQuery = useDebouncedValue(
-    sessionSearchQuery,
-    160,
-  );
-  const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ['chat-recent', auth.token, userId],
     });
+    void queryClient.invalidateQueries({
+      queryKey: ['chat-history', auth.token, sessionIdRef.current],
+      refetchType: 'none',
+    });
   }, [queryClient, auth.token, userId]);
 
   const getSessionId = useCallback(() => sessionIdRef.current, []);
+
+  const setMessages = useCallback(
+    (
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+    ) => {
+      dispatch({ type: 'MESSAGES_SET', updater });
+    },
+    [],
+  );
+
+  const setSessionId = useCallback((id: string) => {
+    dispatch({ type: 'SESSION_ID_UPDATE', sessionId: id });
+  }, []);
+
+  const setError = useCallback((err: string) => {
+    if (err === '') dispatch({ type: 'ERROR_CLEAR' });
+    else dispatch({ type: 'ERROR_SET', error: err });
+  }, []);
 
   const stream = useChatStream({
     token: auth.token,
@@ -118,7 +238,6 @@ export function ChatPage() {
     refreshRecent,
   });
 
-  // Stable ref for history-load effect to call sendMessage without stale closure
   const sendMessageRef = useRef(stream.sendMessage);
   sendMessageRef.current = stream.sendMessage;
 
@@ -126,24 +245,31 @@ export function ChatPage() {
     storeSessionId(sessionId);
   }, [sessionId]);
 
+  const appStatusQuery = useQuery({
+    queryKey: ['app-status', auth.token],
+    queryFn: () => fetchAppStatus(auth.token),
+    staleTime: Infinity,
+  });
+
   useEffect(() => {
-    void validateToken(auth.token)
-      .then((status) => {
-        if (status.defaultAgentId) {
-          defaultAgentIdRef.current = status.defaultAgentId
-            .trim()
-            .toLowerCase();
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load gateway status for chat page', err);
-        setError(
-          (prev) =>
-            prev ||
-            'Failed to load the default agent. New chats will use main until gateway status loads.',
-        );
-      });
-  }, [auth.token]);
+    const id = appStatusQuery.data?.defaultAgentId;
+    if (id) {
+      defaultAgentIdRef.current = id.trim().toLowerCase();
+    }
+  }, [appStatusQuery.data?.defaultAgentId]);
+
+  useEffect(() => {
+    if (!appStatusQuery.error) return;
+    console.error(
+      'Failed to load gateway status for chat page',
+      appStatusQuery.error,
+    );
+    dispatch({
+      type: 'ERROR_SET',
+      error:
+        'Failed to load the default agent. New chats will use main until gateway status loads.',
+    });
+  }, [appStatusQuery.error]);
 
   const recentQuery = useQuery({
     queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
@@ -165,17 +291,23 @@ export function ChatPage() {
     queryKey: ['chat-history', auth.token, sessionId],
     queryFn: () => fetchChatHistory(auth.token, sessionId),
     enabled: Boolean(sessionId),
-    staleTime: 45_000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   });
+
+  // Forward fetch errors inline rather than throwing to the page-level error
+  // boundary — a failed background refetch (invalidated after each stream)
+  // would otherwise tear down ChatPage and lose composer/session state.
+  useEffect(() => {
+    if (!historyQuery.error) return;
+    dispatch({
+      type: 'ERROR_SET',
+      error: getErrorMessage(historyQuery.error),
+    });
+  }, [historyQuery.error]);
 
   useEffect(() => {
     const data = historyQuery.data;
-    if (!sessionId || !data) return;
-
-    if (data.sessionId && data.sessionId !== sessionId) {
-      setSessionId(data.sessionId);
-    }
+    if (!data) return;
 
     const resolvedSessionId = data.sessionId ?? sessionId;
     const loadedBranchFamilies = new Map(
@@ -210,10 +342,13 @@ export function ChatPage() {
           ? (branchKeysByMessageId.get(msg.id) ?? null)
           : null,
     }));
-    setMessages(loaded);
-    setBranchFamilies(loadedBranchFamilies);
-    setBranchInfoMap(buildBranchInfoMap(loaded, loadedBranchFamilies));
-    setError('');
+
+    dispatch({
+      type: 'HISTORY_LOADED',
+      messages: loaded,
+      branchFamilies: loadedBranchFamilies,
+      sessionId: data.sessionId !== sessionId ? data.sessionId : undefined,
+    });
 
     const pending = pendingEditRef.current;
     if (pending) {
@@ -222,14 +357,10 @@ export function ChatPage() {
     }
   }, [historyQuery.data, sessionId]);
 
-  useEffect(() => {
-    if (!historyQuery.error) return;
-    setError(
-      historyQuery.error instanceof Error
-        ? historyQuery.error.message
-        : String(historyQuery.error),
-    );
-  }, [historyQuery.error]);
+  const branchInfoMap = useMemo(
+    () => buildBranchInfoMap(messages, branchFamilies),
+    [messages, branchFamilies],
+  );
 
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
@@ -248,22 +379,16 @@ export function ChatPage() {
     };
   }, []);
 
-  const resetChatState = useCallback(() => {
-    setMessages([]);
-    setBranchFamilies(new Map());
-    setBranchInfoMap(new Map());
-    setError('');
-    setEditingId(null);
-    setMobileSidebarOpen(false);
-  }, []);
-
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
       if (!msg.messageId || !msg.sessionId) {
-        setError('This message cannot be edited right now.');
+        dispatch({
+          type: 'ERROR_SET',
+          error: 'This message cannot be edited right now.',
+        });
         return;
       }
-      setEditingId(null);
+      dispatch({ type: 'EDIT_CANCEL' });
       try {
         const branch = await createChatBranch(
           auth.token,
@@ -274,9 +399,14 @@ export function ChatPage() {
           content: newContent,
           media: msg.media ?? [],
         };
-        setSessionId(branch.sessionId);
+        startTransition(() => {
+          dispatch({ type: 'SESSION_SWITCH', sessionId: branch.sessionId });
+        });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        dispatch({
+          type: 'ERROR_SET',
+          error: getErrorMessage(err),
+        });
       }
     },
     [auth.token],
@@ -298,11 +428,11 @@ export function ChatPage() {
     async (action: ApprovalAction, approvalId: string) => {
       const cmd = buildApprovalCommand(action, approvalId);
       if (!cmd) return;
-      setApprovalBusy(true);
+      dispatch({ type: 'APPROVAL_BUSY_SET', busy: true });
       try {
         await stream.sendMessage(cmd, [], { hideUser: true });
       } finally {
-        setApprovalBusy(false);
+        dispatch({ type: 'APPROVAL_BUSY_SET', busy: false });
       }
     },
     [stream.sendMessage],
@@ -319,7 +449,10 @@ export function ChatPage() {
           uploaded.push(r.value.media);
         } else if (r.status === 'rejected') {
           const err = r.reason;
-          setError(err instanceof Error ? err.message : String(err));
+          dispatch({
+            type: 'ERROR_SET',
+            error: getErrorMessage(err),
+          });
         }
       }
       return uploaded;
@@ -329,24 +462,45 @@ export function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
-      setError('Stop the current run before starting a new chat.');
+      dispatch({
+        type: 'ERROR_SET',
+        error: 'Stop the current run before starting a new chat.',
+      });
       return;
     }
-    resetChatState();
-    setSessionId(generateWebSessionId(defaultAgentIdRef.current));
+    dispatch({
+      type: 'SESSION_SWITCH',
+      sessionId: generateWebSessionId(defaultAgentIdRef.current),
+    });
     refreshRecent();
-  }, [stream, resetChatState, refreshRecent]);
+  }, [stream, refreshRecent]);
 
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
-        setError('Stop the current run before switching chats.');
+        dispatch({
+          type: 'ERROR_SET',
+          error: 'Stop the current run before switching chats.',
+        });
         return;
       }
-      resetChatState();
-      setSessionId(targetId);
+      startTransition(() => {
+        dispatch({ type: 'SESSION_SWITCH', sessionId: targetId });
+      });
     },
-    [stream, resetChatState],
+    [stream],
+  );
+
+  const handleHoverSession = useCallback(
+    (targetId: string) => {
+      if (targetId === sessionIdRef.current) return;
+      void queryClient.prefetchQuery({
+        queryKey: ['chat-history', auth.token, targetId],
+        queryFn: () => fetchChatHistory(auth.token, targetId),
+        staleTime: 30_000,
+      });
+    },
+    [queryClient, auth.token],
   );
 
   const handleBranchNav = useCallback(
@@ -375,94 +529,77 @@ export function ChatPage() {
     activeSessionId: sessionId,
     onNewChat: handleNewChat,
     onOpenSession: handleOpenSession,
+    onHoverSession: handleHoverSession,
+    isPending,
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
     isLoading: recentQuery.isFetching,
   } as const;
 
   return (
-    <div className={css.chatPage}>
-      {mobileSidebarOpen ? (
-        <button
-          type="button"
-          className={css.sidebarBackdrop}
-          tabIndex={-1}
-          aria-label="Close sidebar"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      ) : null}
+    <ChatSidebarProvider>
+      <div className={css.chatPage} aria-busy={isPending}>
+        <ChatSidebarPanel {...sidebarProps} />
 
-      <div className={cx(css.sidebar, mobileSidebarOpen && css.sidebarOpen)}>
-        <ChatSidebar {...sidebarProps} />
-      </div>
-
-      <div className={css.chatMain}>
-        <div className={css.mobileHeader}>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open sidebar"
-          >
-            ☰
-          </button>
-          <span style={{ fontWeight: 600 }}>HybridClaw</span>
-        </div>
-
-        {isEmpty ? (
-          <div className={css.emptyState}>
-            <h1 className={css.greeting}>
-              Ready to claw through your to-do list?
-            </h1>
+        <div className={css.chatMain}>
+          <div className={css.chatTopbar}>
+            <ViewSwitchNav />
           </div>
-        ) : (
-          <div className={css.messageArea} ref={messageAreaRef}>
-            <div className={css.messageList}>
-              {messages.map((msg) =>
-                editingId === msg.id && msg.role !== 'thinking' ? (
-                  <div key={msg.id} className={css.messageBlock}>
-                    <EditInline
-                      initial={msg.rawContent ?? msg.content}
-                      onSave={(newContent) =>
-                        void handleEditSave(msg, newContent)
-                      }
-                      onCancel={() => setEditingId(null)}
-                    />
-                  </div>
-                ) : (
-                  <MessageBlock
-                    key={msg.id}
-                    message={msg}
-                    token={auth.token}
-                    isStreaming={msg.id === stream.streamingMsgId}
-                    onCopy={copyToClipboard}
-                    onEdit={(m) => setEditingId(m.id)}
-                    onRegenerate={handleRegenerate}
-                    onApprovalAction={handleApprovalAction}
-                    approvalBusy={approvalBusy}
-                    branchInfo={branchInfoMap.get(msg.id) ?? null}
-                    onBranchNav={(dir) => {
-                      if (msg.role === 'thinking') return;
-                      handleBranchNav(msg, dir);
-                    }}
-                  />
-                ),
-              )}
-              <div ref={messagesEndRef} />
+          {isEmpty ? (
+            <div className={css.emptyState}>
+              <h1 className={css.greeting}>
+                Ready to claw through your to-do list?
+              </h1>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className={css.messageArea} ref={messageAreaRef}>
+              <div className={css.messageList}>
+                {messages.map((msg) =>
+                  editingId === msg.id && msg.role !== 'thinking' ? (
+                    <div key={msg.id} className={css.messageBlock}>
+                      <EditInline
+                        initial={msg.rawContent ?? msg.content}
+                        onSave={(newContent) =>
+                          void handleEditSave(msg, newContent)
+                        }
+                        onCancel={() => dispatch({ type: 'EDIT_CANCEL' })}
+                      />
+                    </div>
+                  ) : (
+                    <MessageBlock
+                      key={msg.id}
+                      message={msg}
+                      token={auth.token}
+                      isStreaming={msg.id === stream.streamingMsgId}
+                      onCopy={copyToClipboard}
+                      onEdit={(m) => dispatch({ type: 'EDIT_START', id: m.id })}
+                      onRegenerate={handleRegenerate}
+                      onApprovalAction={handleApprovalAction}
+                      approvalBusy={approvalBusy}
+                      branchInfo={branchInfoMap.get(msg.id) ?? null}
+                      onBranchNav={(dir) => {
+                        if (msg.role === 'thinking') return;
+                        handleBranchNav(msg, dir);
+                      }}
+                    />
+                  ),
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+          )}
 
-        {error ? <div className={css.errorBanner}>{error}</div> : null}
+          {error ? <div className={css.errorBanner}>{error}</div> : null}
 
-        <Composer
-          isStreaming={stream.isStreaming}
-          onSend={(content, media) => void stream.sendMessage(content, media)}
-          onStop={() => void stream.stopRequest()}
-          onUploadFiles={handleUploadFiles}
-          token={auth.token}
-        />
+          <Composer
+            isStreaming={stream.isStreaming}
+            onSend={(content, media) => void stream.sendMessage(content, media)}
+            onStop={() => void stream.stopRequest()}
+            onUploadFiles={handleUploadFiles}
+            token={auth.token}
+          />
+        </div>
       </div>
-    </div>
+    </ChatSidebarProvider>
   );
 }

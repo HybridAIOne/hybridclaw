@@ -1,85 +1,64 @@
 .chatPage {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: flex;
+  width: 100%;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
 }
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
+/* The nested SidebarProvider wraps content in a .layout div with
+   min-height: 100vh. Override it so the chat sidebar fits within
+   the chat page's flex layout instead of forcing its own viewport. */
+.chatPage > div {
   min-height: 0;
-  overflow-y: auto;
-  background: var(--sidebar);
-  border-right: 1px solid var(--line);
-  padding: 16px 12px;
-  gap: 8px;
+  height: 100%;
 }
 
-.sidebarHeader {
+.chatSidebarHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 6px 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
 }
 
-.sidebarLogo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-}
-
-.sidebarBrand {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.02em;
+.chatSidebarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
+  overflow: hidden;
 }
 
 .newChatButton {
+  appearance: none;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 9px 12px;
-  border-radius: var(--radius-sm);
   border: 1px solid var(--line-strong);
-  background: var(--panel-bg);
-  color: var(--text);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: background 0.15s;
+  transition: background 0.12s;
 }
 
 .newChatButton:hover {
-  background: var(--accent-soft);
-}
-
-.sidebarSearchWrap {
-  padding: 2px 0 4px;
-}
-
-.sidebarSearch {
-  width: 100%;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
   background: var(--panel-bg);
-  color: var(--text);
-  font: inherit;
-  padding: 9px 11px;
 }
 
-.sidebarSearch::placeholder {
+.newChatButton > span:first-child {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.sidebarVersion {
+  padding: 8px 12px;
+  font-size: 0.78rem;
   color: var(--muted-foreground);
-}
-
-.sidebarSearch:focus {
-  outline: 2px solid var(--accent-soft);
-  outline-offset: 1px;
-  border-color: var(--ring);
 }
 
 .sidebarLabel {
@@ -128,18 +107,24 @@
   box-shadow: var(--shadow-raised);
 }
 
+.sessionItemPending {
+  animation: sessionPulse 1s ease-in-out infinite;
+}
+
+@keyframes sessionPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
 .sessionTitle {
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sessionSnippet {
-  font-size: 0.76rem;
-  color: var(--muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,25 +135,67 @@
   color: var(--muted-foreground);
 }
 
+.sessionSnippet {
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebarSearchWrap {
+  padding: 2px 0 4px;
+}
+
+.sidebarSearch {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 9px 11px;
+}
+
+.sidebarSearch::placeholder {
+  color: var(--muted-foreground);
+}
+
+.sidebarSearch:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+  border-color: var(--ring);
+}
+
 .sidebarStatus {
   padding: 6px 10px;
   font-size: 0.82rem;
   color: var(--muted-foreground);
 }
 
+.chatTopbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px 6px;
+  flex-shrink: 0;
+}
+
 .chatMain {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   position: relative;
+  background: var(--page-bg);
 }
 
 .messageArea {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 24px 12px;
+  padding: 16px 16px 12px;
   scroll-behavior: smooth;
 }
 
@@ -176,9 +203,12 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 860px;
-  margin: 0 auto;
   width: 100%;
+  max-width: 1100px;
+}
+
+.sidebarCollapseButton {
+  align-self: center;
 }
 
 .emptyState {
@@ -397,7 +427,10 @@
   transition: opacity 0.15s;
 }
 
-.messageBlock:hover .messageActions,
+.messageBlock:hover .messageActions {
+  opacity: 1;
+}
+
 .messageBlock:focus-within .messageActions {
   opacity: 1;
 }
@@ -429,6 +462,16 @@
   min-height: unset;
   border-radius: 999px;
   font-size: 0.8rem;
+}
+
+.branchButton:hover {
+  background: var(--muted);
+  color: var(--text);
+}
+
+.branchButton:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .approvalActions {
@@ -619,7 +662,7 @@
 
 .composerInput {
   flex: 1 1 auto;
-  min-height: 24px;
+  min-height: 36px;
   max-height: 180px;
   resize: none;
   border: none;
@@ -627,8 +670,13 @@
   background: transparent;
   color: var(--text);
   font-size: 0.92rem;
+  line-height: 36px;
+  padding: 0;
+}
+
+.composerInput:not(:placeholder-shown) {
   line-height: 1.5;
-  padding: 2px 0;
+  padding: 6px 0;
 }
 
 .composerInput:focus-visible {
@@ -639,12 +687,6 @@
 
 .composerInput::placeholder {
   color: var(--muted-foreground);
-}
-
-.attachButton:focus-visible,
-.sendButton:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
 }
 
 .attachButton,
@@ -661,6 +703,12 @@
   transition:
     background 0.12s,
     color 0.12s;
+}
+
+.attachButton:focus-visible,
+.sendButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .attachButton {
@@ -766,45 +814,6 @@
 }
 
 @media (max-width: 900px) {
-  .chatPage {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    display: none;
-  }
-
-  .sidebarOpen {
-    display: flex;
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 100;
-    width: 280px;
-    max-width: 85vw;
-    animation: slideIn 0.2s ease;
-  }
-
-  .sidebarBackdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-    background: rgba(0, 0, 0, 0.4);
-    border: none;
-    padding: 0;
-    cursor: default;
-  }
-
-  .mobileHeader {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--line);
-    flex-shrink: 0;
-  }
-
   .messageArea {
     padding: 16px 16px 8px;
   }
@@ -842,26 +851,7 @@
     animation: none;
   }
 
-  .sidebarOpen {
+  .sessionItemPending {
     animation: none;
-  }
-}
-
-@media (min-width: 901px) {
-  .mobileHeader {
-    display: none;
-  }
-
-  .sidebarBackdrop {
-    display: none;
-  }
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
   }
 }
