@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createChatBranch,
+  fetchChatContext,
   fetchChatHistory,
   fetchChatRecent,
   uploadMedia,
@@ -32,6 +33,7 @@ import css from './chat-page.module.css';
 import { ChatSidebar } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
+import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatStream } from './use-chat-stream';
 
@@ -169,6 +171,14 @@ export function ChatPage() {
     refetchOnWindowFocus: false,
   });
 
+  const contextQuery = useQuery({
+    queryKey: ['chat-context', auth.token, sessionId],
+    queryFn: () => fetchChatContext(auth.token, sessionId),
+    enabled: Boolean(sessionId),
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  });
+
   useEffect(() => {
     const data = historyQuery.data;
     if (!sessionId || !data) return;
@@ -230,6 +240,16 @@ export function ChatPage() {
         : String(historyQuery.error),
     );
   }, [historyQuery.error]);
+
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !stream.isStreaming) {
+      void queryClient.invalidateQueries({
+        queryKey: ['chat-context', auth.token, sessionId],
+      });
+    }
+    wasStreamingRef.current = stream.isStreaming;
+  }, [stream.isStreaming, queryClient, auth.token, sessionId]);
 
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
@@ -407,6 +427,18 @@ export function ChatPage() {
             ☰
           </button>
           <span style={{ fontWeight: 600 }}>HybridClaw</span>
+          <div className={css.mobileHeaderSpacer} />
+          <ContextRing
+            snapshot={contextQuery.data?.snapshot ?? null}
+            isLoading={contextQuery.isFetching}
+          />
+        </div>
+
+        <div className={css.chatHeader}>
+          <ContextRing
+            snapshot={contextQuery.data?.snapshot ?? null}
+            isLoading={contextQuery.isFetching}
+          />
         </div>
 
         {isEmpty ? (

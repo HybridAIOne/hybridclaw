@@ -347,6 +347,7 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -6559,6 +6560,27 @@ export async function prepareSessionAutoReset(params: {
   return expiryEvaluation;
 }
 
+export function getGatewaySessionContextUsage(sessionId: string): {
+  status: 'ok' | 'not_found';
+  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+} {
+  const session = memoryService.getSessionById(sessionId);
+  if (!session) {
+    return { status: 'not_found', snapshot: null };
+  }
+  const runtime = resolveSessionRuntimeTarget(session);
+  const sessionModel = runtime.model;
+  const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
+  const snapshot = buildContextUsageSnapshot({
+    sessionId: session.id,
+    model: sessionModel,
+    messageCount: session.message_count,
+    compactionCount: session.compaction_count,
+    modelContextWindowTokens,
+  });
+  return { status: 'ok', snapshot };
+}
+
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
@@ -8376,6 +8398,47 @@ export async function handleGatewayCommand(
           ].join('\n'),
           resetComponents,
         );
+      }
+
+      case 'context': {
+        const runtime = resolveSessionRuntimeTarget(session);
+        const sessionModel = runtime.model;
+        const modelContextWindowTokens =
+          resolveKnownModelContextWindow(sessionModel);
+        const snapshot = buildContextUsageSnapshot({
+          sessionId: session.id,
+          model: sessionModel,
+          messageCount: session.message_count,
+          compactionCount: session.compaction_count,
+          modelContextWindowTokens,
+        });
+        const usedLabel =
+          snapshot.contextUsedTokens != null
+            ? formatCompactNumber(snapshot.contextUsedTokens)
+            : 'n/a';
+        const budgetLabel =
+          snapshot.contextBudgetTokens != null
+            ? formatCompactNumber(snapshot.contextBudgetTokens)
+            : 'unknown';
+        const percentLabel = formatPercent(snapshot.contextUsagePercent);
+        const remainingLabel =
+          snapshot.contextRemainingTokens != null
+            ? formatCompactNumber(snapshot.contextRemainingTokens)
+            : 'n/a';
+        const lines = [
+          `🧠 Model: ${formatModelForDisplay(sessionModel)}`,
+          `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
+          `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
+          `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,
+          `💬 Messages in session: ${formatCompactNumber(snapshot.messageCount)}`,
+        ];
+        if (snapshot.contextBudgetTokens == null) {
+          lines.push(
+            '',
+            'Tip: context window for this model is unknown, so the ring shows usage without a budget. Set a known model with `/model set <name>` to see headroom.',
+          );
+        }
+        return infoCommand('Context Usage', lines.join('\n'));
       }
 
       case 'compact': {

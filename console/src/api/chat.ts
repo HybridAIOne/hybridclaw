@@ -1,6 +1,7 @@
 import type {
   BranchResponse,
   ChatCommandsResponse,
+  ChatContextResponse,
   ChatHistoryResponse,
   ChatRecentResponse,
   CommandResponse,
@@ -44,6 +45,17 @@ export function fetchChatHistory(
   return requestJson<ChatHistoryResponse>(`/api/history?${params.toString()}`, {
     token,
   });
+}
+
+export function fetchChatContext(
+  token: string,
+  sessionId: string,
+): Promise<ChatContextResponse> {
+  const params = new URLSearchParams({ sessionId });
+  return requestJson<ChatContextResponse>(
+    `/api/chat/context?${params.toString()}`,
+    { token },
+  );
 }
 
 export function fetchChatCommands(

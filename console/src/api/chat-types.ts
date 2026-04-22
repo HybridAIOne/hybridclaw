@@ -40,6 +40,27 @@ export interface ChatHistoryResponse {
   branchFamilies?: BranchFamily[];
 }
 
+export interface ChatContextSnapshot {
+  sessionId: string;
+  model: string;
+  contextUsedTokens: number | null;
+  contextBudgetTokens: number | null;
+  contextUsagePercent: number | null;
+  contextRemainingTokens: number | null;
+  compactionCount: number;
+  compactionTokenBudget: number;
+  compactionMessageThreshold: number;
+  compactionKeepRecent: number;
+  messageCount: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+}
+
+export interface ChatContextResponse {
+  sessionId: string;
+  snapshot: ChatContextSnapshot | null;
+}
+
 export interface ChatCommandSuggestion {
   id: string;
   label: string;
