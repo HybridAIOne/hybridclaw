@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.13.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.0) - 2026-04-22
+
 ### Added
 
 - **Direct Anthropic provider**: Added first-class `anthropic/...` model
