@@ -26,20 +26,21 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- Provider auth and model selection span HybridAI, Codex, OpenRouter, Mistral,
-  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi,
-  Kilo Code, and local backends. Several remote providers also discover model
-  catalogs at runtime.
-- Skills can be enabled or disabled globally or per channel from
-  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
-  `Skills` page.
-- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
-  MemPalace, QMD, and GBrain plugins. The
-  [Memory Plugins](./extensibility/memory-plugins.md) guide compares the main
-  tradeoffs.
-- HybridClaw can emit OpenTelemetry traces to OTLP backends when
-  `OTEL_ENABLED=true` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set, correlating
-  gateway and agent spans with structured logs.
+- `/btw <question>` is available across local and Discord slash-command
+  surfaces for ephemeral side questions that use recent conversation context
+  without persisting the side exchange to session history.
+- The built-in browser chat accepts `/btw` while a primary run is active and
+  renders those replies in a dedicated side-thread style.
+- Bash tool calls preserve shell state (`cd`, exported env vars, aliases)
+  across calls for the active runtime session by default, with
+  `container.persistBashState` and a matching admin toggle to switch back to
+  stateless behavior.
+- Discord, Email, and WhatsApp classify expected transient transport outages
+  locally and rate-limit repetitive outage warnings, which reduces noise during
+  reconnect storms.
+- Artifact remapping preserves host-resolved workspace paths even when display
+  and runtime workspace roots differ, keeping generated files downloadable in
+  cloud-backed sessions.
 
 ## Browse By Section
 

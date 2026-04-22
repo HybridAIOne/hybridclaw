@@ -43,6 +43,8 @@ export class MissingRequiredEnvVarError extends Error {
         'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
       HF_TOKEN:
         'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+      ANTHROPIC_API_KEY:
+        'Anthropic provider is not configured. Use `/auth login anthropic --method api-key` in the TUI, or switch to a model from another configured provider.',
       GEMINI_API_KEY:
         'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
       DEEPSEEK_API_KEY:
@@ -208,6 +210,11 @@ function syncRuntimeSecretExports(): void {
     'MISTRAL_API_KEY',
     storedSecrets,
   );
+  ANTHROPIC_API_KEY = readRuntimeSecretValue(
+    ['ANTHROPIC_API_KEY'],
+    'ANTHROPIC_API_KEY',
+    storedSecrets,
+  );
   HUGGINGFACE_API_KEY = readRuntimeSecretValue(
     ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
     'HF_TOKEN',
@@ -260,7 +267,6 @@ function syncRuntimeSecretExports(): void {
   );
 }
 
-// Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
@@ -269,10 +275,10 @@ export let TWILIO_AUTH_TOKEN = '';
 export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
-// Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
+export let ANTHROPIC_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
 export let GEMINI_API_KEY = '';
 export let DEEPSEEK_API_KEY = '';
@@ -290,7 +296,6 @@ export function refreshRuntimeSecretsFromEnv(): void {
   syncRuntimeSecretExports();
 }
 
-// Runtime settings hot-reload from ~/.hybridclaw/config.json by default
 export let DISCORD_PREFIX = '!claw';
 export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;
@@ -440,6 +445,9 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
+export let ANTHROPIC_ENABLED = false;
+export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export let MISTRAL_ENABLED = false;
@@ -460,7 +468,8 @@ export let KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
 export let MINIMAX_ENABLED = false;
 export let MINIMAX_BASE_URL = 'https://api.minimax.io/v1';
 export let DASHSCOPE_ENABLED = false;
-export let DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+export let DASHSCOPE_BASE_URL =
+  'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 export let XIAOMI_ENABLED = false;
 export let XIAOMI_BASE_URL = 'https://api.xiaomimimo.com/v1';
 export let KILO_ENABLED = false;
@@ -504,6 +513,7 @@ export let ADDITIONAL_MOUNTS = '';
 
 export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
 export let MAX_CONCURRENT_CONTAINERS = 5;
+export let CONTAINER_PERSIST_BASH_STATE = true;
 export let MCP_SERVERS: RuntimeConfig['mcpServers'] = {};
 export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
   'auto';
@@ -826,10 +836,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
+  ANTHROPIC_METHOD = config.anthropic.method;
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   MISTRAL_ENABLED = config.mistral.enabled;
   MISTRAL_BASE_URL = config.mistral.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
   GEMINI_ENABLED = config.gemini.enabled;
@@ -880,6 +895,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
+  CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;
   MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];

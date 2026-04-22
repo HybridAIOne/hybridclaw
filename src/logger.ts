@@ -149,46 +149,98 @@ onRuntimeConfigChange((next, prev) => {
   }
 });
 
-// Use a module-level symbol so the same named handler can be detected across
-// re-imports that occur in tests (vi.resetModules + dynamic import). Without
-// this guard, every reimport of this module appends a fresh listener to the
-// process, quickly exceeding the default MaxListeners limit of 10.
-const UNCAUGHT_EXCEPTION_TAG = '__hybridclaw_uncaughtException__';
-const UNHANDLED_REJECTION_TAG = '__hybridclaw_unhandledRejection__';
+const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
+  'hybridclaw.logger.process-handler-registration',
+);
+const UNCAUGHT_EXCEPTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.uncaught-exception-handler',
+);
+const UNHANDLED_REJECTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.unhandled-rejection-handler',
+);
+
+interface ProcessHandlerRegistrationState {
+  uncaughtException: boolean;
+  unhandledRejection: boolean;
+}
+
+function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
+  const target = process as NodeJS.Process & {
+    [PROCESS_HANDLER_REGISTRATION_KEY]?: ProcessHandlerRegistrationState;
+  };
+  if (target[PROCESS_HANDLER_REGISTRATION_KEY]) {
+    return target[PROCESS_HANDLER_REGISTRATION_KEY];
+  }
+  const state: ProcessHandlerRegistrationState = {
+    uncaughtException: false,
+    unhandledRejection: false,
+  };
+  target[PROCESS_HANDLER_REGISTRATION_KEY] = state;
+  return state;
+}
 
 function uncaughtExceptionHandler(err: Error) {
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 }
+(
+  uncaughtExceptionHandler as typeof uncaughtExceptionHandler & {
+    [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true;
+  }
+)[UNCAUGHT_EXCEPTION_HANDLER_TAG] = true;
 
 function unhandledRejectionHandler(reason: unknown) {
   logger.error({ err: reason }, 'Unhandled rejection');
 }
+(
+  unhandledRejectionHandler as typeof unhandledRejectionHandler & {
+    [UNHANDLED_REJECTION_HANDLER_TAG]?: true;
+  }
+)[UNHANDLED_REJECTION_HANDLER_TAG] = true;
 
-// Tag the handlers so we can detect whether they are already registered.
-(uncaughtExceptionHandler as unknown as Record<string, boolean>)[
-  UNCAUGHT_EXCEPTION_TAG
-] = true;
-(unhandledRejectionHandler as unknown as Record<string, boolean>)[
-  UNHANDLED_REJECTION_TAG
-] = true;
+const processHandlerRegistrationState = getProcessHandlerRegistrationState();
 
-if (
-  !process
-    .listeners('uncaughtException')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNCAUGHT_EXCEPTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.uncaughtException) {
   process.on('uncaughtException', uncaughtExceptionHandler);
+  processHandlerRegistrationState.uncaughtException = true;
 }
 
-if (
-  !process
-    .listeners('unhandledRejection')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNHANDLED_REJECTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.unhandledRejection) {
   process.on('unhandledRejection', unhandledRejectionHandler);
+  processHandlerRegistrationState.unhandledRejection = true;
 }
+
+export function removeLoggerProcessHandlersForTests(): void {
+  for (const listener of process.listeners('uncaughtException')) {
+    if (
+      (listener as { [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true })[
+        UNCAUGHT_EXCEPTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'uncaughtException',
+        listener as (error: Error) => void,
+      );
+    }
+  }
+
+  for (const listener of process.listeners('unhandledRejection')) {
+    if (
+      (listener as { [UNHANDLED_REJECTION_HANDLER_TAG]?: true })[
+        UNHANDLED_REJECTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'unhandledRejection',
+        listener as (reason: unknown) => void,
+      );
+    }
+  }
+
+  const state = getProcessHandlerRegistrationState();
+  state.uncaughtException = false;
+  state.unhandledRejection = false;
+}
+
+export const handleUncaughtExceptionForTests = uncaughtExceptionHandler;
+export const handleUnhandledRejectionForTests = unhandledRejectionHandler;

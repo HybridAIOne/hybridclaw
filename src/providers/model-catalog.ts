@@ -1,6 +1,12 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
+  discoverAnthropicModels,
+  getDiscoveredAnthropicModelNames,
+  isDiscoveredAnthropicModelVisionCapable,
+} from './anthropic-discovery.js';
+import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
+import {
   discoverCodexModels,
   getDiscoveredCodexModelNames,
 } from './codex-discovery.js';
@@ -63,6 +69,7 @@ const PREFIX_BY_PROVIDER: Record<
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
+  anthropic: ANTHROPIC_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
   mistral: MISTRAL_MODEL_PREFIX,
   huggingface: HUGGINGFACE_MODEL_PREFIX,
@@ -191,11 +198,20 @@ function dedupeModelList(models: string[]): string[] {
 function collectModelsForProvider(
   filter: ModelCatalogProviderFilter,
 ): string[] {
+  const config = getRuntimeConfig();
   switch (filter) {
     case 'hybridai':
       return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
+    case 'anthropic': {
+      const discovered = getDiscoveredAnthropicModelNames();
+      return discovered.length > 0
+        ? discovered
+        : config.anthropic.enabled
+          ? config.anthropic.models
+          : [];
+    }
     case 'local':
     case 'ollama':
     case 'lmstudio':
@@ -215,9 +231,9 @@ function collectModelsForProvider(
     case 'dashscope':
     case 'xiaomi':
     case 'kilo': {
-      const section = (getRuntimeConfig() as unknown as Record<string, unknown>)[
-        filter
-      ] as { enabled: boolean; models: string[] } | undefined;
+      const section = (config as unknown as Record<string, unknown>)[filter] as
+        | { enabled: boolean; models: string[] }
+        | undefined;
       return [
         ...getDiscoveredOpenAICompatRemoteModelNames(),
         ...(section?.enabled ? section.models : []),
@@ -237,6 +253,7 @@ export function getAvailableModelList(provider?: string): string[] {
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),
+        ...collectModelsForProvider('anthropic'),
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
         ...getDiscoveredOpenAICompatRemoteModelNames(),
@@ -257,6 +274,7 @@ export function getAvailableModelList(provider?: string): string[] {
   const filteredModels = models.filter((model) =>
     matchesProviderFilter(model, normalizedProvider),
   );
+  if (normalizedProvider === 'anthropic') return filteredModels;
   return filteredModels.sort((left, right) =>
     compareModelNames(left, right, normalizedProvider),
   );
@@ -267,6 +285,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
 }): Promise<void> {
   await Promise.allSettled([
     discoverCodexModels(),
+    discoverAnthropicModels(),
     discoverAllLocalModels(),
     discoverHuggingFaceModels(),
     discoverMistralModels(),
@@ -285,6 +304,7 @@ export function isModelVisionCapable(model: string): boolean {
   if (!normalized) return false;
   return (
     isDiscoveredMistralModelVisionCapable(normalized) ||
+    isDiscoveredAnthropicModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
   );

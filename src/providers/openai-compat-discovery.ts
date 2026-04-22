@@ -18,9 +18,8 @@ import {
 } from './openai-compat-remote.js';
 import { getDiscoveredOpenRouterModelNames } from './openrouter-discovery.js';
 import type { RuntimeProviderId } from './provider-ids.js';
-import { isRecord, normalizeBaseUrl } from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
-const OPENAI_COMPAT_DISCOVERY_TTL_MS = 3_600_000;
 const OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS = 5_000;
 const OPENAI_COMPAT_DISCOVERY_PATH = '/models';
 
@@ -38,6 +37,7 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   kilo: () => KILO_ENABLED,
   hybridai: undefined,
   'openai-codex': undefined,
+  anthropic: undefined,
   openrouter: undefined,
   mistral: undefined,
   huggingface: undefined,
@@ -83,22 +83,21 @@ export interface OpenAICompatDiscoveryStore {
   getLastError: () => DiscoveryError | null;
 }
 
+interface OpenAICompatDiscoveryState {
+  discoveredModelNames: string[];
+}
+
+const buildEmptyOpenAICompatDiscoveryState =
+  (): OpenAICompatDiscoveryState => ({ discoveredModelNames: [] });
+
 export function createOpenAICompatDiscoveryStore(
   def: OpenAICompatRemoteProviderDef,
   readEnabled: () => boolean,
 ): OpenAICompatDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyOpenAICompatDiscoveryState(),
+  );
   let lastError: DiscoveryError | null = null;
-
-  function replaceCache(
-    modelNames: string[],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
 
   function resolveDiscoveryUrl(): string {
     const override = DISCOVERY_URL_OVERRIDES[def.id];
@@ -109,7 +108,9 @@ export function createOpenAICompatDiscoveryStore(
     return `${normalizeBaseUrl(def.readBaseUrl())}${OPENAI_COMPAT_DISCOVERY_PATH}`;
   }
 
-  async function fetchModels(apiKey: string): Promise<string[]> {
+  async function fetchModels(
+    apiKey: string,
+  ): Promise<OpenAICompatDiscoveryState> {
     const url = resolveDiscoveryUrl();
     const response = await fetch(url, {
       headers: {
@@ -137,40 +138,29 @@ export function createOpenAICompatDiscoveryStore(
       seen.add(prefixed);
       discovered.push(prefixed);
     }
-    replaceCache(discovered);
-    return [...discovered];
+    lastError = null;
+    return { discoveredModelNames: discovered };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!readEnabled()) {
-      replaceCache([], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
     const apiKey = def.readApiKey({ required: false });
     if (!apiKey) {
-      replaceCache([], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < OPENAI_COMPAT_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchModels(apiKey);
-        lastError = null;
-        return [...discoveredModelNames];
-      } catch (err) {
+    const state = await discoveryStore.discover(() => fetchModels(apiKey), {
+      force: opts?.force,
+      onError: (err, staleState) => {
         const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
         const message = err instanceof Error ? err.message : String(err);
         lastError = { httpStatus, message };
@@ -185,18 +175,15 @@ export function createOpenAICompatDiscoveryStore(
             'OpenAI-compat model discovery failed',
           );
         }
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+        return staleState;
+      },
+    });
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getLastError: () => (lastError ? { ...lastError } : null),
   };
 }

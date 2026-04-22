@@ -2,6 +2,127 @@
 
 ## Unreleased
 
+### Added
+
+- **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
+  Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
+  including the Homebrew install helper and Google OAuth setup via
+  `hybridclaw auth login google`. HybridClaw stores the OAuth client secret
+  and refresh token in encrypted runtime secrets, mints short-lived access
+  tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
+  into the agent runtime.
+
+### Changed
+
+- **Google Workspace skill routing prefers `gog` for API access**: The
+  browser-oriented `google-workspace` skill now defers to the bundled `gog`
+  skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
+  access is available.
+
+### Fixed
+
+- **Google Workspace replies preserve user-visible addresses**: Assistant
+  replies and streamed chat text no longer redact ordinary email addresses
+  before they reach the user. Redaction still applies to audit, logging,
+  approval/control previews, and observability paths.
+- **HybridAI streaming avoids duplicate assistant text**: The HybridAI stream
+  adapter now handles chunks that include both cumulative `message.content` and
+  incremental `delta.content` without emitting the same text twice.
+
+## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
+
+### Added
+
+- **Ephemeral `/btw` side-question command**: Added `/btw <question>` across
+  local and Discord slash-command surfaces. It answers side questions from
+  recent conversation context with a tool-less model call, without persisting
+  the side exchange to session history.
+- **Concurrent `/btw` threads in browser chat**: The built-in `/chat` surface
+  accepts `/btw ...` while a primary run is active and renders those replies in
+  a distinct side-thread presentation.
+- **Bash tool state can persist between calls**: Added persistent bash state
+  support so bash tool calls can preserve
+  working directory, exported environment variables, and aliases for the active
+  session by default, plus `container.persistBashState` and a matching
+  `/admin/config` toggle (`Persistent bash state`) to disable this behavior
+  when stateless shell calls are preferred.
+
+### Fixed
+
+- **Expected transport outages stay local and less noisy**: Discord, Email
+  IMAP, and WhatsApp transport handlers now classify expected transient
+  transport failures, keep reconnect loops local, and rate-limit repetitive
+  outage logs.
+- **Cloud artifact path remapping remains stable across workspace roots**:
+  Artifact remapping now preserves host-resolved workspace paths when runtime
+  and display roots differ, keeping generated files downloadable and attachable
+  in cloud-backed sessions.
+- **Remote skill import guardrails close unsafe/over-budget paths**: GitHub
+  and skill-hub imports now enforce shared file-count/byte budgets during
+  streaming downloads and consistently reject unsafe relative paths.
+
+## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
+
+### Added
+
+- **Web chat conversation search**: The built-in `/chat` sidebar can now search
+  recent sessions by title and show contextual match snippets, making it much
+  easier to jump back into older browser conversations without paging through
+  the default recent list.
+
+### Changed
+
+- **Bundled PDF creation handles longer documents cleanly**:
+  `skills/pdf/scripts/create_pdf.mjs` now wraps long lines, respects explicit
+  `\n` line breaks, and adds pages automatically when content exceeds the
+  first page. The bundled PDF skill guidance and office-skills docs now call
+  out the improved layout behavior.
+
+### Fixed
+
+- **Browser chat stays keyboard-ready between turns**: Both the built-in web
+  chat and the console chat now restore focus to the composer after streamed
+  replies finish, so back-to-back prompts no longer require clicking back into
+  the input field.
+- **Artifact downloads survive custom workspace display roots**: Container
+  output artifacts are remapped against the active workspace path even when the
+  runtime exposes a different display root such as `/app`, keeping generated
+  files downloadable and attachable from chat surfaces.
+
+## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
+
+### Added
+
+- **HybridAI skills eval suite**: Added `hybridclaw eval hybridai-skills
+  [setup|list|run|results]` plus local `/eval hybridai-skills ...` flows that
+  harvest the "Try it yourself" prompts from the bundled skills guides into a
+  fixture set and grade which documented skill actually fired from the model's
+  tool trace. It also includes `--explicit` for
+  forced `/<skill> ...` invocation, richer result traces with observed skill,
+  artifact presence, and counted tool-call totals, and fresh-agent cleanup so
+  temporary eval workspaces, sessions, and audit trails do not accumulate after
+  grading.
+
+### Changed
+
+- **`/admin/gateway` now reloads config instead of restarting the runtime**:
+  The browser action now uses `Reload Gateway`, which refreshes runtime config
+  and secrets through the admin API without tearing down the enclosing
+  workspace container. Local/manual `hybridclaw gateway restart` stays
+  available when a full restart is still required.
+
+### Fixed
+
+- **Unattended eval runs no longer stop on tool approvals**: Eval-profiled
+  loopback requests now auto-approve tools end to end, expose execution-session
+  and artifact-count response headers for correlation, and let detached local
+  eval runs finish without manual approval interruptions.
+- **Agent image builds are quieter in CI**: The container Dockerfile now sets
+  `DEBIAN_FRONTEND=noninteractive` for the apt-based image layers and
+  Playwright's `install-deps chromium` step, eliminating repeated `debconf`
+  frontend fallback warnings during release and snapshot builds without
+  changing the installed package set or runtime behavior.
+
 ## [0.12.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.8)
 
 ### Changed
@@ -1185,7 +1306,7 @@
   through shared routing for Discord, WhatsApp, email, and local clients,
   including native vision/audio injection paths and stronger preference for
   current-turn local files over history rediscovery.
-- **Auxiliary task/provider routing**: Added Hermes-style auxiliary routing and
+- **Auxiliary task/provider routing**: Added auxiliary routing and
   tighter provider fallback handling so deferred or background tasks pick the
   right model more predictably.
 - **Discord activation config cleanup**: Removed the obsolete

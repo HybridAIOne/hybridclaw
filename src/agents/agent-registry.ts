@@ -16,7 +16,11 @@ import {
   isDatabaseInitialized,
 } from '../memory/db.js';
 import type { Session } from '../types/session.js';
-import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  normalizeNullableTrimmedString as normalizeNullableString,
+  normalizeOptionalTrimmedUniqueStringArray,
+  normalizeTrimmedString as normalizeString,
+} from '../utils/normalized-strings.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -57,15 +61,6 @@ function resetRegistryState(): void {
 }
 
 resetRegistryState();
-
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeNullableString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  return value.trim();
-}
 
 function cloneModelConfig(
   value: AgentModelConfig | undefined,
@@ -525,7 +520,6 @@ export function migrateWorkspaceDirs(): void {
   }
 }
 
-// Tree-shakeable test helper for suites that intentionally reuse a module instance.
 export function resetAgentRegistryForTesting(): void {
   resetRegistryState();
 }

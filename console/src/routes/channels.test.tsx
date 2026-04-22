@@ -221,6 +221,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       additionalMounts: '',
       maxOutputBytes: 200000,
       maxConcurrent: 2,
+      persistBashState: true,
     },
     ops: {
       healthHost: '127.0.0.1',

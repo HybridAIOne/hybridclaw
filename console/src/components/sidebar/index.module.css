@@ -13,6 +13,7 @@
   z-index: 30;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
   height: 100vh;
   border-right: 1px solid var(--sidebar-border);
@@ -170,9 +171,30 @@
   color: var(--accent-foreground);
 }
 
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.sidebarToggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.sidebarToggle svg {
+  width: 16px;
+  height: 16px;
+}
+
 .brand {
   display: grid;
   padding: 2px 6px;
+  min-width: 0;
 }
 
 .brandTitle {
@@ -313,6 +335,14 @@
 .root[data-state="collapsed"] .footerDivider,
 .root[data-state="collapsed"] .footerButton span:not(.icon),
 .root[data-state="collapsed"] .themeToggleLabel {
+  display: none;
+}
+
+.root[data-state="collapsed"] .headerRow {
+  justify-content: center;
+}
+
+.root[data-state="collapsed"] .brand {
   display: none;
 }
 

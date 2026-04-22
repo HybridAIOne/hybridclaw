@@ -24,6 +24,7 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
@@ -88,12 +89,35 @@ hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended
   for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
+  `hybridai-skills`
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--kind
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics
@@ -240,6 +264,7 @@ hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
 hybridclaw skill install <skill-name> <dependency>
+hybridclaw skill setup <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
@@ -265,8 +290,9 @@ hybridclaw audit instructions [--sync]
 community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
-named skill. Use `skill list` first to discover the dependency ids exposed by a
-skill.
+named skill. `skill setup <skill-name>` runs every declared dependency for that
+skill in order. Use `skill list` first to discover the dependency ids exposed by
+a skill.
 `update` checks for a newer installed release and can upgrade a global npm
 install. When `--yes` completes successfully and a local gateway is already
 running with a replayable launch command, HybridClaw restarts it automatically
@@ -336,8 +362,9 @@ the same gateway command surface used by TUI and web chat.
   and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
-- local TUI and web chat support `/skill list` to inspect dependency ids and
-  `/skill install <skill> <dependency>` to run one declared skill dependency
+- local TUI and web chat support `/skill list` to inspect dependency ids,
+  `/skill install <skill> <dependency>` to run one declared skill dependency,
+  and `/skill setup <skill>` to run every declared dependency for a skill
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over
@@ -374,6 +401,7 @@ Example skill dependency flow:
 
 ```text
 /skill list
-/skill install manim-video uv-manim
-/skill install manim-video brew-ffmpeg
+/skill setup gws
+/skill install manim-video manim
+/skill install manim-video ffmpeg
 ```

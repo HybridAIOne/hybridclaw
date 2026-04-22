@@ -162,6 +162,7 @@ function createGatewayMainTestState(options?: {
       providerHealth: {},
       localBackends: {},
     })),
+    getActiveExecutorCount: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
@@ -199,6 +200,7 @@ function createGatewayMainTestState(options?: {
     loggerFatal: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    shutdownDiscord: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
@@ -367,6 +369,7 @@ async function importFreshGatewayMain(options?: {
   vi.stubGlobal('clearTimeout', vi.fn());
 
   vi.doMock('../src/agent/executor.js', () => ({
+    getActiveExecutorCount: state.getActiveExecutorCount,
     stopAllExecutions: vi.fn(),
   }));
   vi.doMock('../src/agent/proactive-policy.js', () => ({
@@ -399,6 +402,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/discord/runtime.js', () => ({
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
+    shutdownDiscord: state.shutdownDiscord,
     setDiscordMaintenancePresence: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
@@ -2347,6 +2351,33 @@ describe('gateway bootstrap', () => {
         replyStyle: 'top-level',
       }),
     );
+  });
+
+  test('SIGTERM shutdown stops executors before draining', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (nextState) => {
+        nextState.getActiveExecutorCount.mockReturnValueOnce(1);
+        nextState.getActiveExecutorCount.mockReturnValue(0);
+      },
+    });
+    const sigtermHandler = state.processOn.mock.calls.find(
+      ([event]) => event === 'SIGTERM',
+    )?.[1] as (() => void) | undefined;
+    const executorModule = await import('../src/agent/executor.js');
+    const stopAllExecutionsMock = vi.mocked(executorModule.stopAllExecutions);
+
+    expect(sigtermHandler).toBeTypeOf('function');
+
+    sigtermHandler?.();
+    await settle();
+
+    expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
+    expect(stopAllExecutionsMock.mock.invocationCallOrder[0]).toBeLessThan(
+      state.getActiveExecutorCount.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(
+      state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
+    ).toHaveBeenCalledTimes(1);
   });
 
   test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {

@@ -53,7 +53,6 @@ export function useToast(): ToastManager {
   return ctx;
 }
 
-// Module-level counter for unique toast IDs. Not suitable for SSR.
 let nextId = 0;
 
 function clampDuration(value: number): number {

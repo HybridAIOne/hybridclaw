@@ -25,6 +25,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from './index';
 import styles from './index.module.css';
@@ -37,9 +38,12 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar>
+    <Sidebar collapsible="none">
       <SidebarHeader>
-        <SidebarBrand />
+        <div className={styles.headerRow}>
+          <SidebarBrand />
+          <MobileSidebarTrigger />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {props.groups.map((group) => (
@@ -92,6 +96,12 @@ function SidebarBrand() {
   );
 }
 
+function MobileSidebarTrigger() {
+  const { isMobile } = useSidebar();
+  if (!isMobile) return null;
+  return <SidebarTrigger className={styles.sidebarToggle} />;
+}
+
 function SidebarNavLink(props: { item: SidebarNavItem }) {
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -102,7 +112,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
       inactiveProps={{ className: styles.menuButton }}
-      activeOptions={{ exact: props.item.to === '/' }}
+      activeOptions={{ exact: true }}
       onClick={() => {
         if (isMobile) {
           setOpenMobile(false);

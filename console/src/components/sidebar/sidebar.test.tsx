@@ -66,7 +66,6 @@ function setViewport(width: number) {
 
 type SidebarCtx = SidebarContextSnapshot;
 
-// Helper: expose useSidebar return value to assertions
 function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
   const ctx = useSidebar();
   props.onRender(ctx);
@@ -74,7 +73,10 @@ function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
 }
 
 describe('SidebarProvider', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('exposes full context shape', () => {
@@ -179,7 +181,10 @@ describe('SidebarProvider', () => {
 });
 
 describe('Sidebar — desktop', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders expanded by default', () => {
@@ -217,7 +222,10 @@ describe('Sidebar — desktop', () => {
 });
 
 describe('Sidebar — mobile overlay', () => {
-  beforeEach(() => setViewport(900));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(900);
+  });
   afterEach(cleanup);
 
   it('renders as mobile overlay with data-mobile="true"', () => {
@@ -357,6 +365,7 @@ describe('Sidebar — mobile overlay', () => {
 });
 
 describe('SidebarTrigger', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('renders on desktop', () => {
@@ -427,7 +436,10 @@ describe('SidebarTrigger', () => {
 });
 
 describe('AppSidebar', () => {
-  beforeEach(() => setViewport(1440));
+  beforeEach(() => {
+    localStorage.clear();
+    setViewport(1440);
+  });
   afterEach(cleanup);
 
   it('renders brand and nav sections', () => {
@@ -460,7 +472,6 @@ describe('AppSidebar', () => {
     for (const item of SIDEBAR_NAV_GROUPS.flatMap((g) => g.items)) {
       expect(screen.getByText(item.label)).toBeDefined();
     }
-    expect(screen.queryByText('Chat')).toBeNull();
   });
 
   it('renders version when provided', () => {
@@ -542,7 +553,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('desktop sidebar starts expanded and collapses on trigger click', () => {
+  it('desktop sidebar is always expanded', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -550,16 +561,11 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarInset>
-          <SidebarTrigger />
-        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
-    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+    expect(screen.queryByRole('button', { name: /sidebar$/i })).toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {
@@ -608,6 +614,7 @@ describe('AppSidebar', () => {
 });
 
 describe('Editable-element guards', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
   it('Escape does not close mobile drawer when focus is in an input', () => {

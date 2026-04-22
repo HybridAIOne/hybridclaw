@@ -29,7 +29,6 @@ let originalDataDir: string | undefined;
 let originalHome: string | undefined;
 let originalWatcher: string | undefined;
 
-// Dynamically imported after setting HYBRIDCLAW_DATA_DIR.
 type RuntimeConfigModule = typeof import('../src/config/runtime-config.js');
 let configMod: RuntimeConfigModule;
 
@@ -101,6 +100,7 @@ describe('config reload integration', () => {
     const cfg = configMod.getRuntimeConfig();
     // Default healthPort should be the standard default (9090).
     expect(cfg.ops.healthPort).toBe(9090);
+    expect(cfg.container.persistBashState).toBe(true);
   });
 
   it('invalid JSON in config.json throws descriptive error', () => {
@@ -119,7 +119,9 @@ describe('config reload integration', () => {
     });
 
     // Verify the change persisted to disk.
-    const diskConfig = readConfigFromDisk() as { discord?: { prefix?: string } };
+    const diskConfig = readConfigFromDisk() as {
+      discord?: { prefix?: string };
+    };
     expect(diskConfig.discord?.prefix).toBe('!!updated');
 
     // And is reflected in the in-memory config.
@@ -145,6 +147,15 @@ describe('config reload integration', () => {
     const cfg = configMod.reloadRuntimeConfig('test');
     // Invalid port string should fall back to default (9090).
     expect(cfg.ops.healthPort).toBe(9090);
+  });
+
+  it('reloadRuntimeConfig accepts container.persistBashState=false', () => {
+    writeConfig({
+      container: { persistBashState: false },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.container.persistBashState).toBe(false);
   });
 
   it('nested config updates do not clobber sibling keys', () => {

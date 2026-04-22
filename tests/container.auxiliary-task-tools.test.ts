@@ -79,6 +79,7 @@ test('session_search upgrades summaries with the auxiliary session_search task m
     await import('../container/src/tools.js');
   setModelContext(
     'hybridai',
+    undefined,
     'https://hybridai.one',
     'test-key',
     'gpt-5-nano',
@@ -156,6 +157,7 @@ test('web_extract applies auxiliary web processing by default', async () => {
     await import('../container/src/tools.js');
   setModelContext(
     'hybridai',
+    undefined,
     'https://hybridai.one',
     'test-key',
     'gpt-5-nano',

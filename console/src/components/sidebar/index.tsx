@@ -4,6 +4,7 @@ import {
   createContext,
   type HTMLAttributes,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -17,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
-import { Menu } from '../icons';
+import { PanelLeft } from '../icons';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -32,9 +33,12 @@ type SidebarContextValue = {
   toggleSidebar: () => void;
 };
 
+type SidebarCollapsible = 'icon' | 'none';
+
 type SidebarProps = {
   children: ReactNode;
   side?: 'left' | 'right';
+  collapsible?: SidebarCollapsible;
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -55,11 +59,47 @@ function getIsMobile() {
   return window.innerWidth < SIDEBAR_MOBILE_BREAKPOINT;
 }
 
+const DEFAULT_STORAGE_KEY = 'hybridclaw_sidebar_state';
+
+function readPersistedOpen(
+  defaultOpen: boolean,
+  storageKey: string | false,
+): boolean {
+  if (!storageKey || typeof window === 'undefined') return defaultOpen;
+  const stored = localStorage.getItem(storageKey);
+  if (stored === 'true') return true;
+  if (stored === 'false') return false;
+  return defaultOpen;
+}
+
 export function SidebarProvider(props: {
   children: ReactNode;
   style?: CSSProperties;
+  defaultOpen?: boolean;
+  /** localStorage key for persisting state. Pass false to disable persistence. */
+  storageKey?: string | false;
 }) {
-  const [open, setOpen] = useState(true);
+  const key = props.storageKey ?? DEFAULT_STORAGE_KEY;
+  const [open, setOpenRaw] = useState(() =>
+    readPersistedOpen(props.defaultOpen ?? true, key),
+  );
+  const setOpen = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      setOpenRaw((prev) => {
+        const next = typeof value === 'function' ? value(prev) : value;
+        if (next === prev) return prev;
+        if (key) {
+          try {
+            localStorage.setItem(key, String(next));
+          } catch {
+            // localStorage may be unavailable
+          }
+        }
+        return next;
+      });
+    },
+    [key],
+  );
   const [openMobile, setOpenMobile] = useState(false);
   const [isMobile, setIsMobile] = useState(getIsMobile);
 
@@ -107,7 +147,7 @@ export function SidebarProvider(props: {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [setOpen]);
 
   const value = useMemo<SidebarContextValue>(
     () => ({
@@ -125,7 +165,7 @@ export function SidebarProvider(props: {
         }
       },
     }),
-    [isMobile, open, openMobile],
+    [isMobile, open, openMobile, setOpen],
   );
 
   return (
@@ -143,7 +183,11 @@ export function useSidebar(): SidebarContextSnapshot {
   return useSidebarContext();
 }
 
-export function Sidebar({ side = 'left', children }: SidebarProps) {
+export function Sidebar({
+  side = 'left',
+  collapsible = 'icon',
+  children,
+}: SidebarProps) {
   const context = useSidebarContext();
 
   // Mobile: delegate entirely to Dialog (as drawer) which owns portalling,
@@ -173,13 +217,19 @@ export function Sidebar({ side = 'left', children }: SidebarProps) {
     );
   }
 
-  // Desktop: collapsible panel.
+  // Non-collapsible sidebar — always expanded.
+  if (collapsible === 'none') {
+    return (
+      <aside className={styles.root} data-side={side} data-state="expanded">
+        {children}
+      </aside>
+    );
+  }
+
+  // Desktop: collapsible icon-rail panel.
+  const state = context.open ? 'expanded' : 'collapsed';
   return (
-    <aside
-      className={styles.root}
-      data-side={side}
-      data-state={context.open ? 'expanded' : 'collapsed'}
-    >
+    <aside className={styles.root} data-side={side} data-state={state}>
       {children}
     </aside>
   );
@@ -234,7 +284,7 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
         }
       }}
     >
-      {children ?? <Menu />}
+      {children ?? <PanelLeft />}
     </button>
   );
 }

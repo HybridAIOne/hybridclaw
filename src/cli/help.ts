@@ -204,9 +204,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -214,23 +214,30 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login anthropic --method claude-cli --set-default
+  hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
+  hybridclaw auth status anthropic
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
+  hybridclaw auth status google
   hybridclaw auth status msteams
   hybridclaw auth status slack
+  hybridclaw auth logout anthropic
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
+  hybridclaw auth logout google
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -240,11 +247,36 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()} and uses the direct Anthropic Messages API.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
+}
+
+export function printGoogleUsage(): void {
+  console.log(`Usage: hybridclaw auth login google [options]
+
+Options:
+  --client-id <id>          Google OAuth desktop client id
+  --client-secret <secret>  Google OAuth desktop client secret
+  --account <email>         Google account used by gog
+  --scopes <scopes>         Space- or comma-separated OAuth scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com --scopes "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar"
+  hybridclaw auth status google
+  hybridclaw auth logout google
+
+Notes:
+  - The Google refresh token and client secret are stored in encrypted runtime secrets.
+  - Agent containers receive only short-lived Google Workspace access tokens minted by the host.
+  - Use a Google OAuth desktop client with an authorized redirect URI matching the printed localhost callback URL.`);
 }
 
 export function printChannelsUsage(): void {
@@ -453,6 +485,21 @@ Notes:
   - \`auth logout openrouter\` clears the stored API key but leaves runtime config unchanged.`);
 }
 
+export function printAnthropicUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth status anthropic
+  hybridclaw auth logout anthropic
+
+Notes:
+  - Model IDs use the \`anthropic/\` prefix in HybridClaw, for example \`anthropic/claude-sonnet-4-6\`.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\`, uses the direct Anthropic API transport, and can set the global default model.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
+  - If \`--method\` is omitted, HybridClaw defaults to \`api-key\`.
+  - If \`--api-key\` is omitted for \`--method api-key\`, HybridClaw prompts you to paste the key.
+  - \`auth logout anthropic\` clears the stored API key, but Claude Code credentials are managed separately by the \`claude\` CLI.`);
+}
+
 export function printHuggingFaceUsage(): void {
   console.log(`Usage:
   hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
@@ -541,6 +588,7 @@ Commands:
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -552,6 +600,7 @@ Commands:
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
   - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -832,6 +881,10 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'openrouter':
       printOpenRouterUsage();
+      return true;
+    case 'anthropic':
+    case 'claude':
+      printAnthropicUsage();
       return true;
     case 'mistral':
       printMistralUsage();

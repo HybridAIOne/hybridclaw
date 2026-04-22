@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
+import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -16,6 +18,7 @@ import {
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -52,7 +55,7 @@ import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
-import { redactSecrets } from '../security/redact.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -222,7 +225,7 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
 
   try {
     if (!delta) return;
-    callback(redactSecrets(delta));
+    callback(redactCredentialSecrets(delta));
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
@@ -243,7 +246,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         toolName: resultMatch[1],
         phase: 'finish',
         durationMs: parseInt(resultMatch[2], 10),
-        preview: redactSecrets(resultMatch[3]),
+        preview: redactCredentialSecrets(resultMatch[3]),
       });
     } catch (err) {
       logger.debug(
@@ -261,7 +264,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         sessionId: entry.sessionId,
         toolName: startMatch[1],
         phase: 'start',
-        preview: redactSecrets(startMatch[2]),
+        preview: redactCredentialSecrets(startMatch[2]),
       });
     } catch (err) {
       logger.debug(
@@ -290,9 +293,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     }
     return {
       approvalId: parsed.approvalId,
-      prompt: redactSecrets(parsed.prompt),
-      intent: redactSecrets(parsed.intent),
-      reason: redactSecrets(parsed.reason),
+      prompt: redactCredentialSecrets(parsed.prompt),
+      intent: redactCredentialSecrets(parsed.intent),
+      reason: redactCredentialSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
       allowAll: parsed.allowAll === true,
@@ -359,31 +362,46 @@ function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
+  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
 ): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
   const workspaceRoot = path.resolve(workspacePath);
+  const displayRoot = path.posix.normalize(
+    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
+  );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
-    if (
-      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
-      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
-    ) {
+    const allowedRoots =
+      displayRoot === CONTAINER_WORKSPACE_ROOT
+        ? [CONTAINER_WORKSPACE_ROOT]
+        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
+            (left, right) => right.length - left.length,
+          );
+    const matchedRoot =
+      allowedRoots.find(
+        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
+      ) ?? null;
+    if (!matchedRoot) {
       return null;
     }
-    const rel = cleanAbs
-      .slice(CONTAINER_WORKSPACE_ROOT.length)
-      .replace(/^\/+/, '');
+    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (
-      resolved === workspaceRoot ||
-      resolved.startsWith(`${workspaceRoot}${path.sep}`)
-    ) {
+    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
     }
     return null;
@@ -392,10 +410,7 @@ function resolveArtifactHostPath(
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (
-    resolved === workspaceRoot ||
-    resolved.startsWith(`${workspaceRoot}${path.sep}`)
-  ) {
+  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
     return resolved;
   }
   return null;
@@ -404,6 +419,7 @@ function resolveArtifactHostPath(
 export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
+  workspaceDisplayRoot?: string,
 ): void {
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
@@ -412,6 +428,7 @@ export function remapOutputArtifacts(
     const hostPath = resolveArtifactHostPath(
       String(raw.path || ''),
       workspacePath,
+      workspaceDisplayRoot,
     );
     if (!hostPath) continue;
     const filename =
@@ -573,6 +590,8 @@ function getOrSpawnContainer(
     `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
     '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+    '-e',
+    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
 
   for (const [name, value] of [
@@ -773,6 +792,13 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
+  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    logger.warn(
+      { error },
+      'Failed to resolve Google access token for Workspace CLI runtime environment',
+    );
+    return {};
+  });
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',
@@ -795,6 +821,7 @@ async function runContainerInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
+    providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
@@ -813,6 +840,7 @@ async function runContainerInner(
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
+    activeMessageChannels: collectActiveMessageToolChannelKinds(),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -833,6 +861,7 @@ async function runContainerInner(
     pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
+    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
@@ -848,10 +877,12 @@ async function runContainerInner(
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
     provider: input.provider,
+    providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -946,17 +977,23 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
-    remapOutputArtifacts(output, workspacePath);
-    if (typeof output.result === 'string')
-      output.result = redactSecrets(output.result);
-    if (typeof output.error === 'string')
-      output.error = redactSecrets(output.error);
+    remapOutputArtifacts(
+      output,
+      workspacePath,
+      params.workspaceDisplayRootOverride,
+    );
+    if (typeof output.result === 'string') {
+      output.result = redactCredentialSecrets(output.result);
+    }
+    if (typeof output.error === 'string') {
+      output.error = redactCredentialSecrets(output.error);
+    }
     if (output.pendingApproval) {
       output.pendingApproval = {
         ...output.pendingApproval,
-        prompt: redactSecrets(output.pendingApproval.prompt),
-        intent: redactSecrets(output.pendingApproval.intent),
-        reason: redactSecrets(output.pendingApproval.reason),
+        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
+        intent: redactCredentialSecrets(output.pendingApproval.intent),
+        reason: redactCredentialSecrets(output.pendingApproval.reason),
       };
     }
     const duration = Date.now() - startTime;
