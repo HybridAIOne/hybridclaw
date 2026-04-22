@@ -518,4 +518,37 @@ describe('ChatPage', () => {
 
     errorSpy.mockRestore();
   });
+
+  it('renders the chat topbar mobile trigger only when the viewport is mobile', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    function countMobileTriggers() {
+      return document.querySelectorAll('[class*="chatMobileTrigger"]').length;
+    }
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 800,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+    expect(countMobileTriggers()).toBeGreaterThan(0);
+
+    act(() => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: 1440,
+      });
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    expect(countMobileTriggers()).toBe(0);
+  });
 });

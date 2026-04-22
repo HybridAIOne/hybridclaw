@@ -12,6 +12,11 @@
   top: 0;
   z-index: 30;
   display: grid;
+  /* minmax(0, 1fr) prevents the implicit column from sizing to children's
+     min-content — otherwise a full-width search input or button keeps the
+     column ~15.5rem wide even after collapsing to the 4rem rail, which
+     pushes the trigger out of the clipped aside. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);

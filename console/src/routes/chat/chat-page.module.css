@@ -172,6 +172,27 @@
   color: var(--muted-foreground);
 }
 
+/* Chat-sidebar tweaks for the desktop collapsed rail (attribute selector is
+   intentionally global so it matches the aside regardless of CSS module
+   scoping). The sidebar switches to data-state="collapsed" on desktop only
+   — mobile uses a Sheet overlay that renders without this attribute. */
+aside[data-state="collapsed"] .newChatButton {
+  justify-content: center;
+  padding: 10px 8px;
+  gap: 0;
+}
+
+aside[data-state="collapsed"] .newChatButton > span:not(:first-child),
+aside[data-state="collapsed"] .sidebarSearchWrap,
+aside[data-state="collapsed"] .chatSidebarContent {
+  display: none;
+}
+
+.chatMobileTrigger {
+  display: inline-flex;
+  margin-right: auto;
+}
+
 .chatTopbar {
   display: flex;
   justify-content: flex-end;
