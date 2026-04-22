@@ -331,6 +331,18 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {!props.isStreaming ? (
         <div className={css.messageActions}>
+          {isAssistant && msg.replayRequest ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={css.actionButton}
+              title="Regenerate"
+              aria-label="Regenerate response"
+              onClick={() => props.onRegenerate(msg)}
+            >
+              ↻
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -351,18 +363,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
               onClick={() => props.onEdit(msg)}
             >
               ✎
-            </Button>
-          ) : null}
-          {isAssistant && msg.replayRequest ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={css.actionButton}
-              title="Regenerate"
-              aria-label="Regenerate response"
-              onClick={() => props.onRegenerate(msg)}
-            >
-              ↻
             </Button>
           ) : null}
           {props.branchInfo && props.branchInfo.total > 1 ? (
