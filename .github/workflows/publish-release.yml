@@ -31,6 +31,7 @@ jobs:
       owner_lc: ${{ steps.check.outputs.owner_lc }}
       sha: ${{ steps.check.outputs.sha }}
       sha_short: ${{ steps.check.outputs.sha_short }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
       - name: Resolve target ref
         id: resolve
@@ -82,6 +83,10 @@ jobs:
           if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
             PUBLISH_DOCKERHUB=true
           fi
+          PRERELEASE=false
+          if [[ "${TAG}" == *-* ]]; then
+            PRERELEASE=true
+          fi
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           SHA="$(git rev-parse HEAD)"
           SHA_SHORT="${SHA::7}"
@@ -90,6 +95,7 @@ jobs:
             echo "tag=${TAG}"
             echo "ref=${{ steps.resolve.outputs.ref }}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
+            echo "prerelease=${PRERELEASE}"
             echo "owner_lc=${OWNER_LC}"
             echo "sha=${SHA}"
             echo "sha_short=${SHA_SHORT}"
@@ -122,11 +128,12 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           set -euo pipefail
           DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
           TAGS="${DOCKERHUB_IMAGE}:${TAG}"
-          if [[ "${TAG}" != *-* ]]; then
+          if [[ "${PRERELEASE}" != "true" ]]; then
             TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
           fi
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
@@ -193,19 +200,20 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
           PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
+          OWNER_LC: ${{ needs.validate.outputs.owner_lc }}
         run: |
           set -euo pipefail
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-gateway"
           DOCKERHUB_IMAGE="hybridaione/hybridclaw-gateway"
           TAGS="${GHCR_IMAGE}:${TAG}"
-          if [[ "${TAG}" != *-* ]]; then
+          if [[ "${PRERELEASE}" != "true" ]]; then
             TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
           fi
           if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
             TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
-            if [[ "${TAG}" != *-* ]]; then
+            if [[ "${PRERELEASE}" != "true" ]]; then
               TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
             fi
           fi
@@ -277,18 +285,70 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Skip the slow install+prepack entirely on retries where a prior run
+      # already reached `npm publish` but a later job failed — otherwise we'd
+      # pay ~30–90s before npm's 403 ended the job.
+      - name: Check if version already published
+        id: preflight
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          NAME="$(jq -r .name package.json)"
+          VERSION="$(jq -r .version package.json)"
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${NAME}@${VERSION} is already published; skipping."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Install dependencies
+        if: steps.preflight.outputs.skip != 'true'
         run: npm ci
 
       - name: Build and verify pack contents
+        if: steps.preflight.outputs.skip != 'true'
         run: npm run prepack
 
       - name: Publish to npm
+        if: steps.preflight.outputs.skip != 'true'
+        shell: bash
+        env:
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if [[ "$VERSION" == *-* ]]; then
+          set -euo pipefail
+          if [[ "${PRERELEASE}" == "true" ]]; then
             NPM_TAG="next"
           else
             NPM_TAG="latest"
           fi
-          npm publish --access public --tag "$NPM_TAG" --provenance
+          npm publish --access public --tag "${NPM_TAG}" --provenance
+
+  # Consumers (e.g. the chat repo's image resolver) treat the GitHub Release
+  # as the authoritative "image is pullable" signal; gate creation on all
+  # publish jobs succeeding.
+  create-release:
+    needs: [validate, publish-agent, publish-gateway, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping creation."
+            exit 0
+          fi
+          flags=(--title "$TAG" --verify-tag --generate-notes)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$TAG" --repo "$REPO" "${flags[@]}"
