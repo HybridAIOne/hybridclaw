@@ -740,6 +740,7 @@ Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
   - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
   - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
+  - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
   - Use \`--activate\` with \`config\` to make the configured agent the default for new requests.
   - \`export\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
   - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during export.

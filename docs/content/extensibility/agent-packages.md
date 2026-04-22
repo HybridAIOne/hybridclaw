@@ -109,6 +109,11 @@ payload can update only markdown without clearing the model, bot binding, skill
 allowlist, or RAG setting. Passing an empty value for a supported agent field
 clears that field.
 
+When `imageAsset` is an `http`/`https` URL or a local file path, `agent config`
+imports the image into the target workspace `assets/` directory and stores that
+workspace-relative path in the agent registry. Existing workspace-relative
+`imageAsset` paths are preserved as provided.
+
 Use `.claw` archives instead when you need portability, arbitrary workspace
 files, bundled workspace skills, bundled home plugins, or install-time external
 skill imports.
@@ -438,8 +443,9 @@ imports and other external references during install.
 5. registers the agent in the normal agent registry
 6. calls `ensureBootstrapFiles()` to create the workspace and fill missing
    templates
-7. overwrites any provided top-level `.md` files from `markdown` or `files`
-8. writes `agents.defaultAgentId` into runtime config when `--activate` is set
+7. imports `imageAsset` URLs or local file paths into workspace `assets/`
+8. overwrites any provided top-level `.md` files from `markdown` or `files`
+9. writes `agents.defaultAgentId` into runtime config when `--activate` is set
 
 Markdown file names must be top-level `.md` names. Nested paths such as
 `docs/IDENTITY.md`, absolute paths, and traversal segments are rejected. Each

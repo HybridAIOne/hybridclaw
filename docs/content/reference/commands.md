@@ -306,10 +306,11 @@ maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
 
 `agent config` is the JSON provisioning path for generated agents. It upserts
-agent metadata directly and can overwrite top-level workspace markdown files:
+agent metadata directly, can overwrite top-level workspace markdown files, and
+imports `imageAsset` URLs or local file paths into the agent workspace:
 
 ```bash
-hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
 ```
 
 Use `agent config` for metadata plus bootstrap markdown. Use `agent install`

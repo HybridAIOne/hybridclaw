@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
@@ -13,6 +14,23 @@ import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
 import type { AgentConfig, AgentModelConfig } from './agent-types.js';
 
 const MARKDOWN_MAX_BYTES = 200_000;
+const IMAGE_ASSET_MAX_BYTES = 5_000_000;
+const IMAGE_ASSET_DIR = 'assets';
+const IMAGE_EXTENSIONS = new Set([
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp',
+]);
+const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+  'image/gif': '.gif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/svg+xml': '.svg',
+  'image/webp': '.webp',
+};
 const TOP_LEVEL_MARKDOWN_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
 export interface ApplyAgentConfigJsonOptions {
@@ -232,6 +250,151 @@ function normalizeTopLevelMarkdownFileName(fileName: string): string {
   return normalized;
 }
 
+function parseImageAssetUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeImageExtension(value: string): string {
+  const ext = path.extname(value).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext) ? ext : '';
+}
+
+function safeImageAssetFileName(
+  sourceName: string,
+  fallbackExt: string,
+): string {
+  const ext = normalizeImageExtension(sourceName) || fallbackExt;
+  if (!ext) {
+    throw new Error(
+      '`imageAsset` must reference a supported image file: .gif, .jpg, .jpeg, .png, .svg, or .webp.',
+    );
+  }
+  const rawBase = path.basename(sourceName, path.extname(sourceName));
+  const safeBase = rawBase
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 80);
+  return `${safeBase || 'agent-avatar'}${ext}`;
+}
+
+function writeImportedImageAsset(params: {
+  workspacePath: string;
+  fileName: string;
+  content: Buffer;
+}): string {
+  if (params.content.byteLength > IMAGE_ASSET_MAX_BYTES) {
+    throw new Error(
+      `Image asset "${params.fileName}" exceeds the ${IMAGE_ASSET_MAX_BYTES}-byte limit.`,
+    );
+  }
+  const relativePath = `${IMAGE_ASSET_DIR}/${params.fileName}`;
+  const targetPath = path.join(params.workspacePath, relativePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  fs.writeFileSync(tempPath, params.content);
+  fs.renameSync(tempPath, targetPath);
+  return relativePath;
+}
+
+async function downloadImageAsset(
+  workspacePath: string,
+  url: URL,
+): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download imageAsset from ${url.toString()}: ${response.status} ${response.statusText}`,
+    );
+  }
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (contentLength > IMAGE_ASSET_MAX_BYTES) {
+    throw new Error(
+      `Image asset "${url.toString()}" exceeds the ${IMAGE_ASSET_MAX_BYTES}-byte limit.`,
+    );
+  }
+  const contentType =
+    response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ||
+    '';
+  if (contentType && !contentType.startsWith('image/')) {
+    throw new Error('`imageAsset` URL must return an image content type.');
+  }
+  const fallbackExt = IMAGE_EXTENSION_BY_MIME_TYPE[contentType] || '';
+  const sourceName = decodeURIComponent(path.basename(url.pathname) || '');
+  const fileName = safeImageAssetFileName(sourceName, fallbackExt);
+  const content = Buffer.from(await response.arrayBuffer());
+  return writeImportedImageAsset({ workspacePath, fileName, content });
+}
+
+function resolveLocalImageAssetPath(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'file:') return fileURLToPath(url);
+    return null;
+  } catch {
+    // Not a URL; continue with local path checks.
+  }
+  if (
+    path.isAbsolute(value) ||
+    value.startsWith('./') ||
+    value.startsWith('../')
+  ) {
+    return path.resolve(value);
+  }
+  const cwdRelativePath = path.resolve(value);
+  if (fs.existsSync(cwdRelativePath)) return cwdRelativePath;
+  return null;
+}
+
+function copyLocalImageAsset(
+  workspacePath: string,
+  sourcePath: string,
+): string {
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(sourcePath);
+  } catch {
+    throw new Error(`Image asset file not found: ${sourcePath}`);
+  }
+  if (!stats.isFile()) {
+    throw new Error(`Image asset is not a file: ${sourcePath}`);
+  }
+  if (stats.size > IMAGE_ASSET_MAX_BYTES) {
+    throw new Error(
+      `Image asset "${sourcePath}" exceeds the ${IMAGE_ASSET_MAX_BYTES}-byte limit.`,
+    );
+  }
+  const workspaceRelative = path.relative(workspacePath, sourcePath);
+  if (
+    workspaceRelative &&
+    !workspaceRelative.startsWith('..') &&
+    !path.isAbsolute(workspaceRelative)
+  ) {
+    return workspaceRelative.split(path.sep).join('/');
+  }
+  const fileName = safeImageAssetFileName(path.basename(sourcePath), '');
+  return writeImportedImageAsset({
+    workspacePath,
+    fileName,
+    content: fs.readFileSync(sourcePath),
+  });
+}
+
+async function importImageAssetIfNeeded(
+  workspacePath: string,
+  imageAsset: string,
+): Promise<string> {
+  const url = parseImageAssetUrl(imageAsset);
+  if (url) return downloadImageAsset(workspacePath, url);
+  const localPath = resolveLocalImageAssetPath(imageAsset);
+  if (localPath) return copyLocalImageAsset(workspacePath, localPath);
+  return imageAsset;
+}
+
 function writeWorkspaceMarkdownFile(
   workspacePath: string,
   fileName: string,
@@ -261,10 +424,10 @@ function normalizeMarkdownEntries(
   });
 }
 
-export function applyAgentConfigJson(
+export async function applyAgentConfigJson(
   rawJson: string,
   options: ApplyAgentConfigJsonOptions = {},
-): ApplyAgentConfigJsonResult {
+): Promise<ApplyAgentConfigJsonResult> {
   const payload = parseAgentConfigJson(rawJson);
   const configInput = resolveAgentConfigInput(payload);
   const id = normalizeOptionalString(configInput.id);
@@ -276,12 +439,20 @@ export function applyAgentConfigJson(
   );
 
   const existing = getStoredAgentConfig(id) ?? getAgentById(id) ?? { id };
-  const saved = upsertRegisteredAgent(
-    applyAgentConfigFieldUpdates(existing, configInput),
-  );
-  ensureBootstrapFiles(saved.id);
-  const workspacePath = path.resolve(agentWorkspaceDir(saved.id));
+  const nextAgent = applyAgentConfigFieldUpdates(existing, configInput);
+  ensureBootstrapFiles(nextAgent.id);
+  const workspacePath = path.resolve(agentWorkspaceDir(nextAgent.id));
   fs.mkdirSync(workspacePath, { recursive: true });
+  if (
+    Object.hasOwn(configInput, 'imageAsset') &&
+    typeof nextAgent.imageAsset === 'string'
+  ) {
+    nextAgent.imageAsset = await importImageAssetIfNeeded(
+      workspacePath,
+      nextAgent.imageAsset,
+    );
+  }
+  const saved = upsertRegisteredAgent(nextAgent);
   const markdownFiles: string[] = [];
   for (const entry of markdownEntries) {
     writeWorkspaceMarkdownFile(workspacePath, entry.fileName, entry.content);

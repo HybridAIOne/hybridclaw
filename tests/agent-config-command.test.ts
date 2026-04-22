@@ -8,6 +8,13 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-agent-config-command-',
 });
 
+function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
+}
+
 test('agent config command accepts direct JSON and overwrites markdown files', async () => {
   setupHome();
 
@@ -85,6 +92,84 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
   expect(
     fs.readFileSync(path.join(workspacePath, 'IDENTITY.md'), 'utf-8'),
   ).toBe('# Updated Felix\n');
+});
+
+test('agent config command imports remote image assets into the workspace', async () => {
+  setupHome();
+
+  const { handleAgentPackageCommand } = await import(
+    '../src/cli/agent-command.ts'
+  );
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const image = Buffer.from('test-image');
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    headers: {
+      get: (name: string) =>
+        name.toLowerCase() === 'content-type' ? 'image/jpeg' : null,
+    },
+    arrayBuffer: async () => bufferToArrayBuffer(image),
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await handleAgentPackageCommand([
+    'config',
+    JSON.stringify({
+      id: 'stephan',
+      name: 'Stephan',
+      imageAsset: 'https://example.com/team/stephan-noller.jpg?size=512',
+    }),
+  ]);
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    new URL('https://example.com/team/stephan-noller.jpg?size=512'),
+  );
+  expect(getAgentById('stephan')).toMatchObject({
+    id: 'stephan',
+    imageAsset: 'assets/stephan-noller.jpg',
+  });
+  expect(
+    fs.readFileSync(
+      path.join(agentWorkspaceDir('stephan'), 'assets', 'stephan-noller.jpg'),
+    ),
+  ).toEqual(image);
+});
+
+test('agent config command copies local image assets into the workspace', async () => {
+  const homeDir = setupHome();
+
+  const { handleAgentPackageCommand } = await import(
+    '../src/cli/agent-command.ts'
+  );
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const image = Buffer.from('local-image');
+  const sourcePath = path.join(homeDir, 'stephan.png');
+  fs.writeFileSync(sourcePath, image);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await handleAgentPackageCommand([
+    'config',
+    JSON.stringify({
+      id: 'stephan',
+      name: 'Stephan',
+      imageAsset: sourcePath,
+    }),
+  ]);
+
+  expect(getAgentById('stephan')).toMatchObject({
+    id: 'stephan',
+    imageAsset: 'assets/stephan.png',
+  });
+  expect(
+    fs.readFileSync(
+      path.join(agentWorkspaceDir('stephan'), 'assets', 'stephan.png'),
+    ),
+  ).toEqual(image);
 });
 
 test('agent config command rejects invalid field types without clearing existing values', async () => {

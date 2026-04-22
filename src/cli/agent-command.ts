@@ -147,7 +147,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const { applyAgentConfigJson } = await import(
       '../agents/agent-config-command.js'
     );
-    const result = applyAgentConfigJson(rawJson, { activate });
+    const result = await applyAgentConfigJson(rawJson, { activate });
     console.log(`Configured agent ${result.agent.id}.`);
     console.log(`Workspace: ${result.workspacePath}`);
     if (result.markdownFiles.length > 0) {
