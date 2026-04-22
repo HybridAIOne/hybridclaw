@@ -325,23 +325,33 @@ export function ChatPage() {
       branchKeysByMessageId.set(currentVariant.messageId, branchKey);
     }
 
-    const loaded: ChatMessage[] = (data.history ?? []).map((msg) => ({
-      id: nextMsgId(),
-      role: msg.role,
-      content: msg.content,
-      rawContent: msg.content,
-      sessionId: resolvedSessionId,
-      messageId: msg.id ?? null,
-      media: [],
-      artifacts: [],
-      replayRequest:
-        msg.role === 'user' ? { content: msg.content, media: [] } : null,
-      assistantPresentation: data.assistantPresentation ?? null,
-      branchKey:
-        msg.id !== undefined && msg.id !== null
-          ? (branchKeysByMessageId.get(msg.id) ?? null)
-          : null,
-    }));
+    const history = data.history ?? [];
+    let lastUserContent: string | null = null;
+    const loaded: ChatMessage[] = history.map((msg) => {
+      if (msg.role === 'user') lastUserContent = msg.content;
+      const replayRequest =
+        msg.role === 'user'
+          ? { content: msg.content, media: [] }
+          : msg.role === 'assistant' && lastUserContent !== null
+            ? { content: lastUserContent, media: [] }
+            : null;
+      return {
+        id: nextMsgId(),
+        role: msg.role,
+        content: msg.content,
+        rawContent: msg.content,
+        sessionId: resolvedSessionId,
+        messageId: msg.id ?? null,
+        media: [],
+        artifacts: [],
+        replayRequest,
+        assistantPresentation: data.assistantPresentation ?? null,
+        branchKey:
+          msg.id !== undefined && msg.id !== null
+            ? (branchKeysByMessageId.get(msg.id) ?? null)
+            : null,
+      };
+    });
 
     dispatch({
       type: 'HISTORY_LOADED',

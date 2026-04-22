@@ -652,9 +652,6 @@
   transition: border-color 0.15s;
 }
 
-.composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
-}
 
 .pendingMediaRow {
   display: flex;
@@ -733,11 +730,6 @@
   padding: 6px 0;
 }
 
-.composerInput:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: -2px;
-  border-radius: var(--radius-sm);
-}
 
 .composerInput::placeholder {
   color: var(--muted-foreground);
@@ -778,13 +770,14 @@
 
 .sendButton {
   background: transparent;
-  color: var(--primary);
-  border: 1px solid var(--primary);
+  color: var(--muted-foreground);
+  border: 1px solid var(--line-strong);
   font-size: 0.9rem;
 }
 
 .sendButton:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  background: var(--muted);
+  color: var(--text);
 }
 
 .sendButton:disabled {
