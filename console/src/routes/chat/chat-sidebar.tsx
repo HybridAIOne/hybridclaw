@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { useAuth } from '../../auth';
 import type { ChatRecentSession } from '../../api/chat-types';
+import { useAuth } from '../../auth';
 import { HybridClaw } from '../../components/icons';
 import {
   getSidebarStyleVars,
@@ -12,6 +12,7 @@ import {
   SidebarTrigger,
 } from '../../components/sidebar/index';
 import sidebarStyles from '../../components/sidebar/index.module.css';
+import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
 import css from './chat-page.module.css';
@@ -80,11 +81,16 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         <ChatSessionList {...props} isSearching={isSearching} />
       </SidebarContent>
       <SidebarFooter>
-        {auth.gatewayStatus?.version ? (
-          <div className={css.sidebarVersion}>
-            HybridClaw v.{auth.gatewayStatus.version}
-          </div>
-        ) : null}
+        <div className={css.sidebarFooter}>
+          {auth.gatewayStatus?.version ? (
+            <span className={css.sidebarVersion}>
+              HybridClaw v.{auth.gatewayStatus.version}
+            </span>
+          ) : (
+            <span />
+          )}
+          <ThemeToggle />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );

@@ -34,16 +34,18 @@
   appearance: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  border: 1px solid var(--line-strong);
+  border: none;
   background: transparent;
   color: inherit;
   font: inherit;
-  padding: 10px 12px;
+  font-weight: 500;
+  padding: 8px 6px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.12s;
+  text-align: left;
 }
 
 .newChatButton:hover {
@@ -51,12 +53,22 @@
 }
 
 .newChatButton > span:first-child {
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   line-height: 1;
+  width: 20px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.sidebarFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
 }
 
 .sidebarVersion {
-  padding: 8px 12px;
   font-size: 0.78rem;
   color: var(--muted-foreground);
 }
@@ -204,7 +216,6 @@
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  max-width: 1100px;
 }
 
 .sidebarCollapseButton {
