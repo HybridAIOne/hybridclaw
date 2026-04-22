@@ -170,6 +170,7 @@ hybridclaw skill import [--force] [--skip-skill-scan] <source>
 /skill learn <name> [--apply|--reject|--rollback] # TUI/web slash amendment flow
 
 # Agent packages
+hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -189,3 +190,6 @@ hybridclaw plugin uninstall <plugin-id>
 
 For the `.claw` archive layout and manifest fields, see
 [Agent Packages (`.claw`)](./agent-packages.md).
+For platform-generated agents that only need registry metadata and top-level
+workspace markdown files, use `hybridclaw agent config` with a quoted JSON
+payload instead of generating an archive.

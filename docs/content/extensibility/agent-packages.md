@@ -22,6 +22,7 @@ Use it when you want to:
 
 ```bash
 hybridclaw agent list
+hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -43,6 +44,9 @@ hybridclaw agent install /tmp/main.claw --id demo-agent
 
 # Install a packaged agent from the official claws repo
 hybridclaw agent install official:charly-neumann-executive-briefing-chief-of-staff --yes
+
+# Configure an agent from a platform-generated JSON payload
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
 
 # Make one installed agent the default for new requests
 hybridclaw agent activate demo-agent
@@ -75,6 +79,39 @@ hybridclaw agent export main --plugins all
 # Bundle only a named plugin subset
 hybridclaw agent export main --plugins some --plugin demo-plugin --plugin qmd-memory
 ```
+
+## Configuring Agents From JSON
+
+Use `hybridclaw agent config` when another platform already has the agent
+metadata and markdown content as JSON, and you do not need a portable `.claw`
+archive. This is the lightweight provisioning path for generated agents in
+short-lived sandboxes.
+
+The payload may be the agent config object directly:
+
+```bash
+hybridclaw agent config '{"id":"research","name":"Research","model":"gpt-5.4-mini","chatbotId":"bot-123","enableRag":true,"skills":["memory"]}' --activate
+```
+
+Or it may wrap the config in `agent` and include workspace markdown files:
+
+```bash
+hybridclaw agent config --json '{"agent":{"id":"research","model":"gpt-5.4-mini"},"markdown":{"IDENTITY.md":"# Research\n","BOOT.md":"# Boot\n"}}'
+```
+
+`markdown` and `files` are aliases. Each entry overwrites one top-level `.md`
+file in the target agent workspace. This is intended for bootstrap files such
+as `IDENTITY.md`, `SOUL.md`, `BOOT.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`,
+`MEMORY.md`, and `HEARTBEAT.md`.
+
+Omitted agent fields are preserved when the agent already exists, so a later
+payload can update only markdown without clearing the model, bot binding, skill
+allowlist, or RAG setting. Passing an empty value for a supported agent field
+clears that field.
+
+Use `.claw` archives instead when you need portability, arbitrary workspace
+files, bundled workspace skills, bundled home plugins, or install-time external
+skill imports.
 
 ## Installing From GitHub Sources
 
@@ -389,6 +426,24 @@ reuses one readline session for the whole export flow.
 Use `--force` to replace an existing agent workspace or reinstall bundled
 plugins during import. Use `--skip-externals` to skip manifest-declared skill
 imports and other external references during install.
+
+## What `config` Does
+
+`hybridclaw agent config` currently:
+
+1. parses the quoted JSON payload from the positional argument or `--json`
+2. reads agent fields either from the root object or from `agent`
+3. validates markdown file names before mutating the registry
+4. merges omitted fields with the existing registered agent, when present
+5. registers the agent in the normal agent registry
+6. calls `ensureBootstrapFiles()` to create the workspace and fill missing
+   templates
+7. overwrites any provided top-level `.md` files from `markdown` or `files`
+8. writes `agents.defaultAgentId` into runtime config when `--activate` is set
+
+Markdown file names must be top-level `.md` names. Nested paths such as
+`docs/IDENTITY.md`, absolute paths, and traversal segments are rejected. Each
+markdown value must be a string and is limited to 200 KB.
 
 ## What `activate` Does
 
