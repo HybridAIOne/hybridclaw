@@ -2323,6 +2323,24 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
+          name: 'setup',
+          description: 'Install every declared dependency for a skill',
+          tuiMenu: {
+            label: '/skill setup <skill>',
+            insertText: '/skill setup ',
+            aliases: ['/skill setup <skill>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'skill',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
           name: 'learn',
           description: 'Stage, apply, reject, or roll back a skill amendment',
           options: [

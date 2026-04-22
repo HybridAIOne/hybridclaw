@@ -71,17 +71,15 @@ description: Render Manim explainers.
 metadata:
   hybridclaw:
     install:
-      - id: uv-manim
+      - id: manim
         kind: uv
         package: manim
-        bins:
-          - manim
+        bins: ["manim"]
         label: Install Manim (uv)
-      - id: brew-ffmpeg
+      - id: ffmpeg
         kind: brew
         formula: ffmpeg
-        bins:
-          - ffmpeg
+        bins: ["ffmpeg"]
         label: Install ffmpeg (brew)
 ---
 ```
@@ -90,10 +88,12 @@ Operator surfaces:
 
 - `hybridclaw skill list` and `/skill list` show declared dependency ids
 - `hybridclaw skill install <skill> <dependency>` runs one declared dependency for the named skill
+- `hybridclaw skill setup <skill>` runs every declared dependency for the named skill
 - `/skill install <skill> <dependency>` does the same from local TUI or web chat
+- `/skill setup <skill>` does the same for every declared dependency from local TUI or web chat
 
-`skill install` is limited to local TUI and web sessions because it changes the
-host dependency state.
+`skill install` and `skill setup` are limited to local TUI and web sessions
+because they change the host dependency state.
 
 ## Catalog And Admin Surfaces
 
@@ -101,7 +101,8 @@ host dependency state.
   `available` / `disabled` / missing-dependency state, and mark
   higher-precedence foreign-source overrides with `*`
 - skill list output includes any declared dependency ids and labels so operators
-  can discover the right dependency before running `skill install`
+  can discover the right dependency before running `skill install` or
+  `skill setup`
 - the admin `Skills` page shows the same catalog metadata alongside
   adaptive-skill health and amendment review
 - the admin `Skills` page can create a local skill from a form or upload a

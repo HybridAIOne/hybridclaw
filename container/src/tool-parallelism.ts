@@ -1,5 +1,3 @@
-// Hermes-style policy: run tool batches concurrently by default and reserve a
-// small explicit denylist for interactive tools that must preserve turn order.
 const NEVER_PARALLEL_TOOL_NAMES = new Set(['bash', 'clarify']);
 
 export function getToolExecutionMode(

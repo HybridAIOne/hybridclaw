@@ -231,6 +231,12 @@
   "codex": {
     "baseUrl": "https://chatgpt.com/backend-api/codex"
   },
+  "anthropic": {
+    "enabled": false,
+    "baseUrl": "https://api.anthropic.com/v1",
+    "method": "api-key",
+    "models": ["anthropic/claude-sonnet-4-6"]
+  },
   "openrouter": {
     "enabled": false,
     "baseUrl": "https://openrouter.ai/api/v1",

@@ -5,14 +5,6 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-// --------------------------------------------------------------------------
-// Hoisted mocks – these must use vi.mock (not vi.doMock) so that vitest
-// intercepts the modules during its initial ESM link phase. A lockfile
-// change (e.g. adding new dependencies) can break the non-hoisted
-// vi.doMock('node:child_process') path in vitest 4.x, so we use the
-// hoisted variant with mutable module-level state instead.
-// --------------------------------------------------------------------------
-
 let spawnImpl: (...args: unknown[]) => unknown = () => {
   throw new Error('spawn not configured for this test');
 };

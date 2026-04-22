@@ -380,6 +380,26 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'setup') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Usage: `hybridclaw skill setup <skill-name>`.');
+    }
+
+    const { setupSkillDependencies } = await import(
+      '../skills/skills-install.js'
+    );
+    const result = await setupSkillDependencies({ skillName });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(result.stderr);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    console.log(result.message);
+    return;
+  }
+
   if (sub === 'import') {
     const { source, force, skipSkillScan } = parseSkillImportArgs(
       normalized.slice(1),

@@ -14,6 +14,64 @@ afterEach(() => {
 });
 
 describe('container model router', () => {
+  test('routes Anthropic text calls through the direct messages API path', async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://api.anthropic.com/v1/messages');
+        expect(init?.headers).toMatchObject({
+          'x-api-key': 'anthropic-test-key',
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14',
+        });
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe('claude-sonnet-4-6');
+        expect(body.stream).toBe(false);
+        expect(body.max_tokens).toBe(128);
+        expect(body.messages).toEqual([
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+          },
+        ]);
+        return new Response(
+          JSON.stringify({
+            id: 'msg_1',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            content: [{ type: 'text', text: 'ok' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await callRoutedModel({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'anthropic-test-key',
+      model: 'anthropic/claude-sonnet-4-6',
+      chatbotId: '',
+      requestHeaders: {
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14',
+      },
+      messages: baseMessages,
+      tools: [],
+      maxTokens: 128,
+    });
+
+    expect(response.choices[0]?.message.content).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('routes OpenRouter text calls through the OpenAI-compatible provider path', async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {

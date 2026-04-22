@@ -60,7 +60,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
-import type { McpServerConfig } from '../types/models.js';
+import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
@@ -584,6 +584,13 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    models: string[];
+  };
+  anthropic: {
+    enabled: boolean;
+    baseUrl: string;
+    method: AnthropicMethod;
+    models: string[];
   };
   openrouter: {
     enabled: boolean;
@@ -841,6 +848,19 @@ export type RuntimeConfigChangeListener = (
   prev: RuntimeConfig,
 ) => void;
 
+const LEGACY_SINGLE_CODEX_MODEL_LIST = ['openai-codex/gpt-5-codex'];
+const DEFAULT_CODEX_MODEL_LIST = [
+  'openai-codex/gpt-5-codex',
+  'openai-codex/gpt-5.3-codex',
+  'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.3-codex-spark',
+  'openai-codex/gpt-5.2-codex',
+  'openai-codex/gpt-5.1-codex-max',
+  'openai-codex/gpt-5.2',
+  'openai-codex/gpt-5.1-codex-mini',
+] as const;
+const DEFAULT_ANTHROPIC_MODEL_LIST = ['anthropic/claude-sonnet-4-6'] as const;
+const DEFAULT_ANTHROPIC_METHOD: AnthropicMethod = 'api-key';
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -1099,6 +1119,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    models: [...DEFAULT_CODEX_MODEL_LIST],
+  },
+  anthropic: {
+    enabled: false,
+    baseUrl: 'https://api.anthropic.com/v1',
+    method: DEFAULT_ANTHROPIC_METHOD,
+    models: [...DEFAULT_ANTHROPIC_MODEL_LIST],
   },
   openrouter: {
     enabled: false,
@@ -1915,6 +1942,22 @@ function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
     const serverConfig = normalizeMcpServerConfig(rawConfig);
     if (!serverConfig) continue;
     normalized[name] = serverConfig;
+  }
+  return normalized;
+}
+
+function normalizeCodexModelArray(
+  value: unknown,
+  fallback: string[],
+): string[] {
+  const normalized = normalizeStringArray(value, fallback);
+  if (
+    normalized.length === LEGACY_SINGLE_CODEX_MODEL_LIST.length &&
+    normalized.every(
+      (model, index) => model === LEGACY_SINGLE_CODEX_MODEL_LIST[index],
+    )
+  ) {
+    return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
 }
@@ -3849,6 +3892,31 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
 function normalizeRuntimeConfig(
   patch?: DeepPartial<RuntimeConfig>,
 ): RuntimeConfig {
+  const normalizeAnthropicMethodValue = (
+    value: unknown,
+    fallback: AnthropicMethod,
+  ): AnthropicMethod => {
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (
+      normalized === 'claude-cli' ||
+      normalized === 'claude_cli' ||
+      normalized === 'claudecli'
+    ) {
+      return 'claude-cli';
+    }
+    if (
+      normalized === 'api-key' ||
+      normalized === 'apikey' ||
+      normalized === 'api_key' ||
+      normalized === 'token'
+    ) {
+      return 'api-key';
+    }
+    return fallback;
+  };
+
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
@@ -3871,6 +3939,7 @@ function normalizeRuntimeConfig(
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
+  const rawAnthropic = isRecord(raw.anthropic) ? raw.anthropic : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
@@ -4092,6 +4161,14 @@ function normalizeRuntimeConfig(
   const modelList = normalizeStringArray(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
+  );
+  const codexModelList = normalizeCodexModelArray(
+    rawCodex.models,
+    DEFAULT_RUNTIME_CONFIG.codex.models,
+  );
+  const anthropicModelList = normalizeStringArray(
+    rawAnthropic.models,
+    DEFAULT_RUNTIME_CONFIG.anthropic.models,
   );
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
@@ -4423,6 +4500,22 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      models: codexModelList,
+    },
+    anthropic: {
+      enabled: normalizeBoolean(
+        rawAnthropic.enabled,
+        DEFAULT_RUNTIME_CONFIG.anthropic.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawAnthropic.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.anthropic.baseUrl,
+      ),
+      method: normalizeAnthropicMethodValue(
+        rawAnthropic.method,
+        DEFAULT_RUNTIME_CONFIG.anthropic.method,
+      ),
+      models: anthropicModelList,
     },
     openrouter: {
       enabled: normalizeBoolean(
@@ -5232,6 +5325,12 @@ function buildSerializableConfig(
     unknown
   >;
   preserveSecretInputs(serializable, sourceConfig ?? {});
+  const serializableCodex = isRecord(serializable.codex)
+    ? serializable.codex
+    : null;
+  if (serializableCodex) {
+    delete (serializableCodex as { models?: string[] }).models;
+  }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container
     : null;

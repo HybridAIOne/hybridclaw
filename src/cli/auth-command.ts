@@ -1,5 +1,15 @@
 import readline from 'node:readline/promises';
-
+import {
+  clearGoogleAuth,
+  DEFAULT_GOOGLE_OAUTH_SCOPES,
+  GOOGLE_ACCOUNT_SECRET,
+  GOOGLE_OAUTH_CLIENT_ID_SECRET,
+  GOOGLE_OAUTH_CLIENT_SECRET_SECRET,
+  GOOGLE_OAUTH_REFRESH_TOKEN_SECRET,
+  getGoogleAuthStatus,
+  loginGoogle,
+  parseGoogleScopes,
+} from '../auth/google-auth.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -7,6 +17,11 @@ import {
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import {
+  ANTHROPIC_DEFAULT_MODEL,
+  normalizeAnthropicBaseUrl,
+  normalizeAnthropicModelName,
+} from '../providers/anthropic-utils.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
@@ -25,8 +40,10 @@ import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
   isHelpRequest,
+  printAnthropicUsage,
   printAuthUsage,
   printCodexUsage,
+  printGoogleUsage,
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
@@ -41,6 +58,7 @@ import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
 type HybridAIAuthApi = typeof import('../auth/hybridai-auth.js');
 type CodexAuthApi = typeof import('../auth/codex-auth.js');
+type AnthropicAuthApi = typeof import('../auth/anthropic-auth.js');
 
 const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
   () => import('../auth/hybridai-auth.js'),
@@ -49,6 +67,10 @@ const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
 const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
+);
+const anthropicAuthApiState = makeLazyApi<AnthropicAuthApi>(
+  () => import('../auth/anthropic-auth.js'),
+  'Anthropic auth API accessed before it was initialized. Call ensureAnthropicAuthApi() first.',
 );
 const CONFIGURED_SECRET_STATUS = 'configured';
 
@@ -66,6 +88,14 @@ async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
 
 function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
+}
+
+async function ensureAnthropicAuthApi(): Promise<AnthropicAuthApi> {
+  return anthropicAuthApiState.ensure();
+}
+
+function getAnthropicAuthApi(): AnthropicAuthApi {
+  return anthropicAuthApiState.get();
 }
 
 function parseExclusiveLoginMethodFlag<T extends string>(
@@ -225,6 +255,99 @@ function parseHuggingFaceLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   return parseOpenRouterLoginArgs(args);
 }
 
+interface ParsedAnthropicLoginArgs {
+  modelId?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  method: 'claude-cli' | 'api-key';
+  setDefault: boolean;
+}
+
+function parseAnthropicLoginArgs(args: string[]): ParsedAnthropicLoginArgs {
+  const positional: string[] = [];
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
+  let apiKey: string | undefined;
+  let method: 'claude-cli' | 'api-key' | undefined;
+  let setDefault = true;
+
+  for (let index = 0; index < remaining.length; index += 1) {
+    const arg = remaining[index] || '';
+    if (arg === '--no-default') {
+      setDefault = false;
+      continue;
+    }
+    if (arg === '--set-default') {
+      setDefault = true;
+      continue;
+    }
+    const methodFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--method',
+      placeholder: '<api-key|claude-cli>',
+      allowEmptyEquals: true,
+    });
+    if (methodFlag) {
+      const normalizedMethod = methodFlag.value.trim().toLowerCase();
+      if (
+        normalizedMethod === 'claude-cli' ||
+        normalizedMethod === 'claude_cli' ||
+        normalizedMethod === 'claudecli' ||
+        normalizedMethod === 'cli' ||
+        normalizedMethod === 'claude'
+      ) {
+        method = 'claude-cli';
+      } else if (
+        normalizedMethod === 'api-key' ||
+        normalizedMethod === 'apikey' ||
+        normalizedMethod === 'token'
+      ) {
+        method = 'api-key';
+      } else {
+        throw new Error(
+          `Unknown Anthropic auth method "${methodFlag.value}". Use \`api-key\` or \`claude-cli\`.`,
+        );
+      }
+      index = methodFlag.nextIndex;
+      continue;
+    }
+    const apiKeyFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--api-key',
+      placeholder: '<key>',
+      allowEmptyEquals: true,
+    });
+    if (apiKeyFlag) {
+      apiKey = apiKeyFlag.value;
+      method ||= 'api-key';
+      index = apiKeyFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    positional.push(arg);
+  }
+
+  const resolvedMethod = method || 'api-key';
+  if (resolvedMethod === 'claude-cli' && apiKey !== undefined) {
+    throw new Error(
+      '`--api-key` cannot be used with `--method claude-cli`. Use `--method api-key` or omit `--method` when passing an API key.',
+    );
+  }
+
+  return {
+    modelId: positional.length > 0 ? positional.join(' ') : undefined,
+    baseUrl,
+    apiKey,
+    method: resolvedMethod,
+    setDefault,
+  };
+}
+
 function normalizeProviderModelId(prefix: string, rawModelId: string): string {
   const trimmed = rawModelId.trim();
   if (!trimmed) return '';
@@ -351,6 +474,29 @@ async function resolveHuggingFaceApiKey(
 
   throw new Error(
     'Hugging Face token cannot be empty. Pass `--api-key <token>` or paste it when prompted.',
+  );
+}
+
+async function promptForAnthropicApiKey(): Promise<string> {
+  return await promptForSecretInput({
+    prompt: '🔒 Paste Anthropic API key: ',
+    missingMessage:
+      'Missing Anthropic API key. Pass `--api-key <key>`, set `ANTHROPIC_API_KEY`, or run this command in an interactive terminal to paste it.',
+  });
+}
+
+async function resolveAnthropicApiKey(
+  explicitApiKey: string | undefined,
+): Promise<string> {
+  const configuredApiKey =
+    explicitApiKey?.trim() || process.env.ANTHROPIC_API_KEY?.trim() || '';
+  if (configuredApiKey) return configuredApiKey;
+
+  const promptedApiKey = await promptForAnthropicApiKey();
+  if (promptedApiKey) return promptedApiKey;
+
+  throw new Error(
+    'Anthropic API key cannot be empty. Pass `--api-key <key>`, set `ANTHROPIC_API_KEY`, or paste it when prompted.',
   );
 }
 
@@ -523,6 +669,77 @@ async function configureHuggingFace(args: string[]): Promise<void> {
         }
       }),
   });
+}
+
+async function configureAnthropic(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  await ensureAnthropicAuthApi();
+
+  const parsed = parseAnthropicLoginArgs(args);
+  const currentProviderConfig = getRuntimeConfig().anthropic;
+  const configuredModel =
+    parsed.modelId ||
+    currentProviderConfig.models[0] ||
+    ANTHROPIC_DEFAULT_MODEL;
+  const fullModelName = normalizeAnthropicModelName(configuredModel);
+  if (!fullModelName) {
+    throw new Error('Anthropic model ID cannot be empty.');
+  }
+
+  const normalizedBaseUrl = normalizeAnthropicBaseUrl(
+    parsed.baseUrl || currentProviderConfig.baseUrl,
+  );
+  let savedSecretsPath: string | null = null;
+  let cliCredentialPath: string | null = null;
+  let expiresAt: number | null = null;
+
+  if (parsed.method === 'claude-cli') {
+    const credential =
+      getAnthropicAuthApi().requireAnthropicClaudeCliCredential();
+    cliCredentialPath = getAnthropicAuthApi().getAnthropicAuthStatus().path;
+    expiresAt = credential.expiresAt;
+  } else {
+    const apiKey = await resolveAnthropicApiKey(parsed.apiKey);
+    savedSecretsPath = saveRuntimeSecrets({ ANTHROPIC_API_KEY: apiKey });
+    process.env.ANTHROPIC_API_KEY = apiKey;
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.anthropic.enabled = true;
+    draft.anthropic.baseUrl = normalizedBaseUrl;
+    draft.anthropic.method = parsed.method;
+    draft.anthropic.models = Array.from(
+      new Set([fullModelName, ...draft.anthropic.models]),
+    );
+    if (parsed.setDefault) {
+      draft.hybridai.defaultModel = fullModelName;
+    }
+  });
+
+  if (savedSecretsPath) {
+    console.log(`Saved Anthropic credentials to ${savedSecretsPath}.`);
+  }
+  if (cliCredentialPath) {
+    console.log(`Using Claude Code login from ${cliCredentialPath}.`);
+  }
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log('Provider: anthropic');
+  console.log(`Auth method: ${parsed.method}`);
+  if (expiresAt) {
+    console.log(`Expires: ${new Date(expiresAt).toISOString()}`);
+  }
+  console.log(`Base URL: ${normalizedBaseUrl}`);
+  console.log(`Configured model: ${fullModelName}`);
+  if (parsed.setDefault) {
+    console.log(`Default model: ${fullModelName}`);
+  } else {
+    console.log(
+      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
+  }
+  console.log('Next:');
+  console.log('  hybridclaw tui');
+  console.log(`  /model set ${fullModelName}`);
 }
 
 interface GenericProviderAuthDef {
@@ -710,9 +927,11 @@ async function configureGenericProvider(
 type UnifiedProvider =
   | 'hybridai'
   | 'codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
+  | 'google'
   | 'gemini'
   | 'deepseek'
   | 'xai'
@@ -743,6 +962,9 @@ function normalizeUnifiedProvider(
   if (normalized === 'codex' || normalized === 'openai-codex') {
     return 'codex';
   }
+  if (normalized === 'anthropic' || normalized === 'claude') {
+    return 'anthropic';
+  }
   if (normalized === 'openrouter' || normalized === 'or') {
     return 'openrouter';
   }
@@ -756,6 +978,9 @@ function normalizeUnifiedProvider(
     normalized === 'huggingface-hub'
   ) {
     return 'huggingface';
+  }
+  if (normalized === 'google' || normalized === 'gog') {
+    return 'google';
   }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
@@ -799,7 +1024,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -813,7 +1038,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -833,76 +1058,35 @@ function isLocalProviderModel(modelName: string): boolean {
   return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
 }
 
-function printOpenRouterStatus(): void {
+type ApiKeyProviderConfigKey =
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'gemini'
+  | 'deepseek'
+  | 'xai'
+  | 'zai'
+  | 'kimi'
+  | 'minimax'
+  | 'dashscope'
+  | 'xiaomi'
+  | 'kilo';
+
+function printApiKeyProviderStatus(options: {
+  providerLabel?: string;
+  configKey: ApiKeyProviderConfigKey;
+  secretKey: string;
+  envVarNames: string[];
+  showProviderLabel?: boolean;
+  catalog?: string;
+}): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('OPENROUTER_API_KEY');
-  const envApiKey = process.env.OPENROUTER_API_KEY?.trim() || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.openrouter.baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  console.log('Catalog: auto-discovered');
-}
-
-function printMistralStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('MISTRAL_API_KEY');
-  const envApiKey = process.env.MISTRAL_API_KEY?.trim() || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.mistral.baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  console.log('Catalog: auto-discovered');
-}
-
-function printHuggingFaceStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('HF_TOKEN');
+  const storedApiKey = readStoredRuntimeSecret(options.secretKey);
   const envApiKey =
-    process.env.HF_TOKEN?.trim() ||
-    process.env.HUGGINGFACE_API_KEY?.trim() ||
-    '';
+    options.envVarNames
+      .map((name) => process.env[name]?.trim())
+      .find((value) => value) || '';
   const source = envApiKey
     ? storedApiKey && envApiKey === storedApiKey
       ? 'runtime-secrets'
@@ -912,6 +1096,9 @@ function printHuggingFaceStatus(): void {
       : null;
   const apiKey = envApiKey || storedApiKey || '';
 
+  if (options.showProviderLabel && options.providerLabel) {
+    console.log(`Provider: ${options.providerLabel}`);
+  }
   console.log(`Path: ${runtimeSecretsPath()}`);
   console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
   if (source) {
@@ -921,12 +1108,62 @@ function printHuggingFaceStatus(): void {
     console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.huggingface.baseUrl}`);
+  console.log(`Enabled: ${config[options.configKey].enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config[options.configKey].baseUrl}`);
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  console.log('Catalog: auto-discovered');
+  if (options.catalog) {
+    console.log(`Catalog: ${options.catalog}`);
+  }
+}
+
+function printAnthropicStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const status = getAnthropicAuthApi().getAnthropicAuthStatus();
+  const configuredMethodReady =
+    getAnthropicAuthApi().isAnthropicAuthReadyForMethod(
+      status,
+      config.anthropic.method,
+    );
+
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${configuredMethodReady ? 'yes' : 'no'}`);
+  console.log(`Configured method: ${config.anthropic.method}`);
+  if (status.method) {
+    console.log(`Method: ${status.method}`);
+  }
+  if (status.method && status.method !== config.anthropic.method) {
+    console.log(
+      `Configured method is not ready: detected ${status.method} credentials, but Anthropic is configured for ${config.anthropic.method}.`,
+    );
+    console.log(
+      status.method === 'claude-cli'
+        ? 'Run `hybridclaw auth login anthropic --method claude-cli --set-default` to use the Claude login, or configure an Anthropic API key.'
+        : 'Run `hybridclaw auth login anthropic --method api-key --set-default` to use the API key, or switch Anthropic to claude-cli.',
+    );
+  }
+  if (status.source) {
+    console.log(`Source: ${status.source}`);
+  }
+  if (status.maskedValue) {
+    console.log(
+      `${status.method === 'api-key' ? 'API key' : 'Claude login'}: ${status.maskedValue}`,
+    );
+  }
+  if (status.expiresAt) {
+    console.log(`Expires: ${new Date(status.expiresAt).toISOString()}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.anthropic.enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config.anthropic.baseUrl}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
+  console.log(
+    `Models: ${config.anthropic.models.length > 0 ? config.anthropic.models.join(', ') : '(none configured)'}`,
+  );
 }
 
 function clearOpenRouterCredentials(): void {
@@ -934,6 +1171,17 @@ function clearOpenRouterCredentials(): void {
   console.log(`Cleared OpenRouter credentials in ${filePath}.`);
   console.log(
     'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
+  );
+}
+
+function clearAnthropicCredentials(): void {
+  const filePath = saveRuntimeSecrets({ ANTHROPIC_API_KEY: null });
+  console.log(`Cleared stored Anthropic API key in ${filePath}.`);
+  console.log(
+    'If Anthropic is configured with `--method claude-cli`, HybridClaw will keep using the official Claude CLI while local Claude login material is still present. Run `claude auth logout` separately if you also want to remove that session.',
+  );
+  console.log(
+    'If ANTHROPIC_API_KEY is still exported in your shell, unset it separately.',
   );
 }
 
@@ -953,49 +1201,218 @@ function clearHuggingFaceCredentials(): void {
   );
 }
 
-function printGenericProviderStatus(
-  providerLabel: string,
-  configKey:
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo',
-  secretKey: string,
-  envVarNames: string[],
-): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret(secretKey);
-  const envApiKey =
-    envVarNames.map((name) => process.env[name]?.trim()).find((v) => v) || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
+function printGoogleStatus(): void {
+  const status = getGoogleAuthStatus();
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Account: ${status.account || '(not set)'}`);
+    console.log('Refresh token: configured');
+    console.log('Client secret: configured');
+    console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('Workspace CLI mode: direct access token');
+  }
+}
 
-  console.log(`Provider: ${providerLabel}`);
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config[configKey].enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config[configKey].baseUrl}`);
+function clearGoogleCredentials(): void {
+  const filePath = clearGoogleAuth();
+  console.log(`Cleared Google OAuth credentials from ${filePath}.`);
   console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Agent containers will no longer receive Google Workspace access tokens.',
+  );
+}
+
+function parseGoogleLoginArgs(args: string[]): {
+  account?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  scopes?: string;
+  redirectPort?: number;
+} {
+  type GoogleStringFlagKey =
+    | 'account'
+    | 'clientId'
+    | 'clientSecret'
+    | 'refreshToken'
+    | 'scopes';
+  const parsed: {
+    account?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scopes?: string;
+    redirectPort?: number;
+  } = {};
+  const stringFlags: Array<{
+    key: GoogleStringFlagKey;
+    name: string;
+    placeholder: string;
+  }> = [
+    { key: 'account', name: '--account', placeholder: '<email>' },
+    { key: 'clientId', name: '--client-id', placeholder: '<id>' },
+    {
+      key: 'clientSecret',
+      name: '--client-secret',
+      placeholder: '<secret>',
+    },
+    {
+      key: 'refreshToken',
+      name: '--refresh-token',
+      placeholder: '<token>',
+    },
+    { key: 'scopes', name: '--scopes', placeholder: '<scopes>' },
+  ];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    let matchedStringFlag = false;
+    for (const flag of stringFlags) {
+      const parsedFlag = parseValueFlag({
+        arg,
+        args,
+        index,
+        name: flag.name,
+        placeholder: flag.placeholder,
+        allowEmptyEquals: true,
+      });
+      if (!parsedFlag) continue;
+      parsed[flag.key] = parsedFlag.value || undefined;
+      index = parsedFlag.nextIndex;
+      matchedStringFlag = true;
+      break;
+    }
+    if (matchedStringFlag) continue;
+
+    const redirectPortFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--redirect-port',
+      placeholder: '<port>',
+      allowEmptyEquals: true,
+    });
+    if (redirectPortFlag) {
+      const port = Number.parseInt(redirectPortFlag.value, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(
+          'Google OAuth redirect port must be between 1 and 65535.',
+        );
+      }
+      parsed.redirectPort = port;
+      index = redirectPortFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login google --help\`.`,
+    );
+  }
+
+  return parsed;
+}
+
+async function resolveInteractiveGoogleLogin(params: {
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<{
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}> {
+  if (params.account && params.clientId && params.clientSecret) {
+    return params;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Google OAuth credentials. Pass `--client-id <id>`, `--client-secret <secret>`, and `--account <email>`, or run this command in an interactive terminal.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const account = await promptWithDefault({
+      rl,
+      question: 'Google account email',
+      defaultValue: params.account || undefined,
+    });
+    const clientId = await promptWithDefault({
+      rl,
+      question: 'Google OAuth desktop client id',
+      defaultValue: params.clientId || undefined,
+    });
+    const clientSecret = await promptWithDefault({
+      rl,
+      question: 'Google OAuth desktop client secret',
+      defaultValue: params.clientSecret || undefined,
+      secret: true,
+    });
+    return {
+      account,
+      clientId,
+      clientSecret,
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureGoogleAuth(args: string[]): Promise<void> {
+  const parsed = parseGoogleLoginArgs(args);
+  const resolved = await resolveInteractiveGoogleLogin({
+    account:
+      parsed.account ||
+      process.env[GOOGLE_ACCOUNT_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_ACCOUNT_SECRET) ||
+      '',
+    clientId:
+      parsed.clientId ||
+      process.env[GOOGLE_OAUTH_CLIENT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_OAUTH_CLIENT_ID_SECRET) ||
+      '',
+    clientSecret:
+      parsed.clientSecret ||
+      process.env[GOOGLE_OAUTH_CLIENT_SECRET_SECRET]?.trim() ||
+      readStoredRuntimeSecret(GOOGLE_OAUTH_CLIENT_SECRET_SECRET) ||
+      '',
+  });
+  const scopes = parseGoogleScopes(
+    parsed.scopes ||
+      process.env.GOOGLE_OAUTH_SCOPES?.trim() ||
+      readStoredRuntimeSecret('GOOGLE_OAUTH_SCOPES') ||
+      DEFAULT_GOOGLE_OAUTH_SCOPES.join(' '),
+  );
+  const result = await loginGoogle({
+    account: resolved.account,
+    clientId: resolved.clientId,
+    clientSecret: resolved.clientSecret,
+    refreshToken:
+      parsed.refreshToken ||
+      process.env[GOOGLE_OAUTH_REFRESH_TOKEN_SECRET]?.trim() ||
+      undefined,
+    scopes,
+    redirectPort: parsed.redirectPort,
+  });
+
+  console.log(`Saved Google OAuth credentials to ${result.secretsPath}.`);
+  console.log(`Account: ${result.account}`);
+  console.log(`Scopes: ${result.scopes.join(' ')}`);
+  console.log(
+    result.usedProvidedRefreshToken
+      ? 'Stored provided refresh token.'
+      : 'Completed browser authorization and stored refresh token.',
+  );
+  console.log(
+    'Agent containers will receive fresh short-lived Google Workspace access tokens for gog and gws.',
   );
 }
 
@@ -1222,6 +1639,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
     printCodexUsage();
     return;
   }
+  if (provider === 'anthropic') {
+    printAnthropicUsage();
+    return;
+  }
   if (provider === 'openrouter') {
     printOpenRouterUsage();
     return;
@@ -1232,6 +1653,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'huggingface') {
     printHuggingFaceUsage();
+    return;
+  }
+  if (provider === 'google') {
+    printGoogleUsage();
     return;
   }
   if (findGenericProviderDef(provider)) {
@@ -1488,7 +1913,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1504,6 +1929,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
     await handleCodexCommand(['login', ...parsed.remaining]);
     return;
   }
+  if (parsed.provider === 'anthropic') {
+    await configureAnthropic(parsed.remaining);
+    return;
+  }
   if (parsed.provider === 'openrouter') {
     await configureOpenRouter(parsed.remaining);
     return;
@@ -1514,6 +1943,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'huggingface') {
     await configureHuggingFace(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'google') {
+    await configureGoogleAuth(parsed.remaining);
     return;
   }
   const genericLoginDef = findGenericProviderDef(parsed.provider);
@@ -1628,9 +2061,23 @@ async function dispatchProviderAction(
     await handleCodexCommand([action]);
     return;
   }
+  if (provider === 'anthropic') {
+    if (action === 'status') {
+      await ensureAnthropicAuthApi();
+      printAnthropicStatus();
+      return;
+    }
+    clearAnthropicCredentials();
+    return;
+  }
   if (provider === 'openrouter') {
     if (action === 'status') {
-      printOpenRouterStatus();
+      printApiKeyProviderStatus({
+        configKey: 'openrouter',
+        secretKey: 'OPENROUTER_API_KEY',
+        envVarNames: ['OPENROUTER_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearOpenRouterCredentials();
@@ -1638,7 +2085,12 @@ async function dispatchProviderAction(
   }
   if (provider === 'mistral') {
     if (action === 'status') {
-      printMistralStatus();
+      printApiKeyProviderStatus({
+        configKey: 'mistral',
+        secretKey: 'MISTRAL_API_KEY',
+        envVarNames: ['MISTRAL_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearMistralCredentials();
@@ -1646,21 +2098,35 @@ async function dispatchProviderAction(
   }
   if (provider === 'huggingface') {
     if (action === 'status') {
-      printHuggingFaceStatus();
+      printApiKeyProviderStatus({
+        configKey: 'huggingface',
+        secretKey: 'HF_TOKEN',
+        envVarNames: ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
+        catalog: 'auto-discovered',
+      });
       return;
     }
     clearHuggingFaceCredentials();
     return;
   }
+  if (provider === 'google') {
+    if (action === 'status') {
+      printGoogleStatus();
+      return;
+    }
+    clearGoogleCredentials();
+    return;
+  }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
-      printGenericProviderStatus(
-        genericDef.label,
-        genericDef.id,
-        genericDef.secretKey,
-        genericDef.envVarNames,
-      );
+      printApiKeyProviderStatus({
+        providerLabel: genericDef.label,
+        configKey: genericDef.id,
+        secretKey: genericDef.secretKey,
+        envVarNames: genericDef.envVarNames,
+        showProviderLabel: true,
+      });
       return;
     }
     clearGenericProviderCredentials(
@@ -1706,7 +2172,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

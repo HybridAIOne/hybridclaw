@@ -12,18 +12,11 @@ import {
 } from './utils.js';
 
 const CODEX_MODEL_PREFIX = 'openai-codex/';
-// Models shown in the ChatGPT Codex UI that the `/models` HTTP endpoint does
-// not always advertise (the endpoint currently omits `-codex` variants for
-// 5.1/5.2 even when the account can call them via `/responses`). Merged into
-// the discovered set so `/model list codex` mirrors what users see in the UI.
 const CODEX_SUPPLEMENTAL_MODELS = [
   'openai-codex/gpt-5.1-codex-max',
   'openai-codex/gpt-5.1-codex-mini',
   'openai-codex/gpt-5.2-codex',
 ] as const;
-// Keep entries ordered so any model used as a template appears earlier in the
-// list than models derived from it. appendForwardCompatCodexModels augments the
-// seen set as it walks this table once from top to bottom.
 const CODEX_FORWARD_COMPAT_MODELS = [
   {
     model: 'openai-codex/gpt-5.3-codex',

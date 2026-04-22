@@ -153,8 +153,17 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(md).toContain('# Getting Started');
   });
 
-  test('/ serves the landing page', async () => {
+  test('/ redirects to chat (auth enforced in container)', async () => {
     const res = await fetch(GATEWAY_URL, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
+  test('/about serves the landing page', async () => {
+    const res = await fetch(`${GATEWAY_URL}/about`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);

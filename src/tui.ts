@@ -324,10 +324,6 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
-// Keep lone ESC responsive for local TUI use. This is lower than readline's
-// default and can misclassify multi-byte escape sequences on high-latency SSH
-// links if arrow-key bytes arrive too far apart, so raise it here if operators
-// report flaky cursor keys on slow connections.
 const TUI_ESCAPE_CODE_TIMEOUT_MS = 10;
 const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   500,

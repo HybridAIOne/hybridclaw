@@ -53,7 +53,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
 
-    const packOutput = execSync('npm pack --pack-destination ' + tempDir, {
+    const packOutput = execSync(`npm pack --pack-destination ${tempDir}`, {
       encoding: 'utf-8',
       timeout: 120_000,
     }).trim();
@@ -174,8 +174,17 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(html).toContain('Installation');
   });
 
-  test('/ serves the landing page with unique title', async () => {
+  test('/ redirects to chat', async () => {
     const res = await fetch(GATEWAY_URL, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
+  test('/about serves the landing page with unique title', async () => {
+    const res = await fetch(`${GATEWAY_URL}/about`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);

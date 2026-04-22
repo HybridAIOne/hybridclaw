@@ -65,7 +65,6 @@ function setViewport(width: number) {
 
 type SidebarCtx = SidebarContextSnapshot;
 
-// Helper: expose useSidebar return value to assertions
 function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
   const ctx = useSidebar();
   props.onRender(ctx);
@@ -565,9 +564,7 @@ describe('AppSidebar', () => {
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-    expect(
-      screen.queryByRole('button', { name: /sidebar$/i }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: /sidebar$/i })).toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {

@@ -31,8 +31,9 @@ Two different mechanisms are involved:
   `container/src/approval-policy.ts`. They classify tool calls as green,
   yellow, or red.
 - Local operator-command restrictions are separate. Commands such as `config`,
-  `secret`, `policy`, `plugin ...`, and `skill install` are limited to local
-  TUI/web/CLI surfaces, and a few use their own explicit approval flow.
+  `secret`, `policy`, `plugin ...`, `skill install`, and `skill setup` are
+  limited to local TUI/web/CLI surfaces, and a few use their own explicit
+  approval flow.
 
 In practice, approvals cover:
 
@@ -69,8 +70,9 @@ Installation is mixed:
 
 - Plugin dependency installation has a separate explicit approval flow in local
   command handling.
-- `skill install` is local-only, but running it is treated as the explicit
-  operator action rather than going through the same traffic-light prompt path.
+- `skill install` and `skill setup` are local-only, but running them is treated
+  as the explicit operator action rather than going through the same
+  traffic-light prompt path.
 
 Approvals also do not stand alone. Sandbox and mount permissions, local-only
 command availability, and provider/runtime internals unrelated to user tool
@@ -226,7 +228,7 @@ sessions because they read or mutate local runtime state.
 | `auth status` | Web, TUI, CLI gateway command client | Reads local credential state |
 | `memory inspect`, `memory query` | Web, TUI, CLI gateway command client | Exposes local workspace/session memory internals |
 | `plugin install`, `plugin reinstall`, `plugin config`, `plugin disable` | Web, TUI, CLI gateway command client | Mutates local plugin and runtime state |
-| `skill install` | Web, TUI, CLI gateway command client | Runs installer workflows on the local machine |
+| `skill install`, `skill setup` | Web, TUI, CLI gateway command client | Runs installer workflows on the local machine |
 | `voice call`, `voice info` | Web, TUI, CLI gateway command client | Places outbound Twilio calls and inspects local voice config |
 | `dream`, `eval` | Web, TUI, CLI gateway command client | Uses local workspaces and local loopback surfaces |
 
