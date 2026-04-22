@@ -32,6 +32,7 @@ jobs:
       sha: ${{ steps.check.outputs.sha }}
       sha_short: ${{ steps.check.outputs.sha_short }}
       prerelease: ${{ steps.check.outputs.prerelease }}
+      verify_tag: ${{ steps.check.outputs.verify_tag }}
     steps:
       - name: Resolve target ref
         id: resolve
@@ -90,12 +91,17 @@ jobs:
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           SHA="$(git rev-parse HEAD)"
           SHA_SHORT="${SHA::7}"
+          VERIFY_TAG=true
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -z "${INPUT_VERSION}" ]]; then
+            VERIFY_TAG=false
+          fi
 
           {
             echo "tag=${TAG}"
-            echo "ref=${{ steps.resolve.outputs.ref }}"
+            echo "ref=${SHA}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
             echo "prerelease=${PRERELEASE}"
+            echo "verify_tag=${VERIFY_TAG}"
             echo "owner_lc=${OWNER_LC}"
             echo "sha=${SHA}"
             echo "sha_short=${SHA_SHORT}"
@@ -341,13 +347,20 @@ jobs:
           REPO: ${{ github.repository }}
           TAG: ${{ needs.validate.outputs.tag }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+          SHA: ${{ needs.validate.outputs.sha }}
+          VERIFY_TAG: ${{ needs.validate.outputs.verify_tag }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Release $TAG already exists; skipping creation."
             exit 0
           fi
-          flags=(--title "$TAG" --verify-tag --generate-notes)
+          flags=(--title "$TAG" --generate-notes)
+          if [[ "$VERIFY_TAG" == "true" ]]; then
+            flags+=(--verify-tag)
+          else
+            flags+=(--target "$SHA")
+          fi
           if [[ "$PRERELEASE" == "true" ]]; then
             flags+=(--prerelease)
           fi
