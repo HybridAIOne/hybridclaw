@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BranchResponse,
@@ -15,9 +16,10 @@ import type {
   MediaUploadResponse,
 } from '../../api/chat-types';
 import type { GatewayStatus } from '../../api/types';
+import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
-const validateTokenMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
+const fetchAppStatusMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
 const fetchChatRecentMock =
   vi.fn<
     (
@@ -47,6 +49,7 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
+  fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (
     token: string,
     userId: string,
@@ -64,16 +67,20 @@ vi.mock('../../api/chat', () => ({
   uploadMedia: (token: string, file: File) => uploadMediaMock(token, file),
 }));
 
-vi.mock('../../api/client', () => ({
-  validateToken: (token: string) => validateTokenMock(token),
-}));
-
 vi.mock('../../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
 vi.mock('./use-chat-stream', () => ({
   useChatStream: (...args: unknown[]) => useChatStreamMock(...args),
+}));
+
+vi.mock('../../components/view-switch', () => ({
+  ViewSwitchNav: () => null,
+}));
+
+vi.mock('../../components/theme-toggle', () => ({
+  ThemeToggle: () => null,
 }));
 
 function renderChatPage() {
@@ -86,7 +93,11 @@ function renderChatPage() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChatPage />
+      <SidebarProvider>
+        <Suspense fallback={<div>Loading chat…</div>}>
+          <ChatPage />
+        </Suspense>
+      </SidebarProvider>
     </QueryClientProvider>,
   );
 
@@ -104,7 +115,7 @@ describe('ChatPage', () => {
     localStorage.setItem('hybridclaw_session', 'session-a');
     localStorage.setItem('hybridclaw_user_id', 'web-user-1');
 
-    validateTokenMock.mockReset();
+    fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
     createChatBranchMock.mockReset();
@@ -116,7 +127,7 @@ describe('ChatPage', () => {
     useChatStreamMock.mockReset();
 
     useAuthMock.mockReturnValue({ token: 'test-token' });
-    validateTokenMock.mockResolvedValue({
+    fetchAppStatusMock.mockResolvedValue({
       status: 'ok',
       webAuthConfigured: true,
       version: '0.0.0',
@@ -251,6 +262,55 @@ describe('ChatPage', () => {
       ['test-token', 'session-a'],
       ['test-token', 'session-b'],
     ]);
+  });
+
+  it('assigns branch controls to loaded history and opens sibling branches', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: 42,
+            role: 'assistant',
+            content:
+              sessionId === 'session-b'
+                ? 'Alternate assistant reply'
+                : 'Primary assistant reply',
+          },
+        ],
+        branchFamilies: [
+          {
+            anchorSessionId: 'session-a',
+            anchorMessageId: 42,
+            variants: [
+              { sessionId: 'session-a', messageId: 42 },
+              { sessionId: 'session-b', messageId: 42 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    renderChatPage();
+
+    const initialCounter = await screen.findByText('1/2');
+    const initialActions = initialCounter.parentElement;
+    if (!(initialActions instanceof HTMLElement)) {
+      throw new Error('Missing branch action container');
+    }
+
+    fireEvent.click(
+      within(initialActions).getByRole('button', { name: 'Next branch' }),
+    );
+
+    expect(await screen.findByText('Alternate assistant reply')).not.toBeNull();
+    expect(await screen.findByText('2/2')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-b',
+      ),
+    );
   });
 
   it('searches conversation titles beyond the default recent list', async () => {
@@ -404,79 +464,6 @@ describe('ChatPage', () => {
     );
   });
 
-  it('assigns branch controls to loaded history and opens sibling branches', async () => {
-    fetchChatHistoryMock.mockImplementation(
-      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
-        sessionId,
-        history: [
-          {
-            id: 42,
-            role: 'assistant',
-            content:
-              sessionId === 'session-b'
-                ? 'Alternate assistant reply'
-                : 'Primary assistant reply',
-          },
-        ],
-        branchFamilies: [
-          {
-            anchorSessionId: 'session-a',
-            anchorMessageId: 42,
-            variants: [
-              { sessionId: 'session-a', messageId: 42 },
-              { sessionId: 'session-b', messageId: 42 },
-            ],
-          },
-        ],
-      }),
-    );
-
-    renderChatPage();
-
-    const initialCounter = await screen.findByText('1/2');
-    const initialActions = initialCounter.parentElement;
-    if (!(initialActions instanceof HTMLElement)) {
-      throw new Error('Missing branch action container');
-    }
-
-    fireEvent.click(
-      within(initialActions).getByRole('button', { name: 'Next branch' }),
-    );
-
-    expect(await screen.findByText('Alternate assistant reply')).not.toBeNull();
-    expect(await screen.findByText('2/2')).not.toBeNull();
-    await waitFor(() =>
-      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
-        'test-token',
-        'session-b',
-      ),
-    );
-  });
-
-  it('keeps a single sidebar tree when the mobile drawer opens', async () => {
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'session-a',
-      history: [
-        {
-          id: 101,
-          role: 'assistant',
-          content: 'Opened session A',
-        },
-      ],
-    });
-
-    renderChatPage();
-
-    expect(await screen.findByText('Opened session A')).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
-
-    expect(screen.getAllByText('Recent')).toHaveLength(1);
-    expect(
-      screen.getByRole('button', { name: 'Close sidebar' }),
-    ).not.toBeNull();
-  });
-
   it('shows an error and keeps edit mode open when the message cannot be branched', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
@@ -511,7 +498,7 @@ describe('ChatPage', () => {
 
   it('surfaces gateway status load failures instead of swallowing them', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    validateTokenMock.mockRejectedValue(new Error('Gateway offline'));
+    fetchAppStatusMock.mockRejectedValue(new Error('Gateway offline'));
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],

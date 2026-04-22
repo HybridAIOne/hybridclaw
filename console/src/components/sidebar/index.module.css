@@ -201,22 +201,21 @@
 
 .brandTitle {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-height: 34px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
 }
 
 .brandText {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
-  padding-top: 1px;
 }
 
 .brandTitle h1 {
   margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 1.125rem;
+  font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.1;
 }
@@ -233,8 +232,8 @@
 }
 
 .brandMark {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   color: var(--accent-foreground);
 }
@@ -248,8 +247,8 @@
 }
 
 .brandMark svg {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
 }
 
 .menuIcon svg,
@@ -327,6 +326,7 @@
 /* Collapsed desktop state — placed after base selectors for specificity */
 
 .root[data-state="collapsed"] {
+  flex: 0 0 var(--sidebar-width-icon);
   width: var(--sidebar-width-icon);
   overflow: hidden;
 }

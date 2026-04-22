@@ -11,7 +11,10 @@ import {
   dispatchAuthRequired,
   requestHeaders,
   requestJson,
+  validateToken,
 } from './client';
+
+export { validateToken as fetchAppStatus };
 
 export function fetchChatRecent(
   token: string,

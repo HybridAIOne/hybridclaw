@@ -227,7 +227,18 @@ export function Composer(props: {
             ) : null}
           </div>
         ) : null}
-        <div className={css.composerRow}>
+        <textarea
+          ref={textareaRef}
+          className={css.composerInput}
+          rows={1}
+          placeholder="Message HybridClaw"
+          disabled={props.isStreaming}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          aria-label="Message input"
+        />
+        <div className={css.composerActions}>
           <button
             type="button"
             className={css.attachButton}
@@ -236,17 +247,6 @@ export function Composer(props: {
           >
             +
           </button>
-          <textarea
-            ref={textareaRef}
-            className={css.composerInput}
-            rows={1}
-            placeholder="Message HybridClaw"
-            disabled={props.isStreaming}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            aria-label="Message input"
-          />
           <button
             type="button"
             className={cx(css.sendButton, props.isStreaming && css.stopping)}
