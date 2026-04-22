@@ -102,9 +102,9 @@
   background: var(--panel-bg);
 }
 
-.sessionItemActive {
-  background: var(--panel-bg);
-  box-shadow: var(--shadow-raised);
+.sessionItemActive .sessionTitle,
+.sessionItemActive .sessionSnippet {
+  color: var(--primary);
 }
 
 .sessionItemPending {
