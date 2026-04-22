@@ -256,9 +256,6 @@ type ApiAdminPolicyRequestBody = {
   rule?: unknown;
 };
 
-// Keep this local instead of importing the container helper. The gateway and
-// container ship as separate packages and intentionally normalize request
-// payloads at their own trust boundaries.
 function normalizeStringListInput(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const normalized = value.trim();

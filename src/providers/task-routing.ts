@@ -93,8 +93,6 @@ function readTaskOverrideSnapshot(): TaskOverrideSnapshot {
   return snapshot;
 }
 
-// Snapshot env overrides once at module load so a running worker sees stable
-// task-routing behavior for its lifetime instead of re-reading process.env.
 const TASK_OVERRIDE_SNAPSHOT = readTaskOverrideSnapshot();
 
 function readTaskOverride(

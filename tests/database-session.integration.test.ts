@@ -14,7 +14,6 @@ let tmpDir: string;
 let dbPath: string;
 let Database: typeof import('better-sqlite3').default;
 
-// Modules imported dynamically after env setup.
 let initDatabase: typeof import('../src/memory/db.js').initDatabase;
 let getOrCreateSession: typeof import('../src/memory/db.js').getOrCreateSession;
 let storeMessage: typeof import('../src/memory/db.js').storeMessage;
@@ -205,8 +204,6 @@ describe('database session integration', () => {
     }
   });
 
-  // --- Compaction tests ---
-
   it('getCompactionCandidateMessages returns null when fewer messages than keepRecent', () => {
     const session = getOrCreateSession(
       'test-compact-few',
@@ -236,10 +233,11 @@ describe('database session integration', () => {
     const keepRecent = 5;
     const result = getCompactionCandidateMessages(session.id, keepRecent);
     expect(result).not.toBeNull();
-    expect(result!.olderMessages.length).toBe(20);
+    if (!result) throw new Error('expected non-null result');
+    expect(result.olderMessages.length).toBe(20);
     // All older messages should have IDs less than the cutoff.
-    for (const msg of result!.olderMessages) {
-      expect(msg.id).toBeLessThan(result!.cutoffId);
+    for (const msg of result.olderMessages) {
+      expect(msg.id).toBeLessThan(result.cutoffId);
     }
   });
 
@@ -256,10 +254,11 @@ describe('database session integration', () => {
     const keepRecent = 5;
     const candidates = getCompactionCandidateMessages(session.id, keepRecent);
     expect(candidates).not.toBeNull();
+    if (!candidates) throw new Error('expected non-null candidates');
 
     const deletedCount = deleteMessagesBeforeId(
       session.id,
-      candidates!.cutoffId,
+      candidates.cutoffId,
     );
     expect(deletedCount).toBe(20);
 
@@ -276,13 +275,12 @@ describe('database session integration', () => {
     // Verify session summary and compaction_count were updated.
     const updatedSession = getSessionById(session.id);
     expect(updatedSession).toBeDefined();
-    expect(updatedSession!.session_summary).toBe(
+    if (!updatedSession) throw new Error('expected updated session');
+    expect(updatedSession.session_summary).toBe(
       'Summary of 20 older messages.',
     );
-    expect(updatedSession!.compaction_count).toBeGreaterThanOrEqual(1);
+    expect(updatedSession.compaction_count).toBeGreaterThanOrEqual(1);
   });
-
-  // --- Session forking tests ---
 
   it('forkSessionBranch creates a new session with copied messages', () => {
     const session = getOrCreateSession(
@@ -342,7 +340,13 @@ describe('database session integration', () => {
     );
 
     // Add a new message to the original.
-    storeMessage(session.id, 'user-1', 'Alice', 'user', 'Original-only message');
+    storeMessage(
+      session.id,
+      'user-1',
+      'Alice',
+      'user',
+      'Original-only message',
+    );
 
     const originalHistory = getConversationHistory(session.id, 100);
     const forkHistory = getConversationHistory(forkResult.session.id, 100);

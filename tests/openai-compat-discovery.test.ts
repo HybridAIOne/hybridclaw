@@ -29,7 +29,8 @@ function buildConfigMock(overrides: Record<string, unknown> = {}) {
     ZAI_BASE_URL: 'https://api.z.ai/api/paas/v4',
     KIMI_BASE_URL: 'https://api.moonshot.ai/v1',
     MINIMAX_BASE_URL: 'https://api.minimax.io/v1',
-    DASHSCOPE_BASE_URL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    DASHSCOPE_BASE_URL:
+      'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     XIAOMI_BASE_URL: 'https://api.xiaomimimo.com/v1',
     KILO_BASE_URL: 'https://api.kilo.ai/api/gateway',
     // Config-fallback API keys — default blank, tests set process.env.* when

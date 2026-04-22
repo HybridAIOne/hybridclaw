@@ -87,8 +87,6 @@ type WebSocketServerLike = {
   ) => void;
   removeAllListeners: () => void;
 };
-// `ws` exposes `WebSocketServer` through a mixed ESM/CJS shape, so keep this
-// cast when reading the constructor from the namespace import.
 const WebSocketServerCtor = (
   wsModule as unknown as {
     WebSocketServer: new (options: { noServer: true }) => WebSocketServerLike;

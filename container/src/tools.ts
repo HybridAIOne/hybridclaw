@@ -822,9 +822,6 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// Duplicated on purpose instead of importing the gateway helper. The container
-// runtime is packaged independently and should keep its input normalization
-// self-contained at the sandbox boundary.
 function readStringListValue(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -2179,7 +2176,8 @@ async function executeToolInternal(
   }
   const args =
     parsedArgs && typeof parsedArgs === 'object'
-      ? (parsedArgs as Record<string, any>)
+      ? // biome-ignore lint/suspicious/noExplicitAny: args is passed through a wide range of tool handlers that each narrow property types at the use site; a single shared Record<string, unknown> would require narrowing at every call site.
+        (parsedArgs as Record<string, any>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
@@ -3717,7 +3715,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_extract',
       description:
-        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost, Hermes-style companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
+        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
       parameters: {
         type: 'object',
         properties: {
