@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { fetchArtifactBlob } from '../../api/chat';
+import { fetchAgentAvatarBlob, fetchArtifactBlob } from '../../api/chat';
 import type { ChatArtifact, ChatMessage } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';
@@ -178,6 +178,44 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   );
 }
 
+function useAuthenticatedImageUrl(params: {
+  token: string;
+  imageUrl?: string | null;
+}): string | null {
+  const objectUrlRef = useRef<string | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const previousUrl = objectUrlRef.current;
+    objectUrlRef.current = null;
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    setObjectUrl(null);
+
+    if (!params.imageUrl) return;
+
+    let cancelled = false;
+    void fetchAgentAvatarBlob(params.token, params.imageUrl)
+      .then((blob) => {
+        if (cancelled) return;
+        const nextUrl = URL.createObjectURL(blob);
+        objectUrlRef.current = nextUrl;
+        setObjectUrl(nextUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      const nextUrl = objectUrlRef.current;
+      objectUrlRef.current = null;
+      if (nextUrl) URL.revokeObjectURL(nextUrl);
+    };
+  }, [params.imageUrl, params.token]);
+
+  return objectUrl;
+}
+
 export const MessageBlock = memo(function MessageBlock(props: {
   message: ChatUiMessage;
   token: string;
@@ -227,6 +265,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     isMarkdownMessage,
     props.isStreaming,
   );
+  const presentation = msg.assistantPresentation;
+  const displayName = presentation?.displayName ?? 'Assistant';
+  const avatarUrl = useAuthenticatedImageUrl({
+    token,
+    imageUrl: presentation?.imageUrl,
+  });
 
   if (msg.role === 'thinking') {
     return (
@@ -256,19 +300,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     msg.role === 'system' && css.bubbleSystem,
   );
 
-  const presentation = msg.assistantPresentation;
-  const displayName = presentation?.displayName ?? 'Assistant';
-
   return (
     <div className={blockClass}>
       {isAssistant ? (
         <div className={css.agentLabel}>
-          {presentation?.imageUrl ? (
-            <img
-              className={css.agentAvatar}
-              src={presentation.imageUrl}
-              alt=""
-            />
+          {avatarUrl ? (
+            <img className={css.agentAvatar} src={avatarUrl} alt="" />
           ) : (
             <span className={css.agentInitial}>
               {displayName.charAt(0).toUpperCase()}
