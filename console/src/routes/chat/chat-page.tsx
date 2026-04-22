@@ -21,7 +21,7 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { SidebarTrigger, useSidebar } from '../../components/sidebar/index';
+import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
 import {
   type ApprovalAction,
@@ -139,12 +139,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     default:
       return state;
   }
-}
-
-function ChatMobileTrigger() {
-  const { isMobile } = useSidebar();
-  if (!isMobile) return null;
-  return <SidebarTrigger className={css.chatMobileTrigger} />;
 }
 
 export function ChatPage() {
@@ -563,7 +557,7 @@ export function ChatPage() {
 
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
-            <ChatMobileTrigger />
+            <MobileTopbarTrigger className={css.chatMobileTrigger} />
             <ViewSwitchNav />
           </div>
           {isEmpty ? (
