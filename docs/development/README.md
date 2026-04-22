@@ -17,16 +17,19 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- The built-in `/chat` sidebar can search recent conversations by title and
-  show contextual match snippets, which makes browser-session recovery faster
-  during day-to-day operator work.
-- Browser chat and the console chat now restore focus to the composer after
-  streamed replies finish, improving keyboard-only follow-up flows.
-- The bundled PDF creator wraps long lines, respects explicit `\n` line
-  breaks, and adds pages automatically when content overflows the first page.
-- Generated artifacts now keep resolving correctly even when the sandbox maps a
-  custom workspace display root such as `/app`, keeping browser downloads and
-  attachments stable under alternate runtime layouts.
+- `hybridclaw auth login anthropic` configures direct Anthropic API access or
+  the official Claude CLI transport, and `/model list anthropic` participates
+  in the same provider catalog as the other remote providers.
+- `hybridclaw agent config` imports platform-generated JSON agent definitions,
+  bootstrap markdown, and optional profile images without requiring a `.claw`
+  archive.
+- Google Workspace API access is available through the bundled `gog` and `gws`
+  skills with host-minted short-lived tokens from encrypted Google OAuth
+  material.
+- The bundled skills catalog includes `gh-issues` for issue-queue automation
+  and `excalidraw` for editable diagrams.
+- The browser chat route uses the console SPA shell and the gateway root opens
+  the same chat surface.
 
 ## Browse By Section
 

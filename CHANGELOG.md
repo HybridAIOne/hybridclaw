@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Direct Anthropic provider**: Added first-class `anthropic/...` model
+  routing with `hybridclaw auth login anthropic`, direct Messages API support,
+  optional official `claude -p` transport in host sandbox mode, runtime model
+  discovery, doctor/onboarding coverage, and container-side Anthropic provider
+  execution.
+- **JSON agent configuration command**: Added `hybridclaw agent config` for
+  platform-generated agent JSON payloads. The command can upsert agent
+  metadata, write bootstrap markdown files, optionally activate the agent, and
+  import `imageAsset` URLs or local files into the agent workspace.
 - **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
   Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
   including the Homebrew install helper and Google OAuth setup via
@@ -11,16 +20,76 @@
   and refresh token in encrypted runtime secrets, mints short-lived access
   tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
   into the agent runtime.
+- **Bundled `gws` Google Workspace skill**: Added a Google Workspace CLI skill
+  with progressive disclosure, auth preflight, and focused reference material
+  for Calendar, Gmail, Drive, Docs, Sheets, and common workflows.
+- **Bundled `gh-issues` skill**: Added a HybridClaw-native GitHub issue queue
+  workflow that can fetch live issue lists, filter batches, confirm selected
+  issues, deduplicate issue-fix branches, delegate focused PRs, watch queues,
+  and revisit review feedback on open issue-fix PRs.
+- **Bundled `excalidraw` skill**: Added editable `.excalidraw` diagram
+  creation and revision guidance with reference material for colors, dark
+  mode, examples, and an upload helper.
+- **Small-business workflow tutorials**: Added a top-level Tutorials section
+  covering practical owner, GTM, marketing, sales, DevRel, content, webinar,
+  invoicing, and release-launch workflows.
+- **Roman personality option**: Added a bundled Roman personality profile.
+- **Console view switch and chat route refresh**: Added a shared view switch,
+  larger admin brand treatment, collapsible desktop navigation, and a refreshed
+  top-level `/chat` SPA route.
+- **Release image promotion action**: Added a dedicated GitHub Action for
+  release image promotion and tightened release-image workflow caching.
 
 ### Changed
 
+- **Anthropic provider handling is production-routed**: Anthropic auth status,
+  provider probing, model discovery, task routing, stream parsing, timeout
+  behavior, Claude CLI credential lookup, and credential environment handling
+  now use provider-specific code paths instead of OpenAI-compatible fallbacks.
 - **Google Workspace skill routing prefers `gog` for API access**: The
   browser-oriented `google-workspace` skill now defers to the bundled `gog`
   skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
   access is available.
+- **Browser chat is the primary local web surface**: The gateway root routes to
+  chat, `/chat` is mounted as a top-level console SPA route, the standalone
+  chat view owns its viewport, and server-rendered pages use document
+  navigation where appropriate.
+- **Chat composer and message actions were refined**: Assistant message actions
+  are always visible, regenerate precedes copy, the composer uses a two-row
+  layout and the full main-column width, active sessions use accent text, and
+  the new-conversation/send controls use lighter chrome.
+- **Channel runtime lifecycle code is shared**: Built-in channel transports now
+  use a shared runtime factory for common lifecycle handling, with explicit
+  opt-outs where a transport needs custom behavior.
+- **Provider discovery is more consistent**: Discovery caches and lookup
+  aliases are shared across providers, HybridAI model alias lookup is indexed,
+  provider integer parsing is centralized, and discovery refresh failures are
+  logged consistently.
+- **Prompt and tool summaries are cleaner**: Message-tool advertising is scoped
+  to active channels, and prompt hook output avoids redundant comment noise.
 
 ### Fixed
 
+- **Gateway restarts no longer hang during shutdown**: The gateway shutdown
+  path now drains pending credential-save work in order, avoiding a restart
+  hang during WhatsApp shutdown.
+- **Honcho memory prefetch races are closed**: Prompt-context assembly waits
+  for in-flight Honcho prefetch work before reading memory context.
+- **Inactive channel send tools no longer leak into prompts**: The runtime only
+  advertises message-send tools for channels that are active in the current
+  configuration.
+- **OpenRouter free-model lookups normalize correctly**: OpenRouter discovery
+  handles free model lookup aliases consistently.
+- **Slack runtime sends are guarded more tightly**: Slack send handling now
+  validates runtime state before attempting delivery.
+- **Agent avatars load behind web auth**: Chat agent avatars are fetched with
+  authenticated requests and eagerly loaded when chat state initializes.
+- **Chat replay restores request context from history**: Regenerating from a
+  historic assistant message hydrates the stored replay request before
+  resubmitting.
+- **Collapsed sidebars keep the expected width**: The collapsed console rail
+  shrinks to icon width and exposes nav tooltips instead of leaving excess
+  sidebar space.
 - **Google Workspace replies preserve user-visible addresses**: Assistant
   replies and streamed chat text no longer redact ordinary email addresses
   before they reach the user. Redaction still applies to audit, logging,

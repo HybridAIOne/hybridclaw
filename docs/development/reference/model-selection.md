@@ -9,6 +9,7 @@ sidebar_position: 2
 Model prefixes:
 
 - Codex models use `openai-codex/`
+- Anthropic models use `anthropic/`
 - OpenRouter models use `openrouter/`
 - Mistral models use `mistral/`
 - Hugging Face router models use `huggingface/`
@@ -31,6 +32,8 @@ Examples:
 /model set openai-codex/gpt-5-codex
 /model list codex
 /model default openai-codex/gpt-5-codex
+/model list anthropic
+/model set anthropic/claude-sonnet-4-6
 /model list openrouter
 /model set openrouter/anthropic/claude-sonnet-4
 /model list mistral
@@ -58,9 +61,10 @@ Examples:
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;
   it can point at a HybridAI model, an `openai-codex/...` model, an
-  `openrouter/...` model, a `mistral/...` model, a `huggingface/...` model, a
-  `gemini/...` model, a `deepseek/...` model, a `xai/...` model, a
-  `kilo/...` model, or a local backend model such as `ollama/...`
+  `anthropic/...` model, an `openrouter/...` model, a `mistral/...` model, a
+  `huggingface/...` model, a `gemini/...` model, a `deepseek/...` model, a
+  `xai/...` model, a `kilo/...` model, or a local backend model such as
+  `ollama/...`
 - `/agent model <name>` sets the persistent model for the current session agent
 - `/model set <name>` is a session-only override
 - `/model clear` removes the session override and falls back to the agent or
@@ -73,6 +77,8 @@ Examples:
 
 - `codex.models` controls the allowed Codex model list shown in selectors and
   status output
+- `anthropic.models` controls the allowed Anthropic model list shown in
+  selectors and status output
 - `openrouter.models` controls the allowed OpenRouter model list shown in
   selectors and status output
 - `mistral.models` controls the allowed Mistral model list shown in selectors
@@ -86,11 +92,17 @@ Examples:
   (`/models`, then `/v1/models` as a compatibility fallback), and discovered
   `context_length` values feed status and model-info output when the API
   exposes them
+- Anthropic model lists are discovered at runtime when the provider is enabled
+  and Anthropic credentials are available. Discovery responses are cached for
+  one hour and fall back to `anthropic.models` when the provider cannot return
+  a current list.
 
 ## Provider Routing
 
 - when the selected model starts with `openai-codex/`, HybridClaw resolves
   OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`
+- when the selected model starts with `anthropic/`, HybridClaw resolves
+  credentials through `ANTHROPIC_API_KEY` or the configured Claude CLI method
 - when the selected model starts with `openrouter/`, HybridClaw resolves
   credentials through `OPENROUTER_API_KEY`
 - when the selected model starts with `mistral/`, HybridClaw resolves

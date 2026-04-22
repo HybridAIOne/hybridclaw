@@ -12,6 +12,8 @@ HybridClaw uses one provider-focused command surface:
 hybridclaw auth login hybridai --browser
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
+hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
+hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method claude-cli
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
@@ -30,6 +32,7 @@ hybridclaw auth login google --client-id 000000000000-example.apps.googleusercon
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
+hybridclaw auth status anthropic
 hybridclaw auth status openrouter
 hybridclaw auth status mistral
 hybridclaw auth status huggingface
@@ -47,6 +50,7 @@ hybridclaw auth status google
 hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
+hybridclaw auth logout anthropic
 hybridclaw auth logout openrouter
 hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
@@ -74,14 +78,22 @@ hybridclaw auth whatsapp reset
   and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
+- `hybridclaw auth login anthropic --method api-key` stores
+  `ANTHROPIC_API_KEY`, enables the direct Anthropic Messages API transport,
+  and can set an `anthropic/...` model as the global default.
+- `hybridclaw auth login anthropic --method claude-cli` uses the official
+  `claude -p` transport after `claude auth login`. That transport currently
+  requires host sandbox mode because the Claude CLI credentials and binary
+  live on the host.
 - `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`,
   `hybridclaw auth login huggingface`, and the other API-key providers
-  (`gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`, `dashscope`,
-  `xiaomi`, `kilo`) can take `--api-key`, otherwise they fall back to the
-  matching environment variable (e.g. `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
-  `HF_TOKEN`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`,
-  `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`,
-  `XIAOMI_API_KEY`, `KILO_API_KEY`), or prompt interactively.
+  (`anthropic`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
+  `dashscope`, `xiaomi`, `kilo`) can take `--api-key`, otherwise they fall
+  back to the matching environment variable (e.g. `ANTHROPIC_API_KEY`,
+  `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `GEMINI_API_KEY`,
+  `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
+  `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`),
+  or prompt interactively.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
   vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login google` stores a Google OAuth desktop client id,
@@ -109,8 +121,13 @@ hybridclaw auth whatsapp reset
   where the active API key came from, whether a key is configured, the active
   config file, the configured base URL, and the default model without printing
   the credentials file path or any partial secret value.
+- `hybridclaw auth status anthropic` reports the configured method,
+  credential source, masked value, expiry for Claude CLI credentials when
+  available, and the current `anthropic.*` config state.
 - `hybridclaw auth logout local` disables configured local backends and clears
   any saved vLLM API key.
+- `hybridclaw auth logout anthropic` clears the stored `ANTHROPIC_API_KEY`.
+  Claude CLI credentials are managed separately by the `claude` CLI.
 - `hybridclaw auth logout google` clears the stored Google OAuth material used
   to mint short-lived `gog` access tokens.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and
@@ -128,11 +145,11 @@ hybridclaw auth whatsapp reset
 
 ## Where Credentials Live
 
-- `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Mistral,
-  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope,
-  Xiaomi, Kilo Code, Google OAuth for `gog`, Discord, email, Teams,
-  BlueBubbles iMessage, related runtime secrets, and named `/secret set` values
-  in encrypted form
+- `~/.hybridclaw/credentials.json` stores HybridAI, Anthropic, OpenRouter,
+  Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
+  DashScope, Xiaomi, Kilo Code, Google OAuth for `gog`, Discord, email, Teams,
+  BlueBubbles iMessage, related runtime secrets, and named `/secret set`
+  values in encrypted form
 - `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
   `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
   runtime secrets

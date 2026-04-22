@@ -172,6 +172,7 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 hybridclaw auth login
 hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
 hybridclaw auth login codex [--device-code|--browser|--import]
+hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
@@ -194,6 +195,7 @@ hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw help hybridai
 hybridclaw help codex
+hybridclaw help anthropic
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
@@ -212,15 +214,18 @@ hybridclaw help local
 hybridclaw help auth
 ```
 
-`auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
-`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
+`auth status` supports `hybridai`, `codex`, `anthropic`, `openrouter`,
+`mistral`, `huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`,
+`minimax`, `dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
 `hybridclaw onboarding`.
 `auth status` prints local credential-source and config state while redacting
 the secret values themselves.
+Anthropic supports `--method api-key` for direct Messages API calls and
+`--method claude-cli` for the official Claude CLI transport in host sandbox
+mode.
 
 ## Secrets And Routes
 
@@ -435,8 +440,8 @@ through the same gateway command surface used by TUI and web chat.
   for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
-  `/concierge`, `/auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`,
-  and `/secret list|set|unset|show|route`
+  `/concierge`, `/auth status <provider>`, and
+  `/secret list|set|unset|show|route`
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs
@@ -462,7 +467,8 @@ through the same gateway command surface used by TUI and web chat.
 - `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
   servers
 - `/auth status <provider>` shows local auth and config state for the
-  supported local-session providers
+  supported local-session providers, including Anthropic and the
+  OpenAI-compatible remote providers
 - Typing `/` in the TUI opens the slash-command menu with inline filtering and
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,
