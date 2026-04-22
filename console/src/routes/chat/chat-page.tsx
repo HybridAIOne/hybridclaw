@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
@@ -20,10 +19,8 @@ import {
   buildApprovalCommand,
   copyToClipboard,
   DEFAULT_AGENT_ID,
-  generateWebSessionId,
   isScrolledNearBottom,
   readStoredUserId,
-  storeSessionId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
@@ -38,6 +35,7 @@ import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { EditInline, MessageBlock } from './message-block';
+import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 
 type BranchInfo = {
@@ -73,8 +71,6 @@ function buildBranchInfoMap(
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const { sessionId } = useParams({ from: '/chat/$sessionId' });
   const userId = useRef(readStoredUserId()).current;
   const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
 
@@ -91,38 +87,26 @@ export function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
-  const sessionIdRef = useRef(sessionId);
-  sessionIdRef.current = sessionId;
+
+  const getDefaultAgentId = useCallback(() => defaultAgentIdRef.current, []);
+  const {
+    sessionId,
+    getSessionId,
+    navigateToSession,
+    startFreshChat,
+    ensureSessionForSend,
+    handleSessionIdCorrection,
+  } = useChatSession({ getDefaultAgentId });
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ['chat-recent', auth.token, userId],
     });
     void queryClient.invalidateQueries({
-      queryKey: chatHistoryQueryKey(auth.token, sessionIdRef.current),
+      queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
       refetchType: 'none',
     });
-  }, [queryClient, auth.token, userId]);
-
-  const getSessionId = useCallback(() => sessionIdRef.current, []);
-
-  const navigateToSession = useCallback(
-    (id: string, opts?: { replace?: boolean }) =>
-      navigate({
-        to: '/chat/$sessionId',
-        params: { sessionId: id },
-        ...opts,
-      }),
-    [navigate],
-  );
-
-  const handleSessionIdCorrection = useCallback(
-    (serverId: string) => {
-      if (serverId === sessionIdRef.current) return;
-      void navigateToSession(serverId, { replace: true });
-    },
-    [navigateToSession],
-  );
+  }, [queryClient, auth.token, userId, getSessionId]);
 
   const stream = useChatStream({
     token: auth.token,
@@ -132,10 +116,6 @@ export function ChatPage() {
     refreshRecent,
     onSessionIdCorrection: handleSessionIdCorrection,
   });
-
-  useEffect(() => {
-    storeSessionId(sessionId);
-  }, [sessionId]);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -302,9 +282,17 @@ export function ChatPage() {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    void navigateToSession(generateWebSessionId(defaultAgentIdRef.current));
+    startFreshChat();
     refreshRecent();
-  }, [stream.isActive, navigateToSession, refreshRecent]);
+  }, [stream.isActive, startFreshChat, refreshRecent]);
+
+  const handleSendMessage = useCallback(
+    (content: string, media: MediaItem[]) => {
+      ensureSessionForSend();
+      void stream.sendMessage(content, media);
+    },
+    [ensureSessionForSend, stream.sendMessage],
+  );
 
   const handleOpenSession = useCallback(
     (targetId: string) => {
@@ -319,14 +307,14 @@ export function ChatPage() {
 
   const handleHoverSession = useCallback(
     (targetId: string) => {
-      if (targetId === sessionIdRef.current) return;
+      if (targetId === getSessionId()) return;
       void queryClient.prefetchQuery({
         queryKey: chatHistoryQueryKey(auth.token, targetId),
         queryFn: () => loadChatHistoryUi(auth.token, targetId),
         staleTime: 30_000,
       });
     },
-    [queryClient, auth.token],
+    [queryClient, auth.token, getSessionId],
   );
 
   const handleEditOpen = useCallback((m: ChatMessage) => {
@@ -422,7 +410,7 @@ export function ChatPage() {
 
           <Composer
             isStreaming={stream.isStreaming}
-            onSend={(content, media) => void stream.sendMessage(content, media)}
+            onSend={handleSendMessage}
             onStop={() => void stream.stopRequest()}
             onUploadFiles={handleUploadFiles}
             token={auth.token}
