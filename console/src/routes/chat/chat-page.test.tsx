@@ -519,14 +519,50 @@ describe('ChatPage', () => {
     errorSpy.mockRestore();
   });
 
-  it('renders the chat topbar mobile trigger only when the viewport is mobile', async () => {
+  it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],
     });
 
-    function countMobileTriggers() {
-      return document.querySelectorAll('[class*="chatMobileTrigger"]').length;
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+
+    const aside = document.querySelector('aside[data-side="left"]');
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+
+    const collapseTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Collapse sidebar',
+    });
+    fireEvent.click(collapseTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+
+    const expandTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Expand sidebar',
+    });
+    expect(aside?.contains(expandTrigger)).toBe(true);
+    fireEvent.click(expandTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+  });
+
+  it('surfaces a sidebar trigger in the chat topbar only on mobile viewports', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    function openTriggersInChatTopbar() {
+      const topbar = document.querySelector('[class*="chatTopbar"]');
+      if (!topbar) return 0;
+      return topbar.querySelectorAll('button[aria-label="Open sidebar"]')
+        .length;
     }
 
     Object.defineProperty(window, 'innerWidth', {
@@ -538,7 +574,7 @@ describe('ChatPage', () => {
     renderChatPage();
 
     await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
-    expect(countMobileTriggers()).toBeGreaterThan(0);
+    expect(openTriggersInChatTopbar()).toBe(1);
 
     act(() => {
       Object.defineProperty(window, 'innerWidth', {
@@ -549,6 +585,6 @@ describe('ChatPage', () => {
       window.dispatchEvent(new Event('resize'));
     });
 
-    expect(countMobileTriggers()).toBe(0);
+    expect(openTriggersInChatTopbar()).toBe(0);
   });
 });
