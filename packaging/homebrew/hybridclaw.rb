@@ -1,21 +1,27 @@
 # Homebrew formula prep for HybridClaw.
 #
-# Once a GitHub release tarball is published, this formula can live in a
-# `homebrew-hybridclaw` tap. Update `url` and `sha256` to point at the
-# signed release tarball, then:
+# This formula is currently HEAD-only. Stable `brew install hybridclaw`
+# will start working once a signed GitHub release tarball is published and
+# the `url`/`sha256` block below is filled in. Until then, contributors
+# and early adopters can use:
+#
+#   brew install --HEAD hybridaione/hybridclaw/hybridclaw
+#
+# The tap repo lives at https://github.com/HybridAIOne/homebrew-hybridclaw
+# (to be created). Once a release exists, uncomment the `url` + `sha256`
+# lines and drop the `head` line if preferred, then:
 #
 #   brew tap hybridaione/hybridclaw
 #   brew install hybridclaw
-#
-# The tap repo lives at https://github.com/HybridAIOne/homebrew-hybridclaw
-# (to be created). For development use `brew install --HEAD hybridclaw` with
-# `head "https://github.com/HybridAIOne/hybridclaw.git", branch: "main"`.
 class Hybridclaw < Formula
   desc "Enterprise-ready self-hosted AI assistant runtime"
   homepage "https://github.com/HybridAIOne/hybridclaw"
-  url "https://registry.npmjs.org/@hybridaione/hybridclaw/-/hybridclaw-0.12.11.tgz"
-  sha256 "REPLACE_WITH_TARBALL_SHA256"
+  head "https://github.com/HybridAIOne/hybridclaw.git", branch: "main"
   license "MIT"
+
+  # Uncomment once a signed GitHub release tarball is published:
+  # url "https://github.com/HybridAIOne/hybridclaw/archive/refs/tags/v0.12.11.tar.gz"
+  # sha256 "REPLACE_WITH_TARBALL_SHA256"
 
   depends_on "node@22"
   depends_on "python@3.12" => :build

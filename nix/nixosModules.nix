@@ -46,11 +46,16 @@
 
       configFile = if cfg.configFile != null then cfg.configFile else generatedConfigFile;
 
-      # Non-secret env vars — written into stateDir/.env, loaded via
-      # systemd EnvironmentFile= alongside cfg.environmentFiles.
-      envFileContent = lib.concatStringsSep "\n" (
-        lib.mapAttrsToList (k: v: "${k}=${v}") cfg.environment
-      );
+      manageConfig = cfg.configFile != null || cfg.settings != { };
+
+      # Port resolution: prefer an explicit cfg.port override, otherwise
+      # derive from cfg.settings.gateway.port so openFirewall cannot drift
+      # from the actual gateway listen port written into config.json.
+      resolvedPort =
+        if cfg.port != null then
+          cfg.port
+        else
+          lib.attrByPath [ "gateway" "port" ] 9090 cfg.settings;
     in
     {
       options.services.hybridclaw = with lib; {
@@ -101,9 +106,14 @@
         };
 
         port = mkOption {
-          type = types.port;
-          default = 9090;
-          description = "Gateway HTTP listen port (opened when openFirewall = true).";
+          type = types.nullOr types.port;
+          default = null;
+          defaultText = literalExpression "cfg.settings.gateway.port or 9090";
+          description = ''
+            Gateway HTTP listen port used by openFirewall. When unset,
+            derives from `settings.gateway.port` (falling back to 9090) so
+            the firewall rule stays in sync with config.json.
+          '';
         };
 
         # ── Declarative config ──────────────────────────────────────────────
@@ -139,6 +149,8 @@
           description = ''
             Paths to environment files containing secrets (API keys, tokens).
             Loaded by systemd via EnvironmentFile=. Values in later files win.
+            Use this for anything sensitive — the referenced files are read
+            at unit start, so they can live outside the world-readable store.
           '';
         };
 
@@ -146,7 +158,9 @@
           type = types.attrsOf types.str;
           default = { };
           description = ''
-            Non-secret environment variables passed to the gateway. Do NOT
+            Non-secret environment variables passed to the gateway. Merged
+            into the systemd unit's `Environment=` directive, so values do
+            not need .env-style quoting but DO end up in unit state. Do NOT
             put secrets here — use `environmentFiles` for anything sensitive.
           '';
         };
@@ -224,7 +238,7 @@
 
         # ── Firewall ─────────────────────────────────────────────────────
         (lib.mkIf cfg.openFirewall {
-          networking.firewall.allowedTCPPorts = [ cfg.port ];
+          networking.firewall.allowedTCPPorts = [ resolvedPort ];
         })
 
         # ── Directories ──────────────────────────────────────────────────
@@ -236,25 +250,19 @@
           ];
         }
 
-        # ── Activation: render config + env file ─────────────────────────
+        # ── Activation: render config when Nix is managing it ───────────
         {
           system.activationScripts."hybridclaw-setup" = lib.stringAfter [ "users" ] ''
             mkdir -p ${cfg.stateDir}/.hybridclaw ${cfg.workingDirectory}
             chown ${cfg.user}:${cfg.group} ${cfg.stateDir} ${cfg.stateDir}/.hybridclaw ${cfg.workingDirectory}
             chmod 0750 ${cfg.stateDir} ${cfg.stateDir}/.hybridclaw ${cfg.workingDirectory}
 
-            # Render config.json. Overwrites each activation so Nix stays
-            # authoritative; users who want manual edits should set
-            # services.hybridclaw.configFile = null and settings = {}.
-            install -o ${cfg.user} -g ${cfg.group} -m 0640 ${configFile} \
-              ${cfg.stateDir}/.hybridclaw/config.json
-
-            ${lib.optionalString (cfg.environment != { }) ''
-              install -o ${cfg.user} -g ${cfg.group} -m 0640 /dev/null \
-                ${cfg.stateDir}/.hybridclaw/.env
-              cat > ${cfg.stateDir}/.hybridclaw/.env <<'HYBRIDCLAW_NIX_ENV_EOF'
-${envFileContent}
-HYBRIDCLAW_NIX_ENV_EOF
+            ${lib.optionalString manageConfig ''
+              # Nix is authoritative — render config.json on each activation.
+              # To manage config.json manually, set both
+              # services.hybridclaw.configFile = null and settings = {}.
+              install -o ${cfg.user} -g ${cfg.group} -m 0640 ${configFile} \
+                ${cfg.stateDir}/.hybridclaw/config.json
             ''}
           '';
         }
@@ -268,23 +276,25 @@ HYBRIDCLAW_NIX_ENV_EOF
             wants = [ "network-online.target" ];
             requires = lib.optional cfg.enableDocker "docker.service";
 
+            # Non-secret env goes through the unit's Environment= directive
+            # so systemd handles quoting for us. Secrets live in
+            # environmentFiles (EnvironmentFile=), which are not recorded
+            # into the unit state and can live outside the Nix store.
             environment = {
               HOME = cfg.stateDir;
               HYBRIDCLAW_HOME = "${cfg.stateDir}/.hybridclaw";
               HYBRIDCLAW_MANAGED = "true";
               NODE_ENV = "production";
-            };
+            } // cfg.environment;
 
             serviceConfig = {
               User = cfg.user;
               Group = cfg.group;
               WorkingDirectory = cfg.workingDirectory;
 
-              EnvironmentFile =
-                lib.optional (cfg.environment != { }) "${cfg.stateDir}/.hybridclaw/.env"
-                ++ cfg.environmentFiles;
+              EnvironmentFile = cfg.environmentFiles;
 
-              ExecStart = lib.concatStringsSep " " (
+              ExecStart = lib.escapeShellArgs (
                 [
                   "${cfg.package}/bin/hybridclaw"
                   "gateway"

@@ -69,14 +69,17 @@ so the default container sandbox works out of the box.
 
 A Homebrew formula is drafted at [packaging/homebrew/hybridclaw.rb](https://github.com/HybridAIOne/hybridclaw/blob/main/packaging/homebrew/hybridclaw.rb)
 and will ship through a dedicated tap (`hybridaione/hybridclaw`) once the
-first signed release tarball is published:
+first signed release tarball is published. The formula is currently
+**HEAD-only** — the stable `brew install hybridclaw` command will fail
+until a release artifact and its checksum are published.
+
+In the meantime, early adopters can build from `main`:
 
 ```bash
-brew tap hybridaione/hybridclaw
-brew install hybridclaw
+brew install --HEAD hybridaione/hybridclaw/hybridclaw
 ```
 
-Until then, macOS users should install via npm or the Nix flake.
+Most macOS users should stick to npm or the Nix flake for now.
 
 ## Install From a Source Checkout
 

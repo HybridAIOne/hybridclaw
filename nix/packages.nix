@@ -50,10 +50,11 @@
         inherit src;
 
         # npmDepsHash covers every workspace in the root package-lock.json
-        # (root + console + container). Update with:
-        #   nix build .#hybridclaw --rebuild
-        # and copy the "got:" hash into here.
-        npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        # (root + console + container). This is a placeholder — the first
+        # real build will fail with "hash mismatch ... got: sha256-…";
+        # copy that value in here. Refresh whenever package-lock.json
+        # changes (see packaging/README.md).
+        npmDepsHash = pkgs.lib.fakeHash;
 
         # Native modules (better-sqlite3, node-pty) compile from source when
         # no prebuild matches — the Nix sandbox has no network, so prebuild
