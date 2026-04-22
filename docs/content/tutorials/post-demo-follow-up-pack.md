@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Post-Demo Follow-Up Pack"
+title: "Post-Demo Follow-Up Pack"
 description: Turn meeting notes into a same-day follow-up email, recap summary, and clear next-step list.
 sidebar_position: 10
 ---
 
-# Tutorial: Post-Demo Follow-Up Pack
+# Post-Demo Follow-Up Pack
 
 In this tutorial, you'll compress the most fragile part of many SME sales
 processes: what happens after a call. HybridClaw takes fresh meeting notes and
@@ -99,6 +99,24 @@ Once you like the structure, save a reusable prompt with these fixed sections:
 
 That turns one good workflow into a habit.
 
+## Best-Practice Notes
+
+- **Write one email per role, not one for the room.** If three people
+  joined the call — economic buyer, technical buyer, end user — their
+  objections are different. The economic buyer cares about ROI
+  timeline, the technical buyer about integration risk, the end user
+  about day-to-day pain. A single email to "the team" dilutes all
+  three.
+- **Deal size dictates speed.** Sub-$5k deals close or die within a
+  week; reply same day or it's gone. $50k+ deals reward a 24–48 hour
+  gap where you intro a champion, surface a relevant case study, or
+  loop in a second stakeholder. Speed is not the same at every price
+  point.
+- **Objection ≠ disqualification.** "Worried about migration" is a
+  proposal input, not a red flag. Tag every objection in the internal
+  recap and draft the next proposal around addressing it, not around
+  avoiding it.
+
 ## Production Tips
 
 - ask for one primary email and one shorter backup version
@@ -106,6 +124,9 @@ That turns one good workflow into a habit.
 - do the whole flow right after the meeting, not at the end of the day
 - lock the internal notes within 0-2 hours and send the buyer recap the same day
 - if you send more follow-up later, tie it to a concrete resource or next step
+- keep your reusable follow-up templates in
+  [Notion or Obsidian](../skills/memory-knowledge.md) so every rep
+  starts from the same voice and you iterate one template, not ten
 
 ## Going Further
 

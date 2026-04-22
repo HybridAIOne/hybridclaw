@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Campaign Pulse Digest From CSV Exports"
+title: "Campaign Pulse Digest From CSV Exports"
 description: Turn raw ad-platform exports into a daily or weekly marketing digest with clear actions.
 sidebar_position: 7
 ---
 
-# Tutorial: Campaign Pulse Digest From CSV Exports
+# Campaign Pulse Digest From CSV Exports
 
 In this tutorial, you'll turn messy marketing exports into a digest that a
 small team can actually use. Instead of staring at Meta Ads, Google Ads, or
@@ -111,12 +111,30 @@ reminder:
 The reminder is usually better than a fully automated digest when your data
 still comes from manual exports.
 
+## Best-Practice Notes
+
+- **Unit economics, not spend volume.** The first number in the digest
+  should be cost per qualified lead or margin per sale, not total
+  spend. A channel spending 10x more at the same CPL is a blessing, not
+  a problem.
+- **Beware the spend-chasing trap.** The natural instinct after a bad
+  week is to increase budget on the worst performer to "give it a
+  chance". Ask the digest to call this out explicitly: underperforming
+  channels usually need creative changes, not more money.
+- **Year-over-year beats week-over-week.** Weekly comparisons miss
+  seasonality — Mondays in July are not Mondays in December. Whenever
+  the data supports it, ask for same-period-last-year as a second
+  baseline.
+
 ## Production Tips
 
 - compare like with like; keep the same date range across channels
 - tell HybridClaw what a good lead looks like
 - ask for fewer metrics if the first result feels noisy
 - include week-over-week changes and one clear next action per channel
+- when your exports live in Google Sheets, pull them via the
+  [Google Workspace skills](../skills/integrations.md) instead of
+  re-uploading CSVs each week
 
 ## Going Further
 

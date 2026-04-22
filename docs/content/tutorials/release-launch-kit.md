@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Release Launch Kit For X, LinkedIn, And Newsletter"
+title: "Release Launch Kit For X, LinkedIn, And Newsletter"
 description: Turn one release brief into a full launch kit for founder posts, company posts, newsletter copy, and follow-up content.
 sidebar_position: 12
 ---
 
-# Tutorial: Release Launch Kit For X, LinkedIn, And Newsletter
+# Release Launch Kit For X, LinkedIn, And Newsletter
 
 In this tutorial, you'll turn one release into a complete launch system a
 five-person software team can actually run. The goal is simple: one source of
@@ -124,11 +124,30 @@ Do not measure vanity only. Start with:
 - newsletter clicks
 - direct responses from existing users
 
+## Best-Practice Notes
+
+- **Launches are a week, not a day.** A single announcement post gets
+  ~10% of the reach a 7-day tease → launch → deep-dive → follow-up
+  sequence does. Write the last post before you write the first; it
+  forces you to commit to a narrative.
+- **Technical credibility travels further than company news.** On
+  developer audiences, a founder explaining a tricky engineering
+  trade-off outperforms a company post announcing the feature by
+  wide margins. Lead with the "why this was hard" story on launch day,
+  not the feature list.
+- **Post-launch is half the work.** The 48 hours *after* publishing
+  are where comments, DMs, and questions arrive. Block that time in
+  advance or the launch evaporates. A late reply on launch day costs
+  more than an early teaser.
+
 ## Production Tips
 
 - always start from the repo diff and docs, not from memory
 - keep one canonical brief for the whole release
 - ask for multiple founder voices, not one generic company voice
+- use the [Publishing Skills](../skills/publishing.md) to turn the
+  canonical brief into a WordPress post, a Manim explainer clip, or
+  an Excalidraw diagram without leaving the session
 
 ## Going Further
 

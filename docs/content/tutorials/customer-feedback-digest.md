@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Customer Feedback Digest"
+title: "Customer Feedback Digest"
 description: Roll customer emails, objections, and public feedback into a weekly owner digest with next actions.
 sidebar_position: 11
 ---
 
-# Tutorial: Customer Feedback Digest
+# Customer Feedback Digest
 
 In this tutorial, you'll build a weekly feedback digest for a founder or owner.
 Instead of reacting to complaints one by one, HybridClaw rolls the week into a
@@ -84,6 +84,21 @@ If the workflow is manual, schedule the collection step:
 
 That is often the missing step in small teams.
 
+## Best-Practice Notes
+
+- **Weight by frequency, not volume.** One angry email from a big
+  customer feels loud, but five mild complaints from five different
+  users across three channels is the stronger signal. Ask the digest
+  to cluster and count before it ranks.
+- **Close the loop publicly.** The strongest multiplier of a feedback
+  digest is telling customers what you did about last week's input.
+  Add a recurring "You said, we shipped" block to your next newsletter
+  and watch future feedback get richer overnight.
+- **Complaints are research, not judgment.** A pattern of "too
+  complicated to set up" is product research for the onboarding team,
+  not a support issue. Route themes to the team best placed to change
+  the underlying cause, not just reply to the ticket.
+
 ## Production Tips
 
 - keep praise and complaints in the same digest; both matter
@@ -95,6 +110,9 @@ That is often the missing step in small teams.
 - include cancel reasons or churn survey notes if you have them
 - structure the output around `what changed`, `why it matters`, and `what to do
   next week`
+- store themes and actions in a persistent
+  [Notion or Obsidian](../skills/memory-knowledge.md) page so you can
+  track recurring patterns across quarters, not just weeks
 
 ## Going Further
 

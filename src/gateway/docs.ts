@@ -30,9 +30,17 @@ const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
   ['internals/README.md', 'developer-guide/README.md'],
   ['tools/web-search', 'reference/tools/web-search'],
   ['tools/web-search.md', 'reference/tools/web-search.md'],
+  ['guides/sme', 'tutorials/README.md'],
+  ['guides/sme.md', 'tutorials/README.md'],
+  ['guides/sme/README.md', 'tutorials/README.md'],
+  ['guides/tutorials', 'tutorials/README.md'],
+  ['guides/tutorials.md', 'tutorials/README.md'],
+  ['guides/tutorials/README.md', 'tutorials/README.md'],
 ]);
 const LEGACY_DOCS_PREFIX_REWRITES: Array<{ from: string; to: string }> = [
   { from: 'internals/', to: 'developer-guide/' },
+  { from: 'guides/sme/', to: 'tutorials/' },
+  { from: 'guides/tutorials/', to: 'tutorials/' },
 ];
 
 const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -183,14 +191,9 @@ function normalizeDocPath(input: string): string {
 
 const PROMOTED_SIDEBAR_GROUPS: PromotedSidebarGroup[] = [
   {
-    label: 'Tutorials',
-    pathKey: 'guides/sme',
-    position: 3.1,
-  },
-  {
     label: 'Skills',
     pathKey: 'guides/skills',
-    position: 3.2,
+    position: 3.1,
   },
 ];
 
@@ -818,18 +821,21 @@ function sidebarNodeContainsRoute(
 function renderSidebarNode(
   node: SidebarNode,
   currentRoutePath: string,
+  isRootLevel = false,
 ): string {
   if (node.isPage) {
     const isActive = node.routePath === currentRoutePath;
-    return `<a class="docs-sidebar-link${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
+    const topClass = isRootLevel ? ' docs-sidebar-link-top' : '';
+    return `<a class="docs-sidebar-link${topClass}${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
   }
 
   const hasActiveDescendant = sidebarNodeContainsRoute(node, currentRoutePath);
+  const isRoot = !node.pathKey;
   const childrenMarkup = node.children
-    .map((child) => renderSidebarNode(child, currentRoutePath))
+    .map((child) => renderSidebarNode(child, currentRoutePath, isRoot))
     .join('');
 
-  if (!node.pathKey) {
+  if (isRoot) {
     return childrenMarkup;
   }
 
@@ -1690,6 +1696,20 @@ function renderPage(
       color: var(--brand-blue);
       box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px var(--line);
       font-weight: 600;
+    }
+
+    .docs-sidebar-link-top {
+      font-weight: 600;
+      color: var(--muted);
+      padding: 8px 10px;
+      margin-top: 12px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.9);
+    }
+
+    .docs-sidebar-link-top:hover {
+      background: rgba(255, 255, 255, 0.5);
+      color: var(--muted);
     }
 
     .docs-sidebar-group {

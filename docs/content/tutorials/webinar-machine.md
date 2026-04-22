@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Webinar Prep And Nachfassen Machine"
+title: "Webinar Prep And Nachfassen Machine"
 description: Build a repeatable webinar system covering prep, promotion, run-of-show, follow-up, and repurposing.
 sidebar_position: 16
 ---
 
-# Tutorial: Webinar Prep And Nachfassen Machine
+# Webinar Prep And Nachfassen Machine
 
 In this tutorial, you'll build a webinar system that a small software team can
 run repeatedly without reinventing the playbook every time. The key idea is
@@ -145,6 +145,22 @@ That is where the real leverage shows up.
 - Teammate 4: registration page, reminders, follow-up emails
 - Teammate 5: recording, clips, and repurposing
 
+## Best-Practice Notes
+
+- **Finishers are the real leads.** Across B2B webinar data, attendees
+  who stay past the 30-minute mark convert at roughly 3x the rate of
+  early leavers. Prioritize sales outreach on them within 24 hours;
+  everyone else gets the content, the finishers get the call.
+- **Replays are an SEO asset, not a relic.** Upload the recording with
+  timestamped chapters, a clean title, and a transcript. Many webinars
+  get more total views from search traffic six months later than from
+  the live audience. Treat the recording page as a landing page, not a
+  file cabinet.
+- **High no-show rate is a message.** A ≥60% no-show rate usually
+  means either the title didn't match the content or the time was
+  wrong for the audience. Treat it as research: rewrite the title or
+  move the slot, don't just email harder.
+
 ## Production Tips
 
 - rehearse on the actual platform
@@ -152,6 +168,9 @@ That is where the real leverage shows up.
 - send the first follow-up within 24 hours
 - repurpose immediately while the event is still fresh
 - segment attendees by behavior, not just role or company
+- export the attendee list to Google Sheets via the
+  [Google Workspace skills](../skills/integrations.md) so the
+  follow-up segments are already grouped when the recap runs
 
 ## Going Further
 

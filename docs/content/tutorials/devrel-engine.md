@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Developer Relations Engine For GitHub And X"
+title: "Developer Relations Engine For GitHub And X"
 description: Build a weekly DevRel rhythm that improves docs, welcomes contributors, and earns real community traction.
 sidebar_position: 15
 ---
 
-# Tutorial: Developer Relations Engine For GitHub And X
+# Developer Relations Engine For GitHub And X
 
 In this tutorial, you'll build a DevRel system for a small team. The objective
 is not to manufacture attention. The objective is to create a repo, docs, and
@@ -127,6 +127,19 @@ Treat GitHub stars as social proof, not as the product.
 - Teammate 4: docs, issue triage, and discussion drafts
 - Teammate 5: examples, screenshots, and weekly reporting
 
+## Best-Practice Notes
+
+- **The two-hour contributor test.** If a competent developer can't go
+  from `git clone` to a green first contribution in under two hours,
+  your onboarding is the bottleneck — not your distribution. Use
+  HybridClaw to time yourself through your own quickstart quarterly.
+- **Response-time SLA beats polish.** Answering a GitHub issue within
+  24 hours — even with "investigating, we'll follow up by Friday" —
+  does more for trust than a perfectly worded reply a week later.
+- **Beginner-friendly issues compound.** Each labeled first-timer issue
+  that gets resolved is a template for the next three. Make the label
+  visible on the README and restock it every Monday.
+
 ## Production Tips
 
 - ship docs and examples alongside launches
@@ -135,6 +148,9 @@ Treat GitHub stars as social proof, not as the product.
 - prefer real trust signals over inflated numbers
 - maintain one welcoming quickstart, one contributor guide, and a small set of
   clearly labeled beginner-friendly issues at all times
+- use the [GitHub PR and issue skills](../skills/development.md) to
+  automate triage drafts and release notes so humans spend their time
+  on the judgment calls, not the mechanics
 
 ## Going Further
 

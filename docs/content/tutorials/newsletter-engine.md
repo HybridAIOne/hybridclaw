@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Newsletter Engine With Substack Sections And Notes"
+title: "Newsletter Engine With Substack Sections And Notes"
 description: Build a lightweight newsletter system that turns shipping notes, customer questions, and founder perspective into a weekly issue.
 sidebar_position: 13
 ---
 
-# Tutorial: Newsletter Engine With Substack Sections And Notes
+# Newsletter Engine With Substack Sections And Notes
 
 In this tutorial, you'll build a newsletter system that fits a tiny software
 team. The objective is not to publish "content". The objective is to turn the
@@ -123,6 +123,21 @@ For a five-person team:
 - Teammate 4: gather raw inputs
 - Teammate 5: final formatting and send
 
+## Best-Practice Notes
+
+- **Section discipline or no sections at all.** Substack sections only
+  pay off if every section publishes on a predictable cadence. Two
+  consistent sections beat five intermittent ones; half-empty sections
+  read as abandoned and train readers to skip.
+- **Specificity is the founder voice.** "We're excited to share" is
+  generic CEO energy and tanks open rates. "I was wrong about X last
+  month; here's what we learned" is the exact kind of sentence people
+  actually forward to a colleague.
+- **Track replies more than clicks.** Opens and clicks measure
+  reach; replies measure relationship. A newsletter with a 2% reply
+  rate is worth more than one with a 50% open rate and zero
+  conversations.
+
 ## Production Tips
 
 - make each issue answer one clear question: what changed, what matters, what
@@ -132,6 +147,9 @@ For a five-person team:
 - use one recurring weekly pillar and batch the short-form cut-downs from that
 - keep the issue tied to one funnel job: awareness, activation, retention, or
   expansion
+- archive each issue and its source inputs in
+  [Notion or Obsidian](../skills/memory-knowledge.md) so next quarter's
+  "best of" issue writes itself
 
 ## Going Further
 

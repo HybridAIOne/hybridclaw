@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Proposal Generator From Discovery Notes"
+title: "Proposal Generator From Discovery Notes"
 description: Convert raw meeting notes into a polished proposal with editable and PDF-friendly outputs.
 sidebar_position: 9
 ---
 
-# Tutorial: Proposal Generator From Discovery Notes
+# Proposal Generator From Discovery Notes
 
 In this tutorial, you'll turn rough discovery notes into a clean proposal
 workflow. HybridClaw takes your raw notes, structures the offer, writes the
@@ -104,6 +104,23 @@ Good last-mile edits:
 - add a named project owner or kickoff date
 - ask for a version with and without pricing if you sell in stages
 
+## Best-Practice Notes
+
+- **The executive summary does the selling.** Surveys of B2B buyers
+  consistently find that most stakeholders read only the first page
+  of a proposal. Build it so the exec summary alone could win the
+  deal — everything after is for the technical evaluator.
+- **Transparent pricing beats discounted pricing.** Breaking the
+  investment into labor, software, and contingency — with a short
+  reason for each line — closes more deals than a single headline
+  number, even when the total is identical. Vagueness invites
+  procurement to haggle the whole figure down.
+- **Scope creep is written in, not negotiated out.** If the proposal
+  implicitly assumes five out-of-scope things (data migration, user
+  training, a legacy integration), name them explicitly as exclusions.
+  Clear exclusions protect margin far better than a generous scope
+  statement ever will.
+
 ## Production Tips
 
 - a strong proposal starts with cleaner notes, not better phrasing
@@ -112,6 +129,9 @@ Good last-mile edits:
 - keep the executive summary, scope, timeline, investment, and next steps near
   the front; move long credentials into an appendix
 - use plain language and call out assumptions and exclusions explicitly
+- use the [Office Skills](../skills/office.md) to produce a matching
+  `.docx` plus a client-ready `.pdf` from the same source so the
+  document version you send and the version you store are identical
 
 ## Going Further
 

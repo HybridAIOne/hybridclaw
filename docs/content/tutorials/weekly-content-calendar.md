@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Weekly Content Calendar With HybridClaw"
+title: "Weekly Content Calendar With HybridClaw"
 description: Generate a practical content calendar, post ideas, and lightweight campaign briefs from business inputs you already have.
 sidebar_position: 8
 ---
 
-# Tutorial: Weekly Content Calendar With HybridClaw
+# Weekly Content Calendar With HybridClaw
 
 In this tutorial, you'll use HybridClaw to turn product notes, offers,
 customer questions, and upcoming events into a real content plan. The goal is
@@ -101,12 +101,33 @@ week. A simple reminder is enough:
 > /schedule add "0 9 * * 1" Remind me to run the weekly content calendar planning session and update next week's offers, events, and FAQs first.
 > ```
 
+## Best-Practice Notes
+
+- **Pillar content plus cut-downs beats daily invention.** The
+  highest-leverage content model for a 3-person team is one strong
+  weekly pillar (customer story, use case, walk-through) plus five or
+  six short-form cut-downs from the same source. Inventing from
+  scratch each day is how teams burn out and stop publishing.
+- **Channel-content fit matters more than posting cadence.**
+  LinkedIn rewards earned-opinion long form, X rewards punchy hooks
+  and surprise, email rewards utility and specificity. The same
+  sentence rewritten for each channel always beats copy-paste across
+  all three.
+- **Map the calendar to the buyer journey.** Awareness posts ("why
+  this problem matters") need different topics from conversion posts
+  ("how our solution works"). A calendar that's 90% conversion copy
+  signals a team that ran out of top-of-funnel ideas — an audit worth
+  doing every quarter.
+
 ## Production Tips
 
 - give business priorities before asking for post ideas
 - state the real team size and output capacity
 - ask for CTAs and assets, not just captions
 - build the calendar around one weekly pillar and reuse it across channels
+- store the pillar list and channel-fit notes in
+  [Notion or Obsidian](../skills/memory-knowledge.md) so the calendar
+  prompt always reads from the same editorial source of truth
 
 ## Going Further
 

@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Team Telegram Deal Desk"
+title: "Team Telegram Deal Desk"
 description: Run a private Telegram group where sales reps and founders can get fast deal help, objection handling, and day-end summaries.
 sidebar_position: 3
 ---
 
-# Tutorial: Team Telegram Deal Desk
+# Team Telegram Deal Desk
 
 In this tutorial, you'll set up a private Telegram group where your team can
 drop pricing questions, customer objections, rough reply drafts, and proposal
@@ -31,22 +31,18 @@ Before starting, make sure you have:
 - a Telegram bot token from BotFather
 - a private group or forum topic for the sales team
 
-Start with the base Telegram setup guide:
+Configure the Telegram transport once from the
+[Admin Console](../../channels/admin-console.md) at `/admin/channels`.
+For a deal-desk rollout the group-first settings are:
 
-- [Telegram](../../channels/telegram.md)
+- paste the bot token from BotFather
+- DM policy: `disabled` (the bot should only work inside the team group)
+- group policy: `open`
+- require-mention: `on` — keeps the bot from replying to every message
 
-For a group-first setup, a practical starting point is:
-
-```bash
-hybridclaw channels telegram setup \
-  --token <telegram-bot-token> \
-  --dm-policy disabled \
-  --group-policy open \
-  --require-mention
-hybridclaw gateway restart --foreground
-```
-
-`requireMention` keeps the bot from replying to every group message.
+See [Telegram](../../channels/telegram.md) for the full field reference.
+The Admin Console applies the same runtime config in both local and
+cloud HybridClaw deployments.
 
 ## Step 1: Test The Deal Desk Manually
 
@@ -120,11 +116,28 @@ output limits directly.
 - keep one pinned message in the group with your ICP, pricing floor, and red
   lines
 
+## Best-Practice Notes
+
+- **Qualify in order: budget, timeline, authority.** Most deal-desk
+  waste comes from discussing features with someone who is neither the
+  buyer nor the budget holder. Ask the prompt to check for those three
+  signals *before* drafting reply language.
+- **Discounting is a closing tool, not a nudge.** Every concession
+  should be tied to a specific "yes" the prospect gives in return
+  (commitment on seats, annual plan, case study, reference call).
+  Unearned discounts teach prospects to wait.
+- **Response-time norms stick.** If the deal desk replies in under two
+  minutes, reps will actually use it. If it takes twenty, they invent
+  their own answer — and the deal desk becomes decoration.
+
 ## Production Tips
 
 - keep the bot in private groups, not public community chats
 - require mentions unless you truly want passive monitoring
 - start with a few trusted users before widening access
+- maintain the pricing floor, ICP, and red-lines pinned message in the
+  same place as your [Notion](../skills/memory-knowledge.md) sales
+  playbook so updates propagate everywhere at once
 
 ## Going Further
 

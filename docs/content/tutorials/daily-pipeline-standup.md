@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Daily Pipeline Standup In Slack"
+title: "Daily Pipeline Standup In Slack"
 description: Run a lightweight Slack-based sales standup with recurring prompts and concise manager summaries.
 sidebar_position: 6
 ---
 
-# Tutorial: Daily Pipeline Standup In Slack
+# Daily Pipeline Standup In Slack
 
 In this tutorial, you'll build a lightweight Slack workflow for teams that need
 better pipeline visibility but do not want another heavy process. HybridClaw
@@ -31,14 +31,13 @@ Before starting, make sure you have:
 - a Slack app connected through Socket Mode
 - one private channel for pipeline standups
 
-Quick setup:
-
-```bash
-hybridclaw auth login slack --bot-token <xoxb-bot-token> --app-token <xapp-app-token>
-hybridclaw gateway restart --foreground
-```
-
-See [Slack](../../channels/slack.md) for scopes and event setup.
+Configure the Slack transport once from the
+[Admin Console](../../channels/admin-console.md) at `/admin/channels`.
+Paste the bot token (`xoxb-...`) and app token (`xapp-...`) into the Slack
+fields and save. The Admin Console applies the same runtime config in
+both local and cloud HybridClaw deployments. See
+[Slack](../../channels/slack.md) for the required scopes and event
+subscriptions.
 
 ## Step 1: Test The Standup Prompt
 
@@ -94,6 +93,19 @@ Then add a second job:
 > Keep it concise and useful for a sales manager.
 > ```
 
+## Best-Practice Notes
+
+- **Deal stages lie; bottlenecks don't.** Reps say "warm" when they mean
+  "waiting on their procurement team". Ask for the *specific* blocker in
+  the template — the word rep says after "waiting on" is the only thing
+  a manager can actually unblock.
+- **Velocity > size.** Total pipeline value is vanity. Track how many
+  deals moved a stage this week. A $500k stuck deal is worth less than
+  three $50k deals moving through discovery.
+- **Every deal has a follow-up tax.** If a rep's standup contains deals
+  they haven't touched in 14 days, those deals cost attention they could
+  spend on live conversations. Prune weekly.
+
 ## Production Tips
 
 - keep the channel private and focused on one team
@@ -101,6 +113,10 @@ Then add a second job:
 - if summaries feel generic, state your sales motion and deal size in the
   prompt
 - keep the daily reply burden low enough that people actually do it
+- if your team uses [Trello](../skills/productivity.md) or
+  [Notion](../skills/memory-knowledge.md) for deal tracking, ask
+  HybridClaw to cross-reference the standup against the board each
+  Friday so stale cards surface
 
 ## Going Further
 

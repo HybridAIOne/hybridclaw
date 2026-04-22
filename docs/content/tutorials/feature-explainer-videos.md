@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Founder-Led Feature Explainer Videos"
+title: "Founder-Led Feature Explainer Videos"
 description: Plan and produce short founder-led product videos with screen walkthroughs, captions, and repurposed cut-downs.
 sidebar_position: 14
 ---
 
-# Tutorial: Founder-Led Feature Explainer Videos
+# Founder-Led Feature Explainer Videos
 
 In this tutorial, you'll turn feature launches into short founder-led videos
 that are fast to produce and easy to reuse. HybridClaw handles the planning,
@@ -127,6 +127,22 @@ For YouTube, Creator Academy guidance is useful here:
 - Teammate 4: recording, clip selection, captions
 - Teammate 5: thumbnail and scheduling
 
+## Best-Practice Notes
+
+- **Hook in the first three seconds.** YouTube and LinkedIn viewer
+  retention data both show the steepest drop-off happens before the 5s
+  mark. The hook is the benefit, not the product name — "here's how
+  the weekly invoice chase disappears" beats "today we're launching
+  v2.4".
+- **Repurposing math.** One good 90-second explainer yields roughly
+  5–7 short vertical clips, 3 social posts, 1 newsletter section, 1
+  docs page, and 1 sales-enablement clip. Plan the packaging
+  alongside the shoot, not after.
+- **Test thumbnails at 100x100.** YouTube thumbnails in mobile feeds
+  and search sidebars are tiny. If the thumbnail is unreadable at
+  100x100 pixels, rewrite it — every click you lose there is lost
+  before the hook even plays.
+
 ## Production Tips
 
 - one feature per video
@@ -135,6 +151,9 @@ For YouTube, Creator Academy guidance is useful here:
 - make one long version and one short cut-down from the same recording
 - prefer a founder intro plus screencast over a full talking-head format
 - keep the video value-led: show the outcome before the interface tour
+- when you need animated insets or explanatory diagrams, the
+  [Manim video and Excalidraw skills](../skills/publishing.md) can
+  produce them from a short script instead of a designer handoff
 
 ## Going Further
 

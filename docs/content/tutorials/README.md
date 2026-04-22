@@ -42,6 +42,8 @@ submit it as one message.
 
 - [Morning Competitor Briefing](./morning-competitor-briefing.md)
 - [Customer Feedback Digest](./customer-feedback-digest.md)
+- [Collect Invoices And Receipts From Email And Web Platforms](./invoice-receipt-collector.md)
+- [Check If A Document Adheres To Our Brand Guidelines](./brand-guidelines-check.md)
 
 ## Sales Workflows
 

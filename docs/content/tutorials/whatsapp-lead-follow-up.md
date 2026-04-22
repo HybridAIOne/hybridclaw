@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: WhatsApp Lead Follow-Up Copilot"
+title: "WhatsApp Lead Follow-Up Copilot"
 description: Use WhatsApp for mobile follow-up drafts, objection handling, and reminder nudges.
 sidebar_position: 5
 ---
 
-# Tutorial: WhatsApp Lead Follow-Up Copilot
+# WhatsApp Lead Follow-Up Copilot
 
 In this tutorial, you'll turn WhatsApp plus HybridClaw into a mobile sales copilot for the
 moments that usually happen away from your laptop: after a visit, in the car,
@@ -29,21 +29,14 @@ Before starting, make sure you have:
 - HybridClaw installed and the gateway running
 - WhatsApp paired with a dedicated device or self-chat setup
 
-For a private self-chat rollout:
-
-```bash
-hybridclaw channels whatsapp setup
-hybridclaw gateway restart --foreground
-```
-
-For an allowlisted DM rollout:
-
-```bash
-hybridclaw channels whatsapp setup --allow-from +14155551212
-hybridclaw gateway restart --foreground
-```
-
-See [WhatsApp](../../channels/whatsapp.md) for pairing details.
+Configure the WhatsApp transport once from the
+[Admin Console](../../channels/admin-console.md) at `/admin/channels`.
+For a private self-chat rollout, enable the transport and complete
+pairing from the QR code shown in the Admin Console — it works both
+locally and in the HybridClaw cloud offering. For an allowlisted DM
+rollout, add the allowed phone numbers (for example `+14155551212`) in
+the WhatsApp settings before pairing. See
+[WhatsApp](../../channels/whatsapp.md) for pairing details.
 
 ## Step 1: Test A Messy Real-World Prompt
 
@@ -110,6 +103,20 @@ control:
 > ```text
 > /schedule add at "2026-04-22T09:00:00+02:00" Remind me to follow up with the restaurant POS lead. Tell me to send the migration reassurance message and ask for a 15-minute technical review.
 > ```
+
+## Best-Practice Notes
+
+- **Calibrate tone to channel.** WhatsApp is a casual medium.
+  Sentences that read as crisp in email read as cold on WhatsApp; copy
+  lifted from LinkedIn reads as corporate. Ask for "mobile-casual, not
+  meme-casual".
+- **Follow-up math: 2/7/14.** For warm leads, the pattern that
+  consistently wins is soft check-in within two days, value-add message
+  within seven, concrete next step within fourteen. Anything slower and
+  the lead goes cold; anything faster feels needy.
+- **Variant fatigue is real.** Three options is a choice, ten is
+  paralysis. The prompt should always cap at two to three drafts and
+  label which situation each one fits.
 
 ## Production Tips
 

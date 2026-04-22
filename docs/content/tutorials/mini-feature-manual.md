@@ -1,10 +1,10 @@
 ---
-title: "Tutorial: Mini Feature Manual From A One-Line Brief"
+title: "Mini Feature Manual From A One-Line Brief"
 description: Turn a one-line feature note into a short user manual with verified screenshots and social-ready crops.
 sidebar_position: 17
 ---
 
-# Tutorial: Mini Feature Manual From A One-Line Brief
+# Mini Feature Manual From A One-Line Brief
 
 In this tutorial, you'll use HybridClaw to turn a tiny feature note into a
 short manual that people can actually follow. The workflow is built for the
@@ -57,15 +57,12 @@ Before starting, make sure you have:
 - a real feature brief, even if it is only one sentence
 - a target output such as Markdown, a help-center draft, or a newsletter block
 
-If the target product requires login in the shared browser profile, set that up
-first:
-
-```bash
-hybridclaw browser login
-```
-
-You can also paste screenshots back into chat later if you want a second review
-pass from image attachments.
+If the target product requires login in the shared browser profile, complete
+the browser login from your normal HybridClaw chat session first — just ask
+"log in to the shared browser" and HybridClaw will open the browser and walk
+you through it. This works the same way in local installs and in the
+HybridClaw cloud offering. You can also paste screenshots back into chat
+later if you want a second review pass from image attachments.
 
 ## Step 1: Start With The Smallest Useful Brief
 
@@ -157,6 +154,28 @@ For a lean release workflow, ask for this bundle:
 - one `1200x630` preview image
 - one short post or changelog blurb linking back to the manual
 
+## Best-Practice Notes
+
+- **Progressive disclosure beats exhaustive coverage.** Technical
+  writing research is consistent: readers skim first, read second.
+  Put the one happy path in the numbered steps and push every edge
+  case, error state, and "what if I'm on the old plan" detail into
+  a collapsible FAQ at the bottom. A manual that lists 12 steps
+  because three of them are conditional teaches readers to stop
+  reading manuals.
+- **Alt text is not optional metadata.** Descriptive alt text on each
+  screenshot is the accessibility floor (screen readers), the SEO
+  ceiling (image search), and the fallback surface when images fail
+  to load in email clients or feed readers. "Screenshot of /status
+  response showing gateway online" beats "screenshot1.png" on every
+  axis that matters.
+- **Date the manual when the UI is still moving.** If the feature
+  shipped this week, add a visible "Last verified: 2026-04-22" line
+  under the title. It sets reader expectations, flags the page for
+  reviewers when the UI changes, and is far cheaper than discovering
+  six months later that your top-ranking help article shows a button
+  that no longer exists.
+
 ## Production Tips
 
 - start from the real user action, not from internal feature wording
@@ -165,6 +184,10 @@ For a lean release workflow, ask for this bundle:
 - blur or avoid anything sensitive before you publish
 - ask for alt text and file names so the asset pack is ready to drop into docs
 - if the UI is still shifting, keep the manual short and easy to refresh
+- use the [Publishing Skills](../skills/publishing.md) to convert the
+  Markdown manual into a polished WordPress help-center post, or the
+  [Office Skills](../skills/office.md) to export a printable `.docx`
+  version for internal onboarding decks
 
 ## Going Further
 
