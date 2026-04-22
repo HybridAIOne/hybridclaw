@@ -8401,17 +8401,13 @@ export async function handleGatewayCommand(
       }
 
       case 'context': {
-        const runtime = resolveSessionRuntimeTarget(session);
-        const sessionModel = runtime.model;
-        const modelContextWindowTokens =
-          resolveKnownModelContextWindow(sessionModel);
-        const snapshot = buildContextUsageSnapshot({
-          sessionId: session.id,
-          model: sessionModel,
-          messageCount: session.message_count,
-          compactionCount: session.compaction_count,
-          modelContextWindowTokens,
-        });
+        const { snapshot } = getGatewaySessionContextUsage(session.id);
+        if (!snapshot) {
+          return badCommand(
+            'Context Usage',
+            'Session not found or has no context usage recorded yet.',
+          );
+        }
         const usedLabel =
           snapshot.contextUsedTokens != null
             ? formatCompactNumber(snapshot.contextUsedTokens)
@@ -8420,13 +8416,19 @@ export async function handleGatewayCommand(
           snapshot.contextBudgetTokens != null
             ? formatCompactNumber(snapshot.contextBudgetTokens)
             : 'unknown';
-        const percentLabel = formatPercent(snapshot.contextUsagePercent);
+        const percentLabel =
+          snapshot.contextUsagePercent == null ||
+          !Number.isFinite(snapshot.contextUsagePercent)
+            ? 'n/a'
+            : snapshot.contextUsagePercent > 100
+              ? `${Math.round(snapshot.contextUsagePercent)}%`
+              : formatPercent(snapshot.contextUsagePercent);
         const remainingLabel =
           snapshot.contextRemainingTokens != null
             ? formatCompactNumber(snapshot.contextRemainingTokens)
             : 'n/a';
         const lines = [
-          `🧠 Model: ${formatModelForDisplay(sessionModel)}`,
+          `🧠 Model: ${formatModelForDisplay(snapshot.model)}`,
           `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
           `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
           `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,

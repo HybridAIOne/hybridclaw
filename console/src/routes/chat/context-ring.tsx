@@ -79,9 +79,16 @@ export function ContextRing({ snapshot, isLoading }: ContextRingProps) {
         ? '…'
         : '–';
 
+  const rawPercent =
+    snapshot?.contextUsagePercent != null &&
+    Number.isFinite(snapshot.contextUsagePercent)
+      ? Math.max(0, Math.round(snapshot.contextUsagePercent))
+      : null;
   const ariaLabel =
-    snapshot?.contextBudgetTokens != null && snapshot.contextUsedTokens != null
-      ? `Context usage ${Math.round(clamped)} percent (${formatCompact(snapshot.contextUsedTokens)} of ${formatCompact(snapshot.contextBudgetTokens)} tokens)`
+    snapshot?.contextBudgetTokens != null &&
+    snapshot.contextUsedTokens != null &&
+    rawPercent != null
+      ? `Context usage ${rawPercent} percent (${formatCompact(snapshot.contextUsedTokens)} of ${formatCompact(snapshot.contextBudgetTokens)} tokens)`
       : 'Context usage unavailable';
 
   return (

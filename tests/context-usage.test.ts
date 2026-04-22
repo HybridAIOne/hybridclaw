@@ -79,3 +79,30 @@ test('buildContextUsageSnapshot clamps negative counts defensively', () => {
   expect(snapshot.messageCount).toBe(0);
   expect(snapshot.compactionCount).toBe(0);
 });
+
+test('buildContextUsageSnapshot preserves counts beyond 32-bit range', () => {
+  const huge = 2 ** 40;
+  const snapshot = buildContextUsageSnapshot({
+    sessionId: 'sess-4',
+    model: 'any',
+    messageCount: huge,
+    compactionCount: huge + 5,
+    modelContextWindowTokens: null,
+    statusSnapshot: makeStatus(),
+  });
+  expect(snapshot.messageCount).toBe(huge);
+  expect(snapshot.compactionCount).toBe(huge + 5);
+});
+
+test('buildContextUsageSnapshot tolerates non-finite counts', () => {
+  const snapshot = buildContextUsageSnapshot({
+    sessionId: 'sess-5',
+    model: 'any',
+    messageCount: Number.NaN,
+    compactionCount: Number.POSITIVE_INFINITY,
+    modelContextWindowTokens: null,
+    statusSnapshot: makeStatus(),
+  });
+  expect(snapshot.messageCount).toBe(0);
+  expect(snapshot.compactionCount).toBe(0);
+});
