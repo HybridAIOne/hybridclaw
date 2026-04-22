@@ -38,11 +38,11 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar collapsible="none">
+    <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className={styles.headerRow}>
           <SidebarBrand />
-          <MobileSidebarTrigger />
+          <SidebarTrigger className={styles.sidebarToggle} />
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -94,12 +94,6 @@ function SidebarBrand() {
       </div>
     </div>
   );
-}
-
-function MobileSidebarTrigger() {
-  const { isMobile } = useSidebar();
-  if (!isMobile) return null;
-  return <SidebarTrigger className={styles.sidebarToggle} />;
 }
 
 function SidebarNavLink(props: { item: SidebarNavItem }) {

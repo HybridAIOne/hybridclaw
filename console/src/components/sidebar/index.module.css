@@ -233,8 +233,8 @@
 }
 
 .brandMark {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   color: var(--accent-foreground);
 }
@@ -248,8 +248,8 @@
 }
 
 .brandMark svg {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
 }
 
 .menuIcon svg,
