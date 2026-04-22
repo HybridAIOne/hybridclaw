@@ -11,8 +11,6 @@ const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 const createTempDir = useTempDir();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Timestamps within the 30-day unused-activity window; computed at runtime so
-// fixtures don't drift stale as the wall clock advances past a hardcoded date.
 const recentIso = () => new Date(Date.now() - 5 * DAY_MS).toISOString();
 const staleIso = () => new Date(Date.now() - 90 * DAY_MS).toISOString();
 

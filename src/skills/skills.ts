@@ -907,7 +907,6 @@ function resolveCodexSkillsDirs(): string[] {
   });
 }
 
-// Must match IMPORT_SOURCE_FILE in skills-import.ts.
 const IMPORT_SOURCE_MARKER = '.import-source.json';
 
 function resolveImportSourceOverride(

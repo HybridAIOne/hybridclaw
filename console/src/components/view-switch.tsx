@@ -5,10 +5,7 @@ import { Admin, Agents, Chat, Docs, Github } from './icons';
 type ViewSwitchItem = {
   label: string;
   icon: ComponentType;
-} & (
-  | { href: string; external: true }
-  | { to: string; external?: false }
-);
+} & ({ href: string; external: true } | { to: string; external?: false });
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { to: '/chat', label: 'Chat', icon: Chat },

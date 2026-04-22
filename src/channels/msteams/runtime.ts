@@ -99,8 +99,6 @@ let adapter: CloudAdapter | null = null;
 let messageHandler: MessageHandler | null = null;
 let commandHandler: CommandHandler | null = null;
 let adapterSignature = '';
-// Teams activities are small control payloads; media is fetched separately.
-// Keep the shared-port webhook reader on a tight cap to avoid unbounded buffering.
 const MAX_WEBHOOK_BYTES = 1_000_000;
 const ACTIVE_MSTEAMS_SESSIONS = new Map<string, ActiveMSTeamsSession>();
 
@@ -352,9 +350,6 @@ function normalizeHeaderValue(
   return String(value);
 }
 
-// CloudAdapter.process() expects an Express-style response object, but the
-// gateway mounts Teams on the shared Node HTTP server. This shim adapts the
-// native ServerResponse without introducing a second web framework layer.
 function createAdapterResponse(res: ServerResponse): BotFrameworkResponse {
   const response: BotFrameworkResponse = {
     socket: res.socket,

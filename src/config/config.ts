@@ -267,7 +267,6 @@ function syncRuntimeSecretExports(): void {
   );
 }
 
-// Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
@@ -276,7 +275,6 @@ export let TWILIO_AUTH_TOKEN = '';
 export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
-// Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
@@ -298,7 +296,6 @@ export function refreshRuntimeSecretsFromEnv(): void {
   syncRuntimeSecretExports();
 }
 
-// Runtime settings hot-reload from ~/.hybridclaw/config.json by default
 export let DISCORD_PREFIX = '!claw';
 export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;

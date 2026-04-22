@@ -3,8 +3,6 @@ import { ActivityTypes } from 'botframework-schema';
 import { logger } from '../../logger.js';
 
 const DEFAULT_TYPING_INTERVAL_MS = 4_000;
-// Refresh typing often enough for long-running turns without spamming the channel
-// with a typing activity on every tool step or stream delta.
 
 export function createMSTeamsTypingController(
   turnContext: TurnContext,

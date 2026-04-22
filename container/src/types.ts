@@ -160,7 +160,6 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-// CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
 export interface ScheduledTaskInput {
   id: number;
   channelId: string;
