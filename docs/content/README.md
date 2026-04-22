@@ -6,23 +6,23 @@ sidebar_position: 1
 
 # HybridClaw Docs
 
-This section turns the repo-shipped markdown docs into a browsable manual for
-operators, contributors, and advanced users. The structure follows audience and
-job-to-be-done, not repository internals:
+Welcome to the HybridClaw handbook — the operator, contributor, and
+advanced-user manual for running, extending, and understanding HybridClaw. The
+chapters are organized around what you are trying to do rather than how the
+repository is laid out. **Getting Started** walks through installation,
+onboarding, and your first run. **Channels** is the transport reference across
+Discord, Slack, Telegram, email, WhatsApp, iMessage, and Microsoft Teams.
+**Guides** collects task-focused walkthroughs for everyday operational work,
+**Tutorials** provides practical owner, GTM, marketing, sales, and community
+workflows, **Extensibility** covers tools, skills, plugins, and the extension
+architecture, and the **Developer Guide** goes deeper into architecture and
+maintainer-facing internals. When you just need a fact — a command, a config
+key, a diagnostic — **Reference** is the place to land.
 
-- `Getting Started` for first install, onboarding, and first run
-- `Channels` for the canonical transport manual across Discord, Slack,
-  Telegram, email, WhatsApp, iMessage, and Microsoft Teams
-- `Guides` for operational and task-focused walkthroughs
-- `Extensibility` for tools, skills, plugins, and extension architecture
-- `Developer Guide` for architecture and maintainer-facing internals
-- `Reference` for commands, configuration, diagnostics, and tool reference
-
-In the browser docs shell, each page can open its raw `.md` source directly or
-copy the full page markdown from the document header.
-
-If you want a raw-markdown entrypoint that links every docs page directly, use
-[For Agents](./agents.md).
+Every page in the browser docs shell keeps its raw `.md` source one click
+away: open it directly from the header, or copy the full page markdown for
+sharing and quoting. If you prefer a single markdown index that links every
+doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
@@ -50,6 +50,8 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   transport-specific setup details
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
   remote access, voice/TTS, and optional office tooling
+- [Tutorials](./tutorials/README.md) for practical owner, GTM, marketing,
+  sales, and community workflows
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
   agent packages, and extension-specific operator workflows
 - [Developer Guide](./developer-guide/README.md) for architecture, runtime
