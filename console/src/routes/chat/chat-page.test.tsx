@@ -10,53 +10,11 @@ import {
 import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-interface TestRouter {
-  reset(): void;
-  setSessionId(id: string): void;
-  navigate: ReturnType<typeof vi.fn>;
-}
+import type { TestRouter } from './__test-utils/router-mock';
 
 vi.mock('@tanstack/react-router', async () => {
-  const React = await vi.importActual<typeof import('react')>('react');
-  const store = {
-    snapshot: { sessionId: 'session-a' as string },
-  };
-  const listeners = new Set<() => void>();
-  const emit = () => {
-    for (const l of listeners) l();
-  };
-  const update = (id: string) => {
-    if (id === store.snapshot.sessionId) return;
-    store.snapshot = { sessionId: id };
-    emit();
-  };
-  const navigate = vi.fn(async (opts: { params?: { sessionId?: string } }) => {
-    const t = opts?.params?.sessionId;
-    if (typeof t === 'string') update(t);
-  });
-  const testRouter: TestRouter = {
-    reset() {
-      store.snapshot = { sessionId: 'session-a' };
-      navigate.mockClear();
-    },
-    setSessionId: update,
-    navigate,
-  };
-  return {
-    useNavigate: () => navigate,
-    useParams: () =>
-      React.useSyncExternalStore(
-        (cb) => {
-          listeners.add(cb);
-          return () => {
-            listeners.delete(cb);
-          };
-        },
-        () => store.snapshot,
-        () => store.snapshot,
-      ),
-    __testRouter: testRouter,
-  };
+  const { createRouterMock } = await import('./__test-utils/router-mock');
+  return createRouterMock('session-a');
 });
 
 import type {

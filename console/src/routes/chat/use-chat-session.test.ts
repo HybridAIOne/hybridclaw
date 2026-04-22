@@ -1,70 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-interface TestRouter {
-  reset(): void;
-  setSessionId(id: string | null): void;
-  navigate: ReturnType<typeof vi.fn>;
-  lastTo: string | null;
-  lastReplace: boolean | null;
-}
+import type { TestRouter } from './__test-utils/router-mock';
 
 vi.mock('@tanstack/react-router', async () => {
-  const React = await vi.importActual<typeof import('react')>('react');
-  const store = {
-    snapshot: { sessionId: null as string | null },
-  };
-  const listeners = new Set<() => void>();
-  const emit = () => {
-    for (const l of listeners) l();
-  };
-  const update = (id: string | null) => {
-    if (id === store.snapshot.sessionId) return;
-    store.snapshot = { sessionId: id };
-    emit();
-  };
-  const navigate = vi.fn(
-    async (opts: {
-      to: string;
-      params?: { sessionId?: string };
-      replace?: boolean;
-    }) => {
-      testRouter.lastTo = opts.to;
-      testRouter.lastReplace = opts.replace ?? false;
-      if (opts.to === '/chat') {
-        update(null);
-      } else if (opts.to === '/chat/$sessionId') {
-        update(opts.params?.sessionId ?? null);
-      }
-    },
-  );
-  const testRouter: TestRouter = {
-    reset() {
-      store.snapshot = { sessionId: null };
-      navigate.mockClear();
-      testRouter.lastTo = null;
-      testRouter.lastReplace = null;
-    },
-    setSessionId: update,
-    navigate,
-    lastTo: null,
-    lastReplace: null,
-  };
-  return {
-    useNavigate: () => navigate,
-    useParams: () =>
-      React.useSyncExternalStore(
-        (cb) => {
-          listeners.add(cb);
-          return () => {
-            listeners.delete(cb);
-          };
-        },
-        () => store.snapshot,
-        () => store.snapshot,
-      ),
-    __testRouter: testRouter,
-  };
+  const { createRouterMock } = await import('./__test-utils/router-mock');
+  return createRouterMock(null);
 });
 
 import { useChatSession } from './use-chat-session';
