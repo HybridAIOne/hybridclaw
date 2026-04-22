@@ -16,12 +16,9 @@ import { resolveInstallPath } from '../src/infra/install-root.js';
 let server: http.Server;
 let baseUrl: string;
 
-// Dynamic import of serveDocs — resolved after server setup.
 let serveDocs: typeof import('../src/gateway/docs.js').serveDocs;
 
 beforeAll(async () => {
-  // Import docs module — it resolves install root from the package tree,
-  // and SITE_DIR/DEVELOPMENT_DOCS_DIR from the real docs/ directory.
   const docsModule = await import('../src/gateway/docs.js');
   serveDocs = docsModule.serveDocs;
 
@@ -126,8 +123,6 @@ describe('gateway docs HTTP integration', () => {
     expect(res.ok).toBe(false);
   });
 
-  // --- All markdown files render ---
-
   it('every markdown file in docs/content/ renders as 200 HTML', async () => {
     const docsDir = resolveInstallPath('docs', 'content');
 
@@ -165,8 +160,6 @@ describe('gateway docs HTTP integration', () => {
     );
   });
 
-  // --- Sidebar contains all top-level sections ---
-
   it('sidebar contains links for all top-level sections', async () => {
     const res = await fetch(`${baseUrl}/docs`);
     expect(res.status).toBe(200);
@@ -190,8 +183,6 @@ describe('gateway docs HTTP integration', () => {
     expect(html).toContain('<summary>Tutorials</summary>');
     expect(html).toContain('<summary>Skills</summary>');
   });
-
-  // --- Internal doc links resolve ---
 
   it('all internal /docs/ links on the index page resolve to 200', async () => {
     const res = await fetch(`${baseUrl}/docs`);

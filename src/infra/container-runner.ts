@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
+import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -53,7 +55,7 @@ import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
-import { redactSecrets } from '../security/redact.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -223,7 +225,7 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
 
   try {
     if (!delta) return;
-    callback(redactSecrets(delta));
+    callback(redactCredentialSecrets(delta));
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
@@ -244,7 +246,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         toolName: resultMatch[1],
         phase: 'finish',
         durationMs: parseInt(resultMatch[2], 10),
-        preview: redactSecrets(resultMatch[3]),
+        preview: redactCredentialSecrets(resultMatch[3]),
       });
     } catch (err) {
       logger.debug(
@@ -262,7 +264,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         sessionId: entry.sessionId,
         toolName: startMatch[1],
         phase: 'start',
-        preview: redactSecrets(startMatch[2]),
+        preview: redactCredentialSecrets(startMatch[2]),
       });
     } catch (err) {
       logger.debug(
@@ -291,9 +293,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     }
     return {
       approvalId: parsed.approvalId,
-      prompt: redactSecrets(parsed.prompt),
-      intent: redactSecrets(parsed.intent),
-      reason: redactSecrets(parsed.reason),
+      prompt: redactCredentialSecrets(parsed.prompt),
+      intent: redactCredentialSecrets(parsed.intent),
+      reason: redactCredentialSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
       allowAll: parsed.allowAll === true,
@@ -588,6 +590,8 @@ function getOrSpawnContainer(
     `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
     '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+    '-e',
+    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
 
   for (const [name, value] of [
@@ -788,6 +792,13 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
+  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    logger.warn(
+      { error },
+      'Failed to resolve Google access token for Workspace CLI runtime environment',
+    );
+    return {};
+  });
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
       status: 'error',
@@ -810,6 +821,7 @@ async function runContainerInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
+    providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
@@ -828,6 +840,7 @@ async function runContainerInner(
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
+    activeMessageChannels: collectActiveMessageToolChannelKinds(),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -848,6 +861,7 @@ async function runContainerInner(
     pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
+    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
@@ -868,6 +882,7 @@ async function runContainerInner(
   const workerSignature = computeWorkerSignature({
     agentId,
     provider: input.provider,
+    providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -967,16 +982,18 @@ async function runContainerInner(
       workspacePath,
       params.workspaceDisplayRootOverride,
     );
-    if (typeof output.result === 'string')
-      output.result = redactSecrets(output.result);
-    if (typeof output.error === 'string')
-      output.error = redactSecrets(output.error);
+    if (typeof output.result === 'string') {
+      output.result = redactCredentialSecrets(output.result);
+    }
+    if (typeof output.error === 'string') {
+      output.error = redactCredentialSecrets(output.error);
+    }
     if (output.pendingApproval) {
       output.pendingApproval = {
         ...output.pendingApproval,
-        prompt: redactSecrets(output.pendingApproval.prompt),
-        intent: redactSecrets(output.pendingApproval.intent),
-        reason: redactSecrets(output.pendingApproval.reason),
+        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
+        intent: redactCredentialSecrets(output.pendingApproval.intent),
+        reason: redactCredentialSecrets(output.pendingApproval.reason),
       };
     }
     const duration = Date.now() - startTime;

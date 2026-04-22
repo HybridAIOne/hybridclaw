@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 import {
   buildDocHtmlHref,
@@ -10,6 +13,16 @@ import {
 } from '../docs/static/docs.js';
 
 describe('docs viewer helpers', () => {
+  test('ships a static about route for docs home links', () => {
+    const aboutHtml = fs.readFileSync(
+      path.join(process.cwd(), 'docs', 'about', 'index.html'),
+      'utf8',
+    );
+
+    expect(aboutHtml).toContain('url=/');
+    expect(aboutHtml).toContain('href="/"');
+  });
+
   test('maps clean routes to markdown paths', () => {
     expect(resolveDocPathFromPathname('/docs/')).toBe('README.md');
     expect(resolveDocPathFromPathname('/development/')).toBe('README.md');

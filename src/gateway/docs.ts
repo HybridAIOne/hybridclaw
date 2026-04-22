@@ -2138,7 +2138,7 @@ function renderPage(
       <span class="docs-brand-accent">Docs</span>
     </a>
     <nav class="docs-topnav" aria-label="Top navigation">
-      <a href="/">Home</a>
+      <a href="/about">Home</a>
       <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
       <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
     </nav>

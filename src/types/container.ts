@@ -57,6 +57,7 @@ export interface ContainerInput {
   apiKey: string;
   baseUrl: string;
   provider?: ProviderKind;
+  providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
@@ -72,6 +73,7 @@ export interface ContainerInput {
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
+  activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   allowedTools?: string[];
   blockedTools?: string[];
@@ -83,6 +85,7 @@ export interface ContainerInput {
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface ContainerOutput {

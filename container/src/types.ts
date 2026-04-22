@@ -115,6 +115,7 @@ export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -122,6 +123,7 @@ export interface TaskModelPolicy {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
   requestHeaders?: Record<string, string>;
@@ -158,7 +160,6 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-// CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
 export interface ScheduledTaskInput {
   id: number;
   channelId: string;
@@ -202,6 +203,7 @@ export interface ContainerInput {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -209,6 +211,7 @@ export interface ContainerInput {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
@@ -224,6 +227,7 @@ export interface ContainerInput {
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
+  activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   allowedTools?: string[];
   blockedTools?: string[];
@@ -235,6 +239,7 @@ export interface ContainerInput {
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
+  runtimeEnv?: Record<string, string>;
 }
 
 export interface MediaContextItem {

@@ -1258,7 +1258,6 @@ export async function initDiscord(
     id: 'discord',
     capabilities: DISCORD_CAPABILITIES,
   });
-
   interface QueuedConversationMessage {
     msg: DiscordMessage;
     content: string;
@@ -2550,7 +2549,11 @@ export async function initDiscord(
 
     if (!shouldHandleFreeModeMessage(msg, behavior, content)) {
       logger.debug(
-        { channelId: msg.channelId, messageId: msg.id, userId: msg.author.id },
+        {
+          channelId: msg.channelId,
+          messageId: msg.id,
+          userId: msg.author.id,
+        },
         'Skipping Discord free-mode message by relevance/mention gate',
       );
       return;

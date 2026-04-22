@@ -134,6 +134,15 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
+
+function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
+  for (const [name, value] of Object.entries(runtimeEnv || {})) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) continue;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    process.env[name] = value;
+  }
+}
+
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
@@ -186,6 +195,8 @@ function resolveTaskModelsForRequest(
       !incomingTaskModel.error &&
       String(incomingTaskModel.provider || '') ===
         String(storedTaskModel?.provider || '') &&
+      String(incomingTaskModel.providerMethod || '') ===
+        String(storedTaskModel?.providerMethod || '') &&
       normalizeTaskModelBaseUrl(incomingTaskModel.baseUrl) ===
         normalizeTaskModelBaseUrl(storedTaskModel?.baseUrl) &&
       String(incomingTaskModel.model || '').trim() ===
@@ -694,6 +705,7 @@ async function callHybridAIWithRetry(params: {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -701,6 +713,7 @@ async function callHybridAIWithRetry(params: {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -718,6 +731,7 @@ async function callHybridAIWithRetry(params: {
 }): Promise<ChatCompletionResponse> {
   const {
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
@@ -749,6 +763,7 @@ async function callHybridAIWithRetry(params: {
         try {
           response = await callRoutedModelStream({
             provider,
+            providerMethod,
             baseUrl,
             apiKey,
             model,
@@ -772,6 +787,7 @@ async function callHybridAIWithRetry(params: {
           if (!fallbackEligible) throw streamErr;
           response = await callRoutedModel({
             provider,
+            providerMethod,
             baseUrl,
             apiKey,
             model,
@@ -844,6 +860,7 @@ async function processRequest(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -852,6 +869,7 @@ async function processRequest(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   isLocal: boolean | undefined,
   contextWindow: number | undefined,
   thinkingFormat: 'qwen' | undefined,
@@ -999,6 +1017,7 @@ async function processRequest(
     try {
       response = await callHybridAIWithRetry({
         provider,
+        providerMethod,
         baseUrl,
         apiKey,
         model,
@@ -1514,7 +1533,10 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
       ...tool,
       function: {
         ...tool.function,
-        description: getMessageToolDescription(input.channelId),
+        description: getMessageToolDescription(
+          input.channelId,
+          input.activeMessageChannels,
+        ),
       },
     };
   });
@@ -1537,6 +1559,7 @@ async function main(): Promise<void> {
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
+  applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
@@ -1560,6 +1583,7 @@ async function main(): Promise<void> {
   setWebSearchConfig(firstInput.webSearch);
   setModelContext(
     firstInput.provider,
+    firstInput.providerMethod,
     firstInput.baseUrl,
     storedApiKey,
     firstInput.model,
@@ -1607,6 +1631,7 @@ async function main(): Promise<void> {
       storedApiKey,
       firstInput.baseUrl,
       firstInput.provider,
+      firstInput.providerMethod,
       firstInput.isLocal,
       firstInput.contextWindow,
       firstInput.thinkingFormat,
@@ -1642,6 +1667,7 @@ async function main(): Promise<void> {
         storedApiKey,
         firstInput.baseUrl,
         firstInput.provider,
+        firstInput.providerMethod,
         firstInput.isLocal,
         firstInput.contextWindow,
         firstInput.thinkingFormat,
@@ -1678,6 +1704,8 @@ async function main(): Promise<void> {
       return;
     }
 
+    applyRuntimeEnv(input.runtimeEnv);
+
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
     const requestHeaders =
@@ -1709,6 +1737,7 @@ async function main(): Promise<void> {
     setWebSearchConfig(input.webSearch);
     setModelContext(
       input.provider,
+      input.providerMethod,
       input.baseUrl,
       apiKey,
       input.model,
@@ -1760,6 +1789,7 @@ async function main(): Promise<void> {
       apiKey,
       input.baseUrl,
       input.provider,
+      input.providerMethod,
       input.isLocal,
       input.contextWindow,
       input.thinkingFormat,
@@ -1794,6 +1824,7 @@ async function main(): Promise<void> {
         apiKey,
         input.baseUrl,
         input.provider,
+        input.providerMethod,
         input.isLocal,
         input.contextWindow,
         input.thinkingFormat,

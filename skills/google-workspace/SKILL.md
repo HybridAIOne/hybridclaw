@@ -1,11 +1,11 @@
 ---
 name: google-workspace
-description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs.
+description: Use browser automation for Google Workspace web UI tasks in Gmail, Calendar, Drive, Docs, and Sheets.
 user-invocable: true
 metadata:
   hybridclaw:
     category: productivity
-    short_description: "Gmail, Drive, Docs, and Sheets."
+    short_description: "Google Workspace via browser."
     tags:
       - google
       - workspace
@@ -19,6 +19,9 @@ metadata:
 
 Use this skill for Google Workspace workflows that go beyond HybridClaw's built-in email and Discord channels.
 
+For API-backed Google Workspace access, prefer the bundled `gws` or `gog` skill
+when available.
+
 ## Scope
 
 - Gmail searches and draft/send workflows
@@ -29,21 +32,26 @@ Use this skill for Google Workspace workflows that go beyond HybridClaw's built-
 
 ## Default Strategy
 
-1. For email-only tasks, prefer the optional `himalaya` community skill if it is installed, or the existing email channel when that is simpler.
-2. For Calendar, Drive, Docs, or Sheets tasks, **default to browser automation** using the persistent browser profile. Do not ask which method to use — just try the browser first.
-3. If the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
-4. Only fall back to API-based access if the user explicitly requests it or browser automation is unavailable.
+1. For API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs tasks, use the bundled `gws` skill first when it is installed. Use `gog` when it is a better fit for the command surface or `gws` is unavailable.
+2. Start by running exactly `gws auth status` or `gog`'s equivalent lightweight status/help command. Do not run `gws auth status --json`; auth status already prints JSON and does not accept `--json`. For `gws`, treat `credential_source: "token_env_var"` or `token_env_var: true` as authenticated even when `auth_method` is `"none"`, because HybridClaw injects `GOOGLE_WORKSPACE_CLI_TOKEN`. If the CLI reports no usable auth, tell the user to run `hybridclaw auth login google`; do not ask for `hybridclaw browser login`.
+3. For email-only tasks where `gws` and `gog` are unavailable, prefer the optional `himalaya` community skill if it is installed, or the existing email channel when that is simpler.
+4. Use browser automation only when the user explicitly asks for browser-based work or the task needs visual inspection in the Google web UI.
+5. If browser automation is explicitly needed and the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
 
 ## Proactive Behavior
 
 When the user asks about their calendar, email, or documents:
 
-- **Act immediately.** Navigate to the relevant Google service via browser automation without asking clarifying questions.
+- **Act immediately.** Use `gws` or `gog` without asking clarifying questions.
 - Use sensible defaults: current week, user's calendar timezone, all event types.
 - Present results in a clean bullet list grouped by day.
 - Only ask for clarification when genuinely ambiguous (e.g., which calendar if multiple exist).
 
 ## Browser Login Setup
+
+Browser login is only for visual Google web UI workflows. For API-backed Gmail,
+Calendar, Drive, Docs, and Sheets work, use `hybridclaw auth login google`
+through `gws` or `gog` instead.
 
 HybridClaw uses a persistent browser profile that survives across sessions. The user logs in once and the agent reuses that session.
 
@@ -54,13 +62,11 @@ HybridClaw uses a persistent browser profile that survives across sessions. The 
 
 ## API Guidance
 
-If the user explicitly requests API automation and does not have credentials:
+If `gws` or `gog` reports missing Google API auth:
 
-1. Tell them to create a Google Cloud project.
-2. Enable the APIs they need: Gmail, Calendar, Drive, Docs, Sheets, People.
-3. Create an OAuth desktop client or service account, depending on their environment.
-4. Keep credential files outside the repo and outside version control.
-5. Confirm which scopes are actually needed before proceeding.
+1. Tell them to run `hybridclaw auth login google`.
+2. If setup still fails, tell them to enable the APIs they need: Gmail, Calendar, Drive, Docs, Sheets, People.
+3. Do not ask for OAuth client secrets, refresh tokens, passwords, or credential files in chat.
 
 ## Rules
 

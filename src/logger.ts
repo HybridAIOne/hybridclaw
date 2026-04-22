@@ -149,8 +149,6 @@ onRuntimeConfigChange((next, prev) => {
   }
 });
 
-// Keep registration state on `process` so module reloads in tests
-// (vi.resetModules + dynamic import) do not append duplicate listeners.
 const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
   'hybridclaw.logger.process-handler-registration',
 );

@@ -2651,9 +2651,9 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('serves static docs files from the install docs directory', async () => {
+  test('serves the about page from the install docs directory', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/' });
+    const req = makeRequest({ url: '/about' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -3034,6 +3034,30 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<h1 id="extensibility">Extensibility');
     expect(res.body).toContain('This page documents the extension surface.');
     expect(res.body).toContain('href="#tools"');
+  });
+
+  test('redirects root to chat and keeps the landing page at /about', async () => {
+    const state = await importFreshHealth();
+
+    const rootReq = makeRequest({ url: '/' });
+    const rootRes = makeResponse();
+
+    state.handler(rootReq as never, rootRes as never);
+
+    expect(rootRes.statusCode).toBe(302);
+    expect(rootRes.headers.Location).toBe('/chat');
+    expect(rootRes.headers['Cache-Control']).toBe('no-store');
+
+    for (const pathname of ['/about', '/about/']) {
+      const aboutReq = makeRequest({ url: pathname });
+      const aboutRes = makeResponse();
+
+      state.handler(aboutReq as never, aboutRes as never);
+
+      expect(aboutRes.statusCode).toBe(200);
+      expect(aboutRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
+      expect(aboutRes.body).toContain('<h1>Docs</h1>');
+    }
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {

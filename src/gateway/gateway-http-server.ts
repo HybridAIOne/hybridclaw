@@ -256,9 +256,6 @@ type ApiAdminPolicyRequestBody = {
   rule?: unknown;
 };
 
-// Keep this local instead of importing the container helper. The gateway and
-// container ship as separate packages and intentionally normalize request
-// payloads at their own trust boundaries.
 function normalizeStringListInput(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const normalized = value.trim();
@@ -1187,7 +1184,9 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
       ? '/chat.html'
       : pathname === '/agents'
         ? '/agents.html'
-        : pathname,
+        : pathname === '/about' || pathname === '/about/'
+          ? '/index.html'
+          : pathname,
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -3328,6 +3327,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         ready: gatewayReady,
         uptimeMs,
       });
+      return;
+    }
+
+    if (pathname === '/') {
+      sendRedirect(res, 302, '/chat');
       return;
     }
 

@@ -14,11 +14,15 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          container/package-lock.json
+          console/package-lock.json
 
     - name: Install root dependencies
       shell: bash
-      run: npm ci
+      run: npm ci --no-audit --fund=false
 
     - name: Install container dependencies
       shell: bash
-      run: npm run setup
+      run: npm --prefix container ci --no-audit --fund=false

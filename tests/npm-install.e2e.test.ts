@@ -1,9 +1,12 @@
-import { execSync, spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, test, expect, afterAll, beforeAll } from 'vitest';
-import { getAvailablePort, waitForHealth } from './helpers/docker-test-setup.js';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import {
+  getAvailablePort,
+  waitForHealth,
+} from './helpers/docker-test-setup.js';
 
 /**
  * Exercises the real npm-install-to-first-request user journey:
@@ -50,24 +53,23 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
 
-    const packOutput = execSync('npm pack --pack-destination ' + tempDir, {
+    const packOutput = execSync(`npm pack --pack-destination ${tempDir}`, {
       encoding: 'utf-8',
       timeout: 120_000,
     }).trim();
     const tarballName = packOutput.split('\n').pop()?.trim();
     if (!tarballName) {
-      throw new Error(`npm pack produced no output. Full output: ${packOutput}`);
+      throw new Error(
+        `npm pack produced no output. Full output: ${packOutput}`,
+      );
     }
     const tarball = path.join(tempDir, tarballName);
 
-    execSync(
-      `npm install -g "${tarball}" --prefix "${npmPrefix()}"`,
-      {
-        encoding: 'utf-8',
-        timeout: 120_000,
-        env: { ...process.env, HOME: tempDir },
-      },
-    );
+    execSync(`npm install -g "${tarball}" --prefix "${npmPrefix()}"`, {
+      encoding: 'utf-8',
+      timeout: 120_000,
+      env: { ...process.env, HOME: tempDir },
+    });
 
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
@@ -78,7 +80,13 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
 
     gatewayProcess = spawn(
       'node',
-      [installedCliPath(), 'gateway', 'start', '--foreground', '--sandbox=host'],
+      [
+        installedCliPath(),
+        'gateway',
+        'start',
+        '--foreground',
+        '--sandbox=host',
+      ],
       {
         env: {
           ...process.env,
@@ -113,11 +121,15 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
 
       const exited = await Promise.race([
         new Promise<boolean>((resolve) => proc.on('exit', () => resolve(true))),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
+        new Promise<boolean>((resolve) =>
+          setTimeout(() => resolve(false), 5_000),
+        ),
       ]);
 
       if (!exited) {
-        console.warn('[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL');
+        console.warn(
+          '[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL',
+        );
         proc.kill('SIGKILL');
       }
     }
@@ -162,13 +174,24 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(html).toContain('Installation');
   });
 
-  test('/ serves the landing page with unique title', async () => {
+  test('/ redirects to chat', async () => {
     const res = await fetch(GATEWAY_URL, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
+  test('/about serves the landing page with unique title', async () => {
+    const res = await fetch(`${GATEWAY_URL}/about`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>');
+    expect(html).toContain(
+      '<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>',
+    );
   });
 
   test('/chat serves the chat SPA', async () => {

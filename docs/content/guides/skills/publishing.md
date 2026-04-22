@@ -1,6 +1,6 @@
 ---
 title: Publishing Skills
-description: Manim video creation, WordPress publishing, and blog post writing.
+description: Excalidraw diagrams, Manim video creation, WordPress publishing, and blog post writing.
 sidebar_position: 8
 ---
 
@@ -16,8 +16,8 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 | Dependency | Purpose | Install |
 |---|---|---|
 | `python3` | Required runtime | System install |
-| `manim` | Animation engine | `hybridclaw skill install manim-video uv-manim` |
-| `ffmpeg` | Video stitching | `hybridclaw skill install manim-video brew-ffmpeg` |
+| `manim` | Animation engine | `hybridclaw skill install manim-video manim` |
+| `ffmpeg` | Video stitching | `hybridclaw skill install manim-video ffmpeg` |
 
 > 💡 **Tips & Tricks**
 >
@@ -48,11 +48,44 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
 **Troubleshooting**
 
 - **`manim` not found** — install via `hybridclaw skill install manim-video
-  uv-manim`.
+  manim`.
 - **Render errors** — check that `ffmpeg` is installed. Run draft renders at
   `-ql` first to catch issues before high-quality rendering.
 - **Slow renders** — use `-ql` during development. Only render at `-qh` for
   final output.
+
+---
+
+## excalidraw
+
+Create and revise editable `.excalidraw` diagrams for architecture diagrams,
+flowcharts, sequence diagrams, concept maps, and hand-drawn explainers.
+
+**Prerequisites** — none.
+
+> 💡 **Tips & Tricks**
+>
+> Use Excalidraw JSON when the user needs an editable diagram instead of a
+> rendered image.
+>
+> Keep labels as bound text elements, not custom properties on shapes.
+>
+> Use short stable ids and readable text sizes so future edits stay simple.
+
+> 🎯 **Try it yourself**
+>
+> `Create an Excalidraw architecture diagram for a gateway, worker queue, database, and admin console`
+>
+> `Revise this .excalidraw file to add a retry path and error queue`
+>
+> `Make a hand-drawn flowchart for the support escalation process`
+
+**Troubleshooting**
+
+- **Diagram will not open** — validate that the file is valid JSON with the
+  standard Excalidraw envelope.
+- **Labels do not appear** — ensure labels are separate `text` elements bound
+  to their shapes.
 
 ---
 
@@ -65,7 +98,7 @@ plugins, and publish safely.
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| `wp` (WP-CLI) | WordPress command-line management | `hybridclaw skill install wordpress brew-wp-cli` |
+| `wp` (WP-CLI) | WordPress command-line management | `hybridclaw skill install wordpress wp` |
 
 WP-CLI needs access to a WordPress installation (local or SSH).
 

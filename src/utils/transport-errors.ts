@@ -16,9 +16,6 @@ const EXPECTED_TRANSPORT_ERROR_CODES = new Set([
   'UND_ERR_SOCKET',
 ]);
 
-// Keep code strings here even when they also exist in the Set above. Some
-// libraries only surface transport failures in `message`, not `code`, and they
-// often embed the code inside longer text such as "connect ECONNREFUSED".
 const EXPECTED_TRANSPORT_ERROR_MESSAGE_RE =
   /\b(opening handshake has timed out|client network socket disconnected|connect econnrefused|connect etimedout|connection reset|connection terminated|econnaborted|econnrefused|econnreset|ehostunreach|enetunreach|enotfound|eai_again|err_socket_closed|esockettimedout|etimedout|fetch failed|network error|opening handshake|read econnreset|socket hang up|und_err_body_timeout|und_err_connect_timeout|und_err_headers_timeout|und_err_socket|websocket (?:connection |client )?(?:closed|error|timed out))\b/i;
 

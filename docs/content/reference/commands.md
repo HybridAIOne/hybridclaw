@@ -329,6 +329,7 @@ hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
 hybridclaw skill install <skill-name> <dependency>
+hybridclaw skill setup <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
@@ -356,8 +357,9 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 directories, and `.zip` archives. Locally-imported skills receive personal
 trust and persist their import-source marker across restarts.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
-named skill. Use `skill list` first to discover the dependency ids exposed by a
-skill.
+named skill. `skill setup <skill-name>` runs every declared dependency for that
+skill in order. Use `skill list` first to discover the dependency ids exposed by
+a skill.
 `update` checks for a newer installed release and can upgrade a global npm
 install. When `--yes` completes successfully and a local gateway is already
 running with a replayable launch command, HybridClaw restarts it automatically
@@ -372,6 +374,7 @@ actions. Common examples:
 ```text
 !claw <message>
 /agent
+/btw <question>
 /agent list
 /agent switch <id>
 /agent create <id> [--model <model>]
@@ -398,8 +401,8 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, and related slash commands route through
-the same gateway command surface used by TUI and web chat.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
+through the same gateway command surface used by TUI and web chat.
 
 ## In Session
 
@@ -407,6 +410,11 @@ the same gateway command surface used by TUI and web chat.
   chat, filtered per surface and kept in a consistent alphabetical order
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id
+- local TUI/web sessions support `/btw <question>` for ephemeral side
+  questions that use recent conversation context, return a tool-less answer,
+  and do not persist the side exchange to session history
+- in built-in web chat, `/btw` is the only slash command accepted while the
+  current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
@@ -428,8 +436,9 @@ the same gateway command surface used by TUI and web chat.
   and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
-- local TUI and web chat support `/skill list` to inspect dependency ids and
-  `/skill install <skill> <dependency>` to run one declared skill dependency
+- local TUI and web chat support `/skill list` to inspect dependency ids,
+  `/skill install <skill> <dependency>` to run one declared skill dependency,
+  and `/skill setup <skill>` to run every declared dependency for a skill
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over
@@ -467,6 +476,7 @@ Example skill dependency flow:
 
 ```text
 /skill list
-/skill install manim-video uv-manim
-/skill install manim-video brew-ffmpeg
+/skill setup gws
+/skill install manim-video manim
+/skill install manim-video ffmpeg
 ```

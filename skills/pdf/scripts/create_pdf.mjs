@@ -112,7 +112,6 @@ function splitLongToken(token, font, fontSize, maxWidth) {
   return pieces;
 }
 
-// Wrap text ourselves so the vertical cursor tracks the actual rendered lines.
 function buildWrappedLines(text, font, fontSize, maxWidth) {
   const wrappedLines = [];
   const normalizedText = normalizeTextBreaks(text);

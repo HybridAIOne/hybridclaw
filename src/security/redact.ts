@@ -180,7 +180,7 @@ const ENV_SECRET_ASSIGNMENT_RE =
 const OBJECT_SECRET_KEY_RE =
   /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|webhook[_-]?secret|auth(?:orization)?|token|secret|password|private[_-]?key)/i;
 
-export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
+export const CREDENTIAL_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
   Object.freeze([
     {
       match:
@@ -259,6 +259,11 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
       match: /\b(SG\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
     },
+  ]);
+
+export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
+  Object.freeze([
+    ...CREDENTIAL_REDACTION_PATTERNS,
     {
       match: /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
       replace: replaceEmail,
@@ -295,6 +300,16 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
       replace: replaceCreditCard,
     },
   ]);
+
+export function redactCredentialSecrets(text: string): string {
+  if (!text || !isRedactionEnabled()) return text;
+
+  let next = text;
+  for (const pattern of CREDENTIAL_REDACTION_PATTERNS) {
+    next = next.replace(pattern.match, pattern.replace as never);
+  }
+  return next;
+}
 
 export function redactSecrets(text: string): string {
   if (!text || !isRedactionEnabled()) return text;

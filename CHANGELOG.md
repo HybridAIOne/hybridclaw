@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### Added
+
+- **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
+  Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
+  including the Homebrew install helper and Google OAuth setup via
+  `hybridclaw auth login google`. HybridClaw stores the OAuth client secret
+  and refresh token in encrypted runtime secrets, mints short-lived access
+  tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
+  into the agent runtime.
+
+### Changed
+
+- **Google Workspace skill routing prefers `gog` for API access**: The
+  browser-oriented `google-workspace` skill now defers to the bundled `gog`
+  skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
+  access is available.
+
+### Fixed
+
+- **Google Workspace replies preserve user-visible addresses**: Assistant
+  replies and streamed chat text no longer redact ordinary email addresses
+  before they reach the user. Redaction still applies to audit, logging,
+  approval/control previews, and observability paths.
+- **HybridAI streaming avoids duplicate assistant text**: The HybridAI stream
+  adapter now handles chunks that include both cumulative `message.content` and
+  incremental `delta.content` without emitting the same text twice.
+
+## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
+
+### Added
+
+- **Ephemeral `/btw` side-question command**: Added `/btw <question>` across
+  local and Discord slash-command surfaces. It answers side questions from
+  recent conversation context with a tool-less model call, without persisting
+  the side exchange to session history.
+- **Concurrent `/btw` threads in browser chat**: The built-in `/chat` surface
+  accepts `/btw ...` while a primary run is active and renders those replies in
+  a distinct side-thread presentation.
+- **Bash tool state can persist between calls**: Added persistent bash state
+  support so bash tool calls can preserve
+  working directory, exported environment variables, and aliases for the active
+  session by default, plus `container.persistBashState` and a matching
+  `/admin/config` toggle (`Persistent bash state`) to disable this behavior
+  when stateless shell calls are preferred.
+
+### Fixed
+
+- **Expected transport outages stay local and less noisy**: Discord, Email
+  IMAP, and WhatsApp transport handlers now classify expected transient
+  transport failures, keep reconnect loops local, and rate-limit repetitive
+  outage logs.
+- **Cloud artifact path remapping remains stable across workspace roots**:
+  Artifact remapping now preserves host-resolved workspace paths when runtime
+  and display roots differ, keeping generated files downloadable and attachable
+  in cloud-backed sessions.
+- **Remote skill import guardrails close unsafe/over-budget paths**: GitHub
+  and skill-hub imports now enforce shared file-count/byte budgets during
+  streaming downloads and consistently reject unsafe relative paths.
+
 ## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
 
 ### Added
@@ -1247,7 +1306,7 @@
   through shared routing for Discord, WhatsApp, email, and local clients,
   including native vision/audio injection paths and stronger preference for
   current-turn local files over history rediscovery.
-- **Auxiliary task/provider routing**: Added Hermes-style auxiliary routing and
+- **Auxiliary task/provider routing**: Added auxiliary routing and
   tighter provider fallback handling so deferred or background tasks pick the
   right model more predictably.
 - **Discord activation config cleanup**: Removed the obsolete

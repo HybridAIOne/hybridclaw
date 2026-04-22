@@ -1,6 +1,7 @@
 export const RUNTIME_PROVIDER_IDS = [
   'hybridai',
   'openai-codex',
+  'anthropic',
   'openrouter',
   'mistral',
   'huggingface',

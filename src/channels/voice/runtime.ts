@@ -61,7 +61,6 @@ const DUPLICATE_TWILIO_REQUEST_HEADER = 'i-twilio-idempotency-token';
 const PREINIT_MAX_CONCURRENT_CALLS = 1;
 
 const replayProtector = new ReplayProtector(REPLAY_TTL_MS);
-let runtimeInitialized = false;
 let draining = false;
 let voiceMessageHandler: VoiceMessageHandler | null = null;
 let missingTwilioAuthTokenLogged = false;
@@ -88,14 +87,13 @@ type WebSocketServerLike = {
   ) => void;
   removeAllListeners: () => void;
 };
-// `ws` exposes `WebSocketServer` through a mixed ESM/CJS shape, so keep this
-// cast when reading the constructor from the namespace import.
 const WebSocketServerCtor = (
   wsModule as unknown as {
     WebSocketServer: new (options: { noServer: true }) => WebSocketServerLike;
   }
 ).WebSocketServer;
 let websocketServer = new WebSocketServerCtor({ noServer: true });
+let runtimeInitialized = false;
 
 function isVoiceRuntimeAvailable(): boolean {
   return runtimeInitialized && !draining && voiceMessageHandler !== null;
@@ -586,7 +584,6 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     logger.debug({ error, callSid, remoteIp }, 'Voice relay websocket error');
   });
 }
-
 export async function initVoice(
   messageHandler: VoiceMessageHandler,
 ): Promise<void> {

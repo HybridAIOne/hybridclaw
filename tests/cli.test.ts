@@ -15,6 +15,7 @@ const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
@@ -203,6 +204,29 @@ async function importFreshCli(options?: {
     maskedApiKey: string;
     method: 'browser' | 'device-code' | 'env-import';
     validated: boolean;
+  };
+  anthropicStatus?: {
+    authenticated: boolean;
+    method: 'api-key' | 'claude-cli' | null;
+    source:
+      | 'env'
+      | 'runtime-secrets'
+      | 'claude-cli-file'
+      | 'claude-cli-keychain'
+      | null;
+    path: string;
+    maskedValue: string | null;
+    expiresAt: number | null;
+    isOauthToken: boolean;
+  };
+  anthropicCliAuthResult?: {
+    type: 'oauth' | 'token';
+    provider: 'anthropic';
+    source: 'claude-cli-file' | 'claude-cli-keychain';
+    expiresAt: number;
+    accessToken?: string;
+    refreshToken?: string;
+    token?: string;
   };
   codexStatus?: {
     authenticated: boolean;
@@ -478,6 +502,40 @@ async function importFreshCli(options?: {
         validated: true,
       },
   );
+  const getAnthropicAuthStatus = vi.fn(
+    () =>
+      options?.anthropicStatus || {
+        authenticated: false,
+        method: null,
+        source: null,
+        path: '/tmp/.claude/.credentials.json',
+        maskedValue: null,
+        expiresAt: null,
+        isOauthToken: false,
+      },
+  );
+  const isAnthropicAuthReadyForMethod = vi.fn(
+    (
+      status: NonNullable<ImportFreshCliOptions['anthropicStatus']>,
+      method: 'api-key' | 'claude-cli',
+    ) =>
+      method === 'claude-cli'
+        ? status.method === 'claude-cli' &&
+          status.authenticated === true &&
+          (status.expiresAt == null || status.expiresAt > Date.now())
+        : status.method === 'api-key' && status.authenticated === true,
+  );
+  const requireAnthropicClaudeCliCredential = vi.fn(
+    () =>
+      options?.anthropicCliAuthResult || {
+        type: 'oauth' as const,
+        provider: 'anthropic' as const,
+        source: 'claude-cli-file' as const,
+        accessToken: 'sk-ant-oat-cli-test',
+        refreshToken: 'refresh-test',
+        expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+      },
+  );
   const clearCodexCredentials = vi.fn(() => '/tmp/codex-auth.json');
   const getCodexAuthStatus = vi.fn(
     () =>
@@ -541,6 +599,7 @@ async function importFreshCli(options?: {
     };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const saveNamedRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
   const readStoredRuntimeSecret = vi.fn(() => null);
   const readStoredRuntimeSecrets = vi.fn(() => ({}));
   const loadSkillCatalog = vi.fn(() => [
@@ -1082,6 +1141,12 @@ async function importFreshCli(options?: {
     getHybridAIAuthStatus,
     loginHybridAIInteractive,
   }));
+  vi.doMock('../src/auth/anthropic-auth.ts', () => ({
+    claudeCliCredentialsPath: vi.fn(() => '/tmp/.claude/.credentials.json'),
+    getAnthropicAuthStatus,
+    isAnthropicAuthReadyForMethod,
+    requireAnthropicClaudeCliCredential,
+  }));
   vi.doMock('../src/auth/codex-auth.ts', () => ({
     CodexAuthError,
     clearCodexCredentials,
@@ -1209,6 +1274,7 @@ async function importFreshCli(options?: {
     readStoredRuntimeSecret,
     readStoredRuntimeSecrets,
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
+    saveNamedRuntimeSecrets,
     saveRuntimeSecrets,
   }));
   vi.doMock('../src/tui.ts', () => {
@@ -1276,11 +1342,13 @@ async function importFreshCli(options?: {
   return {
     cli,
     clearHybridAICredentials,
+    getAnthropicAuthStatus,
     clearCodexCredentials,
     getCodexAuthStatus,
     getHybridAIAuthStatus,
     loginCodexInteractive,
     loginHybridAIInteractive,
+    requireAnthropicClaudeCliCredential,
     printUpdateUsage,
     runUpdateCommand,
     runDoctorCli,
@@ -1312,6 +1380,7 @@ async function importFreshCli(options?: {
     readStoredRuntimeSecret,
     readStoredRuntimeSecrets,
     saveRuntimeSecrets,
+    saveNamedRuntimeSecrets,
     ensureRuntimeConfigFile,
     clearRuntimeConfigRevisions,
     deleteRuntimeConfigRevision,
@@ -1376,6 +1445,11 @@ useCleanMocks({
       process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
         ORIGINAL_DISABLE_CONFIG_WATCHER;
     }
+    if (ORIGINAL_ANTHROPIC_API_KEY === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_API_KEY;
+    }
     if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
       delete process.env.OPENROUTER_API_KEY;
     } else {
@@ -1434,6 +1508,7 @@ useCleanMocks({
   unstubAllGlobals: true,
   unmock: [
     '../src/auth/hybridai-auth.ts',
+    '../src/auth/anthropic-auth.ts',
     '../src/auth/codex-auth.ts',
     '../src/config/cli-flags.ts',
     '../src/config/config.ts',
@@ -3719,6 +3794,57 @@ describe('CLI hybridai commands', () => {
     });
   });
 
+  it('prompts once for interactive Google OAuth login values', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, readlineCreateInterface, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: [
+            'you@example.com',
+            'desktop-client-id',
+            'desktop-client-secret',
+          ],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'google',
+        '--refresh-token',
+        'refresh-token',
+      ]);
+
+      expect(readlineCreateInterface).toHaveBeenCalledTimes(1);
+      expect(readlineQuestion).toHaveBeenCalledWith('Google account email: ');
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        'Google OAuth desktop client id: ',
+      );
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Google OAuth desktop client secret: ',
+      );
+      expect(readlineClose).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
   it('rejects conflicting codex login flags', async () => {
     const { cli } = await importFreshCli();
 
@@ -3726,6 +3852,97 @@ describe('CLI hybridai commands', () => {
       cli.main(['auth', 'login', 'codex', '--browser', '--import']),
     ).rejects.toThrow(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
+  });
+
+  it('routes auth login anthropic with claude-cli credentials to the Anthropic auth flow', async () => {
+    const { cli, requireAnthropicClaudeCliCredential, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'login', 'anthropic', '--method', 'claude-cli']);
+
+    expect(requireAnthropicClaudeCliCredential).toHaveBeenCalled();
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: anthropic');
+    expect(logSpy).toHaveBeenCalledWith('Auth method: claude-cli');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Using Claude Code login from /tmp/.claude/.credentials.json.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: anthropic/claude-sonnet-4-6',
+    );
+  });
+
+  it('configures Anthropic from auth login with --method api-key', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'anthropic',
+      'anthropic/claude-sonnet-4-6',
+      '--method',
+      'api-key',
+      '--api-key',
+      'sk-ant-api-test',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      ANTHROPIC_API_KEY: 'sk-ant-api-test',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Auth method: api-key');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Saved Anthropic credentials to /tmp/credentials.json.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: anthropic/claude-sonnet-4-6',
+    );
+  });
+
+  it('prints Anthropic status through auth status', async () => {
+    const { cli } = await importFreshCli({
+      anthropicStatus: {
+        authenticated: true,
+        method: 'claude-cli',
+        source: 'claude-cli-file',
+        path: '/tmp/.claude/.credentials.json',
+        maskedValue: 'sk-ant-oat-...test',
+        expiresAt: Date.parse('2026-04-20T12:00:00.000Z'),
+        isOauthToken: true,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'anthropic']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
+    expect(logSpy).toHaveBeenCalledWith('Configured method: api-key');
+    expect(logSpy).toHaveBeenCalledWith('Method: claude-cli');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured method is not ready: detected claude-cli credentials, but Anthropic is configured for api-key.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Run `hybridclaw auth login anthropic --method claude-cli --set-default` to use the Claude login, or configure an Anthropic API key.',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+    expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+  });
+
+  it('clears Anthropic credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'anthropic']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      ANTHROPIC_API_KEY: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared stored Anthropic API key in /tmp/credentials.json.',
     );
   });
 

@@ -16,7 +16,7 @@ import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 const SKILL_LIST_LINE_MAX_CHARS = 113;
 
 interface SkillCommandContext {
@@ -517,6 +517,34 @@ export async function handleSkillCommand(
     return result.ok
       ? context.infoCommand('Skill Installed', lines.join('\n'))
       : context.badCommand('Skill Install Failed', lines.join('\n'));
+  }
+
+  if (sub === 'setup') {
+    const skillName = String(context.args[2] || '').trim();
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Setup Restricted',
+        '`skill setup` is only available from local TUI/web sessions.',
+      );
+    }
+    if (!skillName) {
+      return context.badCommand('Usage', 'Usage: `skill setup <skill>`');
+    }
+
+    const { setupSkillDependencies } = await import(
+      '../skills/skills-install.js'
+    );
+    const result = await setupSkillDependencies({ skillName });
+    const lines = [result.message];
+    if (result.stdout) {
+      lines.push('', 'stdout:', result.stdout);
+    }
+    if (result.stderr) {
+      lines.push('', 'stderr:', result.stderr);
+    }
+    return result.ok
+      ? context.infoCommand('Skill Setup Complete', lines.join('\n'))
+      : context.badCommand('Skill Setup Failed', lines.join('\n'));
   }
 
   if (sub === 'import') {
