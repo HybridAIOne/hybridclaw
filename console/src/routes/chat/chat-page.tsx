@@ -72,8 +72,6 @@ function buildBranchInfoMap(
   return map;
 }
 
-/* ── State reducer ───────────────────────────────────────── */
-
 interface ChatState {
   sessionId: string;
   messages: ChatUiMessage[];
@@ -145,8 +143,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-/* ── ChatPage ────────────────────────────────────────────── */
-
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -206,10 +202,9 @@ export function ChatPage() {
     void queryClient.invalidateQueries({
       queryKey: ['chat-recent', auth.token, userId],
     });
-    // Also invalidate the current session's history cache so that
-    // switching away and back refetches with the streamed messages.
     void queryClient.invalidateQueries({
       queryKey: ['chat-history', auth.token, sessionIdRef.current],
+      refetchType: 'none',
     });
   }, [queryClient, auth.token, userId]);
 
@@ -243,7 +238,6 @@ export function ChatPage() {
     refreshRecent,
   });
 
-  // Stable ref for history-load effect to call sendMessage without stale closure
   const sendMessageRef = useRef(stream.sendMessage);
   sendMessageRef.current = stream.sendMessage;
 
@@ -356,7 +350,6 @@ export function ChatPage() {
       sessionId: data.sessionId !== sessionId ? data.sessionId : undefined,
     });
 
-    // Flush pending edit
     const pending = pendingEditRef.current;
     if (pending) {
       pendingEditRef.current = null;
@@ -385,8 +378,6 @@ export function ChatPage() {
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
   }, []);
-
-  /* ── Handlers ───────────────────────────────────────────── */
 
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
@@ -502,6 +493,7 @@ export function ChatPage() {
 
   const handleHoverSession = useCallback(
     (targetId: string) => {
+      if (targetId === sessionIdRef.current) return;
       void queryClient.prefetchQuery({
         queryKey: ['chat-history', auth.token, targetId],
         queryFn: () => fetchChatHistory(auth.token, targetId),

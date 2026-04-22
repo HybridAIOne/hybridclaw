@@ -8,6 +8,7 @@ import type {
 } from '../../api/chat-types';
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
+import { getErrorMessage } from '../../lib/error-message';
 import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 
 interface ActiveRequest {
@@ -241,8 +242,7 @@ export function useChatStream(
         refreshRecent();
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
-        const errorText =
-          !req.stopping && err instanceof Error ? err.message : String(err);
+        const errorText = getErrorMessage(err);
         setMessages((prev) => {
           const withoutThinking = prev.filter((m) => m.id !== thinkingId);
           if (req.stopping) return withoutThinking;
@@ -282,9 +282,7 @@ export function useChatStream(
     try {
       await executeCommand(token, req.sessionId, userId, ['stop']);
     } catch (err) {
-      setError(
-        `Failed to stop: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      setError(`Failed to stop: ${getErrorMessage(err)}`);
     } finally {
       req.controller.abort();
     }

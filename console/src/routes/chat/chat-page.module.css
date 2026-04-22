@@ -13,8 +13,6 @@
   height: 100%;
 }
 
-/* ── Chat Sidebar ─────────────────────────────────────────── */
-
 .chatSidebarHeader {
   display: flex;
   align-items: center;
@@ -159,8 +157,6 @@
   padding: 10px 16px 6px;
   flex-shrink: 0;
 }
-
-/* ── Main Chat Area ───────────────────────────────────────── */
 
 .chatMain {
   display: flex;
@@ -414,9 +410,6 @@
   opacity: 1;
 }
 
-/* Size overrides for action/branch buttons (Button component handles
-   variant, hover, focus, disabled) */
-
 .actionButton {
   width: 28px;
   height: 28px;
@@ -455,8 +448,6 @@
   opacity: 0.4;
   cursor: default;
 }
-
-/* ── Approval Actions ─────────────────────────────────────── */
 
 .approvalActions {
   display: flex;
