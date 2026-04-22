@@ -423,16 +423,6 @@
   display: flex;
   gap: 4px;
   padding: 0 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.messageBlock:hover .messageActions {
-  opacity: 1;
-}
-
-.messageBlock:focus-within .messageActions {
-  opacity: 1;
 }
 
 .actionButton {
@@ -594,14 +584,14 @@
 .composer {
   display: flex;
   flex-direction: column;
-  max-width: 860px;
-  margin: 0 auto;
+  max-width: 1100px;
   width: 100%;
+  padding: 12px 16px;
+  gap: 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 24px;
+  border-radius: 16px;
   background: var(--panel-bg);
   box-shadow: var(--shadow-raised);
-  overflow: hidden;
   transition: border-color 0.15s;
 }
 
@@ -658,6 +648,13 @@
   align-items: flex-end;
   gap: 8px;
   padding: 10px 14px;
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .composerInput {
