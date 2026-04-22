@@ -29,7 +29,6 @@ let originalDataDir: string | undefined;
 let originalHome: string | undefined;
 let originalWatcher: string | undefined;
 
-// Dynamically imported after setting HYBRIDCLAW_DATA_DIR.
 type RuntimeConfigModule = typeof import('../src/config/runtime-config.js');
 let configMod: RuntimeConfigModule;
 

@@ -6,8 +6,6 @@ function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-// The manifest schema owns defaults and bounds for numeric settings.
-// This helper only normalizes already-validated numbers to integers.
 function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`qmd-memory plugin config.${key} must be a number.`);

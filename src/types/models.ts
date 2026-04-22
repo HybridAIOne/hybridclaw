@@ -2,6 +2,8 @@ import type { RuntimeProviderId } from '../providers/provider-ids.js';
 
 export type ProviderKind = RuntimeProviderId;
 
+export type AnthropicMethod = 'api-key' | 'claude-cli';
+
 export interface McpServerConfig {
   transport: 'stdio' | 'http' | 'sse';
   command?: string;
@@ -15,6 +17,7 @@ export interface McpServerConfig {
 
 export interface TaskModelPolicy {
   provider?: ProviderKind;
+  providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
   requestHeaders?: Record<string, string>;

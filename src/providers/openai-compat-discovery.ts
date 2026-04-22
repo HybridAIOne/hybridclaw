@@ -37,6 +37,7 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   kilo: () => KILO_ENABLED,
   hybridai: undefined,
   'openai-codex': undefined,
+  anthropic: undefined,
   openrouter: undefined,
   mistral: undefined,
   huggingface: undefined,

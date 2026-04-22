@@ -46,6 +46,10 @@ import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
+import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
@@ -1482,6 +1486,11 @@ function buildGatewayProviderHealth(params: {
   hybridaiHealth: HybridAIHealthResult;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
+  const anthropicStatus = getAnthropicAuthStatus();
+  const anthropicReady = isAnthropicAuthReadyForMethod(
+    anthropicStatus,
+    runtimeConfig.anthropic.method,
+  );
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
     hybridai: buildHybridAIProviderEntry(params.hybridaiHealth),
     codex: {
@@ -1504,6 +1513,19 @@ function buildGatewayProviderHealth(params: {
             : 'Not authenticated',
     },
   };
+  if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
+    providerHealth.anthropic = {
+      kind: 'remote',
+      reachable: anthropicReady,
+      ...(anthropicReady ? {} : { error: 'Not authenticated' }),
+      modelCount: dedupeStrings(runtimeConfig.anthropic.models).length,
+      detail: anthropicReady
+        ? `Authenticated${anthropicStatus.source ? ` via ${anthropicStatus.source}` : ''}`
+        : anthropicStatus.authenticated && anthropicStatus.method
+          ? `Detected ${anthropicStatus.method}, configured ${runtimeConfig.anthropic.method}`
+          : 'Not authenticated',
+    };
+  }
   const optionalRemoteProviders = [
     {
       key: 'openrouter',
@@ -7238,13 +7260,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (providerFilter && gatewayStatus) {

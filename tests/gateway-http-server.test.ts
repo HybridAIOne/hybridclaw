@@ -3055,9 +3055,7 @@ describe('gateway HTTP server', () => {
       state.handler(aboutReq as never, aboutRes as never);
 
       expect(aboutRes.statusCode).toBe(200);
-      expect(aboutRes.headers['Content-Type']).toBe(
-        'text/html; charset=utf-8',
-      );
+      expect(aboutRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
       expect(aboutRes.body).toContain('<h1>Docs</h1>');
     }
   });

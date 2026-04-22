@@ -433,6 +433,7 @@ export interface GatewayStatus {
     Record<
       | 'hybridai'
       | 'codex'
+      | 'anthropic'
       | 'openrouter'
       | 'mistral'
       | 'huggingface'

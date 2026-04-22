@@ -48,9 +48,6 @@ const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
   teams: 'msteams',
 };
 
-// Channel registration is intentionally process-global so prompt rendering and
-// runtime delivery share the same live channel inventory. Tests reset it by
-// reloading the module.
 const channels = new Map<ChannelKind, ChannelInfo>();
 
 export function normalizeChannelValue(

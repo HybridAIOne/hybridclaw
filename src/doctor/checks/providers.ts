@@ -1,8 +1,13 @@
+import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+} from '../../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../../auth/codex-auth.js';
 import { getRuntimeConfig } from '../../config/runtime-config.js';
 import { resolveModelProvider } from '../../providers/factory.js';
 import {
   type ProviderProbeResult,
+  probeAnthropic,
   probeCodex,
   probeHuggingFace,
   probeHybridAI,
@@ -15,6 +20,7 @@ import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 type ProviderKey =
   | 'hybridai'
   | 'codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface';
@@ -112,8 +118,15 @@ function formatProbeSegment(
 export async function checkProviders(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
+  const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
+  const anthropicConfiguredMethod = config.anthropic?.method ?? 'api-key';
+  const anthropicMethodReady = isAnthropicAuthReadyForMethod(
+    anthropicStatus,
+    anthropicConfiguredMethod,
+  );
   const discoveredModels = await readDiscoveredModelNamesSafely();
+  const anthropicEnabled = config.anthropic?.enabled === true;
   const openRouterEnabled = config.openrouter?.enabled === true;
   const hybridaiModels = dedupeStrings([
     ...discoveredModels.hybridai,
@@ -122,6 +135,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const codexModels = dedupeStrings([
     ...discoveredModels.codex,
     defaultProvider === 'openai-codex' ? config.hybridai.defaultModel : '',
+  ]);
+  const anthropicModels = dedupeStrings([
+    ...(config.anthropic?.models ?? []),
+    defaultProvider === 'anthropic' ? config.hybridai.defaultModel : '',
   ]);
   const openRouterModels = dedupeStrings(discoveredModels.openrouter);
   const mistralEnabled = config.mistral?.enabled === true;
@@ -148,6 +165,27 @@ export async function checkProviders(): Promise<DiagResult[]> {
       inactiveMessage: codexStatus.reloginRequired
         ? 'Login required'
         : 'Not authenticated',
+    },
+    {
+      key: 'anthropic',
+      label: 'Anthropic',
+      active: defaultProvider === 'anthropic',
+      configured:
+        anthropicEnabled ||
+        defaultProvider === 'anthropic' ||
+        anthropicMethodReady,
+      configuredModelCount: anthropicModels.length,
+      probe:
+        anthropicEnabled ||
+        defaultProvider === 'anthropic' ||
+        anthropicMethodReady
+          ? () => probeAnthropic()
+          : null,
+      inactiveMessage: anthropicMethodReady
+        ? 'Provider disabled'
+        : anthropicConfiguredMethod === 'claude-cli'
+          ? 'Claude CLI login missing'
+          : 'API key missing',
     },
     {
       key: 'openrouter',

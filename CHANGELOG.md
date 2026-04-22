@@ -1306,7 +1306,7 @@
   through shared routing for Discord, WhatsApp, email, and local clients,
   including native vision/audio injection paths and stronger preference for
   current-turn local files over history rediscovery.
-- **Auxiliary task/provider routing**: Added Hermes-style auxiliary routing and
+- **Auxiliary task/provider routing**: Added auxiliary routing and
   tighter provider fallback handling so deferred or background tasks pick the
   right model more predictably.
 - **Discord activation config cleanup**: Removed the obsolete

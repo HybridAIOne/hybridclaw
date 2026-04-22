@@ -1,5 +1,5 @@
 import type WebSocket from 'ws';
-import { isRecord } from './utils.js';
+import { isRecord } from '../../utils/type-guards.js';
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value : '';

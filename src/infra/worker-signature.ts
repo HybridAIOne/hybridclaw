@@ -2,6 +2,7 @@ import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
   provider?: string;
+  providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
   requestHeaders?: Record<string, string>;
@@ -17,6 +18,7 @@ interface WorkerSignatureTaskModel {
 export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
@@ -47,6 +49,7 @@ function normalizeTaskModel(
 
   return {
     provider: String(input.provider || '').trim(),
+    providerMethod: String(input.providerMethod || '').trim(),
     baseUrl: String(input.baseUrl || '')
       .trim()
       .replace(/\/+$/g, ''),
@@ -78,6 +81,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
   return JSON.stringify({
     agentId: String(input.agentId || '').trim(),
     provider: String(input.provider || '').trim(),
+    providerMethod: String(input.providerMethod || '').trim(),
     baseUrl: String(input.baseUrl || '')
       .trim()
       .replace(/\/+$/g, ''),
