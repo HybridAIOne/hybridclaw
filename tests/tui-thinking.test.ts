@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  appendTerminalRowCount,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
@@ -161,6 +162,13 @@ test('returns two trailing newlines when streamed output ends mid-line', () => {
 
 test('returns one trailing newline when streamed output already ends on a newline', () => {
   expect(getTuiStreamTrailingNewlines(createTuiStreamFormatState())).toBe('\n');
+});
+
+test('increments terminal row counts from appended streamed chunks without rescanning prior output', () => {
+  expect(appendTerminalRowCount(0, '  hello')).toBe(1);
+  expect(appendTerminalRowCount(1, ' world')).toBe(1);
+  expect(appendTerminalRowCount(1, '\n  again')).toBe(2);
+  expect(appendTerminalRowCount(2, '\nmore\nend')).toBe(4);
 });
 
 test('derives trailing newlines from the post-flush stream state', () => {

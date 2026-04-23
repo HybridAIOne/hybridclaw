@@ -109,6 +109,7 @@ import {
   type TuiSlashMenuPalette,
 } from './tui-slash-menu.js';
 import {
+  appendTerminalRowCount,
   countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
@@ -1338,7 +1339,6 @@ function spinner(): {
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
-  let visibleTextOutput = '';
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
@@ -1444,7 +1444,6 @@ function spinner(): {
     }
     hasVisibleText = false;
     visibleTextState = createTuiStreamFormatState();
-    visibleTextOutput = '';
     visibleTextRows = 0;
     if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
       render();
@@ -1527,8 +1526,10 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
-      visibleTextOutput += formatted.text;
-      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
+      visibleTextRows = appendTerminalRowCount(
+        visibleTextRows,
+        formatted.text,
+      );
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -1544,8 +1545,10 @@ function spinner(): {
         clearLine();
         hasVisibleText = true;
       }
-      visibleTextOutput += formatted.text;
-      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
+      visibleTextRows = appendTerminalRowCount(
+        visibleTextRows,
+        formatted.text,
+      );
       process.stdout.write(formatted.text);
     },
     clearVisibleText,
@@ -2273,7 +2276,7 @@ async function processMessage(
     const streamedToolNames = new Set<string>();
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
-    let suppressStreamedTextForDelegation = false;
+    let activeDelegateToolCount = 0;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
 
@@ -2286,7 +2289,7 @@ async function processMessage(
         (event) => {
           if (event.type === 'text') {
             sawStreamEvent = true;
-            if (suppressStreamedTextForDelegation) return;
+            if (activeDelegateToolCount > 0) return;
             sawResponse = true;
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
@@ -2308,14 +2311,18 @@ async function processMessage(
           sawResponse = true;
           if (
             event.toolName === 'delegate' &&
-            !suppressStreamedTextForDelegation
+            event.phase === 'start' &&
+            activeDelegateToolCount === 0
           ) {
-            suppressStreamedTextForDelegation = true;
             if (sawVisibleTextDelta) {
               s.clearVisibleText();
               sawVisibleTextDelta = false;
             }
           }
+          activeDelegateToolCount = nextActiveDelegateToolCount(
+            activeDelegateToolCount,
+            event,
+          );
           if (event.phase === 'finish') {
             s.finishTool(event.toolName);
             return;
@@ -2508,6 +2515,16 @@ function isDelegateStatusMessage(text: string): boolean {
   return text.trimStart().startsWith('[Delegate Status]');
 }
 
+export function nextActiveDelegateToolCount(
+  activeCount: number,
+  event: { toolName?: string | null; phase?: string | null },
+): number {
+  if (event.toolName !== 'delegate') return activeCount;
+  if (event.phase === 'start') return activeCount + 1;
+  if (event.phase === 'finish') return Math.max(0, activeCount - 1);
+  return activeCount;
+}
+
 function isDelegateStreamSource(source: string): boolean {
   return String(source || '').startsWith('delegate:stream:');
 }
@@ -2694,9 +2711,14 @@ async function pollProactiveMessages(
         !isDelegateStatusMessage(message.text) ||
         isDelegateStreamSource(message.source),
     );
-    const latestDelegateStatus = result.messages.findLast((message) =>
-      isDelegateStatusMessage(message.text),
-    );
+    let latestDelegateStatus: GatewayProactiveMessage | undefined;
+    for (let idx = result.messages.length - 1; idx >= 0; idx -= 1) {
+      const message = result.messages[idx];
+      if (message && isDelegateStatusMessage(message.text)) {
+        latestDelegateStatus = message;
+        break;
+      }
+    }
 
     renderLatestProactiveDelegateStatus(
       rl,
