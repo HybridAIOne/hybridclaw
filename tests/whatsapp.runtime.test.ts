@@ -549,6 +549,64 @@ test('aborts in-flight WhatsApp handlers during shutdown', async () => {
   );
 });
 
+test('does not start WhatsApp typing after shutdown begins', async () => {
+  const { processInboundWhatsAppMessage, runtime, socket, upsertHandlers } =
+    await importFreshRuntimeModule();
+  let releaseInbound!: () => void;
+  const inboundGate = new Promise<void>((resolve) => {
+    releaseInbound = resolve;
+  });
+  processInboundWhatsAppMessage.mockImplementation(async () => {
+    await inboundGate;
+    return {
+      sessionId: 'wa:491703330161@s.whatsapp.net',
+      guildId: null,
+      channelId: '491703330161@s.whatsapp.net',
+      userId: '+491703330161',
+      username: '+491703330161',
+      content: 'hello while shutting down',
+      media: [],
+      chatJid: '491703330161@s.whatsapp.net',
+      senderJid: '491703330161@s.whatsapp.net',
+      isGroup: false,
+      isSelfChat: true,
+      rawMessage: {},
+    };
+  });
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-shutdown-typing-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'hello while shutting down',
+        },
+      },
+    ],
+  });
+  await flushAsyncWork();
+  expect(processInboundWhatsAppMessage).toHaveBeenCalledTimes(1);
+
+  await runtime.shutdownWhatsApp();
+  releaseInbound();
+  await flushAsyncWork();
+
+  expect(messageHandler).not.toHaveBeenCalled();
+  expect(socket.sendPresenceUpdate).not.toHaveBeenCalledWith(
+    'composing',
+    '491703330161@s.whatsapp.net',
+  );
+});
+
 test('prefixes self-chat replies with [hybridclaw]', async () => {
   const { manager, runtime, socket, upsertHandlers } =
     await importFreshRuntimeModule({

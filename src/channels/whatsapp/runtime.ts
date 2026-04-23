@@ -233,9 +233,9 @@ export function createWhatsAppRuntime() {
     const reactionCleanupTargets = batch.ackReaction
       ? buildReactionCleanupTargets(batch.batchedMessages)
       : [];
-    typingController.start();
     try {
       throwIfAborted(controller.signal);
+      typingController.start();
       await messageHandler(
         batch.sessionId,
         batch.guildId,
@@ -377,6 +377,7 @@ export function createWhatsAppRuntime() {
     capabilities: WHATSAPP_CAPABILITIES,
     start: async ({ handler }) => {
       shuttingDown = false;
+      inFlightControllers.clear();
       selfEchoCache = createWhatsAppSelfEchoCache();
       inboundDebouncer = createWhatsAppDebouncer(async (batch) => {
         await dispatchInboundBatch(batch, handler).catch((error) => {
@@ -397,6 +398,7 @@ export function createWhatsAppRuntime() {
     cleanup: async () => {
       shuttingDown = true;
       abortInFlightHandlers();
+      inFlightControllers.clear();
       inboundDebouncer?.clearAll();
       await connectionManager?.stop();
       selfEchoCache?.clear();
