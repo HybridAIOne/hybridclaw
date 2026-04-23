@@ -219,10 +219,9 @@ export function ChatPage() {
           msg.sessionId,
           msg.messageId,
         );
-        // The parent session's branchFamilies now includes the new variant;
-        // drop its cache so the next view refetches.
         void queryClient.invalidateQueries({
           queryKey: chatHistoryQueryKey(auth.token, msg.sessionId),
+          refetchType: 'none',
         });
         // Prefetch the branch's history so the message list doesn't flash empty
         // before the deferred sendMessage fires.
