@@ -26,6 +26,7 @@ import {
   type GatewayCommandResult,
   type GatewayMediaItem,
   type GatewayPluginCommandSummary,
+  type GatewayProactiveMessage,
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
@@ -1358,14 +1359,14 @@ function spinner(): {
     const previewText = entry.preview
       ? ` ${MUTED}${entry.preview}${RESET}`
       : '';
-    const body =
-      entry.status === 'done'
-        ? `  ${GREEN}${CHECKMARK}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`
-        : (() => {
-            const frame =
-              JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
-            return `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
-          })();
+    let body: string;
+    if (entry.status === 'done') {
+      body = `  ${GREEN}${CHECKMARK}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+    } else {
+      const frame =
+        JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
+      body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
+    }
     return truncateAnsiTuiEnd(body, terminalColumns());
   };
   const repaintToolLines = (frameIdx: number) => {
@@ -2558,12 +2559,7 @@ function handleDelegateStreamMessage(message: {
 
 function clearDelegateStatusBlock(): void {
   if (delegateStatusRows <= 0) return;
-  process.stdout.write(`\x1b[${delegateStatusRows}A`);
-  for (let row = 0; row < delegateStatusRows; row += 1) {
-    process.stdout.write('\r\x1b[2K');
-    if (row < delegateStatusRows - 1) process.stdout.write('\n');
-  }
-  process.stdout.write(`\x1b[${Math.max(0, delegateStatusRows - 1)}A`);
+  clearTerminalRows(delegateStatusRows, delegateStatusRows);
   delegateStatusRows = 0;
 }
 
@@ -2571,15 +2567,20 @@ function currentPromptRows(): number {
   return countTerminalRows(stripAnsiTui(buildPromptText()), terminalColumns());
 }
 
+function clearTerminalRows(rows: number, moveUpRows: number): void {
+  if (rows <= 0) return;
+  if (moveUpRows > 0) process.stdout.write(`\x1b[${moveUpRows}A`);
+  for (let row = 0; row < rows; row += 1) {
+    process.stdout.write('\r\x1b[2K');
+    if (row < rows - 1) process.stdout.write('\n');
+  }
+  if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+}
+
 function clearPromptBlockForDelegateStatus(): void {
   if (!process.stdout.isTTY) return;
   const promptRows = currentPromptRows();
-  if (promptRows > 1) process.stdout.write(`\x1b[${promptRows - 1}A`);
-  for (let row = 0; row < promptRows; row += 1) {
-    process.stdout.write('\r\x1b[2K');
-    if (row < promptRows - 1) process.stdout.write('\n');
-  }
-  if (promptRows > 1) process.stdout.write(`\x1b[${promptRows - 1}A`);
+  clearTerminalRows(promptRows, Math.max(0, promptRows - 1));
 }
 
 function clearDelegateStatusAndPromptBlock(): void {
@@ -2589,12 +2590,7 @@ function clearDelegateStatusAndPromptBlock(): void {
   }
   const promptRows = currentPromptRows();
   const rowsToClear = delegateStatusRows + promptRows;
-  process.stdout.write(`\x1b[${rowsToClear - 1}A`);
-  for (let row = 0; row < rowsToClear; row += 1) {
-    process.stdout.write('\r\x1b[2K');
-    if (row < rowsToClear - 1) process.stdout.write('\n');
-  }
-  process.stdout.write(`\x1b[${rowsToClear - 1}A`);
+  clearTerminalRows(rowsToClear, rowsToClear - 1);
   delegateStatusRows = 0;
 }
 
@@ -2608,6 +2604,68 @@ function printDelegateStatusBlock(text: string, promptVisible: boolean): void {
   const rendered = formatTuiOutput(body);
   console.log(rendered);
   delegateStatusRows = countTerminalRows(rendered, terminalColumns());
+}
+
+function renderLatestProactiveDelegateStatus(
+  rl: readline.Interface,
+  message: GatewayProactiveMessage | undefined,
+  promptVisible: boolean,
+): void {
+  if (!message) return;
+  printDelegateStatusBlock(message.text, promptVisible);
+  resetReadlinePromptRows(rl);
+}
+
+function prepareProactiveRegularMessageOutput(
+  rl: readline.Interface,
+  hasDelegateStatus: boolean,
+  promptVisible: boolean,
+): void {
+  if (!hasDelegateStatus && promptVisible) {
+    clearPromptBlockForDelegateStatus();
+    resetReadlinePromptRows(rl);
+  }
+  console.log();
+}
+
+function renderProactiveRegularMessage(message: GatewayProactiveMessage): boolean {
+  if (handleDelegateStreamMessage(message)) return true;
+
+  const badge = proactiveBadgeLabel(message.source);
+  const suffix = proactiveSourceSuffix(message.source);
+  const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+  if (badge === 'delegate') {
+    console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
+    return false;
+  }
+  const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
+  console.log(badgePrefix);
+  console.log();
+  console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
+  return false;
+}
+
+function renderProactiveRegularMessages(
+  messages: GatewayProactiveMessage[],
+): boolean {
+  let sawDelegateStreamMessage = false;
+  for (const message of messages) {
+    if (renderProactiveRegularMessage(message)) {
+      sawDelegateStreamMessage = true;
+    }
+  }
+  return sawDelegateStreamMessage;
+}
+
+function restorePromptAfterProactiveMessages(
+  rl: readline.Interface,
+  promptAfter: boolean,
+  sawDelegateStreamMessage: boolean,
+): void {
+  if (!promptAfter) return;
+  if (!delegateStreamActive || !sawDelegateStreamMessage) {
+    promptTuiInput(rl);
+  }
 }
 
 async function pollProactiveMessages(
@@ -2634,52 +2692,34 @@ async function pollProactiveMessages(
         !isDelegateStatusMessage(message.text) ||
         isDelegateStreamSource(message.source),
     );
-    const latestDelegateStatus = [...result.messages]
-      .reverse()
-      .find((message) => isDelegateStatusMessage(message.text));
+    const latestDelegateStatus = result.messages.findLast((message) =>
+      isDelegateStatusMessage(message.text),
+    );
 
-    if (latestDelegateStatus) {
-      printDelegateStatusBlock(latestDelegateStatus.text, promptVisible);
-      resetReadlinePromptRows(rl);
-    }
+    renderLatestProactiveDelegateStatus(rl, latestDelegateStatus, promptVisible);
 
     if (regularMessages.length === 0) {
       if (promptAfter) promptTuiInput(rl);
       return;
     }
 
-    if (!latestDelegateStatus) {
-      if (promptVisible) {
-        clearPromptBlockForDelegateStatus();
-        resetReadlinePromptRows(rl);
-      }
-      console.log();
-    } else {
-      console.log();
-    }
-    let sawDelegateStreamMessage = false;
-    for (const message of regularMessages) {
-      if (handleDelegateStreamMessage(message)) {
-        sawDelegateStreamMessage = true;
-        continue;
-      }
-      const badge = proactiveBadgeLabel(message.source);
-      const suffix = proactiveSourceSuffix(message.source);
-      const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
-      if (badge === 'delegate') {
-        console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
-        continue;
-      }
-      const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
-      console.log(badgePrefix);
-      console.log();
-      console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
-    }
+    prepareProactiveRegularMessageOutput(
+      rl,
+      Boolean(latestDelegateStatus),
+      promptVisible,
+    );
+    const sawDelegateStreamMessage =
+      renderProactiveRegularMessages(regularMessages);
     if (!delegateStreamActive) {
       console.log();
-      if (promptAfter) promptTuiInput(rl);
-    } else if (!sawDelegateStreamMessage && promptAfter) {
-      promptTuiInput(rl);
+    }
+    restorePromptAfterProactiveMessages(
+      rl,
+      promptAfter,
+      sawDelegateStreamMessage,
+    );
+    if (!delegateStreamActive) {
+      return;
     }
   } catch (error) {
     logger.debug(
