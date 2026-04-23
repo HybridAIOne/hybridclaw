@@ -12,6 +12,7 @@ import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BRAVE_API_KEY,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -35,11 +36,13 @@ import {
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
+  PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  TAVILY_API_KEY,
   WEB_SEARCH_CACHE_TTL_MINUTES,
   WEB_SEARCH_DEFAULT_COUNT,
   WEB_SEARCH_FALLBACK_PROVIDERS,
@@ -595,9 +598,9 @@ function getOrSpawnContainer(
   ];
 
   for (const [name, value] of [
-    ['BRAVE_API_KEY', process.env.BRAVE_API_KEY || ''],
-    ['PERPLEXITY_API_KEY', process.env.PERPLEXITY_API_KEY || ''],
-    ['TAVILY_API_KEY', process.env.TAVILY_API_KEY || ''],
+    ['BRAVE_API_KEY', BRAVE_API_KEY],
+    ['PERPLEXITY_API_KEY', PERPLEXITY_API_KEY],
+    ['TAVILY_API_KEY', TAVILY_API_KEY],
   ] as const) {
     if (!value) continue;
     args.push('-e', `${name}=${value}`);

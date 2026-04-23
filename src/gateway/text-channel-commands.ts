@@ -5,6 +5,7 @@ import {
   type ApprovalScopeMode,
 } from '../approval-commands.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
+import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
@@ -129,12 +130,12 @@ export async function handleTextChannelApprovalCommand(params: {
   args: string[];
 }): Promise<HandledTextChannelApprovalResult | null> {
   const { sessionId, guildId, channelId, userId, username, args } = params;
-  if ((args[0] || '').toLowerCase() !== 'approve') return null;
+  if (parseLowerArg(args, 0) !== 'approve') return null;
 
   await cleanupExpiredPendingApprovals();
   const pending = getPendingApproval(sessionId);
-  const action = (args[1] || 'view').trim().toLowerCase();
-  const providedApprovalId = (args[2] || '').trim();
+  const action = parseLowerArg(args, 1, { defaultValue: 'view' });
+  const providedApprovalId = parseIdArg(args, 2);
   const currentApprovalId = pending?.approvalId || '';
   const approvalId = providedApprovalId || currentApprovalId;
 

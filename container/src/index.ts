@@ -556,9 +556,12 @@ function logToolCallStart(
   argsJson: string,
   approval: ToolApprovalEvaluation,
 ): void {
+  const yellowNarration = approvalRuntime.formatYellowNarration(approval);
   const toolPreview =
     approval.tier === 'yellow'
-      ? approvalRuntime.formatYellowNarration(approval)
+      ? toolName === 'web_search'
+        ? approval.commandPreview
+        : yellowNarration
       : argsJson.slice(0, 100);
   console.error(`[tool] ${toolName}: ${toolPreview}`);
 }

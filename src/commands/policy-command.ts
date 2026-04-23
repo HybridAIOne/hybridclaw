@@ -1,3 +1,4 @@
+import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   doesNetworkHostPatternExpandToSubdomains,
   type NetworkPolicyAction,
@@ -44,7 +45,7 @@ function parseFlagValue(
 ): { value: string; nextIndex: number } | null {
   const arg = args[index] || '';
   if (arg === name) {
-    const value = stripWrappedQuotes(String(args[index + 1] || ''));
+    const value = stripWrappedQuotes(parseIdArg(args, index + 1));
     if (!value) {
       throw new Error(`Missing value for \`${name}\`.`);
     }
@@ -170,7 +171,7 @@ function parseRuleCommand(
   action: NetworkPolicyAction,
   args: string[],
 ): NetworkRule {
-  const host = stripWrappedQuotes(String(args[0] || ''));
+  const host = stripWrappedQuotes(parseIdArg(args, 0));
   if (!host) {
     throw new Error(
       `Usage: \`policy ${action} <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]\``,
@@ -305,9 +306,7 @@ export function runPolicyCommand(
     workspacePath: string;
   },
 ): PolicyCommandOutput {
-  const subcommand = String(args[0] || 'status')
-    .trim()
-    .toLowerCase();
+  const subcommand = parseLowerArg(args, 0, { defaultValue: 'status' });
   const workspacePath = params.workspacePath;
 
   try {
@@ -351,7 +350,7 @@ export function runPolicyCommand(
     }
 
     if (subcommand === 'delete' || subcommand === 'remove') {
-      const target = stripWrappedQuotes(String(args[1] || ''));
+      const target = stripWrappedQuotes(parseIdArg(args, 1));
       if (!target) {
         throw new Error('Usage: `policy delete <number|host>`');
       }
@@ -377,9 +376,7 @@ export function runPolicyCommand(
     }
 
     if (subcommand === 'default') {
-      const nextDefault = String(args[1] || '')
-        .trim()
-        .toLowerCase();
+      const nextDefault = parseLowerArg(args, 1);
       if (nextDefault !== 'allow' && nextDefault !== 'deny') {
         throw new Error('Usage: `policy default <allow|deny>`');
       }
@@ -391,9 +388,7 @@ export function runPolicyCommand(
     }
 
     if (subcommand === 'preset') {
-      const action = String(args[1] || 'list')
-        .trim()
-        .toLowerCase();
+      const action = parseLowerArg(args, 1, { defaultValue: 'list' });
       if (!action || action === 'list') {
         const state = readPolicyState(workspacePath);
         const summaries = listPolicyPresetSummaries();
@@ -413,7 +408,7 @@ export function runPolicyCommand(
       }
 
       if (action === 'add') {
-        const presetName = stripWrappedQuotes(String(args[2] || ''));
+        const presetName = stripWrappedQuotes(parseIdArg(args, 2));
         if (!presetName) {
           throw new Error('Usage: `policy preset add <name> [--dry-run]`');
         }
@@ -453,7 +448,7 @@ export function runPolicyCommand(
       }
 
       if (action === 'remove' || action === 'delete') {
-        const presetName = stripWrappedQuotes(String(args[2] || ''));
+        const presetName = stripWrappedQuotes(parseIdArg(args, 2));
         if (!presetName) {
           throw new Error('Usage: `policy preset remove <name>`');
         }

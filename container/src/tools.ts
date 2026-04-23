@@ -3254,7 +3254,7 @@ async function executeToolInternal(
 
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';
-      return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
+      return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
     }
 
     default:
@@ -3924,7 +3924,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). Completion is push-delivered automatically; do not poll/sleep.',
+        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). The gateway collects delegated results and uses them for final synthesis; after spawning delegates, acknowledge start only and do not present final findings or poll/sleep.',
       parameters: {
         type: 'object',
         properties: {
