@@ -167,6 +167,26 @@ network:
     expect(imageAlias.implicitDelayMs).toBeUndefined();
   });
 
+  test('delegate tool is green by default', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'delegate',
+      argsJson: JSON.stringify({
+        mode: 'single',
+        prompt: 'Research one narrow topic.',
+      }),
+      latestUserPrompt: 'Delegate this research',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.actionKey).toBe('delegate');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+  });
+
   test('non-input browser tools skip the implicit interruption delay', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
