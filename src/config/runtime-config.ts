@@ -65,6 +65,7 @@ import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
+import { emitRuntimeWarning } from '../utils/stdio-warning.js';
 import {
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
@@ -1488,7 +1489,7 @@ function disableWatcher(reason: string): void {
     clearTimeout(watcherStableTimer);
     watcherStableTimer = null;
   }
-  console.warn(`[runtime-config] watcher disabled: ${reason}`);
+  emitRuntimeWarning(`[runtime-config] watcher disabled: ${reason}`);
 }
 
 function shouldRetryWatcherError(err: unknown): boolean {
@@ -1595,7 +1596,7 @@ function normalizeSkillChannelDisabled(
   for (const [key, rawDisabled] of Object.entries(rawChannelDisabled)) {
     const channelKind = normalizeSkillConfigChannelKind(key);
     if (!channelKind) {
-      console.warn(
+      emitRuntimeWarning(
         `[runtime-config] ignored unknown skills.channelDisabled key: ${key}`,
       );
       continue;
@@ -3361,7 +3362,7 @@ function migrateProviderBaseUrl(params: {
   nextDefault: string;
 }): string {
   if (params.retired.has(params.baseUrl)) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] migrating ${params.provider} baseUrl ${params.baseUrl} -> ${params.nextDefault}`,
     );
     return params.nextDefault;
@@ -5394,7 +5395,7 @@ function applyConfig(next: RuntimeConfig): void {
     try {
       listener(cloneConfig(currentConfig), cloneConfig(prev));
     } catch (err) {
-      console.warn(
+      emitRuntimeWarning(
         `[runtime-config] listener failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -5439,7 +5440,7 @@ function reloadFromDisk(trigger: string): void {
       path: CONFIG_PATH,
       message: err instanceof Error ? err.message : String(err),
     };
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
@@ -5461,7 +5462,7 @@ function scheduleWatcherRestart(reason: string): void {
     watcherStableTimer = null;
   }
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`,
     );
     return;
@@ -5472,7 +5473,7 @@ function scheduleWatcherRestart(reason: string): void {
     WATCHER_RETRY_BASE_DELAY_MS * 2 ** (watcherRetryAttempt - 1),
     WATCHER_RETRY_MAX_DELAY_MS,
   );
-  console.warn(
+  emitRuntimeWarning(
     `[runtime-config] watcher restart in ${delay}ms (attempt ${watcherRetryAttempt}/${WATCHER_RETRY_MAX_ATTEMPTS})`,
   );
   watcherRestartTimer = startDetachedTimer(() => {
@@ -5529,7 +5530,7 @@ function startWatcher(): void {
         disableWatcher(reason);
         return;
       }
-      console.warn(`[runtime-config] watcher error: ${reason}`);
+      emitRuntimeWarning(`[runtime-config] watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
@@ -5538,7 +5539,7 @@ function startWatcher(): void {
       disableWatcher(reason);
       return;
     }
-    console.warn(`[runtime-config] watcher setup failed: ${reason}`);
+    emitRuntimeWarning(`[runtime-config] watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }
 }
@@ -5565,14 +5566,14 @@ function migrateConfigSchemaOnStartup(): void {
     raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
     parsed = JSON.parse(raw) as unknown;
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] schema migration skipped (invalid JSON): ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
   }
 
   if (!isRecord(parsed)) {
-    console.warn(
+    emitRuntimeWarning(
       '[runtime-config] schema migration skipped: config.json is not an object',
     );
     return;
@@ -5584,7 +5585,7 @@ function migrateConfigSchemaOnStartup(): void {
   try {
     migrated = normalizeRuntimeConfig(parseConfigPatch(parsed));
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] schema migration skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
@@ -5618,7 +5619,7 @@ function migrateConfigSchemaOnStartup(): void {
       );
     }
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] schema migration failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
@@ -5801,7 +5802,7 @@ export function updateRuntimeConfig(
       source: 'external',
     });
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
@@ -5823,7 +5824,7 @@ export function setRuntimeConfigSecretInput(
     });
     baseSource = currentConfigSource;
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
   }

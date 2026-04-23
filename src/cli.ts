@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
+  printAcpUsage,
   printAuditUsage,
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
@@ -1504,6 +1505,16 @@ export async function main(
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
+    case 'acp': {
+      if (isHelpRequest(subargs)) {
+        printAcpUsage();
+        break;
+      }
+      process.env.HYBRIDCLAW_STDIO_PROTOCOL = 'acp';
+      const { runAcpServer } = await import('./acp/server.js');
+      await runAcpServer();
+      break;
+    }
     case '__gateway-restart-helper': {
       const payload = String(subargs[0] || '').trim();
       if (!payload) {

@@ -40,6 +40,9 @@ const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
 const gatewayLogFile = String(
   process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
 ).trim();
+const stdioProtocol = String(process.env.HYBRIDCLAW_STDIO_PROTOCOL || '')
+  .trim()
+  .toLowerCase();
 
 function createPrettyDestination(
   prettyOptions: typeof LOGGER_PRETTY_OPTIONS,
@@ -85,7 +88,10 @@ function createLogger() {
   const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
     {
       level: 'trace',
-      stream: createPrettyDestination(LOGGER_PRETTY_OPTIONS, process.stdout),
+      stream: createPrettyDestination(
+        LOGGER_PRETTY_OPTIONS,
+        stdioProtocol === 'acp' ? process.stderr : process.stdout,
+      ),
     },
   ];
 

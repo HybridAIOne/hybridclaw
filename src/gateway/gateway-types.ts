@@ -156,6 +156,7 @@ export interface GatewayChatRequest {
   neverAutoApproveTools?: string[];
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
+  mcpServersOverride?: Record<string, McpServerConfig>;
   maxTokens?: number;
   maxWallClockMs?: number | null;
   inactivityTimeoutMs?: number | null;

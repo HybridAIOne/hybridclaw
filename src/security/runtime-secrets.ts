@@ -8,6 +8,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { emitRuntimeWarning } from '../utils/stdio-warning.js';
 import { migrateLegacySecretFile } from './runtime-secrets-migration.js';
 
 const RUNTIME_SECRETS_FILE = 'credentials.json';
@@ -167,7 +168,7 @@ function ensureExistingRuntimeHomePermissions(): void {
   try {
     fs.chmodSync(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_HOME_MODE);
   } catch (error) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-secrets] failed to set permissions on ${DEFAULT_RUNTIME_HOME_DIR}: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
@@ -183,7 +184,7 @@ function ensureRuntimeHomeDir(): void {
   try {
     fs.chmodSync(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_HOME_MODE);
   } catch (error) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-secrets] failed to set permissions on ${DEFAULT_RUNTIME_HOME_DIR}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -223,7 +224,7 @@ function readMasterKeyFile(filePath: string): Buffer | null {
     const raw = fs.readFileSync(filePath, 'utf-8');
     return parseMasterKey(raw);
   } catch (error) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-secrets] failed to load master key from ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
     );
     return null;
@@ -381,7 +382,7 @@ function decryptEncryptedSecretStore(
       decryptFailures += 1;
       lastDecryptError =
         error instanceof Error ? error : new Error(String(error));
-      console.warn(
+      emitRuntimeWarning(
         `[runtime-secrets] failed to decrypt stored ${secretKey}: ${lastDecryptError.message}`,
       );
       continue;
@@ -523,7 +524,7 @@ class SecretStore {
             status: 'encrypted',
           });
         } catch (error) {
-          console.warn(
+          emitRuntimeWarning(
             `[runtime-secrets] failed to decrypt ${this.filePath}: ${error instanceof Error ? error.message : String(error)}`,
           );
           return cacheSecretStoreRead({
@@ -551,7 +552,7 @@ class SecretStore {
         status: 'invalid',
       });
     } catch (err) {
-      console.warn(
+      emitRuntimeWarning(
         `[runtime-secrets] failed to read ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return cacheSecretStoreRead({
@@ -598,7 +599,7 @@ class SecretStore {
         };
       },
       onValidatedBackupRemovalError: (error) => {
-        console.warn(
+        emitRuntimeWarning(
           `[runtime-secrets] failed to remove validated legacy backup ${legacyPath}: ${error instanceof Error ? error.message : String(error)}`,
         );
       },
@@ -669,7 +670,7 @@ function readLegacyEnvSecrets(cwd: string = process.cwd()): RuntimeSecrets {
   try {
     return parseEnvStyleSecrets(fs.readFileSync(envPath, 'utf-8'));
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-secrets] failed to read ${envPath}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return {};
@@ -722,7 +723,7 @@ export function migrateLegacyRuntimeSecretsFile(): boolean {
     store.migrateLegacyPlaintextFile(plaintextSecrets);
     return true;
   } catch (err) {
-    console.warn(
+    emitRuntimeWarning(
       `[runtime-secrets] failed to migrate legacy plaintext credentials at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return false;
@@ -755,7 +756,7 @@ export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
     try {
       store.writeAll({ ...secrets, ...migratedSecrets });
     } catch (err) {
-      console.warn(
+      emitRuntimeWarning(
         `[runtime-secrets] failed to migrate legacy .env secrets to ${destination}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }

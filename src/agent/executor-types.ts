@@ -5,6 +5,7 @@ import type {
   PluginRuntimeToolDefinition,
   ToolProgressEvent,
 } from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 
 export interface ExecutorRequest {
@@ -35,6 +36,7 @@ export interface ExecutorRequest {
   scheduledTasks?: ScheduledTask[];
   allowedTools?: string[];
   blockedTools?: string[];
+  mcpServersOverride?: Record<string, McpServerConfig>;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;

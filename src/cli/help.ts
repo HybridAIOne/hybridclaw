@@ -12,6 +12,7 @@ export function printMainUsage(): void {
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
+  acp        Run the ACP stdio bridge for VS Code, Zed, and JetBrains
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
@@ -46,6 +47,18 @@ Commands:
   hybridclaw gateway show [all|thinking|tools|none]
   hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
+}
+
+export function printAcpUsage(): void {
+  console.log(`Usage: hybridclaw acp
+
+Runs HybridClaw as an Agent Client Protocol (ACP) stdio server for local IDEs.
+
+Notes:
+  - Intended for ACP-compatible editors such as VS Code, Zed, and JetBrains.
+  - Stdout is reserved for ACP traffic; normal logs are redirected to stderr.
+  - Editor-provided MCP servers are passed through per ACP session.
+  - Local slash commands remain available, including /mcp, /model, /status, /auth, and /config.`);
 }
 
 export function printEvalUsage(): void {
@@ -770,6 +783,7 @@ Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
+  acp         Help for ACP editor integration
   eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
   onboarding  Help for onboarding flow
@@ -843,6 +857,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'gateway':
       printGatewayUsage();
+      return true;
+    case 'acp':
+      printAcpUsage();
       return true;
     case 'eval':
       printEvalUsage();

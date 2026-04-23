@@ -100,5 +100,6 @@ async function runAgentInner(
     channelId,
     media,
     blockedTools,
+    mcpServersOverride: params.mcpServersOverride,
   });
 }

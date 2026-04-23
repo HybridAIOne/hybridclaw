@@ -108,3 +108,37 @@ test('computeWorkerSignature changes when auxiliary task routing changes', () =>
     }),
   ).not.toBe(baseline);
 });
+
+test('computeWorkerSignature changes when session MCP routing changes', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    mcpServers: {
+      filesystem: {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+      },
+    },
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      mcpServers: {
+        filesystem: {
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+        },
+      },
+    }),
+  ).not.toBe(baseline);
+});

@@ -63,6 +63,7 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import { mergeSessionMcpServers } from './mcp-server-config.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
@@ -696,6 +697,10 @@ async function runHostProcessInner(
 
   cleanupIpc(sessionId);
   ensureSessionDirs(sessionId);
+  const mcpServers = mergeSessionMcpServers(
+    MCP_SERVERS,
+    params.mcpServersOverride,
+  );
 
   const input: ContainerInput = {
     sessionId,
@@ -743,7 +748,7 @@ async function runHostProcessInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    mcpServers: MCP_SERVERS,
+    mcpServers,
     taskModels,
     runtimeEnv,
     contextGuard: {
@@ -771,6 +776,7 @@ async function runHostProcessInner(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    mcpServers,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
