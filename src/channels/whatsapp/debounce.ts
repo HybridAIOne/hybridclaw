@@ -72,6 +72,7 @@ export function createWhatsAppDebouncer(
   onFlush: (item: WhatsAppInboundBatch) => Promise<void>,
 ): {
   enqueue: (item: WhatsAppInboundBatch, debounceMs?: number) => void;
+  clearAll: () => void;
   flushAll: () => Promise<void>;
 } {
   const pending = new Map<string, PendingBatch>();
@@ -100,6 +101,12 @@ export function createWhatsAppDebouncer(
         Math.max(0, Math.floor(debounceMs)),
       );
       pending.set(key, { items, timer });
+    },
+    clearAll() {
+      for (const batch of pending.values()) {
+        if (batch.timer) clearTimeout(batch.timer);
+      }
+      pending.clear();
     },
     async flushAll() {
       for (const key of [...pending.keys()]) {
