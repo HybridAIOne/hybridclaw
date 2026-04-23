@@ -32,7 +32,3 @@ Whenever `package-lock.json` (root) changes, the `npmDepsHash` in
 nix build .#hybridclaw --rebuild 2>&1 | tee /tmp/hybridclaw-build.log
 # copy the "got: sha256-…" line into nix/packages.nix
 ```
-
-Or let a future CI workflow do it automatically — see
-`hermes-agent/nix/lib.nix` in the reference repo for the
-`prefetch-npm-deps`-based auto-update pattern.
