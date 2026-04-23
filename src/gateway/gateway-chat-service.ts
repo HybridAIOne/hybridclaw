@@ -481,7 +481,10 @@ async function handleGatewayMessageInner(
     audioTranscriptCount: audioPrelude.transcripts.length,
     contentLength: effectiveUserTurnContentExpanded.length,
     streamingRequested: Boolean(
-      req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
+      req.onTextDelta ||
+        req.onThinkingDelta ||
+        req.onToolProgress ||
+        req.onApprovalProgress,
     ),
   };
 
@@ -825,6 +828,9 @@ async function handleGatewayMessageInner(
       req.onTextDelta?.(delta);
     };
     const emitTextDeltas = req.onTextDelta ? onTextDelta : undefined;
+    const emitThinkingDeltas = req.onThinkingDelta
+      ? (delta: string): void => req.onThinkingDelta?.(delta)
+      : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
       logger.debug(
         {
@@ -909,6 +915,7 @@ async function handleGatewayMessageInner(
       scheduledTasks,
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta: emitTextDeltas,
+      onThinkingDelta: emitThinkingDeltas,
       onToolProgress,
       onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,

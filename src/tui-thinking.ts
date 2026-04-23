@@ -217,10 +217,17 @@ export function createTuiThinkingStreamState(): {
     thinkingPreview: string | null;
     sawThinking: boolean;
   };
+  pushThinking: (delta: string) => {
+    thinkingPreview: string | null;
+    sawThinking: boolean;
+  };
 } {
   let rawContent = '';
+  let rawThinking = '';
   let emittedVisibleContent = '';
   let sawThinking = false;
+  const visibleToolMarkupGate = createToolMarkupStreamGate();
+  const visibleThinkingArtifactGate = createVisibleThinkingArtifactGate();
 
   return {
     push(delta: string) {
@@ -228,17 +235,180 @@ export function createTuiThinkingStreamState(): {
       const extracted = extractThinkingBlocks(rawContent);
       if (extracted.thinking !== null) sawThinking = true;
       const nextVisible = extracted.thinkingOnly ? '' : extracted.content || '';
-      const visibleDelta = nextVisible.startsWith(emittedVisibleContent)
+      const rawVisibleDelta = nextVisible.startsWith(emittedVisibleContent)
         ? nextVisible.slice(emittedVisibleContent.length)
         : nextVisible;
       emittedVisibleContent = nextVisible;
+      const visibleDelta = visibleThinkingArtifactGate.push(
+        visibleToolMarkupGate.push(rawVisibleDelta),
+        sawThinking,
+      );
       return {
         visibleDelta,
         thinkingPreview: formatThinkingPreview(extracted.thinking),
         sawThinking,
       };
     },
+    pushThinking(delta: string) {
+      if (!delta)
+        return {
+          thinkingPreview: formatThinkingPreview(rawThinking),
+          sawThinking,
+        };
+      rawThinking += delta;
+      sawThinking = true;
+      return {
+        thinkingPreview: formatThinkingPreview(rawThinking),
+        sawThinking,
+      };
+    },
   };
+}
+
+function createVisibleThinkingArtifactGate(): {
+  push: (delta: string, sawThinking: boolean) => string;
+} {
+  const closingMarker = '</think>';
+  let buffer = '';
+
+  const findPartialClosingSuffixLength = (): number => {
+    const lower = buffer.toLowerCase();
+    let longest = 0;
+    for (
+      let length = Math.min(closingMarker.length - 1, lower.length);
+      length > 0;
+      length -= 1
+    ) {
+      if (lower.endsWith(closingMarker.slice(0, length))) {
+        longest = length;
+        break;
+      }
+    }
+    return longest;
+  };
+
+  return {
+    push(delta: string, sawThinking: boolean): string {
+      if (!delta) return '';
+      buffer += delta;
+      buffer = stripVisibleThinkingArtifacts(buffer);
+
+      const partialClosingLength = findPartialClosingSuffixLength();
+      const partialClosingIndex =
+        partialClosingLength > 0 ? buffer.length - partialClosingLength : -1;
+      const artifactMatch = sawThinking
+        ? buffer.match(/(?:^|\n)[a-z]\.\s*$/i)
+        : null;
+      const artifactIndex =
+        artifactMatch?.index == null ? -1 : artifactMatch.index;
+      const holdIndex = [partialClosingIndex, artifactIndex]
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right)[0];
+
+      if (holdIndex != null) {
+        const output = buffer.slice(0, holdIndex);
+        buffer = buffer.slice(holdIndex);
+        return output;
+      }
+
+      const output = buffer;
+      buffer = '';
+      return output;
+    },
+  };
+}
+
+function createToolMarkupStreamGate(): {
+  push: (delta: string) => string;
+} {
+  const startMarkers = ['<tool_call>', '<tool>', '[tool_call]', '<function='];
+  const closeMarkerByStartMarker = new Map([
+    ['<tool_call>', '</tool_call>'],
+    ['<tool>', '</tool>'],
+    ['[tool_call]', '[/tool_call]'],
+    ['<function=', '</function>'],
+  ]);
+  let buffer = '';
+  let suppressing = false;
+  let closeMarker = '';
+
+  const findEarliestMarker = (
+    markers: string[],
+  ): { index: number; marker: string } | null => {
+    const lower = buffer.toLowerCase();
+    let result: { index: number; marker: string } | null = null;
+    for (const marker of markers) {
+      const index = lower.indexOf(marker);
+      if (index < 0) continue;
+      if (!result || index < result.index) {
+        result = { index, marker };
+      }
+    }
+    return result;
+  };
+  const findPartialStartSuffixLength = (): number => {
+    const lower = buffer.toLowerCase();
+    let longest = 0;
+    for (const marker of startMarkers) {
+      const normalizedMarker = marker.toLowerCase();
+      const maxLength = Math.min(normalizedMarker.length - 1, lower.length);
+      for (let length = maxLength; length > longest; length -= 1) {
+        if (lower.endsWith(normalizedMarker.slice(0, length))) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  };
+
+  return {
+    push(delta: string): string {
+      if (!delta) return '';
+      buffer += delta;
+      let output = '';
+
+      while (buffer) {
+        if (suppressing) {
+          const end = findEarliestMarker([closeMarker]);
+          if (!end) {
+            buffer = buffer.slice(-Math.max(0, closeMarker.length - 1));
+            return output;
+          }
+          buffer = buffer.slice(end.index + end.marker.length);
+          suppressing = false;
+          closeMarker = '';
+          continue;
+        }
+
+        const start = findEarliestMarker(startMarkers);
+        if (start) {
+          output += buffer.slice(0, start.index);
+          buffer = buffer.slice(start.index + start.marker.length);
+          suppressing = true;
+          closeMarker = closeMarkerByStartMarker.get(start.marker) || '';
+          continue;
+        }
+
+        const holdbackChars = findPartialStartSuffixLength();
+        if (buffer.length <= holdbackChars) return output;
+        const emitLength = buffer.length - holdbackChars;
+        output += buffer.slice(0, emitLength);
+        buffer = buffer.slice(emitLength);
+        return output;
+      }
+
+      return output;
+    },
+  };
+}
+
+function stripVisibleThinkingArtifacts(text: string): string {
+  return String(text || '')
+    .replace(/(?:^|\n)[a-z]\.\s*\n<\/think>\s*/gi, '\n')
+    .replace(/<\/think>\s*/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 interface ThinkingExtractionResult {
@@ -329,9 +499,19 @@ function extractThinkingBlocks(
 
 function formatThinkingPreview(thinking: string | null): string | null {
   if (thinking == null) return null;
-  const normalized = thinking.replace(/\r\n?/g, '\n');
+  const normalized = stripThinkingToolMarkup(thinking).replace(/\r\n?/g, '\n');
   if (!normalized) return '';
   return normalized;
+}
+
+function stripThinkingToolMarkup(text: string): string {
+  const gate = createToolMarkupStreamGate();
+  return gate
+    .push(text)
+    .replace(/<\/?(?:tool_call|function|parameter)[^>]*>/gi, '')
+    .replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?|<parameter=?)$/i, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function wrapTuiLines(text: string, columns: number, indent = ''): string[] {

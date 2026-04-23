@@ -115,6 +115,11 @@ export interface GatewayChatTextDeltaEvent {
   delta: string;
 }
 
+export interface GatewayChatThinkingDeltaEvent {
+  type: 'thinking';
+  delta: string;
+}
+
 export type GatewayMediaItem = MediaContextItem;
 
 export interface GatewayChatApprovalEvent extends PendingApproval {
@@ -130,6 +135,7 @@ export interface GatewayChatStreamResultEvent {
 export type GatewayChatStreamEvent =
   | GatewayChatToolProgressEvent
   | GatewayChatTextDeltaEvent
+  | GatewayChatThinkingDeltaEvent
   | GatewayChatApprovalEvent
   | GatewayChatStreamResultEvent;
 
@@ -181,6 +187,7 @@ export interface GatewayChatRequest {
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {

@@ -79,8 +79,10 @@ import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
+  decodeThinkingDelta,
   flushCollapsedStreamDebugSummary,
   isStreamActivityLine,
+  isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -108,6 +110,7 @@ interface PoolEntry {
   workerSignature: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   activity?: import('./ipc.js').ActivityTracker;
@@ -230,6 +233,23 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
     logger.debug(
       { sessionId: entry.sessionId, err },
       'Text delta callback failed',
+    );
+  }
+}
+
+function emitThinkingDelta(entry: PoolEntry, line: string): void {
+  const callback = entry.onThinkingDelta;
+  if (!callback) return;
+  const delta = decodeThinkingDelta(line);
+  if (delta == null) return;
+
+  try {
+    if (!delta) return;
+    callback(redactCredentialSecrets(delta));
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Thinking delta callback failed',
     );
   }
 }
@@ -672,6 +692,11 @@ function getOrSpawnContainer(
       if (!line) continue;
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
+      emitThinkingDelta(entry, line);
+      if (isThinkingDeltaLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
@@ -699,7 +724,10 @@ function getOrSpawnContainer(
     if (tail) {
       rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
+      emitThinkingDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+      } else if (isThinkingDeltaLine(tail)) {
         entry.activity?.notify();
       } else if (
         !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
@@ -767,6 +795,7 @@ async function runContainerInner(
     allowedTools,
     blockedTools,
     onTextDelta,
+    onThinkingDelta,
     onToolProgress,
     onApprovalProgress,
     abortSignal,
@@ -932,6 +961,7 @@ async function runContainerInner(
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
   entry.onTextDelta = onTextDelta;
+  entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
@@ -1017,6 +1047,9 @@ async function runContainerInner(
     });
     if (entry.onTextDelta === onTextDelta) {
       entry.onTextDelta = undefined;
+    }
+    if (entry.onThinkingDelta === onThinkingDelta) {
+      entry.onThinkingDelta = undefined;
     }
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;

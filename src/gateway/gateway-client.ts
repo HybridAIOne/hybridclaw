@@ -8,6 +8,7 @@ import {
   type GatewayChatStreamEvent,
   type GatewayChatStreamResultEvent,
   type GatewayChatTextDeltaEvent,
+  type GatewayChatThinkingDeltaEvent,
   type GatewayChatToolProgressEvent,
   type GatewayCommandRequest,
   type GatewayCommandResult,
@@ -250,6 +251,12 @@ function createResponseParser(
     if (parsed.type === 'text' && typeof parsed.delta === 'string') {
       const textEvent = parsed as GatewayChatTextDeltaEvent;
       onEvent(textEvent);
+      return null;
+    }
+
+    if (parsed.type === 'thinking' && typeof parsed.delta === 'string') {
+      const thinkingEvent = parsed as GatewayChatThinkingDeltaEvent;
+      onEvent(thinkingEvent);
       return null;
     }
 

@@ -363,6 +363,12 @@ function emitStreamDelta(delta: string): void {
   console.error(`[stream] ${payload}`);
 }
 
+function emitStreamThinkingDelta(delta: string): void {
+  if (!delta) return;
+  const payload = Buffer.from(delta, 'utf-8').toString('base64');
+  console.error(`[thinking] ${payload}`);
+}
+
 function emitStreamActivity(): void {
   console.error('[stream-activity]');
 }
@@ -559,7 +565,9 @@ function logToolCallStart(
   const toolPreview =
     approval.tier === 'yellow'
       ? approvalRuntime.formatYellowNarration(approval)
-      : argsJson.slice(0, 100);
+      : argsJson.length > 100
+        ? `${argsJson.slice(0, 99)}…`
+        : argsJson;
   console.error(`[tool] ${toolName}: ${toolPreview}`);
 }
 
@@ -723,6 +731,7 @@ async function callHybridAIWithRetry(params: {
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
   maxTokens?: number;
   isLocal?: boolean;
@@ -741,6 +750,7 @@ async function callHybridAIWithRetry(params: {
     history,
     tools,
     onTextDelta,
+    onThinkingDelta,
     onActivity,
     maxTokens,
     isLocal,
@@ -773,6 +783,7 @@ async function callHybridAIWithRetry(params: {
             messages: history,
             tools,
             onTextDelta,
+            onThinkingDelta,
             onActivity,
             maxTokens,
             isLocal,
@@ -1014,6 +1025,7 @@ async function processRequest(
     );
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
+    const modelCallTextDeltas: string[] = [];
     try {
       response = await callHybridAIWithRetry({
         provider,
@@ -1026,7 +1038,14 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
+        onTextDelta: streamTextDeltas
+          ? (delta) => {
+              if (delta) modelCallTextDeltas.push(delta);
+            }
+          : undefined,
+        onThinkingDelta: streamTextDeltas
+          ? (delta) => emitStreamThinkingDelta(delta)
+          : undefined,
         onActivity: streamTextDeltas ? emitStreamActivity : undefined,
         maxTokens,
         isLocal,
@@ -1106,6 +1125,11 @@ async function processRequest(
         toolsUsed,
       });
       return failed;
+    }
+    if (toolCalls.length === 0) {
+      for (const delta of modelCallTextDeltas) {
+        emitStreamDelta(delta);
+      }
     }
 
     const assistantMessage: ChatMessage = {

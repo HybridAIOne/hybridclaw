@@ -67,8 +67,10 @@ import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
+  decodeThinkingDelta,
   flushCollapsedStreamDebugSummary,
   isStreamActivityLine,
+  isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -149,6 +151,7 @@ interface PoolEntry {
   workerSignature: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
@@ -270,6 +273,22 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
     logger.debug(
       { sessionId: entry.sessionId, err },
       'Text delta callback failed',
+    );
+  }
+}
+
+function emitThinkingDelta(entry: PoolEntry, line: string): void {
+  const callback = entry.onThinkingDelta;
+  if (!callback) return;
+  const delta = decodeThinkingDelta(line);
+  if (delta == null) return;
+
+  try {
+    if (delta) callback(redactCredentialSecrets(delta));
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Thinking delta callback failed',
     );
   }
 }
@@ -527,6 +546,11 @@ function getOrSpawnHostProcess(
       if (!line) continue;
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
+      emitThinkingDelta(entry, line);
+      if (isThinkingDeltaLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
@@ -557,7 +581,10 @@ function getOrSpawnHostProcess(
     if (tail) {
       rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
+      emitThinkingDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+      } else if (isThinkingDeltaLine(tail)) {
         entry.activity?.notify();
       } else if (
         !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
@@ -645,6 +672,7 @@ async function runHostProcessInner(
     allowedTools,
     blockedTools,
     onTextDelta,
+    onThinkingDelta,
     onToolProgress,
     onApprovalProgress,
     abortSignal,
@@ -811,6 +839,7 @@ async function runHostProcessInner(
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;
+  entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
@@ -893,6 +922,8 @@ async function runHostProcessInner(
       logger.debug({ sessionId }, message);
     });
     if (entry.onTextDelta === onTextDelta) entry.onTextDelta = undefined;
+    if (entry.onThinkingDelta === onThinkingDelta)
+      entry.onThinkingDelta = undefined;
     if (entry.onToolProgress === onToolProgress)
       entry.onToolProgress = undefined;
     if (entry.onApprovalProgress === onApprovalProgress) {

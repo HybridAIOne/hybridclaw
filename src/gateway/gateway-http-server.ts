@@ -1486,6 +1486,13 @@ async function handleApiChatStream(
       delta: filteredDelta,
     });
   };
+  const onThinkingDelta = (delta: string): void => {
+    if (!delta) return;
+    sendEvent({
+      type: 'thinking',
+      delta,
+    });
+  };
   let streamedApprovalId: string | null = null;
   const onApprovalProgress = (approval: PendingApproval): void => {
     streamedApprovalId = approval.approvalId;
@@ -1502,6 +1509,7 @@ async function handleApiChatStream(
         await handleGatewayMessage({
           ...chatRequest,
           onTextDelta,
+          onThinkingDelta,
           onToolProgress,
           onApprovalProgress,
         }),

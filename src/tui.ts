@@ -108,7 +108,6 @@ import {
   type TuiSlashMenuPalette,
 } from './tui-slash-menu.js';
 import {
-  countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
@@ -1349,11 +1348,6 @@ function spinner(): {
 
   const clearTools = () => {
     if (transientToolLines <= 0) return;
-    process.stdout.write(`\x1b[${transientToolLines}A`);
-    for (let i = 0; i < transientToolLines; i++) {
-      clearLine();
-      process.stdout.write('\x1b[M');
-    }
     clearLine();
     transientToolLines = 0;
     if (
@@ -1393,7 +1387,7 @@ function spinner(): {
     clearLine();
     const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
     process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
-    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
+    thinkingPreviewRows = Math.max(1, formatted.split('\n').length);
   };
 
   hideCursor();
@@ -1418,9 +1412,8 @@ function spinner(): {
         `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}`,
         Math.max(1, terminalColumns()),
       );
-      process.stdout.write(`${toolLine}\n`);
-      transientToolLines++;
-      if (showActivityPreview) render();
+      process.stdout.write(`\r${toolLine}`);
+      transientToolLines = 1;
     },
     addVisibleTextDelta: (delta: string) => {
       if (!delta) return;
@@ -2192,6 +2185,15 @@ async function processMessage(
               sawVisibleTextDelta = true;
               s.addVisibleTextDelta(streamed.visibleDelta);
             } else if (streamed.thinkingPreview) {
+              s.setThinkingPreview(streamed.thinkingPreview);
+            }
+            return;
+          }
+          if (event.type === 'thinking') {
+            sawStreamEvent = true;
+            sawResponse = true;
+            const streamed = streamState.pushThinking(event.delta);
+            if (!sawVisibleTextDelta && streamed.thinkingPreview) {
               s.setThinkingPreview(streamed.thinkingPreview);
             }
             return;

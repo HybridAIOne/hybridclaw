@@ -200,6 +200,81 @@ test('keeps think blocks in the transient preview and streams visible text separ
   });
 });
 
+test('strips Qwen tool markup from transient thinking previews', () => {
+  const state = createTuiThinkingStreamState();
+  const result = state.push(
+    [
+      '<think>#hybridclaw. Let me read from #t.',
+      '<tool_call>',
+      '<function=message>',
+      '<parameter=action>',
+      'channel-info',
+      '</parameter>',
+      '</function>',
+      '</tool_call>',
+      '</think>',
+    ].join('\n'),
+  );
+
+  expect(result).toEqual({
+    visibleDelta: '',
+    thinkingPreview: '#hybridclaw. Let me read from #t.',
+    sawThinking: true,
+  });
+});
+
+test('suppresses unmatched thinking close tails from visible stream text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('s.\n</think>\n\nVisible answer')).toEqual({
+    visibleDelta: '\nVisible answer',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+});
+
+test('holds split thinking close tails out of the visible stream', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('<think>plan</think>')).toEqual({
+    visibleDelta: '',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+  expect(state.push('s.\n')).toEqual({
+    visibleDelta: '',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+  expect(state.push('</think>\n\nVisible answer')).toEqual({
+    visibleDelta: '\nVisible answer',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+});
+
+test('gates visible output between split tool tags', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('Before <too')).toEqual({
+    visibleDelta: 'Before ',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(
+    state.push('l_call>{"name":"message","arguments":{"action":"read"}}'),
+  ).toEqual({
+    visibleDelta: '',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(state.push('</tool_call> After')).toEqual({
+    visibleDelta: ' After',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+});
+
 test('indents every line in a transient thinking block by two spaces', () => {
   expect(indentTuiBlock('plan\nmore')).toBe('  plan\n  more');
 });

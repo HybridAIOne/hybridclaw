@@ -27,6 +27,7 @@ export interface NormalizedCallArgs {
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
   onTextDelta: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
 }
 
