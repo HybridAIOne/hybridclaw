@@ -19,6 +19,7 @@ import {
   handleVoiceWebhook,
 } from '../channels/voice/runtime.js';
 import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
+import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
@@ -485,7 +486,7 @@ async function resolveApiChatSlashCommandResult(
   let handledApprovalCommand = false;
 
   for (const args of slashCommands) {
-    if ((args[0] || '').trim().toLowerCase() === 'approve') {
+    if (parseLowerArg(args, 0) === 'approve') {
       const handled = await handleTextChannelApprovalCommand({
         sessionId,
         guildId: chatRequest.guildId,

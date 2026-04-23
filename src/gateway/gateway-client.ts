@@ -16,6 +16,7 @@ import {
   type GatewayMediaItem,
   type GatewayMediaUploadResult,
   type GatewayPluginCommandSummary,
+  type GatewayProactiveMessage,
   type GatewayProactivePullResponse,
   type GatewayStatus,
   renderGatewayCommand,
@@ -31,6 +32,7 @@ export type {
   GatewayMediaItem,
   GatewayMediaUploadResult,
   GatewayPluginCommandSummary,
+  GatewayProactiveMessage,
   GatewayProactivePullResponse,
   GatewayStatus,
 };

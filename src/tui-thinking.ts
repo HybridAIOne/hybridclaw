@@ -195,6 +195,19 @@ export function countTerminalRows(text: string, columns: number): number {
   return Math.max(1, wrapTuiLines(text, columns).length);
 }
 
+export function appendTerminalRowCount(
+  currentRows: number,
+  appendedText: string,
+): number {
+  const normalized = String(appendedText || '');
+  if (!normalized) return currentRows;
+  let newlineCount = 0;
+  for (const char of normalized) {
+    if (char === '\n') newlineCount += 1;
+  }
+  return currentRows > 0 ? currentRows + newlineCount : newlineCount + 1;
+}
+
 export function wrapTuiBlock(
   text: string,
   columns: number,

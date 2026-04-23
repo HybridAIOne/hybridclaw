@@ -676,6 +676,62 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('Liquid/LFM local provider injects List of tools in the system prompt', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      expect(messages[0]?.role).toBe('system');
+      expect(String(messages[0]?.content || '')).toContain('List of tools:');
+      expect(String(messages[0]?.content || '')).toContain('"name":"shell"');
+      expect(String(messages[0]?.content || '')).not.toContain(
+        'emit a JSON tool call only',
+      );
+      expect(String(messages[0]?.content || '')).not.toContain(
+        'Do not emit Python-style function calls',
+      );
+      expect(messages[1]).toEqual({ role: 'user', content: 'hello' });
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'LiquidAI/LFM2.5-1.2B-Instruct',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'llamacpp',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      apiKey: '',
+      model: 'llamacpp/LiquidAI/LFM2.5-1.2B-Instruct',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('OpenAI-compatible stream preserves think blocks and normalizes tool calls', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(

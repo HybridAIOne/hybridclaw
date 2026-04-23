@@ -1,4 +1,7 @@
-import { getRecentStructuredAuditForSession } from '../memory/db.js';
+import {
+  getRecentStructuredAuditForSession,
+  listStructuredAuditSessionIdsByPrefix,
+} from '../memory/db.js';
 import { firstNumber, parseAuditPayload } from './gateway-utils.js';
 
 export interface SessionStatusSnapshot {
@@ -10,6 +13,12 @@ export interface SessionStatusSnapshot {
   contextUsedTokens: number | null;
   contextBudgetTokens: number | null;
   contextUsagePercent: number | null;
+}
+
+export interface DelegateSessionStatusSnapshot {
+  promptTokens: number;
+  completionTokens: number;
+  sessionCount: number;
 }
 
 export function readSessionStatusSnapshot(
@@ -127,5 +136,30 @@ export function readSessionStatusSnapshot(
     contextUsedTokens,
     contextBudgetTokens,
     contextUsagePercent,
+  };
+}
+
+export function readDelegateSessionStatusSnapshot(
+  parentSessionId: string,
+): DelegateSessionStatusSnapshot {
+  const childSessionIds = listStructuredAuditSessionIdsByPrefix(
+    `delegate:d1:${String(parentSessionId || '').trim()}:`,
+    64,
+  );
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let sessionCount = 0;
+
+  for (const childSessionId of childSessionIds) {
+    const snapshot = readSessionStatusSnapshot(childSessionId);
+    promptTokens += Math.max(0, snapshot.promptTokens || 0);
+    completionTokens += Math.max(0, snapshot.completionTokens || 0);
+    sessionCount += 1;
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    sessionCount,
   };
 }

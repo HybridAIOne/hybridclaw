@@ -51,9 +51,11 @@ In practice, approvals cover:
   shell patterns such as `sudo` or `curl | sh`, host-app control, and writes
   outside the workspace fence are red.
 - Most runtime tools. Read/search tools are green. `write`, `edit`, and
-  `memory` are yellow. `delete` is red. Browser interaction tools are usually
-  yellow. MCP tools are classified by name into read/search/fetch, edit/state,
-  or execute/delete groups.
+  `memory` are yellow. `delete` is red. `delegate` is green because it is
+  internal orchestration; the delegated agent's child tool calls are still
+  classified separately. Browser interaction tools are usually yellow. MCP tools
+  are classified by name into read/search/fetch, edit/state, or execute/delete
+  groups.
 - File access and file operations. Reads are mostly green, while writes and
   edits are yellow. Deletion is red. Writes outside the workspace become red
   because of `approval.workspace_fence`.
@@ -101,6 +103,7 @@ Two important transitions:
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
 | Image analysis | Green | `vision_analyze`, `image` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
+| Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
 | Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
