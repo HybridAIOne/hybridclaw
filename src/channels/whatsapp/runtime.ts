@@ -109,6 +109,24 @@ export function createWhatsAppRuntime() {
     null;
   let selfEchoCache: ReturnType<typeof createWhatsAppSelfEchoCache> | null =
     null;
+  let shuttingDown = false;
+  const inFlightControllers = new Set<AbortController>();
+
+  const createShutdownAbortError = (): Error =>
+    new Error('WhatsApp runtime shutting down.');
+
+  const throwIfAborted = (signal: AbortSignal): void => {
+    if (!signal.aborted) return;
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : createShutdownAbortError();
+  };
+
+  const abortInFlightHandlers = (): void => {
+    for (const controller of inFlightControllers) {
+      if (controller.signal.aborted) continue;
+      controller.abort(createShutdownAbortError());
+    }
+  };
 
   const sendTextToChat = async (jid: string, text: string): Promise<void> => {
     const manager = ensureConnectionManager();
@@ -152,7 +170,23 @@ export function createWhatsAppRuntime() {
         socket.ev.on('messages.upsert', ({ messages, type }) => {
           if (type !== 'notify' && type !== 'append') return;
           for (const message of messages) {
-            void handleUpsertedMessage(message, messages, type, messageHandler);
+            void handleUpsertedMessage(
+              message,
+              messages,
+              type,
+              messageHandler,
+            ).catch((error) => {
+              logger.debug(
+                {
+                  error,
+                  jid: message.key.remoteJid ?? null,
+                  messageId: message.key.id ?? null,
+                },
+                shuttingDown
+                  ? 'WhatsApp inbound message cancelled during shutdown'
+                  : 'WhatsApp inbound message handling failed',
+              );
+            });
           }
         });
       },
@@ -175,11 +209,22 @@ export function createWhatsAppRuntime() {
     messageHandler: WhatsAppMessageHandler,
   ): Promise<void> => {
     const controller = new AbortController();
+    inFlightControllers.add(controller);
+    if (shuttingDown) {
+      controller.abort(createShutdownAbortError());
+    }
     const typingController = createWhatsAppTypingController(
-      () => ensureConnectionManager().getSocket(),
+      () => connectionManager?.getSocket() ?? null,
       batch.chatJid,
     );
+    const stopTypingOnAbort = (): void => {
+      typingController.stop();
+    };
+    controller.signal.addEventListener('abort', stopTypingOnAbort, {
+      once: true,
+    });
     const reply: WhatsAppReplyFn = async (content) => {
+      throwIfAborted(controller.signal);
       await sendTextToChat(
         batch.chatJid,
         batch.isSelfChat ? formatSelfChatReply(content) : content,
@@ -188,8 +233,9 @@ export function createWhatsAppRuntime() {
     const reactionCleanupTargets = batch.ackReaction
       ? buildReactionCleanupTargets(batch.batchedMessages)
       : [];
-    typingController.start();
     try {
+      throwIfAborted(controller.signal);
+      typingController.start();
       await messageHandler(
         batch.sessionId,
         batch.guildId,
@@ -209,8 +255,10 @@ export function createWhatsAppRuntime() {
         },
       );
     } finally {
+      controller.signal.removeEventListener('abort', stopTypingOnAbort);
+      inFlightControllers.delete(controller);
       typingController.stop();
-      const socket = ensureConnectionManager().getSocket();
+      const socket = connectionManager?.getSocket() ?? null;
       if (socket && reactionCleanupTargets.length > 0) {
         await Promise.all(
           reactionCleanupTargets.map(({ jid, key }) =>
@@ -328,14 +376,30 @@ export function createWhatsAppRuntime() {
     kind: 'whatsapp',
     capabilities: WHATSAPP_CAPABILITIES,
     start: async ({ handler }) => {
+      shuttingDown = false;
+      inFlightControllers.clear();
       selfEchoCache = createWhatsAppSelfEchoCache();
       inboundDebouncer = createWhatsAppDebouncer(async (batch) => {
-        await dispatchInboundBatch(batch, handler);
+        await dispatchInboundBatch(batch, handler).catch((error) => {
+          logger.debug(
+            {
+              error,
+              sessionId: batch.sessionId,
+              channelId: batch.channelId,
+            },
+            shuttingDown
+              ? 'WhatsApp debounced batch cancelled during shutdown'
+              : 'WhatsApp debounced batch handling failed',
+          );
+        });
       });
       await ensureConnectionManager(handler).start();
     },
     cleanup: async () => {
-      await inboundDebouncer?.flushAll();
+      shuttingDown = true;
+      abortInFlightHandlers();
+      inFlightControllers.clear();
+      inboundDebouncer?.clearAll();
       await connectionManager?.stop();
       selfEchoCache?.clear();
       inboundDebouncer = null;
