@@ -334,14 +334,16 @@ jobs:
 
   # Consumers (e.g. the chat repo's image resolver) treat the GitHub Release
   # as the authoritative "image is pullable" signal; gate creation on all
-  # publish jobs succeeding.
+  # publish jobs succeeding. Created as a draft so the maintainer's curated
+  # notes (AGENTS.md §7.6 step 8) are never overwritten by auto-generated ones
+  # — the maintainer edits and publishes the draft manually.
   create-release:
     needs: [validate, publish-agent, publish-gateway, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Create GitHub Release
+      - name: Create GitHub Release draft
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -355,7 +357,7 @@ jobs:
             echo "Release $TAG already exists; skipping creation."
             exit 0
           fi
-          flags=(--title "$TAG" --generate-notes)
+          flags=(--draft --title "$TAG" --generate-notes)
           if [[ "$VERIFY_TAG" == "true" ]]; then
             flags+=(--verify-tag)
           else
