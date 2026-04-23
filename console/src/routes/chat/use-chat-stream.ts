@@ -235,7 +235,7 @@ export function useChatStream(
           throw new Error(result.error ?? 'Unknown error');
         }
 
-        if (result.sessionId) {
+        if (result.sessionId && result.sessionId !== targetSessionId) {
           onSessionIdCorrection(result.sessionId);
         }
 
