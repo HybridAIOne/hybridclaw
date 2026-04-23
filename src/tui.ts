@@ -2628,7 +2628,9 @@ function prepareProactiveRegularMessageOutput(
   console.log();
 }
 
-function renderProactiveRegularMessage(message: GatewayProactiveMessage): boolean {
+function renderProactiveRegularMessage(
+  message: GatewayProactiveMessage,
+): boolean {
   if (handleDelegateStreamMessage(message)) return true;
 
   const badge = proactiveBadgeLabel(message.source);
@@ -2696,7 +2698,11 @@ async function pollProactiveMessages(
       isDelegateStatusMessage(message.text),
     );
 
-    renderLatestProactiveDelegateStatus(rl, latestDelegateStatus, promptVisible);
+    renderLatestProactiveDelegateStatus(
+      rl,
+      latestDelegateStatus,
+      promptVisible,
+    );
 
     if (regularMessages.length === 0) {
       if (promptAfter) promptTuiInput(rl);
