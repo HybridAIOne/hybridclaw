@@ -85,7 +85,7 @@ import {
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
   cloneMediaContextItems,
-  enqueueDelegationFromSideEffect,
+  enqueueDelegationBatchFromSideEffects,
   extractDelegationDepth,
   extractUsageCostUsd,
   formatCanonicalContextPrompt,
@@ -983,6 +983,9 @@ async function handleGatewayMessageInner(
 
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
+    const acceptedDelegationPlans: NonNullable<
+      ReturnType<typeof normalizeDelegationEffect>['plan']
+    >[] = [];
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -1028,18 +1031,28 @@ async function handleGatewayMessageInner(
           return;
         }
         acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
+        acceptedDelegationPlans.push(normalized.plan);
       },
     });
+    const delegationAcknowledgement =
+      acceptedDelegations > 0
+        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.`
+        : null;
+    if (acceptedDelegationPlans.length > 0) {
+      enqueueDelegationBatchFromSideEffects({
+        plans: acceptedDelegationPlans,
+        parentSessionId: req.sessionId,
+        channelId: req.channelId,
+        chatbotId,
+        enableRag,
+        agentId,
+        parentModel: model,
+        onProactiveMessage: req.onProactiveMessage,
+        parentDepth,
+        parentPrompt: req.content,
+        parentResult: delegationAcknowledgement || '',
+      });
+    }
 
     promoteWorkspaceSkills(workspacePath);
 
@@ -1120,7 +1133,8 @@ async function handleGatewayMessageInner(
       });
     }
 
-    const rawResultText = output.result || 'No response from agent.';
+    const rawResultText =
+      delegationAcknowledgement || output.result || 'No response from agent.';
     const resultText = conciergeExecutionNotice
       ? `${conciergeExecutionNotice}${rawResultText}`
       : rawResultText;

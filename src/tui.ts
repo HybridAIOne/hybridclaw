@@ -130,6 +130,7 @@ type TuiTheme = 'dark' | 'light';
 type TuiReadlineInterface = readline.Interface & {
   history: string[];
   _refreshLine?: () => void;
+  prevRows?: number;
 };
 
 interface TuiPalette {
@@ -330,12 +331,16 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   500,
   parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
 );
+const TUI_PROACTIVE_PULL_LIMIT = 100;
 const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
 const TUI_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
+let delegateStatusRows = 0;
+let delegateStreamActive = false;
+let delegateStreamFormatState = createTuiStreamFormatState();
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
 type TuiCachedApproval = {
@@ -1315,6 +1320,7 @@ function spinner(): {
   finishTool: (toolName: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
+  clearVisibleText: () => void;
   trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
@@ -1331,6 +1337,8 @@ function spinner(): {
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
+  let visibleTextOutput = '';
+  let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const hideCursor = () => {
@@ -1422,6 +1430,26 @@ function spinner(): {
     }
   };
 
+  const clearVisibleText = () => {
+    if (!hasVisibleText) return;
+    if (process.stdout.isTTY) {
+      const rows = Math.max(1, visibleTextRows);
+      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+      for (let row = 0; row < rows; row += 1) {
+        clearLine();
+        if (row < rows - 1) process.stdout.write('\n');
+      }
+      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+    }
+    hasVisibleText = false;
+    visibleTextState = createTuiStreamFormatState();
+    visibleTextOutput = '';
+    visibleTextRows = 0;
+    if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
+      render();
+    }
+  };
+
   const setThinkingPreview = (preview: string | null) => {
     if (!showThinkingPreview) return;
     const normalizedPreview = String(preview || '');
@@ -1498,6 +1526,8 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -1513,8 +1543,11 @@ function spinner(): {
         clearLine();
         hasVisibleText = true;
       }
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
+    clearVisibleText,
     trailingNewlinesAfterVisibleText: () =>
       getTuiStreamTrailingNewlines(visibleTextState, terminalColumns()),
     setThinkingPreview,
@@ -1703,6 +1736,10 @@ function promptTuiInput(rl: readline.Interface): void {
   clearTuiSlashMenu();
   rl.prompt();
   syncTuiSlashMenu();
+}
+
+function resetReadlinePromptRows(rl: readline.Interface): void {
+  (rl as TuiReadlineInterface).prevRows = 0;
 }
 
 function refreshPrompt(rl: readline.Interface): void {
@@ -2235,6 +2272,7 @@ async function processMessage(
     const streamedToolNames = new Set<string>();
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let suppressStreamedTextForDelegation = false;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
 
@@ -2247,6 +2285,7 @@ async function processMessage(
         (event) => {
           if (event.type === 'text') {
             sawStreamEvent = true;
+            if (suppressStreamedTextForDelegation) return;
             sawResponse = true;
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
@@ -2266,6 +2305,16 @@ async function processMessage(
           if (event.type !== 'tool' || !event.toolName) return;
           sawStreamEvent = true;
           sawResponse = true;
+          if (
+            event.toolName === 'delegate' &&
+            !suppressStreamedTextForDelegation
+          ) {
+            suppressStreamedTextForDelegation = true;
+            if (sawVisibleTextDelta) {
+              s.clearVisibleText();
+              sawVisibleTextDelta = false;
+            }
+          }
           if (event.phase === 'finish') {
             s.finishTool(event.toolName);
             return;
@@ -2375,6 +2424,10 @@ async function processMessage(
     s.clearTools();
     if (activeRunAbortController === abortController) {
       activeRunAbortController = null;
+      void pollProactiveMessages(rl, {
+        promptAfter: false,
+        promptVisible: false,
+      });
     }
   }
 }
@@ -2450,29 +2503,184 @@ async function processFullAutoSteeringMessage(
   })();
 }
 
-async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
+function isDelegateStatusMessage(text: string): boolean {
+  return text.trimStart().startsWith('[Delegate Status]');
+}
+
+function isDelegateStreamSource(source: string): boolean {
+  return String(source || '').startsWith('delegate:stream:');
+}
+
+function handleDelegateStreamMessage(message: {
+  text: string;
+  source: string;
+}): boolean {
+  const source = String(message.source || '');
+  if (!isDelegateStreamSource(source)) return false;
+
+  if (source === 'delegate:stream:start') {
+    delegateStreamActive = true;
+    delegateStreamFormatState = createTuiStreamFormatState();
+    return true;
+  }
+
+  if (source === 'delegate:stream:delta') {
+    if (!delegateStreamActive) {
+      delegateStreamActive = true;
+      delegateStreamFormatState = createTuiStreamFormatState();
+    }
+    const formatted = formatTuiStreamDelta(
+      message.text,
+      delegateStreamFormatState,
+      terminalColumns(),
+    );
+    delegateStreamFormatState = formatted.state;
+    if (formatted.text) process.stdout.write(formatted.text);
+    return true;
+  }
+
+  if (source === 'delegate:stream:end') {
+    if (delegateStreamActive) {
+      const flushed = flushTuiStreamDelta(
+        delegateStreamFormatState,
+        terminalColumns(),
+      );
+      delegateStreamFormatState = flushed.state;
+      if (flushed.text) process.stdout.write(flushed.text);
+    }
+    delegateStreamActive = false;
+    delegateStreamFormatState = createTuiStreamFormatState();
+    return true;
+  }
+
+  return true;
+}
+
+function clearDelegateStatusBlock(): void {
+  if (delegateStatusRows <= 0) return;
+  process.stdout.write(`\x1b[${delegateStatusRows}A`);
+  for (let row = 0; row < delegateStatusRows; row += 1) {
+    process.stdout.write('\r\x1b[2K');
+    if (row < delegateStatusRows - 1) process.stdout.write('\n');
+  }
+  process.stdout.write(`\x1b[${Math.max(0, delegateStatusRows - 1)}A`);
+  delegateStatusRows = 0;
+}
+
+function currentPromptRows(): number {
+  return countTerminalRows(stripAnsiTui(buildPromptText()), terminalColumns());
+}
+
+function clearPromptBlockForDelegateStatus(): void {
+  if (!process.stdout.isTTY) return;
+  const promptRows = currentPromptRows();
+  if (promptRows > 1) process.stdout.write(`\x1b[${promptRows - 1}A`);
+  for (let row = 0; row < promptRows; row += 1) {
+    process.stdout.write('\r\x1b[2K');
+    if (row < promptRows - 1) process.stdout.write('\n');
+  }
+  if (promptRows > 1) process.stdout.write(`\x1b[${promptRows - 1}A`);
+}
+
+function clearDelegateStatusAndPromptBlock(): void {
+  if (!process.stdout.isTTY || delegateStatusRows <= 0) {
+    clearPromptBlockForDelegateStatus();
+    return;
+  }
+  const promptRows = currentPromptRows();
+  const rowsToClear = delegateStatusRows + promptRows;
+  process.stdout.write(`\x1b[${rowsToClear - 1}A`);
+  for (let row = 0; row < rowsToClear; row += 1) {
+    process.stdout.write('\r\x1b[2K');
+    if (row < rowsToClear - 1) process.stdout.write('\n');
+  }
+  process.stdout.write(`\x1b[${rowsToClear - 1}A`);
+  delegateStatusRows = 0;
+}
+
+function printDelegateStatusBlock(text: string, promptVisible: boolean): void {
+  if (promptVisible) {
+    clearDelegateStatusAndPromptBlock();
+  } else {
+    clearDelegateStatusBlock();
+  }
+  const body = text.replace(/^\[Delegate Status\]\s*/, '').trim();
+  const rendered = formatTuiOutput(body);
+  console.log(rendered);
+  delegateStatusRows = countTerminalRows(rendered, terminalColumns());
+}
+
+async function pollProactiveMessages(
+  rl: readline.Interface,
+  options: { promptAfter?: boolean; promptVisible?: boolean } = {},
+): Promise<void> {
   if (proactivePollInFlight) return;
   if (activeRunAbortController && !activeRunAbortController.signal.aborted)
     return;
+  const promptAfter = options.promptAfter !== false;
+  const promptVisible = options.promptVisible !== false;
 
   proactivePollInFlight = true;
   try {
-    const result = await gatewayPullProactive(CHANNEL_ID, 20);
+    const result = await gatewayPullProactive(
+      CHANNEL_ID,
+      TUI_PROACTIVE_PULL_LIMIT,
+    );
     if (!Array.isArray(result.messages) || result.messages.length === 0) return;
 
     clearTuiSlashMenu();
-    console.log();
-    for (const message of result.messages) {
+    const regularMessages = result.messages.filter(
+      (message) =>
+        !isDelegateStatusMessage(message.text) ||
+        isDelegateStreamSource(message.source),
+    );
+    const latestDelegateStatus = [...result.messages]
+      .reverse()
+      .find((message) => isDelegateStatusMessage(message.text));
+
+    if (latestDelegateStatus) {
+      printDelegateStatusBlock(latestDelegateStatus.text, promptVisible);
+      resetReadlinePromptRows(rl);
+    }
+
+    if (regularMessages.length === 0) {
+      if (promptAfter) promptTuiInput(rl);
+      return;
+    }
+
+    if (!latestDelegateStatus) {
+      if (promptVisible) {
+        clearPromptBlockForDelegateStatus();
+        resetReadlinePromptRows(rl);
+      }
+      console.log();
+    } else {
+      console.log();
+    }
+    let sawDelegateStreamMessage = false;
+    for (const message of regularMessages) {
+      if (handleDelegateStreamMessage(message)) {
+        sawDelegateStreamMessage = true;
+        continue;
+      }
       const badge = proactiveBadgeLabel(message.source);
       const suffix = proactiveSourceSuffix(message.source);
       const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+      if (badge === 'delegate') {
+        console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
+        continue;
+      }
       const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
       console.log(badgePrefix);
       console.log();
-      console.log(`${message.text}${sourceSuffix}`);
+      console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
     }
-    console.log();
-    promptTuiInput(rl);
+    if (!delegateStreamActive) {
+      console.log();
+      if (promptAfter) promptTuiInput(rl);
+    } else if (!sawDelegateStreamMessage && promptAfter) {
+      promptTuiInput(rl);
+    }
   } catch (error) {
     logger.debug(
       { error },

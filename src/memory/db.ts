@@ -6815,6 +6815,30 @@ export function getRecentStructuredAuditForSession(
   });
 }
 
+export function listStructuredAuditSessionIdsByPrefix(
+  prefix: string,
+  limit = 64,
+): string[] {
+  ensureDatabaseReady();
+  const normalizedPrefix = String(prefix || '').trim();
+  if (!normalizedPrefix) return [];
+  const normalizedLimit = Math.max(1, Math.min(512, Math.trunc(limit || 64)));
+  const rows = queryAll<{ sessionId: string }, [string, number]>(
+    db,
+    `SELECT session_id AS sessionId
+     FROM audit_events
+     WHERE session_id LIKE ? || '%'
+     GROUP BY session_id
+     ORDER BY MAX(id) DESC
+     LIMIT ?`,
+    normalizedPrefix,
+    normalizedLimit,
+  );
+  return rows
+    .map((row) => String(row.sessionId || '').trim())
+    .filter(Boolean);
+}
+
 export function getStructuredAuditForSession(
   sessionId: string,
 ): StructuredAuditEntry[] {
