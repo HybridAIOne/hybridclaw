@@ -6834,9 +6834,7 @@ export function listStructuredAuditSessionIdsByPrefix(
     normalizedPrefix,
     normalizedLimit,
   );
-  return rows
-    .map((row) => String(row.sessionId || '').trim())
-    .filter(Boolean);
+  return rows.map((row) => String(row.sessionId || '').trim()).filter(Boolean);
 }
 
 export function getStructuredAuditForSession(

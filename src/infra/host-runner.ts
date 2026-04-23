@@ -8,6 +8,7 @@ import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BRAVE_API_KEY,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -16,7 +17,6 @@ import {
   CONTEXT_GUARD_MAX_RETRIES,
   CONTEXT_GUARD_OVERFLOW_RATIO,
   CONTEXT_GUARD_PER_RESULT_SHARE,
-  BRAVE_API_KEY,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,

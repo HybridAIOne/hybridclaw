@@ -273,7 +273,11 @@ function buildRequestMessages(
         ...message,
         content: normalizeMessageContent(message.content),
       }));
-  if (usesLiquidCompat(args) && Array.isArray(args.tools) && args.tools.length) {
+  if (
+    usesLiquidCompat(args) &&
+    Array.isArray(args.tools) &&
+    args.tools.length
+  ) {
     messages = mergeSystemMessage(
       messages as ChatMessage[],
       buildLiquidToolCallInstruction(args.tools),

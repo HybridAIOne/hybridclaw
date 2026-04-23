@@ -104,8 +104,8 @@ import {
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
-  PROACTIVE_DELEGATION_MODEL,
   PROACTIVE_DELEGATION_MAX_DEPTH,
+  PROACTIVE_DELEGATION_MODEL,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
   SLACK_APP_TOKEN,
@@ -819,7 +819,9 @@ function persistDelegationAttempt(params: {
     messages: params.messages,
     status: params.output?.status === 'success' ? 'success' : 'error',
     response:
-      params.output?.status === 'success' ? (params.output.result ?? null) : null,
+      params.output?.status === 'success'
+        ? (params.output.result ?? null)
+        : null,
     error:
       params.output?.status === 'success'
         ? null
@@ -2218,7 +2220,9 @@ function formatPercent(value: number | null): string {
 }
 
 function isLocalModelProvider(model: string | null | undefined): boolean {
-  const normalized = String(model || '').trim().toLowerCase();
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return false;
   const provider = normalized.split('/', 1)[0] || '';
   return (

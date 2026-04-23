@@ -12,6 +12,7 @@ import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BRAVE_API_KEY,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -29,7 +30,6 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GUILDS,
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
-  BRAVE_API_KEY,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,

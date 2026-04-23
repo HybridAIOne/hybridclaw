@@ -2006,8 +2006,7 @@ test('status shows delegate model, delegate token totals, and local token share'
     },
   });
   recordAuditEvent({
-    sessionId:
-      'delegate:d1:session-status-delegate-tokens:child-a',
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-a',
     runId: makeAuditRunId('test'),
     event: {
       type: 'model.usage',
@@ -2018,8 +2017,7 @@ test('status shows delegate model, delegate token totals, and local token share'
     },
   });
   recordAuditEvent({
-    sessionId:
-      'delegate:d1:session-status-delegate-tokens:child-b',
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-b',
     runId: makeAuditRunId('test'),
     event: {
       type: 'model.usage',

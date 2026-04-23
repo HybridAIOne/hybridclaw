@@ -687,9 +687,7 @@ describe('local container providers', () => {
       expect(body.tool_choice).toBe('auto');
       expect(messages[0]?.role).toBe('system');
       expect(String(messages[0]?.content || '')).toContain('List of tools:');
-      expect(String(messages[0]?.content || '')).toContain(
-        '"name":"shell"',
-      );
+      expect(String(messages[0]?.content || '')).toContain('"name":"shell"');
       expect(String(messages[0]?.content || '')).not.toContain(
         'emit a JSON tool call only',
       );

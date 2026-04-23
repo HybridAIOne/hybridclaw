@@ -130,9 +130,7 @@ test('delegation batch queues status updates and a synthesized final answer for 
             result: JSON.stringify({
               results: [
                 {
-                  title: content.includes('furukama')
-                    ? 'Furukama'
-                    : 'HybridAI',
+                  title: content.includes('furukama') ? 'Furukama' : 'HybridAI',
                   url: targetUrl,
                   snippet: 'Top result snippet',
                 },
