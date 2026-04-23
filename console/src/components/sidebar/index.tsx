@@ -286,6 +286,12 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   );
 }
 
+export function MobileTopbarTrigger(props: { className?: string }) {
+  const { isMobile } = useSidebarContext();
+  if (!isMobile) return null;
+  return <SidebarTrigger className={props.className} />;
+}
+
 export function SidebarGroup(props: { children: ReactNode }) {
   return <section className={styles.group}>{props.children}</section>;
 }

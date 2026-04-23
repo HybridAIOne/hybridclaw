@@ -21,6 +21,7 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { useAuth } from '../../auth';
+import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
 import {
   type ApprovalAction,
@@ -556,6 +557,7 @@ export function ChatPage() {
 
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
+            <MobileTopbarTrigger className={css.chatMobileTrigger} />
             <ViewSwitchNav />
           </div>
           {isEmpty ? (
