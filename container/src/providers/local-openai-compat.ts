@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
-import { collapseSystemMessages } from '../system-messages.js';
+import {
+  collapseSystemMessages,
+  mergeSystemMessage,
+} from '../system-messages.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolCall,
+  ToolDefinition,
 } from '../types.js';
 import {
   type NormalizedCallArgs,
@@ -150,6 +154,26 @@ function resolveStopSequences(args: NormalizedCallArgs): string[] | undefined {
   return ['<|im_end|>', '<|im_start|>'];
 }
 
+function usesLiquidCompat(args: {
+  provider: string | undefined;
+  model: string;
+}): boolean {
+  return (
+    resolveToolCallTextParser(
+      normalizeLocalModelName(args.provider, args.model),
+    ) === 'liquid'
+  );
+}
+
+function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
+  const toolList = tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+  }));
+  return `List of tools: ${JSON.stringify(toolList)}`;
+}
+
 function normalizeMessageContent(
   content: ChatMessage['content'],
 ): ChatMessage['content'] {
@@ -243,12 +267,25 @@ function sanitizeMistralToolCallIds(
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
-  const messages = usesQwenCompat(args)
+  let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
     : collapseSystemMessages(args.messages).map((message) => ({
         ...message,
         content: normalizeMessageContent(message.content),
       }));
+  if (
+    usesLiquidCompat(args) &&
+    Array.isArray(args.tools) &&
+    args.tools.length
+  ) {
+    messages = mergeSystemMessage(
+      messages as ChatMessage[],
+      buildLiquidToolCallInstruction(args.tools),
+    ).map((message) => ({
+      ...message,
+      content: normalizeMessageContent(message.content),
+    }));
+  }
   return isMistralCompatModel(args.provider, args.model)
     ? sanitizeMistralToolCallIds(messages)
     : messages;

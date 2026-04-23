@@ -525,6 +525,7 @@
     },
     "delegation": {
       "enabled": true,
+      "model": "",
       "maxConcurrent": 3,
       "maxDepth": 2,
       "maxPerTurn": 3

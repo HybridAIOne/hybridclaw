@@ -135,20 +135,18 @@ function readRuntimeSecretValue(
   storedKey: RuntimeSecretKey,
   storedSecrets: Record<string, string>,
 ): string {
-  for (const envKey of envKeys) {
-    const value = String(process.env[envKey] || '').trim();
-    if (value) return value;
-  }
-  // Prefer the canonical `storedKey`, then fall back to any alias env-var name
-  // the user may have persisted (e.g. `GOOGLE_API_KEY` for Gemini,
-  // `GLM_API_KEY` / `Z_AI_API_KEY` for Z.AI, `KILOCODE_API_KEY` for Kilo).
-  // Without this, stored alias values would be orphaned — readable from disk
-  // but never surfaced because only the canonical key was consulted.
+  // Prefer the encrypted runtime store over the live process environment so
+  // persisted credentials remain authoritative for long-running gateway and
+  // runner processes.
   const canonical = storedSecrets[storedKey]?.trim();
   if (canonical) return canonical;
   for (const envKey of envKeys) {
     const stored = storedSecrets[envKey]?.trim();
     if (stored) return stored;
+  }
+  for (const envKey of envKeys) {
+    const value = String(process.env[envKey] || '').trim();
+    if (value) return value;
   }
   return '';
 }
@@ -265,6 +263,21 @@ function syncRuntimeSecretExports(): void {
     'KILO_API_KEY',
     storedSecrets,
   );
+  BRAVE_API_KEY = readRuntimeSecretValue(
+    ['BRAVE_API_KEY'],
+    'BRAVE_API_KEY',
+    storedSecrets,
+  );
+  PERPLEXITY_API_KEY = readRuntimeSecretValue(
+    ['PERPLEXITY_API_KEY'],
+    'PERPLEXITY_API_KEY',
+    storedSecrets,
+  );
+  TAVILY_API_KEY = readRuntimeSecretValue(
+    ['TAVILY_API_KEY'],
+    'TAVILY_API_KEY',
+    storedSecrets,
+  );
 }
 
 export let DISCORD_TOKEN = '';
@@ -289,6 +302,9 @@ export let MINIMAX_API_KEY = '';
 export let DASHSCOPE_API_KEY = '';
 export let XIAOMI_API_KEY = '';
 export let KILO_API_KEY = '';
+export let BRAVE_API_KEY = '';
+export let PERPLEXITY_API_KEY = '';
+export let TAVILY_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
@@ -580,6 +596,7 @@ export let PROACTIVE_ACTIVE_HOURS_END = 22;
 export let PROACTIVE_QUEUE_OUTSIDE_HOURS = true;
 
 export let PROACTIVE_DELEGATION_ENABLED = true;
+export let PROACTIVE_DELEGATION_MODEL = '';
 export let PROACTIVE_DELEGATION_MAX_CONCURRENT = 3;
 export let PROACTIVE_DELEGATION_MAX_DEPTH = 2;
 export let PROACTIVE_DELEGATION_MAX_PER_TURN = 3;
@@ -1011,6 +1028,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.proactive.activeHours.queueOutsideHours;
 
   PROACTIVE_DELEGATION_ENABLED = config.proactive.delegation.enabled;
+  PROACTIVE_DELEGATION_MODEL = config.proactive.delegation.model.trim();
   PROACTIVE_DELEGATION_MAX_CONCURRENT = Math.max(
     1,
     config.proactive.delegation.maxConcurrent,

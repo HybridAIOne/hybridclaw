@@ -1875,6 +1875,23 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
+    if (lowerTool === 'delegate') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'start delegated agent work',
+        consequenceIfDenied: 'I will do the work in the current agent.',
+        reason:
+          'delegation is internal orchestration; child tool calls are classified separately',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool.startsWith('browser_')) {
       return {
         tier: 'yellow',
