@@ -1526,10 +1526,7 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
-      visibleTextRows = appendTerminalRowCount(
-        visibleTextRows,
-        formatted.text,
-      );
+      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -1545,10 +1542,7 @@ function spinner(): {
         clearLine();
         hasVisibleText = true;
       }
-      visibleTextRows = appendTerminalRowCount(
-        visibleTextRows,
-        formatted.text,
-      );
+      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
       process.stdout.write(formatted.text);
     },
     clearVisibleText,
