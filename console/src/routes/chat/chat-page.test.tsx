@@ -518,4 +518,73 @@ describe('ChatPage', () => {
 
     errorSpy.mockRestore();
   });
+
+  it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+
+    const aside = document.querySelector('aside[data-side="left"]');
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+
+    const collapseTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Collapse sidebar',
+    });
+    fireEvent.click(collapseTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+
+    const expandTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Expand sidebar',
+    });
+    expect(aside?.contains(expandTrigger)).toBe(true);
+    fireEvent.click(expandTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+  });
+
+  it('surfaces a sidebar trigger in the chat topbar only on mobile viewports', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    function openTriggersInChatTopbar() {
+      const topbar = document.querySelector('[class*="chatTopbar"]');
+      if (!topbar) return 0;
+      return topbar.querySelectorAll('button[aria-label="Open sidebar"]')
+        .length;
+    }
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 800,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+    expect(openTriggersInChatTopbar()).toBe(1);
+
+    act(() => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: 1440,
+      });
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    expect(openTriggersInChatTopbar()).toBe(0);
+  });
 });
