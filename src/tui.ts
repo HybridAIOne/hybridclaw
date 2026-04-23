@@ -1414,9 +1414,11 @@ function spinner(): {
       clearThinkingPreview();
       clearLine();
       const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
-      process.stdout.write(
-        `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
+      const toolLine = truncateAnsiTuiEnd(
+        `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}`,
+        Math.max(1, terminalColumns()),
       );
+      process.stdout.write(`${toolLine}\n`);
       transientToolLines++;
       if (showActivityPreview) render();
     },
