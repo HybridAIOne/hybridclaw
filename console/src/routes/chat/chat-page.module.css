@@ -1,5 +1,5 @@
 .chatPage {
-  --chat-hover-bg: color-mix(in srgb, var(--muted) 78%, var(--foreground) 6%);
+  --chat-hover-bg: color-mix(in srgb, var(--muted) 86%, var(--background) 14%);
 
   display: flex;
   width: 100%;
@@ -746,10 +746,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   display: inline-flex;
   align-items: center;
   height: 36px;
-  max-width: 160px;
+  max-width: 180px;
   border-radius: 999px;
   color: var(--muted-foreground);
-  padding: 0 10px;
   transition:
     background 0.12s,
     color 0.12s;
@@ -758,7 +757,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .agentSelectWrap::after {
   content: "";
   position: absolute;
-  right: 0;
+  right: 16px;
   width: 7px;
   height: 7px;
   border-right: 1.7px solid currentColor;
@@ -768,7 +767,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelect {
-  max-width: 140px;
+  max-width: 180px;
   height: 36px;
   border: none;
   appearance: none;
@@ -778,7 +777,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.86rem;
   font-weight: 500;
   line-height: 36px;
-  padding: 0 20px 0 0;
+  padding: 0 42px 0 20px;
   outline: none;
   cursor: pointer;
   overflow: hidden;
