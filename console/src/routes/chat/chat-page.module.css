@@ -745,7 +745,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
   align-items: center;
   height: 36px;
   max-width: 160px;
+  border-radius: 999px;
   color: var(--muted-foreground);
+  padding: 0 10px;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .agentSelectWrap::after {
@@ -761,7 +766,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelect {
-  max-width: 160px;
+  max-width: 140px;
   height: 36px;
   border: none;
   appearance: none;
@@ -786,6 +791,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .agentSelectWrap:has(.agentSelect:hover:not(:disabled)),
 .agentSelectWrap:has(.agentSelect:focus) {
+  background: var(--muted);
   color: var(--text);
 }
 
