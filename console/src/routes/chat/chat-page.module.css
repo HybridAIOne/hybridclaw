@@ -739,26 +739,57 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
+.agentSelectWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 170px;
+}
+
+.agentSelectWrap::after {
+  content: "";
+  position: absolute;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: var(--muted-foreground);
+  pointer-events: none;
+  transform: translateY(-2px) rotate(45deg);
+}
+
 .agentSelect {
-  max-width: 160px;
+  max-width: 170px;
   height: 32px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-bg);
+  border: none;
+  appearance: none;
+  background: transparent;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 0.82rem;
-  padding: 0 24px 0 8px;
+  font-size: 0.95rem;
+  line-height: 32px;
+  padding: 0 18px 0 0;
+  outline: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agentSelect:hover:not(:disabled),
 .agentSelect:focus {
   color: var(--text);
-  border-color: var(--line-strong);
+}
+
+.agentSelectWrap:has(.agentSelect:hover:not(:disabled))::after,
+.agentSelectWrap:has(.agentSelect:focus)::after {
+  color: var(--text);
 }
 
 .agentSelect:disabled {
   opacity: 0.55;
+  cursor: default;
 }
 
 .sendButton {
