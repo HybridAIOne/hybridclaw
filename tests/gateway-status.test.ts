@@ -2047,6 +2047,68 @@ test('status shows delegate model, delegate token totals, and local token share'
   );
 });
 
+test('status reports input, output, and total tokens per second with stddev', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-tps',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 1_000,
+      completionTokens: 100,
+      durationMs: 2_000,
+      performanceSamples: [
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 2_000,
+          firstTextDeltaMs: 1_000,
+        },
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 1_000,
+          firstTextDeltaMs: 500,
+        },
+      ],
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-tps',
+    guildId: null,
+    channelId: 'channel-status-tps',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '⚡ Performance: Output 150 tok/s (± 70.7) · Input 1500 tok/s (± 707) · Total 825 tok/s (± 389)',
+  );
+});
+
 test('agent create warns when model validation is skipped because no models are available', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

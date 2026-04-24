@@ -72,6 +72,7 @@ export interface ChatCompletionResponse {
       cached_tokens?: number;
     };
   };
+  timing?: ModelCallTiming;
 }
 
 export interface ToolDefinition {
@@ -305,6 +306,18 @@ export interface TokenUsageStats {
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;
+  performanceSamples?: ModelCallPerformanceSample[];
+}
+
+export interface ModelCallTiming {
+  durationMs: number;
+  firstTextDeltaMs?: number;
+}
+
+export interface ModelCallPerformanceSample extends ModelCallTiming {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export interface ArtifactMetadata {

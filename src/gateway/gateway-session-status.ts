@@ -13,12 +13,73 @@ export interface SessionStatusSnapshot {
   contextUsedTokens: number | null;
   contextBudgetTokens: number | null;
   contextUsagePercent: number | null;
+  inputTokensPerSecond: number | null;
+  inputTokensPerSecondStddev: number | null;
+  outputTokensPerSecond: number | null;
+  outputTokensPerSecondStddev: number | null;
+  tokensPerSecond: number | null;
+  tokensPerSecondStddev: number | null;
 }
 
 export interface DelegateSessionStatusSnapshot {
   promptTokens: number;
   completionTokens: number;
   sessionCount: number;
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function sampleStddev(values: number[], mean: number): number {
+  if (values.length <= 1) return 0;
+  const squaredDeltaSum = values.reduce((total, value) => {
+    const delta = value - mean;
+    return total + delta * delta;
+  }, 0);
+  return Math.sqrt(squaredDeltaSum / (values.length - 1));
+}
+
+function readPositiveNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return null;
+}
+
+function addPerformanceSample(
+  sample: Record<string, unknown>,
+  samples: {
+    input: number[];
+    output: number[];
+    total: number[];
+  },
+): boolean {
+  const promptTokens = readPositiveNumber(sample.promptTokens) ?? 0;
+  const completionTokens = readPositiveNumber(sample.completionTokens) ?? 0;
+  const totalTokens =
+    readPositiveNumber(sample.totalTokens) ?? promptTokens + completionTokens;
+  const durationMs = readPositiveNumber(sample.durationMs);
+  if (durationMs == null) return false;
+
+  const firstTextDeltaMs = readPositiveNumber(sample.firstTextDeltaMs);
+  if (promptTokens > 0) {
+    samples.input.push(
+      (promptTokens / (firstTextDeltaMs ?? durationMs)) * 1000,
+    );
+  }
+  if (completionTokens > 0) {
+    const outputDurationMs =
+      firstTextDeltaMs != null && durationMs > firstTextDeltaMs
+        ? durationMs - firstTextDeltaMs
+        : durationMs;
+    samples.output.push((completionTokens / outputDurationMs) * 1000);
+  }
+  if (totalTokens > 0) {
+    samples.total.push((totalTokens / durationMs) * 1000);
+  }
+  return promptTokens + completionTokens > 0 || totalTokens > 0;
 }
 
 export function readSessionStatusSnapshot(
@@ -31,14 +92,63 @@ export function readSessionStatusSnapshot(
   const entries = getRecentStructuredAuditForSession(sessionId, 160);
   let usagePayload: Record<string, unknown> | null = null;
   let modelSelectionPayload: Record<string, unknown> | null = null;
+  const inputTokensPerSecondSamples: number[] = [];
+  const outputTokensPerSecondSamples: number[] = [];
+  const tokensPerSecondSamples: number[] = [];
 
   for (const entry of entries) {
     const payload = parseAuditPayload(entry);
     if (!payload) continue;
     const payloadType =
       typeof payload.type === 'string' ? payload.type : entry.event_type;
-    if (!usagePayload && payloadType === 'model.usage') {
-      usagePayload = payload;
+    if (payloadType === 'model.usage') {
+      if (!usagePayload) usagePayload = payload;
+      const payloadPerformanceSamples = Array.isArray(
+        payload.performanceSamples,
+      )
+        ? payload.performanceSamples
+        : [];
+      let usedPerformanceSamples = false;
+      for (const sample of payloadPerformanceSamples) {
+        if (!sample || typeof sample !== 'object') continue;
+        usedPerformanceSamples =
+          addPerformanceSample(sample as Record<string, unknown>, {
+            input: inputTokensPerSecondSamples,
+            output: outputTokensPerSecondSamples,
+            total: tokensPerSecondSamples,
+          }) || usedPerformanceSamples;
+      }
+      if (usedPerformanceSamples) continue;
+
+      const entryPrompt = firstNumber([
+        payload.promptTokens,
+        payload.apiPromptTokens,
+        payload.estimatedPromptTokens,
+      ]);
+      const entryCompletion = firstNumber([
+        payload.completionTokens,
+        payload.apiCompletionTokens,
+        payload.estimatedCompletionTokens,
+      ]);
+      const entryDurationMs = firstNumber([payload.durationMs]);
+      const entryPromptTokens = Math.max(0, entryPrompt || 0);
+      const entryCompletionTokens = Math.max(0, entryCompletion || 0);
+      const entryTokens = entryPromptTokens + entryCompletionTokens;
+      if (entryDurationMs != null && entryDurationMs > 0) {
+        if (entryPromptTokens > 0) {
+          inputTokensPerSecondSamples.push(
+            (entryPromptTokens / entryDurationMs) * 1000,
+          );
+        }
+        if (entryCompletionTokens > 0) {
+          outputTokensPerSecondSamples.push(
+            (entryCompletionTokens / entryDurationMs) * 1000,
+          );
+        }
+        if (entryTokens > 0) {
+          tokensPerSecondSamples.push((entryTokens / entryDurationMs) * 1000);
+        }
+      }
     }
     if (
       !modelSelectionPayload &&
@@ -48,8 +158,23 @@ export function readSessionStatusSnapshot(
     ) {
       modelSelectionPayload = payload;
     }
-    if (usagePayload && modelSelectionPayload) break;
   }
+
+  const inputTokensPerSecond = average(inputTokensPerSecondSamples);
+  const inputTokensPerSecondStddev =
+    inputTokensPerSecond != null
+      ? sampleStddev(inputTokensPerSecondSamples, inputTokensPerSecond)
+      : null;
+  const outputTokensPerSecond = average(outputTokensPerSecondSamples);
+  const outputTokensPerSecondStddev =
+    outputTokensPerSecond != null
+      ? sampleStddev(outputTokensPerSecondSamples, outputTokensPerSecond)
+      : null;
+  const tokensPerSecond = average(tokensPerSecondSamples);
+  const tokensPerSecondStddev =
+    tokensPerSecond != null
+      ? sampleStddev(tokensPerSecondSamples, tokensPerSecond)
+      : null;
 
   const promptTokens = firstNumber([
     usagePayload?.promptTokens,
@@ -136,6 +261,12 @@ export function readSessionStatusSnapshot(
     contextUsedTokens,
     contextBudgetTokens,
     contextUsagePercent,
+    inputTokensPerSecond,
+    inputTokensPerSecondStddev,
+    outputTokensPerSecond,
+    outputTokensPerSecondStddev,
+    tokensPerSecond,
+    tokensPerSecondStddev,
   };
 }
 
