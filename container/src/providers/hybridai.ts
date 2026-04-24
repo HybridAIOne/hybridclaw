@@ -2,6 +2,8 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
+  emitRawSseLineDebug,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
@@ -124,7 +126,16 @@ export async function callHybridAIProvider(
     throw new ProviderRequestError(response.status, text);
   }
 
-  return (await response.json()) as ChatCompletionResponse;
+  const payload = (await response.json()) as ChatCompletionResponse;
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
+  return payload;
 }
 
 export async function callHybridAIProviderStream(
@@ -160,11 +171,29 @@ export async function callHybridAIProviderStream(
     !contentType.includes('ndjson') &&
     !contentType.includes('event-stream')
   ) {
-    return (await response.json()) as ChatCompletionResponse;
+    const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    return payload;
   }
 
   if (!response.body) {
-    return (await response.json()) as ChatCompletionResponse;
+    const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    return payload;
   }
 
   const reader = response.body.getReader();
@@ -178,6 +207,7 @@ export async function callHybridAIProviderStream(
   let role = 'assistant';
   let textContent = '';
   const toolCalls: ToolCall[] = [];
+  const rawStreamPayloads: unknown[] = [];
   let sawPayload = false;
   let streamDone = false;
 
@@ -194,6 +224,7 @@ export async function callHybridAIProviderStream(
       return;
     }
 
+    if (args.debugModelResponses) rawStreamPayloads.push(payload);
     args.onActivity?.();
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
@@ -281,6 +312,7 @@ export async function callHybridAIProviderStream(
       buffer = lines.pop() || '';
 
       for (const rawLine of lines) {
+        emitRawSseLineDebug(args, rawLine);
         const payloadText = parseStreamPayloadLine(rawLine);
         if (!payloadText) continue;
         consumePayload(payloadText);
@@ -289,6 +321,7 @@ export async function callHybridAIProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawSseLineDebug(args, buffer);
       const payloadText = parseStreamPayloadLine(buffer);
       if (payloadText) consumePayload(payloadText);
     }
@@ -299,6 +332,15 @@ export async function callHybridAIProviderStream(
 
   if (!sawPayload) {
     throw new Error('Streaming response ended without payload');
+  }
+
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_streaming_response',
+      response: rawStreamPayloads,
+    });
   }
 
   return {

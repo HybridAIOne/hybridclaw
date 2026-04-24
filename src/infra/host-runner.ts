@@ -37,6 +37,7 @@ import {
   WEB_SEARCH_SEARXNG_BASE_URL,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -66,6 +67,7 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
@@ -547,6 +549,10 @@ function getOrSpawnHostProcess(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (consumeModelResponseDebugFileLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       emitThinkingDelta(entry, line);
@@ -582,24 +588,33 @@ function getOrSpawnHostProcess(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      rememberStderrLine(entry, tail);
-      emitTextDelta(entry, tail);
-      emitThinkingDelta(entry, tail);
-      if (isStreamActivityLine(tail)) {
+      if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
-      } else if (isThinkingDeltaLine(tail)) {
-        entry.activity?.notify();
-      } else if (
-        !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
-          logger.debug({ sessionId }, message);
-        })
-      ) {
-        if (!emitApprovalProgress(entry, tail)) {
-          emitToolProgress(entry, tail);
-          logger.debug({ sessionId }, tail);
+        entry.stderrBuffer = '';
+      } else {
+        rememberStderrLine(entry, tail);
+        emitTextDelta(entry, tail);
+        emitThinkingDelta(entry, tail);
+        if (isStreamActivityLine(tail)) {
+          entry.activity?.notify();
+        } else if (isThinkingDeltaLine(tail)) {
+          entry.activity?.notify();
+        } else if (
+          !consumeCollapsedStreamDebugLine(
+            tail,
+            entry.streamDebug,
+            (message) => {
+              logger.debug({ sessionId }, message);
+            },
+          )
+        ) {
+          if (!emitApprovalProgress(entry, tail)) {
+            emitToolProgress(entry, tail);
+            logger.debug({ sessionId }, tail);
+          }
         }
+        entry.stderrBuffer = '';
       }
-      entry.stderrBuffer = '';
     }
     entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
@@ -749,6 +764,7 @@ async function runHostProcessInner(
     fullAutoNeverApproveTools,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
+    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
     maxTokens: resolveExecutorMaxTokens({
       model,
       discoveredMaxTokens: modelRuntime.maxTokens,

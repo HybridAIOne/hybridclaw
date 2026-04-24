@@ -3,10 +3,12 @@ export type UnsupportedGatewayLifecycleFlag =
   | 'foreground'
   | 'sandbox'
   | 'debug'
-  | 'log-requests';
+  | 'log-requests'
+  | 'debug-model-responses';
 
 export interface ParsedGatewayFlags {
   debug: boolean;
+  debugModelResponses: boolean;
   foreground: boolean;
   help: boolean;
   logRequests: boolean;
@@ -38,6 +40,10 @@ function isLogRequestsFlag(arg: string): boolean {
   return String(arg || '').trim() === '--log-requests';
 }
 
+function isDebugModelResponsesFlag(arg: string): boolean {
+  return String(arg || '').trim() === '--debug-model-responses';
+}
+
 function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
@@ -54,6 +60,10 @@ function hasLogRequestsFlag(argv: string[]): boolean {
   return argv.some((arg) => isLogRequestsFlag(arg));
 }
 
+function hasDebugModelResponsesFlag(argv: string[]): boolean {
+  return argv.some((arg) => isDebugModelResponsesFlag(arg));
+}
+
 export function findUnsupportedGatewayLifecycleFlag(
   argv: string[],
 ): UnsupportedGatewayLifecycleFlag | null {
@@ -67,11 +77,13 @@ export function findUnsupportedGatewayLifecycleFlag(
   if (hasForegroundFlag(argv)) return 'foreground';
   if (hasDebugFlag(argv)) return 'debug';
   if (hasLogRequestsFlag(argv)) return 'log-requests';
+  if (hasDebugModelResponsesFlag(argv)) return 'debug-model-responses';
   return null;
 }
 
 export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
   let debug = false;
+  let debugModelResponses = false;
   let foreground = false;
   let help = false;
   let logRequests = false;
@@ -93,6 +105,11 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
 
     if (isLogRequestsFlag(arg)) {
       logRequests = true;
+      continue;
+    }
+
+    if (isDebugModelResponsesFlag(arg)) {
+      debugModelResponses = true;
       continue;
     }
 
@@ -128,5 +145,12 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     throw new Error(`Unexpected gateway lifecycle option: ${arg}`);
   }
 
-  return { debug, foreground, help, logRequests, sandboxMode };
+  return {
+    debug,
+    debugModelResponses,
+    foreground,
+    help,
+    logRequests,
+    sandboxMode,
+  };
 }

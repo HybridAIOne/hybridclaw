@@ -36,8 +36,8 @@ export function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]

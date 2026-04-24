@@ -9,6 +9,7 @@ describe('parseGatewayFlags', () => {
   it('parses gateway lifecycle flags without sandbox override', () => {
     expect(parseGatewayFlags(['--foreground'])).toEqual({
       debug: false,
+      debugModelResponses: false,
       foreground: true,
       help: false,
       logRequests: false,
@@ -21,6 +22,7 @@ describe('parseGatewayFlags', () => {
       parseGatewayFlags(['--foreground', '--debug', '--sandbox=host']),
     ).toEqual({
       debug: true,
+      debugModelResponses: false,
       foreground: true,
       help: false,
       logRequests: false,
@@ -31,6 +33,7 @@ describe('parseGatewayFlags', () => {
   it('parses split sandbox override', () => {
     expect(parseGatewayFlags(['--sandbox', 'container'])).toEqual({
       debug: false,
+      debugModelResponses: false,
       foreground: false,
       help: false,
       logRequests: false,
@@ -41,6 +44,7 @@ describe('parseGatewayFlags', () => {
   it('parses help without starting the command', () => {
     expect(parseGatewayFlags(['--help'])).toEqual({
       debug: false,
+      debugModelResponses: false,
       foreground: false,
       help: true,
       logRequests: false,
@@ -51,9 +55,21 @@ describe('parseGatewayFlags', () => {
   it('parses request logging flag', () => {
     expect(parseGatewayFlags(['--log-requests'])).toEqual({
       debug: false,
+      debugModelResponses: false,
       foreground: false,
       help: false,
       logRequests: true,
+      sandboxMode: null,
+    });
+  });
+
+  it('parses model response debug logging flag', () => {
+    expect(parseGatewayFlags(['--debug-model-responses'])).toEqual({
+      debug: false,
+      debugModelResponses: true,
+      foreground: false,
+      help: false,
+      logRequests: false,
       sandboxMode: null,
     });
   });
@@ -86,6 +102,12 @@ describe('findUnsupportedGatewayLifecycleFlag', () => {
     expect(
       findUnsupportedGatewayLifecycleFlag(['status', '--log-requests']),
     ).toBe('log-requests');
+    expect(
+      findUnsupportedGatewayLifecycleFlag([
+        'status',
+        '--debug-model-responses',
+      ]),
+    ).toBe('debug-model-responses');
     expect(findUnsupportedGatewayLifecycleFlag(['--sandbox=host'])).toBe(
       'sandbox',
     );

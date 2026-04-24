@@ -739,6 +739,7 @@ async function callHybridAIWithRetry(params: {
   onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
   maxTokens?: number;
+  debugModelResponses?: boolean;
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
@@ -758,6 +759,7 @@ async function callHybridAIWithRetry(params: {
     onThinkingDelta,
     onActivity,
     maxTokens,
+    debugModelResponses,
     isLocal,
     contextWindow,
     thinkingFormat,
@@ -800,6 +802,7 @@ async function callHybridAIWithRetry(params: {
             onThinkingDelta,
             onActivity,
             maxTokens,
+            debugModelResponses,
             isLocal,
             contextWindow,
             thinkingFormat,
@@ -822,6 +825,7 @@ async function callHybridAIWithRetry(params: {
             messages: history,
             tools,
             maxTokens,
+            debugModelResponses,
             isLocal,
             contextWindow,
             thinkingFormat,
@@ -839,6 +843,7 @@ async function callHybridAIWithRetry(params: {
           messages: history,
           tools,
           maxTokens,
+          debugModelResponses,
           isLocal,
           contextWindow,
           thinkingFormat,
@@ -912,6 +917,7 @@ async function processRequest(
   channelId: string,
   skipContainerSystemPrompt = false,
   streamTextDeltas = false,
+  debugModelResponses = false,
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
@@ -1067,6 +1073,7 @@ async function processRequest(
           : undefined,
         onActivity: streamTextDeltas ? emitStreamActivity : undefined,
         maxTokens,
+        debugModelResponses,
         isLocal,
         contextWindow,
         thinkingFormat,
@@ -1650,6 +1657,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
     firstInput.maxTokens,
+    firstInput.debugModelResponses === true,
   );
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
@@ -1705,6 +1713,7 @@ async function main(): Promise<void> {
       firstInput.channelId,
       firstInput.skipContainerSystemPrompt === true,
       firstInput.streamTextDeltas === true,
+      firstInput.debugModelResponses === true,
       firstInput.maxTokens,
       firstPromptOverride,
       firstInput.ralphMaxIterations,
@@ -1741,6 +1750,7 @@ async function main(): Promise<void> {
         firstInput.channelId,
         firstInput.skipContainerSystemPrompt === true,
         firstInput.streamTextDeltas === true,
+        firstInput.debugModelResponses === true,
         firstInput.maxTokens,
         firstPromptOverride,
         firstInput.ralphMaxIterations,
@@ -1804,6 +1814,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
       input.maxTokens,
+      input.debugModelResponses === true,
     );
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
@@ -1863,6 +1874,7 @@ async function main(): Promise<void> {
       input.channelId,
       input.skipContainerSystemPrompt === true,
       input.streamTextDeltas === true,
+      input.debugModelResponses === true,
       input.maxTokens,
       promptOverride,
       input.ralphMaxIterations,
@@ -1898,6 +1910,7 @@ async function main(): Promise<void> {
         input.channelId,
         input.skipContainerSystemPrompt === true,
         input.streamTextDeltas === true,
+        input.debugModelResponses === true,
         input.maxTokens,
         promptOverride,
         input.ralphMaxIterations,

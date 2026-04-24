@@ -11,7 +11,9 @@ import type {
 } from '../types.js';
 import {
   buildRequestHeaders,
+  emitRawSsePayloadDebug,
   isRecord,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
@@ -771,20 +773,32 @@ export async function callOpenAICodexProviderStream(
     contentType.includes('application/json') &&
     !contentType.includes('event-stream')
   ) {
-    const adapted = adaptCodexResponse(
-      (await response.json()) as unknown,
-      args.model,
-    );
+    const payload = (await response.json()) as unknown;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    const adapted = adaptCodexResponse(payload, args.model);
     assertNonEmptyCodexResponse(adapted, args.model);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
 
   if (!response.body) {
-    const adapted = adaptCodexResponse(
-      (await response.json()) as unknown,
-      args.model,
-    );
+    const payload = (await response.json()) as unknown;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    const adapted = adaptCodexResponse(payload, args.model);
     assertNonEmptyCodexResponse(adapted, args.model);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
@@ -801,6 +815,7 @@ export async function callOpenAICodexProviderStream(
   let sawPayload = false;
   let streamDone = false;
   let firstEventMs: number | null = null;
+  const rawStreamPayloads: unknown[] = [];
 
   try {
     while (!streamDone) {
@@ -814,6 +829,13 @@ export async function callOpenAICodexProviderStream(
       for (const block of drained.blocks) {
         const event = parseServerSentEventBlock(block);
         if (!event) continue;
+        emitRawSsePayloadDebug(args, event.data);
+        if (args.debugModelResponses) {
+          rawStreamPayloads.push({
+            event: event.event || null,
+            data: event.data,
+          });
+        }
         sawPayload = true;
         if (firstEventMs == null) {
           firstEventMs = Date.now() - startedAt;
@@ -835,6 +857,13 @@ export async function callOpenAICodexProviderStream(
     if (!streamDone && buffer.trim()) {
       const event = parseServerSentEventBlock(buffer);
       if (event) {
+        emitRawSsePayloadDebug(args, event.data);
+        if (args.debugModelResponses) {
+          rawStreamPayloads.push({
+            event: event.event || null,
+            data: event.data,
+          });
+        }
         sawPayload = true;
         if (firstEventMs == null) {
           firstEventMs = Date.now() - startedAt;
@@ -863,6 +892,14 @@ export async function callOpenAICodexProviderStream(
   logCodexTransport(
     `stream complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
   );
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_streaming_response',
+      response: rawStreamPayloads,
+    });
+  }
   const adapted = buildCodexStreamResponse(streamState, args.model);
   assertNonEmptyCodexResponse(adapted, args.model);
   return adapted;

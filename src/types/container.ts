@@ -70,6 +70,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];

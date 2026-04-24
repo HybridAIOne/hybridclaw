@@ -29,10 +29,11 @@ import {
   callOpenAICodexProviderStream,
 } from './openai-codex.js';
 import { isOpenAICompatRuntimeProvider } from './provider-ids.js';
-import type {
-  NormalizedCallArgs,
-  NormalizedStreamCallArgs,
-  RuntimeProvider,
+import {
+  logModelResponseDebug,
+  type NormalizedCallArgs,
+  type NormalizedStreamCallArgs,
+  type RuntimeProvider,
 } from './shared.js';
 
 const DEFAULT_VISION_INSTRUCTIONS =
@@ -50,6 +51,7 @@ export interface RoutedModelContext {
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
+  debugModelResponses?: boolean;
 }
 
 export interface RoutedModelCallParams extends RoutedModelContext {
@@ -85,6 +87,7 @@ function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
       : undefined,
     messages: Array.isArray(params.messages) ? params.messages : [],
     tools: Array.isArray(params.tools) ? params.tools : [],
+    debugModelResponses: params.debugModelResponses === true,
     maxTokens: params.maxTokens,
     isLocal: Boolean(params.isLocal),
     contextWindow: params.contextWindow,
@@ -142,13 +145,33 @@ export async function callProviderModelStream(
 export async function callRoutedModel(
   params: RoutedModelCallParams,
 ): Promise<ChatCompletionResponse> {
-  return callProviderModel(buildCallArgs(params));
+  const args = buildCallArgs(params);
+  const response = await callProviderModel(args);
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'non_streaming_response',
+      response,
+    });
+  }
+  return response;
 }
 
 export async function callRoutedModelStream(
   params: RoutedModelStreamCallParams,
 ): Promise<ChatCompletionResponse> {
-  return callProviderModelStream(buildStreamCallArgs(params));
+  const args = buildStreamCallArgs(params);
+  const response = await callProviderModelStream(args);
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'streaming_response',
+      response,
+    });
+  }
+  return response;
 }
 
 function normalizeVisionBaseUrl(
@@ -233,6 +256,7 @@ export async function callVisionProviderModel(
     isLocal: params.isLocal,
     contextWindow: params.contextWindow,
     thinkingFormat: params.thinkingFormat,
+    debugModelResponses: params.debugModelResponses,
     messages: buildVisionMessages(params),
     tools: [],
     maxTokens: params.maxTokens,

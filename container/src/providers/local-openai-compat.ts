@@ -10,6 +10,8 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  emitRawSseLineDebug,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
@@ -636,6 +638,14 @@ export async function callLocalOpenAICompatProvider(
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
   assertNoProviderError(payload);
   return adaptLocalOpenAICompatResponse(payload, {
     provider: args.provider,
@@ -677,6 +687,14 @@ export async function callLocalOpenAICompatProviderStream(
     !contentType.includes('event-stream')
   ) {
     const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
     assertNoProviderError(payload);
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
@@ -688,6 +706,14 @@ export async function callLocalOpenAICompatProviderStream(
 
   if (!response.body) {
     const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
     assertNoProviderError(payload);
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
@@ -729,6 +755,7 @@ export async function callLocalOpenAICompatProviderStream(
   let rawTextContent = '';
   let rawReasoningContent = '';
   const toolCalls: ToolCall[] = [];
+  const rawStreamPayloads: unknown[] = [];
   let sawPayload = false;
   let streamDone = false;
 
@@ -746,6 +773,7 @@ export async function callLocalOpenAICompatProviderStream(
     }
 
     assertNoProviderError(payload);
+    if (args.debugModelResponses) rawStreamPayloads.push(payload);
     args.onActivity?.();
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
@@ -870,6 +898,7 @@ export async function callLocalOpenAICompatProviderStream(
       buffer = lines.pop() || '';
 
       for (const rawLine of lines) {
+        emitRawSseLineDebug(args, rawLine);
         const payloadText = parseStreamPayloadLine(rawLine);
         if (!payloadText) continue;
         consumePayload(payloadText);
@@ -878,6 +907,7 @@ export async function callLocalOpenAICompatProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawSseLineDebug(args, buffer);
       const payloadText = parseStreamPayloadLine(buffer);
       if (payloadText) consumePayload(payloadText);
     }
@@ -893,6 +923,15 @@ export async function callLocalOpenAICompatProviderStream(
   qwenVisibleFilter?.close();
   qwenReasoningFilter?.close();
   streamEmitter.close();
+
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_streaming_response',
+      response: rawStreamPayloads,
+    });
+  }
 
   return adaptLocalOpenAICompatResponse(
     {

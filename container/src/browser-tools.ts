@@ -185,6 +185,7 @@ type BrowserModelContext = {
   chatbotId: string;
   requestHeaders: Record<string, string>;
   maxTokens?: number;
+  debugModelResponses?: boolean;
 };
 
 type BrowserRunner = {
@@ -256,6 +257,7 @@ export function setBrowserModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
@@ -273,6 +275,7 @@ export function setBrowserModelContext(
       maxTokens > 0
         ? Math.floor(maxTokens)
         : undefined,
+    debugModelResponses,
   };
 }
 

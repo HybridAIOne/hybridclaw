@@ -14,7 +14,9 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  emitRawSsePayloadDebug,
   isRecord,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
@@ -704,7 +706,16 @@ export async function callAnthropicProvider(
     );
   }
 
-  return adaptAnthropicResponse(await response.json(), args.model);
+  const payload = await response.json();
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
+  return adaptAnthropicResponse(payload, args.model);
 }
 
 export async function callAnthropicProviderStream(
@@ -755,6 +766,7 @@ export async function callAnthropicProviderStream(
   let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
   let buffer = '';
+  const rawStreamPayloads: unknown[] = [];
 
   while (true) {
     const { done, value } = await readWithIdleTimeout(
@@ -771,8 +783,10 @@ export async function callAnthropicProviderStream(
 
       const sse = parseServerSentEventBlock(rawBlock);
       if (!sse || !sse.data || sse.data === '[DONE]') continue;
+      emitRawSsePayloadDebug(args, sse.data);
 
       const event = JSON.parse(sse.data) as Record<string, unknown>;
+      if (args.debugModelResponses) rawStreamPayloads.push(event);
       args.onActivity?.();
 
       if (event.type === 'error') {
@@ -871,6 +885,15 @@ export async function callAnthropicProviderStream(
     }
 
     if (done) break;
+  }
+
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_streaming_response',
+      response: rawStreamPayloads,
+    });
   }
 
   return buildStreamResponse({
