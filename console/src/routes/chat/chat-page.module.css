@@ -454,7 +454,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.82rem;
 }
 
-.messageActions .actionButton:hover {
+.messageActions .actionButton:hover:not(:disabled):not([data-disabled]) {
   background: var(--chat-hover-bg);
   color: var(--foreground);
 }
@@ -480,7 +480,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.8rem;
 }
 
-.branchButton:hover {
+.branchButton:hover:not(:disabled):not([data-disabled]) {
   background: var(--chat-hover-bg);
   color: var(--text);
 }
