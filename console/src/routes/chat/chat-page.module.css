@@ -679,7 +679,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .composerLeftActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -743,33 +743,35 @@ aside[data-state="collapsed"] .chatSidebarContent {
   position: relative;
   display: inline-flex;
   align-items: center;
-  max-width: 170px;
+  height: 36px;
+  max-width: 160px;
+  color: var(--muted-foreground);
 }
 
 .agentSelectWrap::after {
   content: "";
   position: absolute;
-  right: 1px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  color: var(--muted-foreground);
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-right: 1.7px solid currentColor;
+  border-bottom: 1.7px solid currentColor;
   pointer-events: none;
-  transform: translateY(-2px) rotate(45deg);
+  transform: translateY(-3px) rotate(45deg);
 }
 
 .agentSelect {
-  max-width: 170px;
-  height: 32px;
+  max-width: 160px;
+  height: 36px;
   border: none;
   appearance: none;
   background: transparent;
-  color: var(--muted-foreground);
+  color: inherit;
   font: inherit;
-  font-size: 0.95rem;
-  line-height: 32px;
-  padding: 0 18px 0 0;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 36px;
+  padding: 0 20px 0 0;
   outline: none;
   cursor: pointer;
   overflow: hidden;
@@ -782,8 +784,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
-.agentSelectWrap:has(.agentSelect:hover:not(:disabled))::after,
-.agentSelectWrap:has(.agentSelect:focus)::after {
+.agentSelectWrap:has(.agentSelect:hover:not(:disabled)),
+.agentSelectWrap:has(.agentSelect:focus) {
   color: var(--text);
 }
 
