@@ -307,6 +307,43 @@ function stripMarkedRanges(
   return normalized || null;
 }
 
+function isShortToolMarkupArtifact(text: string): boolean {
+  const normalized = String(text || '')
+    .replace(/\s+/g, '')
+    .trim();
+  return (
+    normalized.length > 0 &&
+    normalized.length <= 8 &&
+    /^[A-Za-z.<>/]+$/.test(normalized)
+  );
+}
+
+function normalizeToolVisibleContent(content: string | null): string | null {
+  if (!content) return content;
+  return isShortToolMarkupArtifact(content) ? null : content;
+}
+
+function stripTrailingToolMarkupArtifact(content: string): string {
+  return content.replace(/(?:^|[\s#])[A-Za-z]{1,3}\.$/, (match) =>
+    match.startsWith(' ') ? ' ' : '',
+  );
+}
+
+function stripToolMarkupFromContent(content: string | null): string | null {
+  if (!content) return content;
+  const hadMarkup = /<\/?(?:tool_call|function|think)[^>]*>/i.test(content);
+  const stripped = content
+    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, '')
+    .replace(/<function=[\s\S]*?(?:<\/function>|$)/gi, '')
+    .replace(/<\/?(?:tool_call|function|think)[^>]*>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const normalized = stripTrailingToolMarkupArtifact(stripped).trim();
+  if (!hadMarkup) return stripped || null;
+  if (!normalized) return null;
+  return isShortToolMarkupArtifact(normalized) ? null : normalized;
+}
+
 function extractTaggedToolCalls(content: string): {
   content: string | null;
   toolCalls: ToolCall[];
@@ -446,7 +483,12 @@ function tryConvertParameterValue(value: string): unknown {
   if (lower === 'true') return true;
   if (lower === 'false') return false;
   if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(trimmed)) {
-    return Number(trimmed);
+    const numberValue = Number(trimmed);
+    if (!Number.isFinite(numberValue)) return trimmed;
+    if (/^-?\d+$/.test(trimmed) && !Number.isSafeInteger(numberValue)) {
+      return trimmed;
+    }
+    return numberValue;
   }
   try {
     return JSON.parse(trimmed);
@@ -520,7 +562,7 @@ function extractQwen3CoderToolCalls(content: string): {
         : content.length;
   const visibleContent = content.slice(0, contentStart).trim() || null;
   return {
-    content: visibleContent,
+    content: normalizeToolVisibleContent(visibleContent),
     toolCalls,
   };
 }
@@ -814,10 +856,21 @@ function parseTextToolCalls(
 ): { content: string | null; toolCalls: ToolCall[] } {
   switch (parser) {
     case 'hermes':
-    case 'qwen':
       return extractTaggedToolCalls(responseContent);
-    case 'qwen3_coder':
-      return extractQwen3CoderToolCalls(responseContent);
+    case 'qwen': {
+      const qwen3Xml = extractQwen3CoderToolCalls(responseContent);
+      if (qwen3Xml.toolCalls.length > 0) return qwen3Xml;
+      const tagged = extractTaggedToolCalls(responseContent);
+      return tagged.toolCalls.length > 0
+        ? tagged
+        : { content: stripToolMarkupFromContent(responseContent), toolCalls: [] };
+    }
+    case 'qwen3_coder': {
+      const qwen3Xml = extractQwen3CoderToolCalls(responseContent);
+      return qwen3Xml.toolCalls.length > 0
+        ? qwen3Xml
+        : { content: stripToolMarkupFromContent(responseContent), toolCalls: [] };
+    }
     case 'mistral':
       return extractMistralToolCalls(responseContent);
     case 'deepseek_v3':
@@ -919,7 +972,12 @@ export function normalizeToolCalls(
       .map((call) => normalizeToolCallLike(call))
       .filter((call): call is ToolCall => call !== null);
     if (normalizedToolCalls.length > 0) {
-      return { content: responseContent, toolCalls: normalizedToolCalls };
+      const content =
+        options?.parser === 'qwen' ||
+        options?.parser === 'qwen3_coder'
+          ? stripToolMarkupFromContent(responseContent)
+          : responseContent;
+      return { content, toolCalls: normalizedToolCalls };
     }
 
     if (options?.recoverBlankStructuredNameFromContent) {

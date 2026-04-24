@@ -305,6 +305,9 @@ function createVisibleThinkingArtifactGate(): {
       if (!delta) return '';
       buffer += delta;
       buffer = stripVisibleThinkingArtifacts(buffer);
+      if (sawThinking) {
+        buffer = buffer.replace(/^\s*[a-z]\.\s*\n+/i, '');
+      }
 
       const partialClosingLength = findPartialClosingSuffixLength();
       const partialClosingIndex =

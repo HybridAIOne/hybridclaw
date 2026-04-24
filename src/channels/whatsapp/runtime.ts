@@ -399,7 +399,7 @@ export function createWhatsAppRuntime() {
       shuttingDown = true;
       abortInFlightHandlers();
       inFlightControllers.clear();
-      inboundDebouncer?.clearAll();
+      inboundDebouncer?.cancelAll();
       await connectionManager?.stop();
       selfEchoCache?.clear();
       inboundDebouncer = null;

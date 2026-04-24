@@ -261,6 +261,20 @@ test('holds split thinking close tails out of the visible stream', () => {
   });
 });
 
+test('drops leading single-letter thinking tails before visible text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.pushThinking('checking')).toEqual({
+    thinkingPreview: 'checking',
+    sawThinking: true,
+  });
+  expect(state.push("g.\nHere's a digest")).toEqual({
+    visibleDelta: "Here's a digest",
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+});
+
 test('gates visible output between split tool tags', () => {
   const state = createTuiThinkingStreamState();
 
