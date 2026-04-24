@@ -257,6 +257,7 @@ export function useChatStream(
                 sessionId: result.sessionId ?? m.sessionId,
                 messageId: result.assistantMessageId ?? null,
                 artifacts: finalArtifacts,
+                assistantPresentation: result.assistantPresentation ?? null,
                 pendingApproval: finalApproval,
                 replayRequest: { content, media },
               };
@@ -283,6 +284,7 @@ export function useChatStream(
               sessionId: result.sessionId ?? req.sessionId,
               messageId: result.assistantMessageId ?? null,
               artifacts: finalArtifacts,
+              assistantPresentation: result.assistantPresentation ?? null,
               pendingApproval: finalApproval,
               replayRequest: { content, media },
             },

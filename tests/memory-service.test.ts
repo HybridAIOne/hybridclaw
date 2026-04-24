@@ -568,11 +568,17 @@ describe.sequential('schema migrations', () => {
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
       )
       .get('request_log') as { sql: string | null } | undefined;
+    const messageColumns = inspect
+      .prepare('PRAGMA table_info(messages)')
+      .all() as Array<{ name: string }>;
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(hasRequestLog?.name).toBe('request_log');
+    expect(messageColumns.some((column) => column.name === 'agent_id')).toBe(
+      true,
+    );
     expect(requestLogSql?.sql?.toLowerCase()).not.toContain(
       "created_at text default (datetime('now'))",
     );
@@ -691,6 +697,29 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(getAnyChatbotId()).toBe('bot-newer');
+  });
+
+  test('storeMessage persists assistant agent identity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('session-agent-message', null, 'web');
+    storeMessage(
+      'session-agent-message',
+      'assistant',
+      null,
+      'assistant',
+      'Charly answer',
+      'charly',
+    );
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const stored = inspect
+      .prepare('SELECT agent_id FROM messages WHERE session_id = ?')
+      .get('session-agent-message') as { agent_id: string | null } | undefined;
+    inspect.close();
+
+    expect(stored?.agent_id).toBe('charly');
   });
 
   test('getRecentSessionsForUser returns recent web sessions scoped to the user', () => {

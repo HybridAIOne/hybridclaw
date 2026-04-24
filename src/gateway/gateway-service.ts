@@ -2647,6 +2647,16 @@ export function getGatewayAssistantPresentationForSession(
   );
 }
 
+function getGatewayAssistantPresentationForMessageAgent(
+  agentId?: string | null,
+): GatewayAssistantPresentation | undefined {
+  const normalizedAgentId = String(agentId || '').trim();
+  if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
+    return undefined;
+  }
+  return getGatewayAssistantPresentationForAgent(normalizedAgentId);
+}
+
 export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
   if (!tokenUsage) return 0;
   const costCarrier = tokenUsage as unknown as Record<string, unknown>;
@@ -3168,6 +3178,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             role: 'assistant',
             content: opts.resultText,
+            agentId: opts.agentId,
           }),
         }
       : memoryService.storeTurn({
@@ -3180,6 +3191,7 @@ export function recordSuccessfulTurn(opts: {
           assistant: {
             userId: 'assistant',
             username: null,
+            agentId: opts.agentId,
             content: opts.resultText,
           },
         });
@@ -5892,6 +5904,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       role: 'assistant',
       content: resultText,
+      agentId: resolved.agentId,
     });
     appendSessionTranscript(resolved.agentId, {
       sessionId: session.id,
@@ -5994,12 +6007,13 @@ export function getGatewayHistory(
     .map((message) => {
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
-      return content === message.content
-        ? message
-        : {
-            ...message,
-            content,
-          };
+      const assistantPresentation =
+        getGatewayAssistantPresentationForMessageAgent(message.agent_id);
+      return {
+        ...message,
+        ...(content === message.content ? {} : { content }),
+        ...(assistantPresentation ? { assistantPresentation } : {}),
+      };
     })
     .filter((message) => message.content.trim().length > 0)
     .reverse();
@@ -6959,6 +6973,7 @@ async function publishDelegationCompletion(params: {
     username: null,
     role: 'assistant',
     content: forLLM,
+    agentId,
   });
   appendSessionTranscript(agentId, {
     sessionId: parentSessionId,

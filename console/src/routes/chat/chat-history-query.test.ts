@@ -87,25 +87,41 @@ describe('buildChatHistoryUiData', () => {
     expect(ui.messages[0]?.sessionId).toBe('session-canonical');
   });
 
-  it('passes assistantPresentation through to every message', () => {
+  it('uses per-message assistantPresentation instead of session-level presentation', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',
       history: [
         { id: 1, role: 'user', content: 'hi' },
         { id: 2, role: 'assistant', content: 'hello' },
+        {
+          id: 3,
+          role: 'assistant',
+          content: 'charly hello',
+          assistantPresentation: {
+            agentId: 'charly',
+            displayName: 'Charly',
+            imageUrl: null,
+          },
+        },
       ],
       assistantPresentation: {
-        agentId: 'main',
-        displayName: 'Main Agent',
+        agentId: 'charly',
+        displayName: 'Charly',
         imageUrl: null,
       },
     };
 
     const ui = buildChatHistoryUiData(raw, 'session-a');
 
-    for (const msg of ui.messages) {
-      expect(msg.assistantPresentation?.agentId).toBe('main');
-      expect(msg.assistantPresentation?.displayName).toBe('Main Agent');
-    }
+    const mainAssistant = ui.messages.find((m) => m.content === 'hello');
+    const charlyAssistant = ui.messages.find(
+      (m) => m.content === 'charly hello',
+    );
+
+    expect(mainAssistant?.assistantPresentation).toBeNull();
+    expect(charlyAssistant?.assistantPresentation).toMatchObject({
+      agentId: 'charly',
+      displayName: 'Charly',
+    });
   });
 });

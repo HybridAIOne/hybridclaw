@@ -53,6 +53,7 @@ export interface GatewayChatResult {
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
   memoryCitations?: MemoryCitation[];
@@ -231,8 +232,10 @@ export interface GatewayHistoryMessage {
   user_id: string;
   username: string | null;
   role: string;
+  agent_id?: string | null;
   content: string;
   created_at: string;
+  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {

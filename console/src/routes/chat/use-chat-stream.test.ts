@@ -187,6 +187,11 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-2',
           assistantMessageId: 'assistant-2',
           result: 'Answer',
+          assistantPresentation: {
+            agentId: 'charly',
+            displayName: 'Charly',
+            imageUrl: null,
+          },
         };
       },
     );
@@ -225,6 +230,10 @@ describe('useChatStream', () => {
     expect(assistant).toMatchObject({
       content: 'Answer',
       messageId: 'assistant-2',
+      assistantPresentation: {
+        agentId: 'charly',
+        displayName: 'Charly',
+      },
       replayRequest: {
         content: 'repeat this',
         media: [],
