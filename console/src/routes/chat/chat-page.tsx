@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   MediaItem,
 } from '../../api/chat-types';
+import { fetchAgentsOverview } from '../../api/client';
 import { useAuth } from '../../auth';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
@@ -77,6 +78,9 @@ export function ChatPage() {
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState(
+    defaultAgentIdRef.current,
+  );
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const debouncedSessionSearchQuery = useDebouncedValue(
@@ -124,10 +128,20 @@ export function ChatPage() {
     staleTime: Infinity,
   });
 
+  const agentsQuery = useQuery({
+    queryKey: ['agents-overview', auth.token],
+    queryFn: () => fetchAgentsOverview(auth.token),
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     const id = appStatusQuery.data?.defaultAgentId;
     if (id) {
-      defaultAgentIdRef.current = id.trim().toLowerCase();
+      const normalized = id.trim().toLowerCase();
+      defaultAgentIdRef.current = normalized;
+      setSelectedAgentId((current) =>
+        !current || current === DEFAULT_AGENT_ID ? normalized : current,
+      );
     }
   }, [appStatusQuery.data?.defaultAgentId]);
 
@@ -157,6 +171,24 @@ export function ChatPage() {
     staleTime: 10_000,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
+  const agentOptions = useMemo(
+    () =>
+      (agentsQuery.data?.agents ?? []).map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+      })),
+    [agentsQuery.data?.agents],
+  );
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const currentSession = agentsQuery.data?.sessions.find(
+      (entry) => entry.sessionId === sessionId,
+    );
+    if (currentSession?.agentId) {
+      setSelectedAgentId(currentSession.agentId);
+    }
+  }, [agentsQuery.data?.sessions, sessionId]);
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
@@ -301,6 +333,26 @@ export function ChatPage() {
     [ensureSessionForSend, stream.sendMessage],
   );
 
+  const handleAgentSwitch = useCallback(
+    async (agentId: string) => {
+      ensureSessionForSend();
+      const accepted = await stream.sendMessage(
+        `/agent switch ${agentId}`,
+        [],
+        {
+          hideUser: true,
+        },
+      );
+      if (accepted) {
+        setSelectedAgentId(agentId);
+        void queryClient.invalidateQueries({
+          queryKey: ['agents-overview', auth.token],
+        });
+      }
+    },
+    [ensureSessionForSend, stream.sendMessage, queryClient, auth.token],
+  );
+
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
@@ -421,6 +473,9 @@ export function ChatPage() {
             onStop={() => void stream.stopRequest()}
             onUploadFiles={handleUploadFiles}
             token={auth.token}
+            agents={agentOptions}
+            selectedAgentId={selectedAgentId}
+            onAgentSwitch={(agentId) => void handleAgentSwitch(agentId)}
           />
         </div>
       </div>

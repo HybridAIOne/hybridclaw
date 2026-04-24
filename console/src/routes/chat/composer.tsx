@@ -11,6 +11,10 @@ import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
+import {
+  type AgentSwitchOption,
+  AgentSwitchSelect,
+} from './agent-switch-select';
 import css from './chat-page.module.css';
 
 function SlashSuggestions(props: {
@@ -52,6 +56,9 @@ export function Composer(props: {
   onStop: () => void;
   onUploadFiles: (files: File[]) => Promise<MediaItem[]>;
   token: string;
+  agents?: AgentSwitchOption[];
+  selectedAgentId?: string;
+  onAgentSwitch?: (agentId: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -198,6 +205,9 @@ export function Composer(props: {
     setPendingMedia((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const agentOptions = props.agents ?? [];
+  const selectedAgentId = props.selectedAgentId ?? '';
+
   return (
     <div className={css.composerWrapper}>
       <div className={css.composer} style={{ position: 'relative' }}>
@@ -239,14 +249,22 @@ export function Composer(props: {
           aria-label="Message input"
         />
         <div className={css.composerActions}>
-          <button
-            type="button"
-            className={css.attachButton}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach files"
-          >
-            +
-          </button>
+          <div className={css.composerLeftActions}>
+            <button
+              type="button"
+              className={css.attachButton}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+            >
+              +
+            </button>
+            <AgentSwitchSelect
+              agents={agentOptions}
+              selectedAgentId={selectedAgentId}
+              disabled={props.isStreaming}
+              onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+            />
+          </div>
           <button
             type="button"
             className={cx(css.sendButton, props.isStreaming && css.stopping)}

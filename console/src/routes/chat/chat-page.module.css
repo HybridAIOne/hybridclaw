@@ -676,6 +676,13 @@ aside[data-state="collapsed"] .chatSidebarContent {
   gap: 8px;
 }
 
+.composerLeftActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .composerInput {
   flex: 1 1 auto;
   min-height: 36px;
@@ -730,6 +737,28 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .attachButton:hover {
   background: var(--muted);
   color: var(--text);
+}
+
+.agentSelect {
+  max-width: 160px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0 24px 0 8px;
+}
+
+.agentSelect:hover:not(:disabled),
+.agentSelect:focus {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.agentSelect:disabled {
+  opacity: 0.55;
 }
 
 .sendButton {
