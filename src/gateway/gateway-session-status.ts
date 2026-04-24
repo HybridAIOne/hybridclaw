@@ -13,6 +13,7 @@ export interface SessionStatusSnapshot {
   contextUsedTokens: number | null;
   contextBudgetTokens: number | null;
   contextUsagePercent: number | null;
+  tokensPerSecond: number | null;
 }
 
 export interface DelegateSessionStatusSnapshot {
@@ -31,14 +32,31 @@ export function readSessionStatusSnapshot(
   const entries = getRecentStructuredAuditForSession(sessionId, 160);
   let usagePayload: Record<string, unknown> | null = null;
   let modelSelectionPayload: Record<string, unknown> | null = null;
+  let throughputCompletionTokens = 0;
+  let throughputDurationMs = 0;
 
   for (const entry of entries) {
     const payload = parseAuditPayload(entry);
     if (!payload) continue;
     const payloadType =
       typeof payload.type === 'string' ? payload.type : entry.event_type;
-    if (!usagePayload && payloadType === 'model.usage') {
-      usagePayload = payload;
+    if (payloadType === 'model.usage') {
+      if (!usagePayload) usagePayload = payload;
+      const entryCompletion = firstNumber([
+        payload.completionTokens,
+        payload.apiCompletionTokens,
+        payload.estimatedCompletionTokens,
+      ]);
+      const entryDurationMs = firstNumber([payload.durationMs]);
+      if (
+        entryCompletion != null &&
+        entryCompletion > 0 &&
+        entryDurationMs != null &&
+        entryDurationMs > 0
+      ) {
+        throughputCompletionTokens += entryCompletion;
+        throughputDurationMs += entryDurationMs;
+      }
     }
     if (
       !modelSelectionPayload &&
@@ -48,8 +66,12 @@ export function readSessionStatusSnapshot(
     ) {
       modelSelectionPayload = payload;
     }
-    if (usagePayload && modelSelectionPayload) break;
   }
+
+  const tokensPerSecond =
+    throughputDurationMs > 0
+      ? (throughputCompletionTokens / throughputDurationMs) * 1000
+      : null;
 
   const promptTokens = firstNumber([
     usagePayload?.promptTokens,
@@ -136,6 +158,7 @@ export function readSessionStatusSnapshot(
     contextUsedTokens,
     contextBudgetTokens,
     contextUsagePercent,
+    tokensPerSecond,
   };
 }
 

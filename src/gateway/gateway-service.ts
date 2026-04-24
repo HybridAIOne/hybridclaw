@@ -2219,6 +2219,13 @@ function formatPercent(value: number | null): string {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
+function formatTokensPerSecond(value: number | null): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value))
+    return 'n/a tok/s';
+  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} tok/s`;
+}
+
 function isLocalModelProvider(model: string | null | undefined): boolean {
   const normalized = String(model || '')
     .trim()
@@ -9353,6 +9360,10 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
+        const tokensPerSecondLabel =
+          metrics.tokensPerSecond != null
+            ? ` · ${formatTokensPerSecond(metrics.tokensPerSecond)} avg`
+            : '';
         const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
         const proactiveQueued = getQueuedProactiveMessageCount();
         const cacheKnown =
@@ -9377,7 +9388,7 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${tokensPerSecondLabel}`,
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',
