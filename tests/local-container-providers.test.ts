@@ -402,7 +402,7 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
+      expect(body.stop).toBeUndefined();
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
         {
@@ -578,7 +578,7 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
+      expect(body.stop).toBeUndefined();
       expect(messages).toEqual([
         {
           role: 'system',
@@ -918,7 +918,7 @@ describe('local container providers', () => {
     });
 
     expect(deltas.join('')).toBe(
-      '<think>#hybridclaw. Let me read from </think>',
+      '<think>#hybridclaw. Let me read from #t.</think>',
     );
     expect(deltas.join('')).not.toContain('<tool_call>');
     expect(deltas.join('')).not.toContain('<function=');

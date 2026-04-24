@@ -152,11 +152,6 @@ function usesQwenCompat(args: {
   return normalizedModel.includes('qwen') || normalizedModel.includes('qwq');
 }
 
-function resolveStopSequences(args: NormalizedCallArgs): string[] | undefined {
-  if (!usesQwenCompat(args)) return undefined;
-  return ['<|im_end|>', '<|im_start|>'];
-}
-
 function usesLiquidCompat(args: {
   provider: string | undefined;
   model: string;
@@ -301,10 +296,6 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     tools: args.tools,
     tool_choice: 'auto',
   };
-  const stopSequences = resolveStopSequences(args);
-  if (stopSequences && stopSequences.length > 0) {
-    request.stop = stopSequences;
-  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
@@ -560,12 +551,8 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
     return longest;
   };
 
-  const stripTrailingToolArtifact = (text: string): string =>
-    text
-      .replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '')
-      .replace(/(?:^|[\s#])[A-Za-z]{1,3}\.$/, (match) =>
-        match.startsWith(' ') ? ' ' : '',
-      );
+  const stripTrailingPartialToolMarker = (text: string): string =>
+    text.replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '');
 
   const emit = (text: string): void => {
     if (text) onTextDelta(text);
@@ -587,7 +574,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
 
       const start = findEarliestMarker(startMarkers);
       if (start) {
-        emit(stripTrailingToolArtifact(buffer.slice(0, start.index)));
+        emit(stripTrailingPartialToolMarker(buffer.slice(0, start.index)));
         buffer = buffer.slice(start.index + start.marker.length);
         insideToolMarkup = true;
         currentEndMarker = endMarkerByStartMarker.get(start.marker) || '';
@@ -599,7 +586,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
       const emitLength = buffer.length - holdbackChars;
       emit(
         final
-          ? stripTrailingToolArtifact(buffer.slice(0, emitLength))
+          ? stripTrailingPartialToolMarker(buffer.slice(0, emitLength))
           : buffer.slice(0, emitLength),
       );
       buffer = buffer.slice(emitLength);
