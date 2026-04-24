@@ -2222,7 +2222,8 @@ function formatPercent(value: number | null): string {
 function formatTokensPerSecond(value: number | null): string {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value))
     return 'n/a tok/s';
-  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  const rounded =
+    value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
   return `${rounded} tok/s`;
 }
 
