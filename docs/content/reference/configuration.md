@@ -139,6 +139,9 @@ saved revision history directly.
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
   edits
+- `proactive.delegation.model` for pinning delegated subagent work to a
+  dedicated model while the parent turn keeps its own session or agent model;
+  leave it empty to use the parent model
 - `adaptiveSkills.*` for skill observation, amendment staging, and rollback
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
@@ -166,6 +169,10 @@ saved revision history directly.
   injection used by the `http_request` tool, for example mapping a URL prefix
   such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
   stored secret ref
+- Web-search API keys for Brave, Perplexity, and Tavily can be stored as
+  encrypted runtime secrets named `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, and
+  `TAVILY_API_KEY`; process environment variables with the same names are
+  fallback values when no encrypted secret is present
 - `media.audio` for inbound audio transcription backend selection
 
 Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,

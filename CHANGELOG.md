@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
+
+### Added
+
+- **Delegation runtime reporting**: Delegated agent runs now persist their own
+  request logs, audit tool events, model usage, token counts, and artifacts.
+  `/status` rolls first-level delegate usage into the session summary when a
+  dedicated delegate model is configured.
+- **Dedicated proactive delegate model**: Added
+  `proactive.delegation.model`, allowing operators to run delegated tasks on a
+  different model from the parent orchestration turn.
+- **Live delegate progress in the TUI**: Delegate batches now stream status
+  blocks, child tool progress, token totals, and synthesized final-answer
+  deltas into local TUI sessions without interrupting the active prompt.
+- **Shared gateway command parsing helpers**: Added common parsing utilities
+  for command ids, lower-case subcommands, and integer arguments across
+  policy, concierge, skill, session, usage, export, audit, and schedule
+  commands.
+
+### Changed
+
+- **Delegation prompts and approvals are clearer**: Delegation metadata moves
+  into the child user prompt, subagents get more explicit tool-use guidance,
+  duplicate delegate task titles are tracked independently, and `delegate` is
+  classified as green because child tool calls are approved separately.
+- **TUI activity rendering is more stable**: Running tools pulse in place,
+  completed tools switch to a green checkmark, streamed text row counts are
+  tracked incrementally, and delegate tool calls suppress partial parent text
+  until delegate output is ready.
+- **Console chat navigation is easier to reach**: The chat sidebar collapses
+  to an icon rail on desktop, exposes a mobile topbar trigger, and respects
+  reduced-motion preferences.
+- **Encrypted web-search credentials feed runtimes consistently**: Brave,
+  Perplexity, and Tavily API keys are resolved through the runtime secret store
+  and injected into host/container agent runtimes from the active encrypted
+  credentials, with environment variables used as fallback.
+- **Liquid/LFM local model tool prompts are more compatible**: Local
+  OpenAI-compatible Liquid/LFM requests include a compact tool list in the
+  system prompt while preserving normal tool-choice request fields.
+
+### Fixed
+
+- **WhatsApp shutdown no longer waits on stale inbound batches**: Runtime
+  shutdown cancels debounced WhatsApp batches, aborts in-flight handlers,
+  stops typing indicators, and avoids starting new typing state after shutdown
+  begins.
+- **Console audit inspection stays visible while browsing events**: The audit
+  detail panel remains sticky as the event list scrolls.
+- **Whitespace-padded command arguments normalize consistently**: Gateway
+  command handlers now trim ids and lower-case subcommands through shared
+  helpers before dispatching.
+
 ## [0.13.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.0) - 2026-04-22
 
 ### Added

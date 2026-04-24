@@ -26,6 +26,13 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- Delegated agent work can use a dedicated `proactive.delegation.model`, with
+  live TUI delegate progress and `/status` token totals that include delegate
+  usage.
+- The console chat sidebar supports a compact desktop rail and mobile topbar
+  access, while audit inspection remains visible during event-list scrolling.
+- WhatsApp shutdown cancels debounced inbound batches and aborts in-flight
+  handlers so gateway restarts do not wait on stale message work.
 - `hybridclaw auth login anthropic` configures direct Anthropic API access or
   the official Claude CLI transport, and `/model list anthropic` participates
   in the same provider catalog as the other remote providers.
