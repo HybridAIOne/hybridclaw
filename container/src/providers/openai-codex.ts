@@ -13,6 +13,7 @@ import {
   buildRequestHeaders,
   emitRawSsePayloadDebug,
   isRecord,
+  logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
@@ -746,16 +747,28 @@ export async function callOpenAICodexProviderStream(
   logCodexTransport(
     `stream request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
   );
+  const body = {
+    ...buildCodexRequestBody(args.model, args.messages, args.tools),
+    stream: true,
+  };
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'openai_codex_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${args.baseUrl}/responses`,
+      body,
+    },
+  });
   const response = await fetch(`${args.baseUrl}/responses`, {
     method: 'POST',
     headers: {
       ...buildRequestHeaders(args.apiKey, args.requestHeaders),
       Accept: 'text/event-stream, application/json',
     },
-    body: JSON.stringify({
-      ...buildCodexRequestBody(args.model, args.messages, args.tools),
-      stream: true,
-    }),
+    body: JSON.stringify(body),
   });
   logCodexTransport(
     `stream response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,

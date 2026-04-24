@@ -27,6 +27,7 @@ import {
 import { ensureOnboardingApi } from './cli/onboarding-api.js';
 import {
   findUnsupportedGatewayLifecycleFlag,
+  type GatewayToolsMode,
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './config/cli-flags.js';
@@ -59,6 +60,7 @@ import {
   GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
   type GatewayPidState,
   isPidRunning,
   readGatewayPid,
@@ -706,6 +708,7 @@ async function runGatewayForeground(
   systemPromptMode: PromptMode | null = null,
   systemPromptParts: PromptPartName[] = [],
   systemPromptExcludeParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
@@ -742,6 +745,9 @@ async function runGatewayForeground(
       systemPromptExcludeParts,
     );
   }
+  if (toolsMode) {
+    process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
+  }
   if (debug || debugModelResponses) {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
     const { forceLoggerLevel } = await import('./logger.js');
@@ -769,6 +775,7 @@ async function startGatewayBackend(
   systemPromptMode: PromptMode | null = null,
   systemPromptParts: PromptPartName[] = [],
   systemPromptExcludeParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   await ensureConfigApi();
   if (await isGatewayReachable()) {
@@ -851,6 +858,7 @@ async function startGatewayBackend(
           `--system-prompt-exclude=${serializePromptParts(systemPromptExcludeParts)}`,
         ]
       : []),
+    ...(toolsMode ? [`--tools=${toolsMode}`] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
@@ -1094,6 +1102,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.systemPromptMode,
         flags.systemPromptParts,
         flags.systemPromptExcludeParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1107,6 +1116,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.systemPromptMode,
       flags.systemPromptParts,
       flags.systemPromptExcludeParts,
+      flags.toolsMode,
     );
     return;
   }
@@ -1129,6 +1139,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.systemPromptMode,
         flags.systemPromptParts,
         flags.systemPromptExcludeParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1142,6 +1153,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.systemPromptMode,
       flags.systemPromptParts,
       flags.systemPromptExcludeParts,
+      flags.toolsMode,
     );
     return;
   }

@@ -16,6 +16,7 @@ import type {
 import {
   emitRawSsePayloadDebug,
   isRecord,
+  logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
@@ -689,12 +690,24 @@ export async function callAnthropicProvider(
     };
   }
 
+  const body = buildRequestBody(args, false);
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'anthropic_non_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+      body,
+    },
+  });
   const response = await fetch(
     `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
     {
       method: 'POST',
       headers: buildHeaders(args),
-      body: JSON.stringify(buildRequestBody(args, false)),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
     },
   );
@@ -738,12 +751,24 @@ export async function callAnthropicProviderStream(
     };
   }
 
+  const body = buildRequestBody(args, true);
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'anthropic_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+      body,
+    },
+  });
   const response = await fetch(
     `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
     {
       method: 'POST',
       headers: buildHeaders({ ...args, stream: true }),
-      body: JSON.stringify(buildRequestBody(args, true)),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
     },
   );

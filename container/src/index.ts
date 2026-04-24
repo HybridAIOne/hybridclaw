@@ -715,6 +715,7 @@ async function executePreparedToolCall(
 }
 
 async function callHybridAIWithRetry(params: {
+  sessionId?: string;
   provider?:
     | 'hybridai'
     | 'openai-codex'
@@ -745,6 +746,7 @@ async function callHybridAIWithRetry(params: {
   thinkingFormat?: 'qwen';
 }): Promise<ChatCompletionResponse> {
   const {
+    sessionId,
     provider,
     providerMethod,
     baseUrl,
@@ -790,6 +792,7 @@ async function callHybridAIWithRetry(params: {
           response = await callRoutedModelStream({
             provider,
             providerMethod,
+            sessionId,
             baseUrl,
             apiKey,
             model,
@@ -816,6 +819,7 @@ async function callHybridAIWithRetry(params: {
           response = await callRoutedModel({
             provider,
             providerMethod,
+            sessionId,
             baseUrl,
             apiKey,
             model,
@@ -834,6 +838,8 @@ async function callHybridAIWithRetry(params: {
       } else {
         response = await callRoutedModel({
           provider,
+          providerMethod,
+          sessionId,
           baseUrl,
           apiKey,
           model,
@@ -888,6 +894,7 @@ async function callHybridAIWithRetry(params: {
  * Process a single request: call API, run tool loop, write output.
  */
 async function processRequest(
+  sessionId: string,
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
@@ -1053,6 +1060,7 @@ async function processRequest(
     const modelCallTextDeltas: string[] = [];
     try {
       response = await callHybridAIWithRetry({
+        sessionId,
         provider,
         providerMethod,
         baseUrl,
@@ -1695,6 +1703,7 @@ async function main(): Promise<void> {
     console.error('[approval] resolved user response without model run');
   } else {
     firstOutput = await processRequest(
+      firstInput.sessionId,
       firstMessagesForRequest,
       storedApiKey,
       firstInput.baseUrl,
@@ -1732,6 +1741,7 @@ async function main(): Promise<void> {
       const firstRetryMessagesWithSkillCache =
         injectSkillCacheHint(firstRetryMessages);
       firstOutput = await processRequest(
+        firstInput.sessionId,
         firstRetryMessagesWithSkillCache,
         storedApiKey,
         firstInput.baseUrl,
@@ -1856,6 +1866,7 @@ async function main(): Promise<void> {
     }
 
     let output = await processRequest(
+      input.sessionId,
       messagesForRequestWithSkillCache,
       apiKey,
       input.baseUrl,
@@ -1892,6 +1903,7 @@ async function main(): Promise<void> {
         : input.messages;
       const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
       output = await processRequest(
+        input.sessionId,
         retryMessagesWithSkillCache,
         apiKey,
         input.baseUrl,

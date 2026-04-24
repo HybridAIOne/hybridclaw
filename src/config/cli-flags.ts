@@ -5,6 +5,7 @@ import {
 } from '../agent/prompt-parts.js';
 
 export type SandboxModeOverride = 'container' | 'host';
+export type GatewayToolsMode = 'full' | 'none';
 export type UnsupportedGatewayLifecycleFlag =
   | 'foreground'
   | 'sandbox'
@@ -12,7 +13,9 @@ export type UnsupportedGatewayLifecycleFlag =
   | 'log-requests'
   | 'debug-model-responses'
   | 'system-prompt'
-  | 'system-prompt-exclude';
+  | 'system-prompt-exclude'
+  | 'tools'
+  | 'no-tools';
 
 export interface ParsedGatewayFlags {
   debug: boolean;
@@ -23,6 +26,7 @@ export interface ParsedGatewayFlags {
   systemPromptMode: PromptMode | null;
   systemPromptParts: PromptPartName[];
   systemPromptExcludeParts: PromptPartName[];
+  toolsMode: GatewayToolsMode | null;
   sandboxMode: SandboxModeOverride | null;
 }
 
@@ -42,6 +46,12 @@ function normalizeSystemPromptMode(value: string): PromptMode | null {
   ) {
     return normalized;
   }
+  return null;
+}
+
+function normalizeGatewayToolsMode(value: string): GatewayToolsMode | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'full' || normalized === 'none') return normalized;
   return null;
 }
 
@@ -83,6 +93,15 @@ function isSystemPromptExcludeFlag(arg: string): boolean {
   );
 }
 
+function isToolsFlag(arg: string): boolean {
+  const normalized = String(arg || '').trim();
+  return normalized === '--tools' || normalized.startsWith('--tools=');
+}
+
+function isNoToolsFlag(arg: string): boolean {
+  return String(arg || '').trim() === '--no-tools';
+}
+
 function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
@@ -111,6 +130,14 @@ function hasSystemPromptExcludeFlag(argv: string[]): boolean {
   return argv.some((arg) => isSystemPromptExcludeFlag(arg));
 }
 
+function hasToolsFlag(argv: string[]): boolean {
+  return argv.some((arg) => isToolsFlag(arg));
+}
+
+function hasNoToolsFlag(argv: string[]): boolean {
+  return argv.some((arg) => isNoToolsFlag(arg));
+}
+
 export function findUnsupportedGatewayLifecycleFlag(
   argv: string[],
 ): UnsupportedGatewayLifecycleFlag | null {
@@ -127,6 +154,8 @@ export function findUnsupportedGatewayLifecycleFlag(
   if (hasDebugModelResponsesFlag(argv)) return 'debug-model-responses';
   if (hasSystemPromptFlag(argv)) return 'system-prompt';
   if (hasSystemPromptExcludeFlag(argv)) return 'system-prompt-exclude';
+  if (hasToolsFlag(argv)) return 'tools';
+  if (hasNoToolsFlag(argv)) return 'no-tools';
   return null;
 }
 
@@ -139,6 +168,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
   let systemPromptMode: PromptMode | null = null;
   let systemPromptParts: PromptPartName[] = [];
   let systemPromptExcludeParts: PromptPartName[] = [];
+  let toolsMode: GatewayToolsMode | null = null;
   let sandboxMode: SandboxModeOverride | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -239,6 +269,36 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
+    if (arg === '--tools') {
+      const next = String(argv[i + 1] || '').trim();
+      const parsed = normalizeGatewayToolsMode(next);
+      if (!parsed) {
+        throw new Error(
+          `Invalid value for --tools: ${next || '<missing>'}. Use --tools=full or --tools=none.`,
+        );
+      }
+      toolsMode = parsed;
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--tools=')) {
+      const raw = arg.slice('--tools='.length);
+      const parsed = normalizeGatewayToolsMode(raw);
+      if (!parsed) {
+        throw new Error(
+          `Invalid value for --tools: ${raw || '<missing>'}. Use --tools=full or --tools=none.`,
+        );
+      }
+      toolsMode = parsed;
+      continue;
+    }
+
+    if (arg === '--no-tools') {
+      toolsMode = 'none';
+      continue;
+    }
+
     throw new Error(`Unexpected gateway lifecycle option: ${arg}`);
   }
 
@@ -251,6 +311,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     systemPromptMode,
     systemPromptParts,
     systemPromptExcludeParts,
+    toolsMode,
     sandboxMode,
   };
 }

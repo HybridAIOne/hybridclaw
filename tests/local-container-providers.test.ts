@@ -402,7 +402,7 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
+      expect(body.stop).toBeUndefined();
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
         {
@@ -578,7 +578,7 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
+      expect(body.stop).toBeUndefined();
       expect(messages).toEqual([
         {
           role: 'system',
@@ -632,7 +632,7 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('non-qwen local provider does not send chat-template stop sequences', async () => {
+  test('local provider does not send implicit chat-template stop sequences', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
@@ -775,6 +775,42 @@ describe('local container providers', () => {
       },
     ]);
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('OpenAI-compatible stream drops orphan closing think markers', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"qwen3","choices":[{"delta":{"content":"draft answer"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"</think>"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"final answer"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [],
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: 'qwen',
+    });
+
+    expect(deltas).toEqual(['draft answer', 'final answer']);
+    expect(result.choices[0]?.message.content).toBe('final answer');
   });
 
   test('OpenAI-compatible stream reports hidden activity for tool-call-only chunks', async () => {

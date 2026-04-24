@@ -86,6 +86,7 @@ import {
   GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
 } from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
@@ -137,6 +138,19 @@ function readGatewayPromptModeDefault(): PromptMode | undefined {
   return undefined;
 }
 
+function readGatewayToolsDisabledDefault(): boolean {
+  const raw = String(process.env[GATEWAY_TOOLS_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw || raw === 'full') return false;
+  if (raw === 'none') return true;
+  logger.warn(
+    { envName: GATEWAY_TOOLS_MODE_ENV, value: raw },
+    'Ignoring invalid gateway tools mode default',
+  );
+  return false;
+}
+
 function readGatewayPromptPartDefault(
   envName: string,
   flagName: string,
@@ -158,8 +172,10 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
   promptMode?: PromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
+  toolsDisabled: boolean;
 } {
   const promptMode = req.promptMode ?? readGatewayPromptModeDefault();
+  const toolsDisabled = readGatewayToolsDisabledDefault();
   const includePromptParts =
     req.includePromptParts ??
     readGatewayPromptPartDefault(
@@ -180,6 +196,7 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
     ...(omitPromptParts && omitPromptParts.length > 0
       ? { omitPromptParts }
       : {}),
+    toolsDisabled,
   };
 }
 
@@ -794,6 +811,7 @@ async function handleGatewayMessageInner(
         sessionContext,
         workspacePath: workspaceDisplayPath,
       },
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
     });
   const historyStart =
@@ -973,7 +991,7 @@ async function handleGatewayMessageInner(
       agentId,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-      skipContainerSystemPrompt: req.promptMode === 'none',
+      skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
       maxTokens: req.maxTokens,
       maxWallClockMs: req.maxWallClockMs,
       inactivityTimeoutMs: req.inactivityTimeoutMs,
@@ -983,6 +1001,7 @@ async function handleGatewayMessageInner(
       fullAutoEnabled: autoApproveTools || isFullAutoEnabled(session),
       fullAutoNeverApproveTools: neverAutoApproveTools,
       scheduledTasks,
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta: emitTextDeltas,
       onThinkingDelta: emitThinkingDeltas,

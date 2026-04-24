@@ -9,6 +9,7 @@ import { isRuntimeProvider, type RuntimeProvider } from './provider-ids.js';
 export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
+  sessionId?: string;
   provider: RuntimeProvider | undefined;
   providerMethod?: string;
   baseUrl: string;
@@ -184,6 +185,30 @@ export function emitModelResponseDebugFileText(text: string): void {
   console.error(
     `[model-response-debug-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
   );
+}
+
+export function logLastPrompt(params: {
+  sessionId?: string;
+  provider: RuntimeProvider | undefined;
+  model: string;
+  kind: string;
+  request: unknown;
+}): void {
+  try {
+    const text = `${JSON.stringify({
+      ts: new Date().toISOString(),
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      provider: params.provider || 'hybridai',
+      model: params.model,
+      kind: params.kind,
+      request: params.request,
+    })}\n`;
+    console.error(
+      `[last-prompt-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
+    );
+  } catch {
+    // Prompt dumping is diagnostic-only and must not disrupt model execution.
+  }
 }
 
 export function emitRawSsePayloadDebug(

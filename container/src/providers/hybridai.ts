@@ -3,6 +3,7 @@ import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
   emitRawSseLineDebug,
+  logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
@@ -115,10 +116,22 @@ function mergeToolCallDelta(
 export async function callHybridAIProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildHybridAIRequestBody(args);
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'hybridai_non_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${args.baseUrl}/v1/chat/completions`,
+      body,
+    },
+  });
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
-    body: JSON.stringify(buildHybridAIRequestBody(args)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -148,6 +161,17 @@ export async function callHybridAIProviderStream(
       include_usage: true,
     },
   };
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'hybridai_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${args.baseUrl}/v1/chat/completions`,
+      body,
+    },
+  });
 
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',

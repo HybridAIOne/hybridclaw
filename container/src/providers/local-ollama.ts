@@ -5,6 +5,7 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
@@ -223,13 +224,25 @@ function emitResponseTextDeltas(
 export async function callOllamaProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildRequestBody(args, false);
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'ollama_non_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+      body,
+    },
+  });
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(args.requestHeaders || {}),
     },
-    body: JSON.stringify(buildRequestBody(args, false)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -256,6 +269,18 @@ export async function callOllamaProvider(
 export async function callOllamaProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildRequestBody(args, true);
+  logLastPrompt({
+    sessionId: args.sessionId,
+    provider: args.provider,
+    model: args.model,
+    kind: 'ollama_streaming_request',
+    request: {
+      method: 'POST',
+      url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+      body,
+    },
+  });
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {
@@ -263,7 +288,7 @@ export async function callOllamaProviderStream(
       Accept: 'application/x-ndjson, application/json',
       ...(args.requestHeaders || {}),
     },
-    body: JSON.stringify(buildRequestBody(args, true)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

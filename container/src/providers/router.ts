@@ -40,6 +40,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
   'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 
 export interface RoutedModelContext {
+  sessionId?: string;
   provider: RuntimeProvider | undefined;
   providerMethod?: string;
   baseUrl: string;
@@ -75,6 +76,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
+    sessionId: params.sessionId,
     provider: params.provider,
     providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
