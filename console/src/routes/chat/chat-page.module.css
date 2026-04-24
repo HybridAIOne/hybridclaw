@@ -272,22 +272,22 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentAvatar {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   object-fit: cover;
 }
 
 .agentInitial {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--primary);
   color: var(--primary-foreground);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
+  font-size: 0.86rem;
   font-weight: 700;
 }
 
