@@ -160,7 +160,6 @@ export function logModelResponseDebug(params: {
   model: string;
   kind:
     | 'raw_non_streaming_response'
-    | 'raw_streaming_response'
     | 'non_streaming_response'
     | 'streaming_response';
   response: unknown;

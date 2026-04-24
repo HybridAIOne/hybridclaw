@@ -83,7 +83,6 @@ import {
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
 import {
-  GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
   GATEWAY_TOOLS_MODE_ENV,
@@ -131,11 +130,9 @@ function readGatewayPromptModeDefault(): PromptMode | undefined {
     .toLowerCase();
   if (!raw) return undefined;
   if (raw === 'full' || raw === 'minimal' || raw === 'none') return raw;
-  logger.warn(
-    { envName: GATEWAY_SYSTEM_PROMPT_MODE_ENV, value: raw },
-    'Ignoring invalid gateway system prompt mode default',
+  throw new Error(
+    `Invalid value for ${GATEWAY_SYSTEM_PROMPT_MODE_ENV}: ${raw}. Use full, minimal, or none.`,
   );
-  return undefined;
 }
 
 function readGatewayToolsDisabledDefault(): boolean {
@@ -144,11 +141,9 @@ function readGatewayToolsDisabledDefault(): boolean {
     .toLowerCase();
   if (!raw || raw === 'full') return false;
   if (raw === 'none') return true;
-  logger.warn(
-    { envName: GATEWAY_TOOLS_MODE_ENV, value: raw },
-    'Ignoring invalid gateway tools mode default',
+  throw new Error(
+    `Invalid value for ${GATEWAY_TOOLS_MODE_ENV}: ${raw}. Use full or none.`,
   );
-  return false;
 }
 
 function readGatewayPromptPartDefault(
@@ -160,12 +155,18 @@ function readGatewayPromptPartDefault(
   try {
     return parsePromptPartList(raw, flagName);
   } catch (error) {
-    logger.warn(
-      { envName, error },
-      'Ignoring invalid gateway system prompt part default',
-    );
-    return undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid value for ${envName}: ${message}`);
   }
+}
+
+export function validateGatewayPromptEnvDefaults(): void {
+  readGatewayPromptModeDefault();
+  readGatewayToolsDisabledDefault();
+  readGatewayPromptPartDefault(
+    GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+    '--system-prompt',
+  );
 }
 
 function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
@@ -182,19 +183,13 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
       GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
       '--system-prompt',
     );
-  const omitPromptParts =
-    req.omitPromptParts ??
-    readGatewayPromptPartDefault(
-      GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
-      '--system-prompt-exclude',
-    );
   return {
     ...(promptMode ? { promptMode } : {}),
     ...(includePromptParts && includePromptParts.length > 0
       ? { includePromptParts }
       : {}),
-    ...(omitPromptParts && omitPromptParts.length > 0
-      ? { omitPromptParts }
+    ...(req.omitPromptParts && req.omitPromptParts.length > 0
+      ? { omitPromptParts: req.omitPromptParts }
       : {}),
     toolsDisabled,
   };

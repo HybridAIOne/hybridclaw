@@ -751,17 +751,19 @@ export async function callOpenAICodexProviderStream(
     ...buildCodexRequestBody(args.model, args.messages, args.tools),
     stream: true,
   };
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'openai_codex_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${args.baseUrl}/responses`,
-      body,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'openai_codex_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${args.baseUrl}/responses`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${args.baseUrl}/responses`, {
     method: 'POST',
     headers: {

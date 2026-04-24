@@ -37,6 +37,21 @@ function decodeBase64Line(line: string, pattern: RegExp): string | null {
   }
 }
 
+export function decodeThinkingDelta(line: string): string | null {
+  const match = line.match(THINKING_DELTA_RE);
+  if (!match) return null;
+
+  try {
+    return Buffer.from(match[1], 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+}
+
+export function isThinkingDeltaLine(line: string): boolean {
+  return THINKING_DELTA_RE.test(line);
+}
+
 export function isStreamActivityLine(line: string): boolean {
   return STREAM_ACTIVITY_RE.test(line);
 }

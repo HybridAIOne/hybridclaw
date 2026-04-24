@@ -13,7 +13,6 @@ export type UnsupportedGatewayLifecycleFlag =
   | 'log-requests'
   | 'debug-model-responses'
   | 'system-prompt'
-  | 'system-prompt-exclude'
   | 'tools'
   | 'no-tools';
 
@@ -25,9 +24,33 @@ export interface ParsedGatewayFlags {
   logRequests: boolean;
   systemPromptMode: PromptMode | null;
   systemPromptParts: PromptPartName[];
-  systemPromptExcludeParts: PromptPartName[];
   toolsMode: GatewayToolsMode | null;
   sandboxMode: SandboxModeOverride | null;
+}
+
+function normalizeArg(arg: string): string {
+  return String(arg || '').trim();
+}
+
+function matchesFlag(arg: string, name: string): boolean {
+  const normalized = normalizeArg(arg);
+  return normalized === `--${name}` || normalized.startsWith(`--${name}=`);
+}
+
+function matchesExactFlag(arg: string, name: string): boolean {
+  return normalizeArg(arg) === `--${name}`;
+}
+
+function hasFlag(argv: string[], name: string): boolean {
+  return argv.some((arg) => matchesFlag(arg, name));
+}
+
+function hasExactFlag(argv: string[], name: string): boolean {
+  return argv.some((arg) => matchesExactFlag(arg, name));
+}
+
+function hasShortFlag(argv: string[], name: string): boolean {
+  return argv.some((arg) => normalizeArg(arg) === `-${name}`);
 }
 
 function normalizeSandboxMode(value: string): SandboxModeOverride | null {
@@ -55,89 +78,6 @@ function normalizeGatewayToolsMode(value: string): GatewayToolsMode | null {
   return null;
 }
 
-function isSandboxFlag(arg: string): boolean {
-  const normalized = String(arg || '').trim();
-  return normalized === '--sandbox' || normalized.startsWith('--sandbox=');
-}
-
-function isForegroundFlag(arg: string): boolean {
-  const normalized = String(arg || '').trim();
-  return normalized === '--foreground' || normalized === '-f';
-}
-
-function isDebugFlag(arg: string): boolean {
-  return String(arg || '').trim() === '--debug';
-}
-
-function isLogRequestsFlag(arg: string): boolean {
-  return String(arg || '').trim() === '--log-requests';
-}
-
-function isDebugModelResponsesFlag(arg: string): boolean {
-  return String(arg || '').trim() === '--debug-model-responses';
-}
-
-function isSystemPromptFlag(arg: string): boolean {
-  const normalized = String(arg || '').trim();
-  return (
-    normalized === '--system-prompt' ||
-    normalized.startsWith('--system-prompt=')
-  );
-}
-
-function isSystemPromptExcludeFlag(arg: string): boolean {
-  const normalized = String(arg || '').trim();
-  return (
-    normalized === '--system-prompt-exclude' ||
-    normalized.startsWith('--system-prompt-exclude=')
-  );
-}
-
-function isToolsFlag(arg: string): boolean {
-  const normalized = String(arg || '').trim();
-  return normalized === '--tools' || normalized.startsWith('--tools=');
-}
-
-function isNoToolsFlag(arg: string): boolean {
-  return String(arg || '').trim() === '--no-tools';
-}
-
-function hasSandboxFlag(argv: string[]): boolean {
-  return argv.some((arg) => isSandboxFlag(arg));
-}
-
-function hasForegroundFlag(argv: string[]): boolean {
-  return argv.some((arg) => isForegroundFlag(arg));
-}
-
-function hasDebugFlag(argv: string[]): boolean {
-  return argv.some((arg) => isDebugFlag(arg));
-}
-
-function hasLogRequestsFlag(argv: string[]): boolean {
-  return argv.some((arg) => isLogRequestsFlag(arg));
-}
-
-function hasDebugModelResponsesFlag(argv: string[]): boolean {
-  return argv.some((arg) => isDebugModelResponsesFlag(arg));
-}
-
-function hasSystemPromptFlag(argv: string[]): boolean {
-  return argv.some((arg) => isSystemPromptFlag(arg));
-}
-
-function hasSystemPromptExcludeFlag(argv: string[]): boolean {
-  return argv.some((arg) => isSystemPromptExcludeFlag(arg));
-}
-
-function hasToolsFlag(argv: string[]): boolean {
-  return argv.some((arg) => isToolsFlag(arg));
-}
-
-function hasNoToolsFlag(argv: string[]): boolean {
-  return argv.some((arg) => isNoToolsFlag(arg));
-}
-
 export function findUnsupportedGatewayLifecycleFlag(
   argv: string[],
 ): UnsupportedGatewayLifecycleFlag | null {
@@ -147,15 +87,18 @@ export function findUnsupportedGatewayLifecycleFlag(
     .trim()
     .toLowerCase();
   if (sub === 'start' || sub === 'restart') return null;
-  if (hasSandboxFlag(argv)) return 'sandbox';
-  if (hasForegroundFlag(argv)) return 'foreground';
-  if (hasDebugFlag(argv)) return 'debug';
-  if (hasLogRequestsFlag(argv)) return 'log-requests';
-  if (hasDebugModelResponsesFlag(argv)) return 'debug-model-responses';
-  if (hasSystemPromptFlag(argv)) return 'system-prompt';
-  if (hasSystemPromptExcludeFlag(argv)) return 'system-prompt-exclude';
-  if (hasToolsFlag(argv)) return 'tools';
-  if (hasNoToolsFlag(argv)) return 'no-tools';
+  if (hasFlag(argv, 'sandbox')) return 'sandbox';
+  if (hasFlag(argv, 'foreground') || hasShortFlag(argv, 'f')) {
+    return 'foreground';
+  }
+  if (hasExactFlag(argv, 'debug')) return 'debug';
+  if (hasExactFlag(argv, 'log-requests')) return 'log-requests';
+  if (hasExactFlag(argv, 'debug-model-responses')) {
+    return 'debug-model-responses';
+  }
+  if (hasFlag(argv, 'system-prompt')) return 'system-prompt';
+  if (hasFlag(argv, 'tools')) return 'tools';
+  if (hasExactFlag(argv, 'no-tools')) return 'no-tools';
   return null;
 }
 
@@ -167,30 +110,29 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
   let logRequests = false;
   let systemPromptMode: PromptMode | null = null;
   let systemPromptParts: PromptPartName[] = [];
-  let systemPromptExcludeParts: PromptPartName[] = [];
   let toolsMode: GatewayToolsMode | null = null;
   let sandboxMode: SandboxModeOverride | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = String(argv[i] || '').trim();
+    const arg = normalizeArg(argv[i] || '');
     if (!arg) continue;
 
-    if (isForegroundFlag(arg)) {
+    if (matchesExactFlag(arg, 'foreground') || arg === '-f') {
       foreground = true;
       continue;
     }
 
-    if (isDebugFlag(arg)) {
+    if (matchesExactFlag(arg, 'debug')) {
       debug = true;
       continue;
     }
 
-    if (isLogRequestsFlag(arg)) {
+    if (matchesExactFlag(arg, 'log-requests')) {
       logRequests = true;
       continue;
     }
 
-    if (isDebugModelResponsesFlag(arg)) {
+    if (matchesExactFlag(arg, 'debug-model-responses')) {
       debugModelResponses = true;
       continue;
     }
@@ -213,7 +155,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
-    if (arg.startsWith('--sandbox=')) {
+    if (matchesFlag(arg, 'sandbox')) {
       const parsed = normalizeSandboxMode(arg.slice('--sandbox='.length));
       if (!parsed) {
         throw new Error(
@@ -238,7 +180,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
-    if (arg.startsWith('--system-prompt=')) {
+    if (matchesFlag(arg, 'system-prompt')) {
       const raw = arg.slice('--system-prompt='.length);
       const promptMode = normalizeSystemPromptMode(raw);
       if (promptMode) {
@@ -248,24 +190,6 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
         systemPromptMode = null;
         systemPromptParts = parsePromptPartList(raw, '--system-prompt');
       }
-      continue;
-    }
-
-    if (arg === '--system-prompt-exclude') {
-      const next = String(argv[i + 1] || '').trim();
-      systemPromptExcludeParts = parsePromptPartList(
-        next,
-        '--system-prompt-exclude',
-      );
-      i += 1;
-      continue;
-    }
-
-    if (arg.startsWith('--system-prompt-exclude=')) {
-      systemPromptExcludeParts = parsePromptPartList(
-        arg.slice('--system-prompt-exclude='.length),
-        '--system-prompt-exclude',
-      );
       continue;
     }
 
@@ -282,7 +206,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
-    if (arg.startsWith('--tools=')) {
+    if (matchesFlag(arg, 'tools')) {
       const raw = arg.slice('--tools='.length);
       const parsed = normalizeGatewayToolsMode(raw);
       if (!parsed) {
@@ -294,7 +218,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
-    if (arg === '--no-tools') {
+    if (matchesExactFlag(arg, 'no-tools')) {
       toolsMode = 'none';
       continue;
     }
@@ -310,7 +234,6 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     logRequests,
     systemPromptMode,
     systemPromptParts,
-    systemPromptExcludeParts,
     toolsMode,
     sandboxMode,
   };

@@ -691,17 +691,19 @@ export async function callAnthropicProvider(
   }
 
   const body = buildRequestBody(args, false);
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'anthropic_non_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
-      body,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'anthropic_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+        body,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
     {
@@ -752,17 +754,19 @@ export async function callAnthropicProviderStream(
   }
 
   const body = buildRequestBody(args, true);
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'anthropic_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
-      body,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'anthropic_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
+        body,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
     {

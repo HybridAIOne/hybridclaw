@@ -226,17 +226,19 @@ export async function callOllamaProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   const body = buildRequestBody(args, false);
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'ollama_non_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
-      body,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'ollama_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {
@@ -271,17 +273,19 @@ export async function callOllamaProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
   const body = buildRequestBody(args, true);
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'ollama_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
-      body,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'ollama_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {

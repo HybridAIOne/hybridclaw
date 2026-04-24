@@ -59,21 +59,6 @@ export function extractThinkingBlocks(
   }
 
   if (thinkParts.length === 0) {
-    let closeIndex = lower.indexOf('</think>');
-    while (closeIndex >= 0 && isProtectedIndex(closeIndex, protectedRanges)) {
-      closeIndex = lower.indexOf('</think>', closeIndex + 1);
-    }
-    if (closeIndex >= 0) {
-      const visible = content
-        .slice(closeIndex + '</think>'.length)
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-      return {
-        thinking: content.slice(0, closeIndex),
-        content: visible || 'Done.',
-        thinkingOnly: visible.length === 0,
-      };
-    }
     return {
       thinking: null,
       content: content || null,

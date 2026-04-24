@@ -152,6 +152,11 @@ function usesQwenCompat(args: {
   return normalizedModel.includes('qwen') || normalizedModel.includes('qwq');
 }
 
+function resolveStopSequences(args: NormalizedCallArgs): string[] | undefined {
+  if (!usesQwenCompat(args)) return undefined;
+  return ['<|im_end|>', '<|im_start|>'];
+}
+
 function usesLiquidCompat(args: {
   provider: string | undefined;
   model: string;
@@ -296,6 +301,10 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     tools: args.tools,
     tool_choice: 'auto',
   };
+  const stopSequences = resolveStopSequences(args);
+  if (stopSequences && stopSequences.length > 0) {
+    request.stop = stopSequences;
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
@@ -398,14 +407,6 @@ function combineReasoningAndContent(
   return visibleContent
     ? `<think>${reasoning}</think>${visibleContent}`
     : `<think>${reasoning}</think>`;
-}
-
-function isOrphanCloseThinkDelta(
-  rawContentBeforeDelta: string,
-  delta: string,
-): boolean {
-  if (!/^\s*<\/think>\s*$/i.test(delta)) return false;
-  return !rawContentBeforeDelta.toLowerCase().includes('<think>');
 }
 
 function extractProviderErrorMessage(payload: unknown): string | null {
@@ -622,17 +623,19 @@ export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   const requestBody = buildRequestBody(args);
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'openai_compatible_non_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-      body: requestBody,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'openai_compatible_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        body: requestBody,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
     {
@@ -675,17 +678,19 @@ export async function callLocalOpenAICompatProviderStream(
       include_usage: true,
     },
   };
-  logLastPrompt({
-    sessionId: args.sessionId,
-    provider: args.provider,
-    model: args.model,
-    kind: 'openai_compatible_streaming_request',
-    request: {
-      method: 'POST',
-      url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-      body: requestBody,
-    },
-  });
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'openai_compatible_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        body: requestBody,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
     {
