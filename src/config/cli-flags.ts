@@ -1,10 +1,18 @@
+import type { PromptMode } from '../agent/prompt-hooks.js';
+import {
+  type PromptPartName,
+  parsePromptPartList,
+} from '../agent/prompt-parts.js';
+
 export type SandboxModeOverride = 'container' | 'host';
 export type UnsupportedGatewayLifecycleFlag =
   | 'foreground'
   | 'sandbox'
   | 'debug'
   | 'log-requests'
-  | 'debug-model-responses';
+  | 'debug-model-responses'
+  | 'system-prompt'
+  | 'system-prompt-exclude';
 
 export interface ParsedGatewayFlags {
   debug: boolean;
@@ -12,6 +20,9 @@ export interface ParsedGatewayFlags {
   foreground: boolean;
   help: boolean;
   logRequests: boolean;
+  systemPromptMode: PromptMode | null;
+  systemPromptParts: PromptPartName[];
+  systemPromptExcludeParts: PromptPartName[];
   sandboxMode: SandboxModeOverride | null;
 }
 
@@ -19,6 +30,18 @@ function normalizeSandboxMode(value: string): SandboxModeOverride | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === 'container') return 'container';
   if (normalized === 'host') return 'host';
+  return null;
+}
+
+function normalizeSystemPromptMode(value: string): PromptMode | null {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'full' ||
+    normalized === 'minimal' ||
+    normalized === 'none'
+  ) {
+    return normalized;
+  }
   return null;
 }
 
@@ -44,6 +67,22 @@ function isDebugModelResponsesFlag(arg: string): boolean {
   return String(arg || '').trim() === '--debug-model-responses';
 }
 
+function isSystemPromptFlag(arg: string): boolean {
+  const normalized = String(arg || '').trim();
+  return (
+    normalized === '--system-prompt' ||
+    normalized.startsWith('--system-prompt=')
+  );
+}
+
+function isSystemPromptExcludeFlag(arg: string): boolean {
+  const normalized = String(arg || '').trim();
+  return (
+    normalized === '--system-prompt-exclude' ||
+    normalized.startsWith('--system-prompt-exclude=')
+  );
+}
+
 function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
@@ -64,6 +103,14 @@ function hasDebugModelResponsesFlag(argv: string[]): boolean {
   return argv.some((arg) => isDebugModelResponsesFlag(arg));
 }
 
+function hasSystemPromptFlag(argv: string[]): boolean {
+  return argv.some((arg) => isSystemPromptFlag(arg));
+}
+
+function hasSystemPromptExcludeFlag(argv: string[]): boolean {
+  return argv.some((arg) => isSystemPromptExcludeFlag(arg));
+}
+
 export function findUnsupportedGatewayLifecycleFlag(
   argv: string[],
 ): UnsupportedGatewayLifecycleFlag | null {
@@ -78,6 +125,8 @@ export function findUnsupportedGatewayLifecycleFlag(
   if (hasDebugFlag(argv)) return 'debug';
   if (hasLogRequestsFlag(argv)) return 'log-requests';
   if (hasDebugModelResponsesFlag(argv)) return 'debug-model-responses';
+  if (hasSystemPromptFlag(argv)) return 'system-prompt';
+  if (hasSystemPromptExcludeFlag(argv)) return 'system-prompt-exclude';
   return null;
 }
 
@@ -87,6 +136,9 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
   let foreground = false;
   let help = false;
   let logRequests = false;
+  let systemPromptMode: PromptMode | null = null;
+  let systemPromptParts: PromptPartName[] = [];
+  let systemPromptExcludeParts: PromptPartName[] = [];
   let sandboxMode: SandboxModeOverride | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -142,6 +194,51 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
       continue;
     }
 
+    if (arg === '--system-prompt') {
+      const next = String(argv[i + 1] || '').trim();
+      const promptMode = normalizeSystemPromptMode(next);
+      if (promptMode) {
+        systemPromptMode = promptMode;
+        systemPromptParts = [];
+      } else {
+        systemPromptMode = null;
+        systemPromptParts = parsePromptPartList(next, '--system-prompt');
+      }
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--system-prompt=')) {
+      const raw = arg.slice('--system-prompt='.length);
+      const promptMode = normalizeSystemPromptMode(raw);
+      if (promptMode) {
+        systemPromptMode = promptMode;
+        systemPromptParts = [];
+      } else {
+        systemPromptMode = null;
+        systemPromptParts = parsePromptPartList(raw, '--system-prompt');
+      }
+      continue;
+    }
+
+    if (arg === '--system-prompt-exclude') {
+      const next = String(argv[i + 1] || '').trim();
+      systemPromptExcludeParts = parsePromptPartList(
+        next,
+        '--system-prompt-exclude',
+      );
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--system-prompt-exclude=')) {
+      systemPromptExcludeParts = parsePromptPartList(
+        arg.slice('--system-prompt-exclude='.length),
+        '--system-prompt-exclude',
+      );
+      continue;
+    }
+
     throw new Error(`Unexpected gateway lifecycle option: ${arg}`);
   }
 
@@ -151,6 +248,9 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     foreground,
     help,
     logRequests,
+    systemPromptMode,
+    systemPromptParts,
+    systemPromptExcludeParts,
     sandboxMode,
   };
 }

@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import type { PromptMode } from './agent/prompt-hooks.js';
+import type { PromptPartName } from './agent/prompt-parts.js';
 import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
@@ -54,6 +56,9 @@ import {
   GATEWAY_LOG_PATH,
   GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_STDIO_TO_LOG_ENV,
+  GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
   type GatewayPidState,
   isPidRunning,
   readGatewayPid,
@@ -73,6 +78,10 @@ let foregroundGatewayExitHandler: (() => void) | null = null;
 let foregroundGatewaySigintHandler: (() => void) | null = null;
 let foregroundGatewaySigtermHandler: (() => void) | null = null;
 type ConfigApi = typeof import('./config/config.js');
+
+function serializePromptParts(parts: PromptPartName[]): string {
+  return parts.join(',');
+}
 
 let cachedAppVersion: string | null = null;
 const configApiState = makeLazyApi<ConfigApi>(
@@ -694,6 +703,9 @@ async function runGatewayForeground(
   debug = false,
   logRequests = false,
   debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  systemPromptExcludeParts: PromptPartName[] = [],
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
@@ -717,6 +729,18 @@ async function runGatewayForeground(
   if (debugModelResponses) {
     process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] = '1';
     console.warn(GATEWAY_DEBUG_MODEL_RESPONSES_WARNING);
+  }
+  if (systemPromptMode) {
+    process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] = systemPromptMode;
+  }
+  if (systemPromptParts.length > 0) {
+    process.env[GATEWAY_SYSTEM_PROMPT_PARTS_ENV] =
+      serializePromptParts(systemPromptParts);
+  }
+  if (systemPromptExcludeParts.length > 0) {
+    process.env[GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV] = serializePromptParts(
+      systemPromptExcludeParts,
+    );
   }
   if (debug || debugModelResponses) {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
@@ -742,6 +766,9 @@ async function startGatewayBackend(
   debug = false,
   logRequests = false,
   debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  systemPromptExcludeParts: PromptPartName[] = [],
 ): Promise<void> {
   await ensureConfigApi();
   if (await isGatewayReachable()) {
@@ -815,6 +842,15 @@ async function startGatewayBackend(
     ...(debug ? ['--debug'] : []),
     ...(logRequests ? ['--log-requests'] : []),
     ...(debugModelResponses ? ['--debug-model-responses'] : []),
+    ...(systemPromptMode ? [`--system-prompt=${systemPromptMode}`] : []),
+    ...(systemPromptParts.length > 0
+      ? [`--system-prompt=${serializePromptParts(systemPromptParts)}`]
+      : []),
+    ...(systemPromptExcludeParts.length > 0
+      ? [
+          `--system-prompt-exclude=${serializePromptParts(systemPromptExcludeParts)}`,
+        ]
+      : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
@@ -1055,6 +1091,9 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.debug,
         flags.logRequests,
         flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.systemPromptExcludeParts,
       );
       return;
     }
@@ -1065,6 +1104,9 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.debug,
       flags.logRequests,
       flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.systemPromptExcludeParts,
     );
     return;
   }
@@ -1084,6 +1126,9 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.debug,
         flags.logRequests,
         flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.systemPromptExcludeParts,
       );
       return;
     }
@@ -1094,6 +1139,9 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.debug,
       flags.logRequests,
       flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.systemPromptExcludeParts,
     );
     return;
   }

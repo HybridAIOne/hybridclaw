@@ -36,54 +36,23 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import type {
+  ExtendedPromptHookName,
+  PromptPartName,
+  WorkspacePromptPartName,
+} from './prompt-parts.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
 
-export type PromptHookName =
-  | 'bootstrap'
-  | 'memory'
-  | 'retrieval'
-  | 'safety'
-  | 'runtime'
-  | 'session-context';
-export type ExtendedPromptHookName = PromptHookName | 'proactivity';
-export type WorkspacePromptPartName =
-  | 'agents'
-  | 'soul'
-  | 'identity'
-  | 'user'
-  | 'tools'
-  | 'memory-file'
-  | 'heartbeat'
-  | 'bootstrap-file'
-  | 'opening'
-  | 'boot';
-export type PromptPartName =
-  | ExtendedPromptHookName
-  | WorkspacePromptPartName
-  | 'skills';
+export type {
+  ExtendedPromptHookName,
+  PromptHookName,
+  PromptPartName,
+  WorkspacePromptPartName,
+} from './prompt-parts.js';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
-export const PROMPT_PART_NAMES: PromptPartName[] = [
-  'bootstrap',
-  'memory',
-  'retrieval',
-  'safety',
-  'runtime',
-  'session-context',
-  'proactivity',
-  'skills',
-  'agents',
-  'soul',
-  'identity',
-  'user',
-  'tools',
-  'memory-file',
-  'heartbeat',
-  'bootstrap-file',
-  'opening',
-  'boot',
-];
+export { PROMPT_PART_NAMES } from './prompt-parts.js';
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;

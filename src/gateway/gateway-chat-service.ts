@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
+import {
+  type PromptPartName,
+  parsePromptPartList,
+} from '../agent/prompt-parts.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
@@ -77,6 +82,11 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
+import {
+  GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+} from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
@@ -113,6 +123,65 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function readGatewayPromptModeDefault(): PromptMode | undefined {
+  const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'full' || raw === 'minimal' || raw === 'none') return raw;
+  logger.warn(
+    { envName: GATEWAY_SYSTEM_PROMPT_MODE_ENV, value: raw },
+    'Ignoring invalid gateway system prompt mode default',
+  );
+  return undefined;
+}
+
+function readGatewayPromptPartDefault(
+  envName: string,
+  flagName: string,
+): PromptPartName[] | undefined {
+  const raw = String(process.env[envName] || '').trim();
+  if (!raw) return undefined;
+  try {
+    return parsePromptPartList(raw, flagName);
+  } catch (error) {
+    logger.warn(
+      { envName, error },
+      'Ignoring invalid gateway system prompt part default',
+    );
+    return undefined;
+  }
+}
+
+function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
+  promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
+} {
+  const promptMode = req.promptMode ?? readGatewayPromptModeDefault();
+  const includePromptParts =
+    req.includePromptParts ??
+    readGatewayPromptPartDefault(
+      GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+      '--system-prompt',
+    );
+  const omitPromptParts =
+    req.omitPromptParts ??
+    readGatewayPromptPartDefault(
+      GATEWAY_SYSTEM_PROMPT_EXCLUDE_PARTS_ENV,
+      '--system-prompt-exclude',
+    );
+  return {
+    ...(promptMode ? { promptMode } : {}),
+    ...(includePromptParts && includePromptParts.length > 0
+      ? { includePromptParts }
+      : {}),
+    ...(omitPromptParts && omitPromptParts.length > 0
+      ? { omitPromptParts }
+      : {}),
+  };
+}
 
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
@@ -700,6 +769,7 @@ async function handleGatewayMessageInner(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
+  const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const { messages, skills, historyStats, explicitSkillInvocation } =
     buildConversationContext({
       agentId,
@@ -709,9 +779,9 @@ async function handleGatewayMessageInner(
         : pluginPromptSummary,
       history,
       currentUserContent: effectiveUserTurnContent,
-      promptMode: req.promptMode,
-      includePromptParts: req.includePromptParts,
-      omitPromptParts: req.omitPromptParts,
+      promptMode: promptPartDefaults.promptMode,
+      includePromptParts: promptPartDefaults.includePromptParts,
+      omitPromptParts: promptPartDefaults.omitPromptParts,
       extraSafetyText: fullAutoOperatingContract,
       runtimeInfo: {
         chatbotId,

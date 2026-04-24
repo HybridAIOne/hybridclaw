@@ -13,6 +13,9 @@ describe('parseGatewayFlags', () => {
       foreground: true,
       help: false,
       logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: null,
     });
   });
@@ -26,6 +29,9 @@ describe('parseGatewayFlags', () => {
       foreground: true,
       help: false,
       logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: 'host',
     });
   });
@@ -37,6 +43,9 @@ describe('parseGatewayFlags', () => {
       foreground: false,
       help: false,
       logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: 'container',
     });
   });
@@ -48,6 +57,9 @@ describe('parseGatewayFlags', () => {
       foreground: false,
       help: true,
       logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: null,
     });
   });
@@ -59,6 +71,9 @@ describe('parseGatewayFlags', () => {
       foreground: false,
       help: false,
       logRequests: true,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: null,
     });
   });
@@ -70,8 +85,51 @@ describe('parseGatewayFlags', () => {
       foreground: false,
       help: false,
       logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
       sandboxMode: null,
     });
+  });
+
+  it('parses gateway system prompt include and exclude parts', () => {
+    expect(
+      parseGatewayFlags([
+        '--system-prompt=soul,memory-file',
+        '--system-prompt-exclude',
+        'runtime',
+      ]),
+    ).toEqual({
+      debug: false,
+      debugModelResponses: false,
+      foreground: false,
+      help: false,
+      logRequests: false,
+      systemPromptMode: null,
+      systemPromptParts: ['soul', 'memory-file'],
+      systemPromptExcludeParts: ['runtime'],
+      sandboxMode: null,
+    });
+  });
+
+  it('parses system prompt mode values', () => {
+    expect(parseGatewayFlags(['--system-prompt=none'])).toEqual({
+      debug: false,
+      debugModelResponses: false,
+      foreground: false,
+      help: false,
+      logRequests: false,
+      systemPromptMode: 'none',
+      systemPromptParts: [],
+      systemPromptExcludeParts: [],
+      sandboxMode: null,
+    });
+  });
+
+  it('throws on unknown gateway system prompt parts', () => {
+    expect(() => parseGatewayFlags(['--system-prompt=bogus'])).toThrow(
+      /Unknown prompt part/,
+    );
   });
 
   it('throws on invalid sandbox override', () => {
@@ -108,6 +166,15 @@ describe('findUnsupportedGatewayLifecycleFlag', () => {
         '--debug-model-responses',
       ]),
     ).toBe('debug-model-responses');
+    expect(
+      findUnsupportedGatewayLifecycleFlag(['status', '--system-prompt=soul']),
+    ).toBe('system-prompt');
+    expect(
+      findUnsupportedGatewayLifecycleFlag([
+        'status',
+        '--system-prompt-exclude=soul',
+      ]),
+    ).toBe('system-prompt-exclude');
     expect(findUnsupportedGatewayLifecycleFlag(['--sandbox=host'])).toBe(
       'sandbox',
     );
