@@ -42,6 +42,7 @@ const PROMPT_DUMP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SESSION_COMPACTION_IDLE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const EMPTY_SESSION_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-', 'hybridclaw-slack-'];
+const EPHEMERAL_EVAL_SESSION_RE = /(?:^|[-_/])(?:eval|locomo)(?:[-_/]|$)/i;
 
 interface CleanupCandidate {
   path: string;
@@ -73,10 +74,16 @@ interface EmptySessionSnapshot {
   lastActiveMs: number | null;
 }
 
+interface EphemeralEvalSessionSnapshot extends EmptySessionSnapshot {
+  agentId: string;
+  channelId: string;
+}
+
 interface SessionDatabaseSnapshot {
   currentSessions: SessionSnapshot[];
   allSessionKeys: Set<string>;
   emptySessions: EmptySessionSnapshot[];
+  ephemeralEvalSessions: EphemeralEvalSessionSnapshot[];
 }
 
 interface ExportCandidateShell {
@@ -173,6 +180,12 @@ function openReadonlyDatabase(): Database.Database {
   });
 }
 
+function openWritableDatabase(): Database.Database {
+  return new Database(DB_PATH, {
+    fileMustExist: true,
+  });
+}
+
 const ALLOWED_PRAGMA_TABLES = new Set(['sessions']);
 
 function databaseHasColumn(
@@ -219,6 +232,23 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
           WHERE COALESCE(message_count, 0) = 0`,
       )
       .all() as Array<{ id: string; last_active: string }>;
+    const ephemeralEvalRows = db
+      .prepare(
+        `SELECT id, agent_id, channel_id, last_active
+           FROM sessions
+          WHERE lower(COALESCE(agent_id, '')) LIKE '%eval%'
+             OR lower(COALESCE(agent_id, '')) LIKE '%locomo%'
+             OR lower(id) LIKE '%eval%'
+             OR lower(id) LIKE '%locomo%'
+             OR lower(channel_id) LIKE '%eval%'
+             OR lower(channel_id) LIKE '%locomo%'`,
+      )
+      .all() as Array<{
+      id: string;
+      agent_id: string;
+      channel_id: string;
+      last_active: string;
+    }>;
 
     return {
       currentSessions: currentSessionRows.map((row) => {
@@ -246,6 +276,16 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
           lastActiveMs: Number.isFinite(lastActiveMs) ? lastActiveMs : null,
         };
       }),
+      ephemeralEvalSessions: ephemeralEvalRows.map((row) => {
+        const lastActiveMs = Date.parse(row.last_active);
+        return {
+          id: row.id,
+          agentId: row.agent_id,
+          channelId: row.channel_id,
+          lastActive: row.last_active,
+          lastActiveMs: Number.isFinite(lastActiveMs) ? lastActiveMs : null,
+        };
+      }),
     };
   } finally {
     db.close();
@@ -257,6 +297,90 @@ function readDirEntries(dirPath: string): fs.Dirent[] {
     return fs.readdirSync(dirPath, { withFileTypes: true });
   } catch {
     return [];
+  }
+}
+
+function listEphemeralEvalDirectoryCandidates(
+  nowMs = Date.now(),
+): CleanupCandidate[] {
+  const candidates: CleanupCandidate[] = [];
+  for (const rootPath of [
+    path.join(DATA_DIR, 'sessions'),
+    path.join(DATA_DIR, 'audit'),
+  ]) {
+    for (const entry of readDirEntries(rootPath)) {
+      if (!EPHEMERAL_EVAL_SESSION_RE.test(entry.name)) continue;
+      const entryPath = path.join(rootPath, entry.name);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(entryPath);
+      } catch {
+        continue;
+      }
+      const ageMs = Math.max(0, nowMs - stat.mtimeMs);
+      if (ageMs < EMPTY_SESSION_MAX_AGE_MS) continue;
+      candidates.push({
+        path: entryPath,
+        displayPath: shortenHomePath(entryPath),
+        sizeBytes: stat.isDirectory() ? readDirSize(entryPath) : stat.size,
+        ageMs,
+      });
+    }
+  }
+  return candidates;
+}
+
+function deleteEphemeralEvalSessionData(
+  sessions: EphemeralEvalSessionSnapshot[],
+): number {
+  if (sessions.length === 0) return 0;
+  const db = openWritableDatabase();
+  try {
+    const transaction = db.transaction(
+      (rows: EphemeralEvalSessionSnapshot[]) => {
+        const deleteBySessionId = [
+          'approvals',
+          'audit_events',
+          'audit_log',
+          'messages',
+          'request_log',
+          'semantic_memories',
+          'skill_observations',
+          'tasks',
+          'usage_events',
+        ].map((tableName) =>
+          db.prepare(`DELETE FROM ${tableName} WHERE session_id = ?`),
+        );
+        const deleteBranches = db.prepare(
+          'DELETE FROM session_branches WHERE session_id = ? OR parent_session_id = ?',
+        );
+        const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?');
+        const deleteCanonicalByAgent = db.prepare(
+          'DELETE FROM canonical_sessions WHERE agent_id = ? OR canonical_id = ? OR canonical_id = ?',
+        );
+        const deleteMessagesByAgent = db.prepare(
+          'DELETE FROM messages WHERE agent_id = ?',
+        );
+        let deleted = 0;
+        for (const session of rows) {
+          for (const statement of deleteBySessionId) {
+            statement.run(session.id);
+          }
+          deleteBranches.run(session.id, session.id);
+          deleteCanonicalByAgent.run(
+            session.agentId,
+            session.agentId,
+            session.id,
+          );
+          deleteMessagesByAgent.run(session.agentId);
+          deleted += deleteSession.run(session.id).changes;
+        }
+        return deleted;
+      },
+    );
+    return transaction(sessions);
+  } finally {
+    db.close();
   }
 }
 
@@ -943,6 +1067,92 @@ export async function checkEmptySessions(
   ];
 }
 
+export async function checkEphemeralEvalArtifacts(
+  ctx: HygieneRunContext = new HygieneRunContext(),
+): Promise<DiagResult[]> {
+  let snapshot: SessionDatabaseSnapshot;
+  try {
+    snapshot = ctx.getSnapshot();
+  } catch (error) {
+    return [
+      makeResult(
+        'database',
+        'Ephemeral eval artifacts',
+        'error',
+        `Cannot inspect eval sessions without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
+      ),
+    ];
+  }
+
+  const nowMs = Date.now();
+  const staleSessions = snapshot.ephemeralEvalSessions.filter(
+    (session) =>
+      session.lastActiveMs != null &&
+      nowMs - session.lastActiveMs >= EMPTY_SESSION_MAX_AGE_MS,
+  );
+  const directoryCandidates = listEphemeralEvalDirectoryCandidates(nowMs);
+
+  if (staleSessions.length === 0 && directoryCandidates.length === 0) {
+    return [
+      makeResult(
+        'database',
+        'Ephemeral eval artifacts',
+        'ok',
+        `No eval/locomo sessions or directories older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
+      ),
+    ];
+  }
+
+  const oldestSession =
+    staleSessions.reduce<EphemeralEvalSessionSnapshot | null>(
+      (oldest, session) => {
+        if (session.lastActiveMs == null) return oldest;
+        if (
+          oldest == null ||
+          oldest.lastActiveMs == null ||
+          session.lastActiveMs < oldest.lastActiveMs
+        ) {
+          return session;
+        }
+        return oldest;
+      },
+      null,
+    );
+  const oldestDirectoryAgeMs =
+    directoryCandidates.length > 0 ? maxCandidateAgeMs(directoryCandidates) : 0;
+  const oldestAgeMs = Math.max(
+    oldestSession?.lastActiveMs != null
+      ? Math.max(0, nowMs - oldestSession.lastActiveMs)
+      : 0,
+    oldestDirectoryAgeMs,
+  );
+
+  return [
+    makeResult(
+      'database',
+      'Ephemeral eval artifacts',
+      'warn',
+      [
+        `${staleSessions.length} stale eval/locomo ${pluralize(staleSessions.length, 'session', 'sessions')}`,
+        `${directoryCandidates.length} matching ${pluralize(directoryCandidates.length, 'directory', 'directories')}`,
+        oldestAgeMs > 0 ? `oldest ${formatAge(oldestAgeMs)}` : null,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(', '),
+      {
+        summary: `Delete ${staleSessions.length} eval/locomo ${pluralize(staleSessions.length, 'session', 'sessions')} and ${directoryCandidates.length} matching ${pluralize(directoryCandidates.length, 'directory', 'directories')}`,
+        requiresApproval: false,
+        apply: async () => {
+          deleteEphemeralEvalSessionData(staleSessions);
+          for (const candidate of directoryCandidates) {
+            removeCleanupPath(candidate.path);
+          }
+        },
+      },
+    ),
+  ];
+}
+
 export function resourceHygieneDoctorChecks(): DoctorCheck[] {
   const ctx = new HygieneRunContext();
   return [
@@ -980,6 +1190,11 @@ export function resourceHygieneDoctorChecks(): DoctorCheck[] {
       category: 'database',
       label: 'Empty sessions',
       run: () => checkEmptySessions(ctx),
+    },
+    {
+      category: 'database',
+      label: 'Ephemeral eval artifacts',
+      run: () => checkEphemeralEvalArtifacts(ctx),
     },
   ];
 }
