@@ -179,6 +179,7 @@ function createGatewayMainTestState(options?: {
       toolsUsed: ['search'],
       artifacts: [],
     })),
+    validateGatewayPromptEnvDefaults: vi.fn(),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
     initEmail: vi.fn(),
@@ -549,6 +550,7 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage: state.handleGatewayMessage,
+    validateGatewayPromptEnvDefaults: state.validateGatewayPromptEnvDefaults,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     runGatewayScheduledTask: state.runGatewayScheduledTask,
