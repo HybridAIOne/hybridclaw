@@ -1,5 +1,5 @@
 .chatPage {
-  --chat-hover-bg: color-mix(in srgb, var(--muted) 86%, var(--background) 14%);
+  --chat-hover-bg: color-mix(in srgb, var(--muted) 94%, var(--foreground) 6%);
 
   display: flex;
   width: 100%;
