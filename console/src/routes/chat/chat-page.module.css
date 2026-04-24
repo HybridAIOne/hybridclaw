@@ -450,7 +450,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   border-color: transparent;
   background: transparent;
   color: var(--muted-foreground);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: 0.82rem;
 }
 
