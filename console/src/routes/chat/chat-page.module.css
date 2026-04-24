@@ -264,30 +264,30 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .agentLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: 8px;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted-foreground);
   padding: 0 4px;
 }
 
 .agentAvatar {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   object-fit: cover;
 }
 
 .agentInitial {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   background: var(--primary);
   color: var(--primary-foreground);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
