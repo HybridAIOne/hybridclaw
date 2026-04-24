@@ -245,30 +245,49 @@ export function useChatStream(
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
 
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === streamId
-              ? {
-                  ...m,
-                  role: finalApproval ? 'approval' : 'assistant',
-                  content: finalText,
-                  messageId: result.assistantMessageId ?? null,
-                  artifacts: finalArtifacts,
-                  pendingApproval: finalApproval,
-                  replayRequest: { content, media },
-                }
-              : userMsgId &&
-                  m.id === userMsgId &&
-                  m.role === 'user' &&
-                  !m.messageId
-                ? {
-                    ...m,
-                    messageId: result.userMessageId ?? null,
-                    sessionId: result.sessionId ?? m.sessionId,
-                  }
-                : m,
-          ),
-        );
+        setMessages((prev) => {
+          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          const hasAssistant = withoutThinking.some((m) => m.id === streamId);
+          const finalizeMessage = (m: ChatUiMessage): ChatUiMessage => {
+            if (m.id === streamId) {
+              return {
+                ...m,
+                role: finalApproval ? 'approval' : 'assistant',
+                content: finalText,
+                sessionId: result.sessionId ?? m.sessionId,
+                messageId: result.assistantMessageId ?? null,
+                artifacts: finalArtifacts,
+                pendingApproval: finalApproval,
+                replayRequest: { content, media },
+              };
+            }
+            if (userMsgId && m.id === userMsgId && m.role === 'user') {
+              return {
+                ...m,
+                messageId: m.messageId ?? result.userMessageId ?? null,
+                sessionId: result.sessionId ?? m.sessionId,
+              };
+            }
+            return m;
+          };
+
+          const finalized = withoutThinking.map(finalizeMessage);
+          if (hasAssistant) return finalized;
+
+          return [
+            ...finalized,
+            {
+              id: streamId,
+              role: finalApproval ? 'approval' : 'assistant',
+              content: finalText,
+              sessionId: result.sessionId ?? req.sessionId,
+              messageId: result.assistantMessageId ?? null,
+              artifacts: finalArtifacts,
+              pendingApproval: finalApproval,
+              replayRequest: { content, media },
+            },
+          ];
+        });
 
         refreshRecent();
       } catch (err) {

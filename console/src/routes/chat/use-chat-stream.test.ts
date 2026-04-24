@@ -284,6 +284,56 @@ describe('useChatStream', () => {
     });
   });
 
+  it('replaces thinking with an assistant message for result-only slash command streams', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result: 'Session agent set to `research` (model: `gpt-5`).',
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/agent switch research', []);
+    });
+
+    expect(harness.messages).toHaveLength(2);
+    expect(
+      harness.messages.find((msg) => msg.role === 'thinking'),
+    ).toBeUndefined();
+    expect(harness.messages[0]).toMatchObject({
+      role: 'user',
+      content: '/agent switch research',
+      messageId: 'server-user-1',
+    });
+    expect(harness.messages[1]).toMatchObject({
+      id: 'msg-3',
+      role: 'assistant',
+      content: 'Session agent set to `research` (model: `gpt-5`).',
+      messageId: null,
+      replayRequest: {
+        content: '/agent switch research',
+        media: [],
+      },
+    });
+  });
+
   it('removes the thinking placeholder and appends one system error on stream failure', async () => {
     const harness = makeHarness();
 
