@@ -621,9 +621,11 @@ test('does not start WhatsApp typing after shutdown begins', async () => {
 });
 
 test('does not flush debounced WhatsApp work during shutdown', async () => {
-  const { cancelAll, runtime, upsertHandlers } = await importFreshRuntimeModule({
-    debounceInbound: true,
-  });
+  const { cancelAll, runtime, upsertHandlers } = await importFreshRuntimeModule(
+    {
+      debounceInbound: true,
+    },
+  );
   const messageHandler = vi.fn(async () => {});
 
   await runtime.initWhatsApp(messageHandler);

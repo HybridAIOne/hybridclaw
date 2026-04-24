@@ -863,13 +863,19 @@ function parseTextToolCalls(
       const tagged = extractTaggedToolCalls(responseContent);
       return tagged.toolCalls.length > 0
         ? tagged
-        : { content: stripToolMarkupFromContent(responseContent), toolCalls: [] };
+        : {
+            content: stripToolMarkupFromContent(responseContent),
+            toolCalls: [],
+          };
     }
     case 'qwen3_coder': {
       const qwen3Xml = extractQwen3CoderToolCalls(responseContent);
       return qwen3Xml.toolCalls.length > 0
         ? qwen3Xml
-        : { content: stripToolMarkupFromContent(responseContent), toolCalls: [] };
+        : {
+            content: stripToolMarkupFromContent(responseContent),
+            toolCalls: [],
+          };
     }
     case 'mistral':
       return extractMistralToolCalls(responseContent);
@@ -973,8 +979,7 @@ export function normalizeToolCalls(
       .filter((call): call is ToolCall => call !== null);
     if (normalizedToolCalls.length > 0) {
       const content =
-        options?.parser === 'qwen' ||
-        options?.parser === 'qwen3_coder'
+        options?.parser === 'qwen' || options?.parser === 'qwen3_coder'
           ? stripToolMarkupFromContent(responseContent)
           : responseContent;
       return { content, toolCalls: normalizedToolCalls };
