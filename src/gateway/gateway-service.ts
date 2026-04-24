@@ -2219,12 +2219,32 @@ function formatPercent(value: number | null): string {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
+function formatThroughput(throughput: number): string {
+  const rounded =
+    throughput >= 100
+      ? Math.round(throughput)
+      : Math.round(throughput * 10) / 10;
+  return String(rounded);
+}
+
 function formatTokensPerSecond(value: number | null): string {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value))
     return 'n/a tok/s';
-  const rounded =
-    value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded} tok/s`;
+  return `${formatThroughput(value)} tok/s`;
+}
+
+function formatPerformanceTokensPerSecond(
+  value: number | null,
+  stddev: number | null,
+): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+  const stddevLabel =
+    stddev != null && Number.isFinite(stddev)
+      ? formatThroughput(Math.max(0, stddev))
+      : 'n/a';
+  return `${formatTokensPerSecond(value)} (± ${stddevLabel})`;
 }
 
 function isLocalModelProvider(model: string | null | undefined): boolean {
@@ -3573,7 +3593,7 @@ export function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
   tokenUsage?: TokenUsageStats,
-): Record<string, number | boolean> {
+): Record<string, boolean | number | unknown[]> {
   const promptChars = messages.reduce((total, message) => {
     const content = typeof message.content === 'string' ? message.content : '';
     return total + content.length;
@@ -3623,6 +3643,9 @@ export function buildTokenUsageAuditPayload(
     apiPromptTokens,
     apiCompletionTokens,
     apiTotalTokens,
+    ...(tokenUsage?.performanceSamples?.length
+      ? { performanceSamples: tokenUsage.performanceSamples }
+      : {}),
     ...(apiCacheUsageAvailable
       ? {
           apiCacheUsageAvailable,
@@ -9361,10 +9384,12 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
-        const tokensPerSecondLabel =
-          metrics.tokensPerSecond != null
-            ? ` · ${formatTokensPerSecond(metrics.tokensPerSecond)} avg`
-            : '';
+        const performanceLabel =
+          metrics.tokensPerSecond != null ||
+          metrics.inputTokensPerSecond != null ||
+          metrics.outputTokensPerSecond != null
+            ? `⚡ Performance: Output ${formatPerformanceTokensPerSecond(metrics.outputTokensPerSecond, metrics.outputTokensPerSecondStddev)} · Input ${formatPerformanceTokensPerSecond(metrics.inputTokensPerSecond, metrics.inputTokensPerSecondStddev)} · Total ${formatPerformanceTokensPerSecond(metrics.tokensPerSecond, metrics.tokensPerSecondStddev)}`
+            : null;
         const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
         const proactiveQueued = getQueuedProactiveMessageCount();
         const cacheKnown =
@@ -9389,7 +9414,8 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${tokensPerSecondLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',

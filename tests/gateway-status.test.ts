@@ -2047,7 +2047,7 @@ test('status shows delegate model, delegate token totals, and local token share'
   );
 });
 
-test('status reports average tokens per second across recorded model.usage events', async () => {
+test('status reports input, output, and total tokens per second with stddev', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   writeRuntimeConfig(homeDir, (config) => {
@@ -2072,20 +2072,24 @@ test('status reports average tokens per second across recorded model.usage event
       provider: 'openrouter',
       model: 'openrouter/hunter-alpha',
       promptTokens: 1_000,
-      completionTokens: 200,
-      durationMs: 4_000,
-    },
-  });
-  recordAuditEvent({
-    sessionId: 'session-status-tps',
-    runId: makeAuditRunId('test'),
-    event: {
-      type: 'model.usage',
-      provider: 'openrouter',
-      model: 'openrouter/hunter-alpha',
-      promptTokens: 1_500,
       completionTokens: 100,
-      durationMs: 1_000,
+      durationMs: 2_000,
+      performanceSamples: [
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 2_000,
+          firstTextDeltaMs: 1_000,
+        },
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 1_000,
+          firstTextDeltaMs: 500,
+        },
+      ],
     },
   });
 
@@ -2100,7 +2104,9 @@ test('status reports average tokens per second across recorded model.usage event
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('60 tok/s avg');
+  expect(result.text).toContain(
+    '⚡ Performance: Output 150 tok/s (± 70.7) · Input 1500 tok/s (± 707) · Total 825 tok/s (± 389)',
+  );
 });
 
 test('agent create warns when model validation is skipped because no models are available', async () => {

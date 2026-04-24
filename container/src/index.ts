@@ -60,6 +60,8 @@ import {
   estimateMessageTokens,
   estimateTextTokens,
   finalizeTokenUsage,
+  readChatCompletionUsageTokens,
+  recordPerformanceSample,
 } from './token-usage.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
@@ -766,6 +768,15 @@ async function callHybridAIWithRetry(params: {
   while (true) {
     attempt += 1;
     const attemptStartedAt = Date.now();
+    let firstTextDeltaMs: number | null = null;
+    const wrappedOnTextDelta = onTextDelta
+      ? (delta: string) => {
+          if (delta && firstTextDeltaMs == null) {
+            firstTextDeltaMs = Date.now() - attemptStartedAt;
+          }
+          onTextDelta(delta);
+        }
+      : undefined;
     console.error(
       `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
     );
@@ -785,7 +796,7 @@ async function callHybridAIWithRetry(params: {
             requestHeaders,
             messages: history,
             tools,
-            onTextDelta,
+            onTextDelta: wrappedOnTextDelta ?? (() => undefined),
             onThinkingDelta,
             onActivity,
             maxTokens,
@@ -833,6 +844,10 @@ async function callHybridAIWithRetry(params: {
           thinkingFormat,
         });
       }
+      response.timing = {
+        durationMs: Date.now() - attemptStartedAt,
+        ...(firstTextDeltaMs != null ? { firstTextDeltaMs } : {}),
+      };
       console.error(
         `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
       );
@@ -1021,11 +1036,12 @@ async function processRequest(
       continue;
     }
 
-    tokenUsage.modelCalls += 1;
-    tokenUsage.estimatedPromptTokens += estimateMessageTokens(
+    const estimatedPromptTokensForCall = estimateMessageTokens(
       history,
       tokenEstimateCache,
     );
+    tokenUsage.modelCalls += 1;
+    tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     const modelCallTextDeltas: string[] = [];
@@ -1097,14 +1113,31 @@ async function processRequest(
       return failed;
     }
 
-    tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+    let estimatedCompletionTokensForCall = estimateTextTokens(
       choice.message.content,
     );
     if (choice.message.tool_calls?.length) {
-      tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+      estimatedCompletionTokensForCall += estimateTextTokens(
         JSON.stringify(choice.message.tool_calls),
       );
     }
+    tokenUsage.estimatedCompletionTokens += estimatedCompletionTokensForCall;
+    const apiUsageTokens = readChatCompletionUsageTokens(response);
+    const promptTokensForSample =
+      apiUsageTokens?.promptTokens ?? estimatedPromptTokensForCall;
+    const completionTokensForSample =
+      apiUsageTokens?.completionTokens ?? estimatedCompletionTokensForCall;
+    recordPerformanceSample(tokenUsage, {
+      promptTokens: promptTokensForSample,
+      completionTokens: completionTokensForSample,
+      totalTokens:
+        apiUsageTokens?.totalTokens ??
+        promptTokensForSample + completionTokensForSample,
+      durationMs: response.timing?.durationMs ?? 0,
+      ...(response.timing?.firstTextDeltaMs != null
+        ? { firstTextDeltaMs: response.timing.firstTextDeltaMs }
+        : {}),
+    });
 
     const toolCalls = choice.message.tool_calls || [];
     const invalidToolCallError = validateStructuredToolCalls(toolCalls);
