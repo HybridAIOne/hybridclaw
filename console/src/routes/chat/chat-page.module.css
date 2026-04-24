@@ -1,4 +1,6 @@
 .chatPage {
+  --chat-hover-bg: color-mix(in srgb, var(--muted) 78%, var(--foreground) 6%);
+
   display: flex;
   width: 100%;
   height: 100dvh;
@@ -49,7 +51,7 @@
 }
 
 .newChatButton:hover {
-  background: var(--panel-bg);
+  background: var(--chat-hover-bg);
 }
 
 .newChatButton > span:first-child {
@@ -98,7 +100,7 @@
 }
 
 .sessionItem:hover {
-  background: var(--panel-bg);
+  background: var(--chat-hover-bg);
 }
 
 .sessionItemActive .sessionTitle,
@@ -453,7 +455,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .messageActions .actionButton:hover {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--foreground);
 }
 
@@ -479,7 +481,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .branchButton:hover {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -735,7 +737,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .attachButton:hover {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -791,7 +793,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .agentSelectWrap:has(.agentSelect:hover:not(:disabled)),
 .agentSelectWrap:has(.agentSelect:focus) {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -808,7 +810,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .sendButton:hover:not(:disabled) {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -848,7 +850,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .suggestionItem:hover,
 .suggestionItemActive {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
 }
 
 .suggestionLabel {
