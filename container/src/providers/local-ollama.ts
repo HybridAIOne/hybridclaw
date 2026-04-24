@@ -272,7 +272,9 @@ export async function callOllamaProviderStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta);
+  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
+    onThinkingDelta: args.onThinkingDelta,
+  });
 
   let buffer = '';
   let sawPayload = false;

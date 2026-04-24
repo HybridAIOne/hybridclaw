@@ -448,11 +448,34 @@ function adaptLocalOpenAICompatResponse(
     extractStructuredReasoning(message),
   );
   const thinking = extractThinkingBlocks(rawContent);
-  const normalized = normalizeToolCalls(
+  const normalizationOptions = buildToolCallNormalizationOptions(params);
+  const hasStructuredToolCalls =
+    Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
+  const normalizedContentInput =
+    hasStructuredToolCalls && thinking.thinkingOnly ? null : thinking.content;
+  let normalized = normalizeToolCalls(
     message?.tool_calls,
-    thinking.content,
-    buildToolCallNormalizationOptions(params),
+    normalizedContentInput,
+    normalizationOptions,
   );
+  if (
+    normalized.toolCalls.length === 0 &&
+    thinking.thinking &&
+    (normalizationOptions.parser === 'qwen' ||
+      normalizationOptions.parser === 'qwen3_coder')
+  ) {
+    const thinkingToolCalls = normalizeToolCalls(
+      undefined,
+      thinking.thinking,
+      normalizationOptions,
+    );
+    if (thinkingToolCalls.toolCalls.length > 0) {
+      normalized = {
+        content: thinking.thinkingOnly ? null : normalized.content,
+        toolCalls: thinkingToolCalls.toolCalls,
+      };
+    }
+  }
   return {
     ...payload,
     choices: [
@@ -466,8 +489,9 @@ function adaptLocalOpenAICompatResponse(
             : {}),
         },
         finish_reason:
-          choice?.finish_reason ||
-          (normalized.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+          normalized.toolCalls.length > 0
+            ? 'tool_calls'
+            : choice?.finish_reason || 'stop',
       },
     ],
   };
@@ -486,6 +510,110 @@ function emitResponseTextDeltas(
   for (const part of content) {
     if (part.type === 'text' && part.text) onTextDelta(part.text);
   }
+}
+
+function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
+  push: (delta: string) => void;
+  close: () => void;
+} {
+  const startMarkers = ['<tool_call>', '<tool>', '[tool_call]', '<function='];
+  const endMarkerByStartMarker = new Map([
+    ['<tool_call>', '</tool_call>'],
+    ['<tool>', '</tool>'],
+    ['[tool_call]', '[/tool_call]'],
+    ['<function=', '</function>'],
+  ]);
+  let buffer = '';
+  let insideToolMarkup = false;
+  let currentEndMarker = '';
+
+  const findEarliestMarker = (
+    markers: string[],
+  ): { index: number; marker: string } | null => {
+    let earliest: { index: number; marker: string } | null = null;
+    const lower = buffer.toLowerCase();
+    for (const marker of markers) {
+      const index = lower.indexOf(marker);
+      if (index < 0) continue;
+      if (!earliest || index < earliest.index) {
+        earliest = { index, marker };
+      }
+    }
+    return earliest;
+  };
+  const findPartialStartSuffixLength = (): number => {
+    const lower = buffer.toLowerCase();
+    let longest = 0;
+    for (const marker of startMarkers) {
+      const normalizedMarker = marker.toLowerCase();
+      const maxLength = Math.min(normalizedMarker.length - 1, lower.length);
+      for (let length = maxLength; length > longest; length -= 1) {
+        if (lower.endsWith(normalizedMarker.slice(0, length))) {
+          longest = length;
+          break;
+        }
+      }
+    }
+    return longest;
+  };
+
+  const stripTrailingToolArtifact = (text: string): string =>
+    text
+      .replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '')
+      .replace(/(?:^|[\s#])[A-Za-z]{1,3}\.$/, (match) =>
+        match.startsWith(' ') ? ' ' : '',
+      );
+
+  const emit = (text: string): void => {
+    if (text) onTextDelta(text);
+  };
+
+  const flush = (final = false): void => {
+    while (buffer) {
+      if (insideToolMarkup) {
+        const end = findEarliestMarker([currentEndMarker]);
+        if (!end) {
+          buffer = final ? '' : buffer.slice(-(currentEndMarker.length - 1));
+          return;
+        }
+        buffer = buffer.slice(end.index + end.marker.length);
+        insideToolMarkup = false;
+        currentEndMarker = '';
+        continue;
+      }
+
+      const start = findEarliestMarker(startMarkers);
+      if (start) {
+        emit(stripTrailingToolArtifact(buffer.slice(0, start.index)));
+        buffer = buffer.slice(start.index + start.marker.length);
+        insideToolMarkup = true;
+        currentEndMarker = endMarkerByStartMarker.get(start.marker) || '';
+        continue;
+      }
+
+      const holdbackChars = final ? 0 : findPartialStartSuffixLength();
+      if (!final && buffer.length <= holdbackChars) return;
+      const emitLength = buffer.length - holdbackChars;
+      emit(
+        final
+          ? stripTrailingToolArtifact(buffer.slice(0, emitLength))
+          : buffer.slice(0, emitLength),
+      );
+      buffer = buffer.slice(emitLength);
+      if (!final) return;
+    }
+  };
+
+  return {
+    push(delta: string): void {
+      if (!delta) return;
+      buffer += delta;
+      flush();
+    },
+    close(): void {
+      flush(true);
+    },
+  };
 }
 
 export async function callLocalOpenAICompatProvider(
@@ -571,7 +699,26 @@ export async function callLocalOpenAICompatProviderStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta);
+  const normalizationOptions = buildToolCallNormalizationOptions({
+    provider: args.provider,
+    model: args.model,
+  });
+  const shouldFilterQwenMarkup =
+    args.thinkingFormat === 'qwen' ||
+    normalizationOptions.parser === 'qwen' ||
+    normalizationOptions.parser === 'qwen3_coder';
+  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
+    onThinkingDelta: args.onThinkingDelta,
+  });
+  const qwenVisibleFilter = shouldFilterQwenMarkup
+    ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
+    : null;
+  const qwenReasoningFilter = shouldFilterQwenMarkup
+    ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
+    : null;
+  const flushReasoningPreview = (): void => {
+    qwenReasoningFilter?.close();
+  };
 
   let buffer = '';
   let streamId = '';
@@ -625,7 +772,10 @@ export async function callLocalOpenAICompatProviderStream(
           : nextRawContent;
         rawTextContent = nextRawContent;
         if (delta) {
-          if (/[<]\/?think[>]/i.test(delta)) {
+          flushReasoningPreview();
+          if (qwenVisibleFilter) {
+            qwenVisibleFilter.push(delta);
+          } else if (/[<]\/?think[>]/i.test(delta)) {
             streamEmitter.pushRaw(delta);
           } else {
             streamEmitter.pushVisible(delta);
@@ -639,7 +789,11 @@ export async function callLocalOpenAICompatProviderStream(
           : messageReasoning;
         rawReasoningContent = messageReasoning;
         if (reasoningDelta) {
-          streamEmitter.pushThinking(reasoningDelta);
+          if (qwenReasoningFilter) {
+            qwenReasoningFilter.push(reasoningDelta);
+          } else {
+            streamEmitter.pushThinking(reasoningDelta);
+          }
         }
       }
       if (
@@ -666,7 +820,10 @@ export async function callLocalOpenAICompatProviderStream(
       }
       if (typeof choice.delta.content === 'string' && choice.delta.content) {
         rawTextContent += choice.delta.content;
-        if (/[<]\/?think[>]/i.test(choice.delta.content)) {
+        flushReasoningPreview();
+        if (qwenVisibleFilter) {
+          qwenVisibleFilter.push(choice.delta.content);
+        } else if (/[<]\/?think[>]/i.test(choice.delta.content)) {
           streamEmitter.pushRaw(choice.delta.content);
         } else {
           streamEmitter.pushVisible(choice.delta.content);
@@ -675,7 +832,11 @@ export async function callLocalOpenAICompatProviderStream(
       const deltaReasoning = extractStructuredReasoning(choice.delta);
       if (deltaReasoning) {
         rawReasoningContent += deltaReasoning;
-        streamEmitter.pushThinking(deltaReasoning);
+        if (qwenReasoningFilter) {
+          qwenReasoningFilter.push(deltaReasoning);
+        } else {
+          streamEmitter.pushThinking(deltaReasoning);
+        }
       }
       if (
         Array.isArray(choice.delta.tool_calls) &&
@@ -729,6 +890,8 @@ export async function callLocalOpenAICompatProviderStream(
     throw new Error('Streaming response ended without payload');
   }
 
+  qwenVisibleFilter?.close();
+  qwenReasoningFilter?.close();
   streamEmitter.close();
 
   return adaptLocalOpenAICompatResponse(

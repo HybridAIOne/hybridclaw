@@ -60,6 +60,7 @@ export interface RoutedModelCallParams extends RoutedModelContext {
 
 export interface RoutedModelStreamCallParams extends RoutedModelCallParams {
   onTextDelta: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
 }
 
@@ -97,6 +98,7 @@ function buildStreamCallArgs(
   return {
     ...buildCallArgs(params),
     onTextDelta: params.onTextDelta,
+    onThinkingDelta: params.onThinkingDelta,
     onActivity: params.onActivity,
   };
 }

@@ -128,6 +128,9 @@ async function importFreshRuntimeModule(options?: {
     pendingBatch = null;
     await batch.onFlush(batch.item);
   });
+  const cancelAll = vi.fn(() => {
+    pendingBatch = null;
+  });
   vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
     createWhatsAppDebouncer: vi.fn(
       (onFlush: (item: unknown) => Promise<void>) => ({
@@ -136,6 +139,7 @@ async function importFreshRuntimeModule(options?: {
         }),
         clearAll: clearAllDebouncedWhatsApp,
         flushAll: flushAllDebouncedWhatsApp,
+        cancelAll,
       }),
     ),
     shouldDebounceWhatsAppInbound: vi.fn(() => debounceInbound),
@@ -174,6 +178,13 @@ async function importFreshRuntimeModule(options?: {
     setAckReaction: (nextAckReaction: string) => {
       currentAckReaction = nextAckReaction;
     },
+    flushPendingDebounce: async () => {
+      if (!pendingBatch) return;
+      const batch = pendingBatch;
+      pendingBatch = null;
+      await batch.onFlush(batch.item);
+    },
+    cancelAll,
     socket,
     upsertHandlers,
   };
@@ -440,6 +451,7 @@ test('clears WhatsApp ack reactions after the turn completes', async () => {
 
 test('cancels debounced WhatsApp batches during shutdown', async () => {
   const {
+    cancelAll,
     clearAllDebouncedWhatsApp,
     clearWhatsAppReaction,
     flushAllDebouncedWhatsApp,
@@ -485,7 +497,8 @@ test('cancels debounced WhatsApp batches during shutdown', async () => {
       }),
     }),
   );
-  expect(clearAllDebouncedWhatsApp).toHaveBeenCalledTimes(1);
+  expect(cancelAll).toHaveBeenCalledTimes(1);
+  expect(clearAllDebouncedWhatsApp).not.toHaveBeenCalled();
   expect(flushAllDebouncedWhatsApp).not.toHaveBeenCalled();
   expect(messageHandler).not.toHaveBeenCalled();
   expect(clearWhatsAppReaction).not.toHaveBeenCalled();
@@ -605,6 +618,39 @@ test('does not start WhatsApp typing after shutdown begins', async () => {
     'composing',
     '491703330161@s.whatsapp.net',
   );
+});
+
+test('does not flush debounced WhatsApp work during shutdown', async () => {
+  const { cancelAll, runtime, upsertHandlers } = await importFreshRuntimeModule(
+    {
+      debounceInbound: true,
+    },
+  );
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-debounce-shutdown-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'shutdown should cancel this',
+        },
+      },
+    ],
+  });
+
+  await runtime.shutdownWhatsApp();
+
+  expect(cancelAll).toHaveBeenCalledTimes(1);
+  expect(messageHandler).not.toHaveBeenCalled();
 });
 
 test('prefixes self-chat replies with [hybridclaw]', async () => {

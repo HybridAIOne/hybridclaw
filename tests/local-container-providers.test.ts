@@ -826,6 +826,116 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('OpenAI-compatible Qwen stream strips tool markup from structured reasoning', async () => {
+    const deltas: string[] = [];
+    const thinkingDeltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"Qwen/Qwen3.6-27B-FP8","choices":[{"delta":{"reasoning":"Think"}}]}\n\n',
+          'data: {"choices":[{"delta":{"reasoning":" first."}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"\\n\\n"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"I will read #t.<tool"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"_call>\\n<function=message>\\n<parameter=action>\\nread\\n</parameter>\\n"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"<parameter=channelId>\\n1412305847249535139\\n</parameter>\\n</function>\\n</tool_call>"}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"message","arguments":""}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"action\\":\\"read\\""}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":",\\"channelId\\":\\"1412305847249535139\\",\\"limit\\":20}"}}]}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      onThinkingDelta: (delta) => thinkingDeltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: 'qwen',
+    });
+
+    expect(thinkingDeltas.join('')).toBe('Think first.');
+    expect(deltas.join('')).toBe('\n\nI will read #t.');
+    expect(deltas.join('')).not.toContain('<think>');
+    expect(deltas.join('')).not.toContain('<tool_call>');
+    expect(deltas.join('')).not.toContain('<function=');
+    expect(result.choices[0]?.message.content).toBe('I will read');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: 'call_1',
+        type: 'function',
+        function: {
+          name: 'message',
+          arguments:
+            '{"action":"read","channelId":"1412305847249535139","limit":20}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('OpenAI-compatible Qwen stream extracts tool calls from reasoning-only markup', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"Qwen/Qwen3.6-27B-FP8","choices":[{"delta":{"reasoning":"#hybridclaw. Let me read from #t.<tool_call>\\n<function=message>\\n<parameter=action>\\nchannel-info\\n</parameter>\\n"}}]}\n\n',
+          'data: {"choices":[{"delta":{"reasoning":"<parameter=channelId>\\naidev\\n</parameter>\\n</function>\\n</tool_call>"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: 'qwen',
+    });
+
+    expect(deltas.join('')).toBe(
+      '<think>#hybridclaw. Let me read from </think>',
+    );
+    expect(deltas.join('')).not.toContain('<tool_call>');
+    expect(deltas.join('')).not.toContain('<function=');
+    expect(result.choices[0]?.message.content).toBeNull();
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'message',
+          arguments: '{"action":"channel-info","channelId":"aidev"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
   test('OpenAI-compatible provider recovers blank tool names from Mistral content', async () => {
     vi.stubGlobal(
       'fetch',

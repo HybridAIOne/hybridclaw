@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { executeCommand } from '../../api/chat';
 import type {
@@ -9,6 +10,10 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
+import {
+  type ChatHistoryUiData,
+  chatHistoryQueryKey,
+} from './chat-history-query';
 import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 
 interface ActiveRequest {
@@ -25,10 +30,9 @@ interface UseChatStreamOptions {
   token: string;
   userId: string;
   getSessionId: () => string;
-  setMessages: React.Dispatch<React.SetStateAction<ChatUiMessage[]>>;
-  setSessionId: (id: string) => void;
   setError: (err: string) => void;
   refreshRecent: () => void;
+  onSessionIdCorrection: (serverSessionId: string) => void;
 }
 
 export interface UseChatStreamReturn {
@@ -52,15 +56,39 @@ export function useChatStream(
     token,
     userId,
     getSessionId,
-    setMessages,
-    setSessionId,
     setError,
     refreshRecent,
+    onSessionIdCorrection,
   } = options;
 
+  const queryClient = useQueryClient();
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+
+  // Writes must be bound to the sessionId captured when the send started —
+  // reading `getSessionId()` at write time would race with navigation and
+  // clobber a different session's cache entry.
+  const writeMessages = useCallback(
+    (
+      sessionId: string,
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+    ) => {
+      const key = chatHistoryQueryKey(token, sessionId);
+      queryClient.setQueryData<ChatHistoryUiData>(key, (prev) => {
+        const prevMessages = prev?.messages ?? [];
+        const nextMessages =
+          typeof updater === 'function' ? updater(prevMessages) : updater;
+        if (nextMessages === prevMessages) return prev;
+        return {
+          messages: nextMessages,
+          branchFamilies: prev?.branchFamilies ?? new Map(),
+          resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+        };
+      });
+    },
+    [queryClient, token],
+  );
 
   const sendMessage = useCallback(
     async (
@@ -76,6 +104,9 @@ export function useChatStream(
       }
 
       const targetSessionId = getSessionId();
+      const setMessages = (
+        updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+      ) => writeMessages(targetSessionId, updater);
       const userMsgId = !opts?.hideUser ? nextMsgId() : null;
       setError('');
 
@@ -204,8 +235,8 @@ export function useChatStream(
           throw new Error(result.error ?? 'Unknown error');
         }
 
-        if (result.sessionId) {
-          setSessionId(result.sessionId);
+        if (result.sessionId && result.sessionId !== targetSessionId) {
+          onSessionIdCorrection(result.sessionId);
         }
 
         flushRender();
@@ -268,8 +299,8 @@ export function useChatStream(
       token,
       userId,
       getSessionId,
-      setMessages,
-      setSessionId,
+      writeMessages,
+      onSessionIdCorrection,
       setError,
       refreshRecent,
     ],
