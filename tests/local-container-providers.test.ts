@@ -402,7 +402,6 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
         {
@@ -578,7 +577,6 @@ describe('local container providers', () => {
         unknown
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(body.stop).toEqual(['<|im_end|>', '<|im_start|>']);
       expect(messages).toEqual([
         {
           role: 'system',
@@ -632,13 +630,8 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('non-qwen local provider does not send chat-template stop sequences', async () => {
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body || '{}')) as Record<
-        string,
-        unknown
-      >;
-      expect(body.stop).toBeUndefined();
+  test('non-qwen local provider handles chat completions', async () => {
+    const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -918,7 +911,7 @@ describe('local container providers', () => {
     });
 
     expect(deltas.join('')).toBe(
-      '<think>#hybridclaw. Let me read from </think>',
+      '<think>#hybridclaw. Let me read from #t.</think>',
     );
     expect(deltas.join('')).not.toContain('<tool_call>');
     expect(deltas.join('')).not.toContain('<function=');

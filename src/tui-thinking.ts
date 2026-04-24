@@ -247,14 +247,15 @@ export function createTuiThinkingStreamState(): {
       rawContent += String(delta || '');
       const extracted = extractThinkingBlocks(rawContent);
       if (extracted.thinking !== null) sawThinking = true;
-      const nextVisible = extracted.thinkingOnly ? '' : extracted.content || '';
+      const nextVisible = (
+        extracted.thinkingOnly ? '' : extracted.content || ''
+      ).trimStart();
       const rawVisibleDelta = nextVisible.startsWith(emittedVisibleContent)
         ? nextVisible.slice(emittedVisibleContent.length)
         : nextVisible;
       emittedVisibleContent = nextVisible;
       const visibleDelta = visibleThinkingArtifactGate.push(
         visibleToolMarkupGate.push(rawVisibleDelta),
-        sawThinking,
       );
       return {
         visibleDelta,
@@ -279,7 +280,7 @@ export function createTuiThinkingStreamState(): {
 }
 
 function createVisibleThinkingArtifactGate(): {
-  push: (delta: string, sawThinking: boolean) => string;
+  push: (delta: string) => string;
 } {
   const closingMarker = '</think>';
   let buffer = '';
@@ -301,25 +302,15 @@ function createVisibleThinkingArtifactGate(): {
   };
 
   return {
-    push(delta: string, sawThinking: boolean): string {
+    push(delta: string): string {
       if (!delta) return '';
       buffer += delta;
       buffer = stripVisibleThinkingArtifacts(buffer);
-      if (sawThinking) {
-        buffer = buffer.replace(/^\s*[a-z]\.\s*\n+/i, '');
-      }
 
       const partialClosingLength = findPartialClosingSuffixLength();
       const partialClosingIndex =
         partialClosingLength > 0 ? buffer.length - partialClosingLength : -1;
-      const artifactMatch = sawThinking
-        ? buffer.match(/(?:^|\n)[a-z]\.\s*$/i)
-        : null;
-      const artifactIndex =
-        artifactMatch?.index == null ? -1 : artifactMatch.index;
-      const holdIndex = [partialClosingIndex, artifactIndex]
-        .filter((index) => index >= 0)
-        .sort((left, right) => left - right)[0];
+      const holdIndex = partialClosingIndex >= 0 ? partialClosingIndex : null;
 
       if (holdIndex != null) {
         const output = buffer.slice(0, holdIndex);
@@ -421,7 +412,6 @@ function createToolMarkupStreamGate(): {
 
 function stripVisibleThinkingArtifacts(text: string): string {
   return String(text || '')
-    .replace(/(?:^|\n)[a-z]\.\s*\n<\/think>\s*/gi, '\n')
     .replace(/<\/think>\s*/gi, '')
     .replace(/<think>[\s\S]*$/gi, '')
     .replace(/\n{3,}/g, '\n\n');

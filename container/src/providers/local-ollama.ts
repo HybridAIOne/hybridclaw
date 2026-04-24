@@ -5,6 +5,9 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  emitRawNdjsonLineDebug,
+  logLastPrompt,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
@@ -222,13 +225,27 @@ function emitResponseTextDeltas(
 export async function callOllamaProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildRequestBody(args, false);
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'ollama_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(args.requestHeaders || {}),
     },
-    body: JSON.stringify(buildRequestBody(args, false)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -236,6 +253,14 @@ export async function callOllamaProvider(
   }
 
   const payload = (await response.json()) as OllamaStreamPayload;
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
   return adaptOllamaPayload(
     payload,
     payload.message?.content || '',
@@ -247,6 +272,20 @@ export async function callOllamaProvider(
 export async function callOllamaProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildRequestBody(args, true);
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'ollama_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/api/chat`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/api/chat`, {
     method: 'POST',
     headers: {
@@ -254,7 +293,7 @@ export async function callOllamaProviderStream(
       Accept: 'application/x-ndjson, application/json',
       ...(args.requestHeaders || {}),
     },
-    body: JSON.stringify(buildRequestBody(args, true)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -293,6 +332,7 @@ export async function callOllamaProviderStream(
       buffer = lines.pop() || '';
 
       for (const line of lines) {
+        emitRawNdjsonLineDebug(args, line);
         const trimmed = line.trim();
         if (!trimmed) continue;
         let payload: OllamaStreamPayload;
@@ -337,6 +377,7 @@ export async function callOllamaProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawNdjsonLineDebug(args, buffer);
       try {
         const payload = JSON.parse(buffer.trim()) as OllamaStreamPayload;
         args.onActivity?.();

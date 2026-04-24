@@ -208,6 +208,92 @@ test('handleGatewayMessage can auto-approve tools for eval requests without enab
   );
 });
 
+test('handleGatewayMessage uses gateway system prompt mode defaults for container prompt skipping', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { GATEWAY_SYSTEM_PROMPT_MODE_ENV } = await import(
+    '../src/gateway/gateway-lifecycle.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] = 'none';
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  try {
+    const result = await handleGatewayMessage({
+      sessionId: 'session-gateway-system-prompt-mode-none',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'alice',
+      content: 'Hi!',
+      model: 'test-model',
+      chatbotId: 'bot-1',
+    });
+
+    expect(result.status).toBe('success');
+    expect(runAgentMock).toHaveBeenCalledTimes(1);
+    expect(runAgentMock.mock.calls[0]?.[0]?.skipContainerSystemPrompt).toBe(
+      true,
+    );
+    const messages = runAgentMock.mock.calls[0]?.[0]?.messages as
+      | Array<{ role?: string; content?: string }>
+      | undefined;
+    expect(messages).toEqual([{ role: 'user', content: 'Hi!' }]);
+  } finally {
+    delete process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV];
+  }
+});
+
+test('handleGatewayMessage uses gateway tools mode defaults for tool ablation', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { GATEWAY_TOOLS_MODE_ENV } = await import(
+    '../src/gateway/gateway-lifecycle.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  process.env[GATEWAY_TOOLS_MODE_ENV] = 'none';
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  try {
+    const result = await handleGatewayMessage({
+      sessionId: 'session-gateway-tools-mode-none',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'alice',
+      content: 'Hi!',
+      model: 'test-model',
+      chatbotId: 'bot-1',
+    });
+
+    expect(result.status).toBe('success');
+    expect(runAgentMock).toHaveBeenCalledTimes(1);
+    expect(runAgentMock.mock.calls[0]?.[0]?.allowedTools).toEqual([]);
+  } finally {
+    delete process.env[GATEWAY_TOOLS_MODE_ENV];
+  }
+});
+
 test('setGatewayAdminSkillEnabled stores per-channel disabled skills separately', async () => {
   setupHome();
 

@@ -116,6 +116,7 @@ let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
+let currentModelDebugResponses = false;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -735,6 +736,7 @@ export function setModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
@@ -746,6 +748,7 @@ export function setModelContext(
     typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
       ? Math.floor(maxTokens)
       : undefined;
+  currentModelDebugResponses = debugModelResponses;
   setBrowserModelContext(
     provider,
     providerMethod,
@@ -755,6 +758,7 @@ export function setModelContext(
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    debugModelResponses,
   );
 }
 
@@ -1920,6 +1924,7 @@ function currentAuxiliaryFallbackContext() {
     chatbotId: currentChatbotId,
     requestHeaders: { ...currentModelHeaders },
     maxTokens: currentModelMaxTokens,
+    debugModelResponses: currentModelDebugResponses,
   };
 }
 

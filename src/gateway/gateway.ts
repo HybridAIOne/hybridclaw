@@ -137,7 +137,10 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
-import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  handleGatewayMessage,
+  validateGatewayPromptEnvDefaults,
+} from './gateway-chat-service.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
@@ -2739,6 +2742,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  validateGatewayPromptEnvDefaults();
   initDatabase();
   listAgents();
   await initGatewayService();

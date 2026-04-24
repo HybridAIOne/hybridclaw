@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
+import {
+  type PromptPartName,
+  parsePromptPartList,
+} from '../agent/prompt-parts.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
@@ -77,6 +82,11 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
+import {
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
+} from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
@@ -113,6 +123,77 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function readGatewayPromptModeDefault(): PromptMode | undefined {
+  const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'full' || raw === 'minimal' || raw === 'none') return raw;
+  throw new Error(
+    `Invalid value for ${GATEWAY_SYSTEM_PROMPT_MODE_ENV}: ${raw}. Use full, minimal, or none.`,
+  );
+}
+
+function readGatewayToolsDisabledDefault(): boolean {
+  const raw = String(process.env[GATEWAY_TOOLS_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw || raw === 'full') return false;
+  if (raw === 'none') return true;
+  throw new Error(
+    `Invalid value for ${GATEWAY_TOOLS_MODE_ENV}: ${raw}. Use full or none.`,
+  );
+}
+
+function readGatewayPromptPartDefault(
+  envName: string,
+  flagName: string,
+): PromptPartName[] | undefined {
+  const raw = String(process.env[envName] || '').trim();
+  if (!raw) return undefined;
+  try {
+    return parsePromptPartList(raw, flagName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid value for ${envName}: ${message}`);
+  }
+}
+
+export function validateGatewayPromptEnvDefaults(): void {
+  readGatewayPromptModeDefault();
+  readGatewayToolsDisabledDefault();
+  readGatewayPromptPartDefault(
+    GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+    '--system-prompt',
+  );
+}
+
+function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
+  promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
+  toolsDisabled: boolean;
+} {
+  const promptMode = req.promptMode ?? readGatewayPromptModeDefault();
+  const toolsDisabled = readGatewayToolsDisabledDefault();
+  const includePromptParts =
+    req.includePromptParts ??
+    readGatewayPromptPartDefault(
+      GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+      '--system-prompt',
+    );
+  return {
+    ...(promptMode ? { promptMode } : {}),
+    ...(includePromptParts && includePromptParts.length > 0
+      ? { includePromptParts }
+      : {}),
+    ...(req.omitPromptParts && req.omitPromptParts.length > 0
+      ? { omitPromptParts: req.omitPromptParts }
+      : {}),
+    toolsDisabled,
+  };
+}
 
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
@@ -700,6 +781,7 @@ async function handleGatewayMessageInner(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
+  const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const { messages, skills, historyStats, explicitSkillInvocation } =
     buildConversationContext({
       agentId,
@@ -709,9 +791,9 @@ async function handleGatewayMessageInner(
         : pluginPromptSummary,
       history,
       currentUserContent: effectiveUserTurnContent,
-      promptMode: req.promptMode,
-      includePromptParts: req.includePromptParts,
-      omitPromptParts: req.omitPromptParts,
+      promptMode: promptPartDefaults.promptMode,
+      includePromptParts: promptPartDefaults.includePromptParts,
+      omitPromptParts: promptPartDefaults.omitPromptParts,
       extraSafetyText: fullAutoOperatingContract,
       runtimeInfo: {
         chatbotId,
@@ -724,6 +806,7 @@ async function handleGatewayMessageInner(
         sessionContext,
         workspacePath: workspaceDisplayPath,
       },
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
     });
   const historyStart =
@@ -903,7 +986,7 @@ async function handleGatewayMessageInner(
       agentId,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-      skipContainerSystemPrompt: req.promptMode === 'none',
+      skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
       maxTokens: req.maxTokens,
       maxWallClockMs: req.maxWallClockMs,
       inactivityTimeoutMs: req.inactivityTimeoutMs,
@@ -913,6 +996,7 @@ async function handleGatewayMessageInner(
       fullAutoEnabled: autoApproveTools || isFullAutoEnabled(session),
       fullAutoNeverApproveTools: neverAutoApproveTools,
       scheduledTasks,
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta: emitTextDeltas,
       onThinkingDelta: emitThinkingDeltas,

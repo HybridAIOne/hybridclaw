@@ -231,17 +231,17 @@ test('strips Qwen tool markup from transient thinking previews', () => {
   });
 });
 
-test('suppresses unmatched thinking close tails from visible stream text', () => {
+test('suppresses unmatched thinking close markers from visible stream text', () => {
   const state = createTuiThinkingStreamState();
 
   expect(state.push('s.\n</think>\n\nVisible answer')).toEqual({
-    visibleDelta: '\nVisible answer',
+    visibleDelta: 's.\nVisible answer',
     thinkingPreview: null,
     sawThinking: false,
   });
 });
 
-test('holds split thinking close tails out of the visible stream', () => {
+test('holds split thinking close markers out of the visible stream', () => {
   const state = createTuiThinkingStreamState();
 
   expect(state.push('<think>plan</think>')).toEqual({
@@ -250,7 +250,7 @@ test('holds split thinking close tails out of the visible stream', () => {
     sawThinking: true,
   });
   expect(state.push('s.\n')).toEqual({
-    visibleDelta: '',
+    visibleDelta: 's.',
     thinkingPreview: 'plan',
     sawThinking: true,
   });
@@ -261,7 +261,7 @@ test('holds split thinking close tails out of the visible stream', () => {
   });
 });
 
-test('drops leading single-letter thinking tails before visible text', () => {
+test('preserves single-letter sentence fragments before visible text', () => {
   const state = createTuiThinkingStreamState();
 
   expect(state.pushThinking('checking')).toEqual({
@@ -269,9 +269,43 @@ test('drops leading single-letter thinking tails before visible text', () => {
     sawThinking: true,
   });
   expect(state.push("g.\nHere's a digest")).toEqual({
-    visibleDelta: "Here's a digest",
+    visibleDelta: "g.\nHere's a digest",
     thinkingPreview: null,
     sawThinking: true,
+  });
+});
+
+test('does not drop single-letter sentence endings after visible text started', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.pushThinking('checking')).toEqual({
+    thinkingPreview: 'checking',
+    sawThinking: true,
+  });
+  expect(state.push('Not a long life, but a well-lived lif')).toEqual({
+    visibleDelta: 'Not a long life, but a well-lived lif',
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+  expect(state.push('e.\n\nWhat of you, Ben?')).toEqual({
+    visibleDelta: 'e.\n\nWhat of you, Ben?',
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+});
+
+test('trims leading whitespace before first visible streamed text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('\n\nFinal answer')).toEqual({
+    visibleDelta: 'Final answer',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(state.push(' continues')).toEqual({
+    visibleDelta: ' continues',
+    thinkingPreview: null,
+    sawThinking: false,
   });
 });
 

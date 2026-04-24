@@ -10,6 +10,9 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  emitRawSseLineDebug,
+  logLastPrompt,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
@@ -147,11 +150,6 @@ function usesQwenCompat(args: {
     .trim()
     .toLowerCase();
   return normalizedModel.includes('qwen') || normalizedModel.includes('qwq');
-}
-
-function resolveStopSequences(args: NormalizedCallArgs): string[] | undefined {
-  if (!usesQwenCompat(args)) return undefined;
-  return ['<|im_end|>', '<|im_start|>'];
 }
 
 function usesLiquidCompat(args: {
@@ -298,10 +296,6 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     tools: args.tools,
     tool_choice: 'auto',
   };
-  const stopSequences = resolveStopSequences(args);
-  if (stopSequences && stopSequences.length > 0) {
-    request.stop = stopSequences;
-  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
@@ -557,12 +551,8 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
     return longest;
   };
 
-  const stripTrailingToolArtifact = (text: string): string =>
-    text
-      .replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '')
-      .replace(/(?:^|[\s#])[A-Za-z]{1,3}\.$/, (match) =>
-        match.startsWith(' ') ? ' ' : '',
-      );
+  const stripTrailingPartialToolMarker = (text: string): string =>
+    text.replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '');
 
   const emit = (text: string): void => {
     if (text) onTextDelta(text);
@@ -584,7 +574,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
 
       const start = findEarliestMarker(startMarkers);
       if (start) {
-        emit(stripTrailingToolArtifact(buffer.slice(0, start.index)));
+        emit(stripTrailingPartialToolMarker(buffer.slice(0, start.index)));
         buffer = buffer.slice(start.index + start.marker.length);
         insideToolMarkup = true;
         currentEndMarker = endMarkerByStartMarker.get(start.marker) || '';
@@ -596,7 +586,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
       const emitLength = buffer.length - holdbackChars;
       emit(
         final
-          ? stripTrailingToolArtifact(buffer.slice(0, emitLength))
+          ? stripTrailingPartialToolMarker(buffer.slice(0, emitLength))
           : buffer.slice(0, emitLength),
       );
       buffer = buffer.slice(emitLength);
@@ -619,6 +609,20 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const requestBody = buildRequestBody(args);
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'openai_compatible_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        body: requestBody,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
     {
@@ -627,7 +631,7 @@ export async function callLocalOpenAICompatProvider(
         ...buildHeaders(args.apiKey),
         ...(args.requestHeaders || {}),
       },
-      body: JSON.stringify(buildRequestBody(args)),
+      body: JSON.stringify(requestBody),
     },
   );
 
@@ -636,6 +640,14 @@ export async function callLocalOpenAICompatProvider(
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
   assertNoProviderError(payload);
   return adaptLocalOpenAICompatResponse(payload, {
     provider: args.provider,
@@ -646,6 +658,26 @@ export async function callLocalOpenAICompatProvider(
 export async function callLocalOpenAICompatProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const requestBody = {
+    ...buildRequestBody(args),
+    stream: true,
+    stream_options: {
+      include_usage: true,
+    },
+  };
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'openai_compatible_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        body: requestBody,
+      },
+    });
+  }
   const response = await fetch(
     `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
     {
@@ -655,13 +687,7 @@ export async function callLocalOpenAICompatProviderStream(
         ...(args.requestHeaders || {}),
         Accept: 'text/event-stream, application/json',
       },
-      body: JSON.stringify({
-        ...buildRequestBody(args),
-        stream: true,
-        stream_options: {
-          include_usage: true,
-        },
-      }),
+      body: JSON.stringify(requestBody),
     },
   );
 
@@ -677,6 +703,14 @@ export async function callLocalOpenAICompatProviderStream(
     !contentType.includes('event-stream')
   ) {
     const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
     assertNoProviderError(payload);
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
@@ -688,6 +722,14 @@ export async function callLocalOpenAICompatProviderStream(
 
   if (!response.body) {
     const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
     assertNoProviderError(payload);
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
@@ -870,6 +912,7 @@ export async function callLocalOpenAICompatProviderStream(
       buffer = lines.pop() || '';
 
       for (const rawLine of lines) {
+        emitRawSseLineDebug(args, rawLine);
         const payloadText = parseStreamPayloadLine(rawLine);
         if (!payloadText) continue;
         consumePayload(payloadText);
@@ -878,6 +921,7 @@ export async function callLocalOpenAICompatProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawSseLineDebug(args, buffer);
       const payloadText = parseStreamPayloadLine(buffer);
       if (payloadText) consumePayload(payloadText);
     }
