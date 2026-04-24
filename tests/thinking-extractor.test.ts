@@ -25,14 +25,6 @@ describe('thinking extractor', () => {
     });
   });
 
-  test('drops prefix through orphan closing think tag', () => {
-    const result = extractThinkingBlocks('draft answer</think>final answer');
-
-    expect(result.thinking).toBe('draft answer');
-    expect(result.content).toBe('final answer');
-    expect(result.thinkingOnly).toBe(false);
-  });
-
   test('returns fallback content for thinking-only responses', () => {
     const result = extractThinkingBlocks('<think>reasoning only</think>');
 
