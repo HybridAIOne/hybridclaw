@@ -791,7 +791,6 @@ export async function callAnthropicProviderStream(
   let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
   let buffer = '';
-  const rawStreamPayloads: unknown[] = [];
 
   while (true) {
     const { done, value } = await readWithIdleTimeout(
@@ -811,7 +810,6 @@ export async function callAnthropicProviderStream(
       emitRawSsePayloadDebug(args, sse.data);
 
       const event = JSON.parse(sse.data) as Record<string, unknown>;
-      if (args.debugModelResponses) rawStreamPayloads.push(event);
       args.onActivity?.();
 
       if (event.type === 'error') {
@@ -910,15 +908,6 @@ export async function callAnthropicProviderStream(
     }
 
     if (done) break;
-  }
-
-  if (args.debugModelResponses) {
-    logModelResponseDebug({
-      provider: args.provider,
-      model: args.model,
-      kind: 'raw_streaming_response',
-      response: rawStreamPayloads,
-    });
   }
 
   return buildStreamResponse({

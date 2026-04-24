@@ -231,7 +231,6 @@ export async function callHybridAIProviderStream(
   let role = 'assistant';
   let textContent = '';
   const toolCalls: ToolCall[] = [];
-  const rawStreamPayloads: unknown[] = [];
   let sawPayload = false;
   let streamDone = false;
 
@@ -248,7 +247,6 @@ export async function callHybridAIProviderStream(
       return;
     }
 
-    if (args.debugModelResponses) rawStreamPayloads.push(payload);
     args.onActivity?.();
     sawPayload = true;
     if (typeof payload.id === 'string' && payload.id) streamId = payload.id;
@@ -356,15 +354,6 @@ export async function callHybridAIProviderStream(
 
   if (!sawPayload) {
     throw new Error('Streaming response ended without payload');
-  }
-
-  if (args.debugModelResponses) {
-    logModelResponseDebug({
-      provider: args.provider,
-      model: args.model,
-      kind: 'raw_streaming_response',
-      response: rawStreamPayloads,
-    });
   }
 
   return {

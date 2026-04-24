@@ -229,6 +229,16 @@ export function emitRawSseLineDebug(
   emitModelResponseDebugFileText(`${normalized}\n\n`);
 }
 
+export function emitRawNdjsonLineDebug(
+  args: NormalizedCallArgs,
+  rawLine: string,
+): void {
+  if (!args.debugModelResponses) return;
+  const normalized = rawLine.replace(/\r$/, '');
+  if (!normalized.trim()) return;
+  emitModelResponseDebugFileText(`${normalized}\n`);
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }

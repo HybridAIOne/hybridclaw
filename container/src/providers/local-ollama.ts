@@ -5,6 +5,7 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import {
+  emitRawNdjsonLineDebug,
   logLastPrompt,
   logModelResponseDebug,
   type NormalizedCallArgs,
@@ -315,7 +316,6 @@ export async function callOllamaProviderStream(
   let rawContent = '';
   let thinkingText = '';
   let latestPayload: OllamaStreamPayload = {};
-  const rawStreamPayloads: unknown[] = [];
   let rawToolCalls: unknown[] | undefined;
   let streamDone = false;
 
@@ -328,6 +328,7 @@ export async function callOllamaProviderStream(
       buffer = lines.pop() || '';
 
       for (const line of lines) {
+        emitRawNdjsonLineDebug(args, line);
         const trimmed = line.trim();
         if (!trimmed) continue;
         let payload: OllamaStreamPayload;
@@ -337,7 +338,6 @@ export async function callOllamaProviderStream(
           continue;
         }
 
-        if (args.debugModelResponses) rawStreamPayloads.push(payload);
         args.onActivity?.();
         sawPayload = true;
         latestPayload = payload;
@@ -373,9 +373,9 @@ export async function callOllamaProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawNdjsonLineDebug(args, buffer);
       try {
         const payload = JSON.parse(buffer.trim()) as OllamaStreamPayload;
-        if (args.debugModelResponses) rawStreamPayloads.push(payload);
         args.onActivity?.();
         sawPayload = true;
         latestPayload = payload;
@@ -417,15 +417,6 @@ export async function callOllamaProviderStream(
   }
 
   streamEmitter.close();
-
-  if (args.debugModelResponses) {
-    logModelResponseDebug({
-      provider: args.provider,
-      model: args.model,
-      kind: 'raw_streaming_response',
-      response: rawStreamPayloads,
-    });
-  }
 
   return adaptOllamaPayload(
     latestPayload,
