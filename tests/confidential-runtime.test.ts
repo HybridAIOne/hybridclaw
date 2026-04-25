@@ -96,4 +96,98 @@ describe('confidential runtime context', () => {
     wrapped?.({ preview: 'tool starting on «CONF:CLIENT_001»' });
     expect(seen[0]?.preview).toBe('tool starting on Serviceplan');
   });
+
+  test('dehydrates assistant tool_calls[].function.arguments JSON', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    const messages = [
+      { role: 'user', content: 'search Serviceplan' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'web_search',
+              arguments: JSON.stringify({ query: 'Serviceplan' }),
+            },
+          },
+        ],
+      },
+    ];
+    const dehydrated = ctx.dehydrate(messages);
+    const toolCallArgs = (
+      dehydrated[1] as {
+        tool_calls: { function: { arguments: string } }[];
+      }
+    ).tool_calls[0].function.arguments;
+    expect(toolCallArgs).not.toContain('Serviceplan');
+    // Result is still parseable JSON with the placeholder substituted.
+    const parsed = JSON.parse(toolCallArgs);
+    expect(parsed.query).toMatch(/^«CONF:/);
+    // The user's content was dehydrated to the same placeholder so the
+    // model sees a consistent term throughout the conversation history.
+    const userContent = (dehydrated[0] as { content: string }).content;
+    expect(userContent).toContain(parsed.query);
+  });
+
+  test('messages with tool_calls but no confidential matches are passed through', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'all good',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'noop',
+              arguments: '{"q":"hello world"}',
+            },
+          },
+        ],
+      },
+    ];
+    const dehydrated = ctx.dehydrate(messages);
+    expect(dehydrated[0]).toBe(messages[0]);
+  });
+
+  test('wrapDelta buffers placeholders split across delta boundaries', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
+
+    const seen: string[] = [];
+    const wrapped = ctx.wrapDelta((delta: string) => seen.push(delta));
+    // The placeholder «CONF:CLIENT_001» is split across three chunks.
+    wrapped?.('Replying about ');
+    wrapped?.('«CONF:CLIENT_');
+    wrapped?.('001» now');
+    const joined = seen.join('');
+    expect(joined).toContain('Replying about Serviceplan');
+    // None of the individual chunks emitted a broken half.
+    for (const chunk of seen) {
+      expect(chunk).not.toMatch(/«CONF:[A-Z0-9_-]*$/);
+      expect(chunk).not.toMatch(/^[A-Z0-9_-]*»/);
+    }
+  });
+
+  test('wrapDelta releases orphan « after lookahead window expires', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    const seen: string[] = [];
+    const wrapped = ctx.wrapDelta((delta: string) => seen.push(delta));
+    // 80 chars of plain text after the «, well past the 64-char
+    // lookahead, with no closing » — the tail must be flushed so the
+    // user does not stall on a legitimate `«` in prose.
+    wrapped?.('quote «');
+    wrapped?.('a'.repeat(80));
+    const joined = seen.join('');
+    expect(joined).toContain('«');
+    expect(joined.length).toBeGreaterThan(40);
+  });
 });

@@ -35,9 +35,16 @@ export function isConfidentialRedactionEnabled(): boolean {
   return getConfidentialRuleSet().rules.length > 0;
 }
 
+export interface DehydrateMessageToolCall {
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: unknown };
+}
+
 export interface DehydrateMessageContent {
   role?: string;
   content: unknown;
+  tool_calls?: DehydrateMessageToolCall[];
 }
 
 function dehydrateText(
@@ -49,19 +56,18 @@ function dehydrateText(
   return dehydrateConfidential(text, ruleSet, mappings).text;
 }
 
-function dehydrateContent<T extends DehydrateMessageContent>(
-  message: T,
+function dehydrateContentField(
+  content: unknown,
   mappings: ConfidentialPlaceholderMap,
   ruleSet: ConfidentialRuleSet,
-): T {
-  if (typeof message.content === 'string') {
-    const dehydrated = dehydrateText(message.content, mappings, ruleSet);
-    if (dehydrated === message.content) return message;
-    return { ...message, content: dehydrated };
+): { content: unknown; mutated: boolean } {
+  if (typeof content === 'string') {
+    const dehydrated = dehydrateText(content, mappings, ruleSet);
+    return { content: dehydrated, mutated: dehydrated !== content };
   }
-  if (Array.isArray(message.content)) {
+  if (Array.isArray(content)) {
     let mutated = false;
-    const next = message.content.map((part) => {
+    const next = content.map((part) => {
       if (
         part &&
         typeof part === 'object' &&
@@ -77,10 +83,72 @@ function dehydrateContent<T extends DehydrateMessageContent>(
       }
       return part;
     });
-    if (!mutated) return message;
-    return { ...message, content: next as unknown as T['content'] };
+    return { content: mutated ? next : content, mutated };
   }
-  return message;
+  return { content, mutated: false };
+}
+
+/**
+ * Tool call arguments are stored as a JSON string. We dehydrate that
+ * string directly — confidential placeholders use Unicode brackets
+ * (`«CONF:…»`) that are valid inside JSON strings, so the result stays
+ * parseable. `tool_calls[].function.arguments` would otherwise leak the
+ * original term back to the model on every subsequent turn.
+ */
+function dehydrateToolCalls(
+  toolCalls: DehydrateMessageToolCall[],
+  mappings: ConfidentialPlaceholderMap,
+  ruleSet: ConfidentialRuleSet,
+): { toolCalls: DehydrateMessageToolCall[]; mutated: boolean } {
+  let mutated = false;
+  const next = toolCalls.map((call) => {
+    const args = call.function?.arguments;
+    if (typeof args !== 'string' || args.length === 0) return call;
+    const dehydrated = dehydrateText(args, mappings, ruleSet);
+    if (dehydrated === args) return call;
+    mutated = true;
+    return {
+      ...call,
+      function: {
+        ...(call.function ?? {}),
+        arguments: dehydrated,
+      },
+    };
+  });
+  return { toolCalls: mutated ? next : toolCalls, mutated };
+}
+
+function dehydrateContent<T extends DehydrateMessageContent>(
+  message: T,
+  mappings: ConfidentialPlaceholderMap,
+  ruleSet: ConfidentialRuleSet,
+): T {
+  const contentResult = dehydrateContentField(
+    message.content,
+    mappings,
+    ruleSet,
+  );
+  let toolCallsResult: {
+    toolCalls: DehydrateMessageToolCall[];
+    mutated: boolean;
+  } = {
+    toolCalls: message.tool_calls ?? [],
+    mutated: false,
+  };
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    toolCallsResult = dehydrateToolCalls(message.tool_calls, mappings, ruleSet);
+  }
+
+  if (!contentResult.mutated && !toolCallsResult.mutated) return message;
+  const next: T = { ...message };
+  if (contentResult.mutated) {
+    (next as { content: unknown }).content = contentResult.content;
+  }
+  if (toolCallsResult.mutated) {
+    (next as { tool_calls?: DehydrateMessageToolCall[] }).tool_calls =
+      toolCallsResult.toolCalls;
+  }
+  return next;
 }
 
 export interface ConfidentialRuntimeContext {
@@ -129,6 +197,53 @@ function rehydrateStringField<T extends object>(
   };
 }
 
+/**
+ * Maximum number of trailing characters we keep in the streaming buffer
+ * waiting for a placeholder to close. Placeholders are at most ~20 chars
+ * (`«CONF:` + ID + `»`); 64 leaves slack for compound IDs while bounding
+ * how much of the live stream we delay.
+ *
+ * If the orphan tail exceeds this length without a closing `»`, it
+ * cannot be a placeholder — we flush it as-is so the user does not lose
+ * legitimate text that happens to start with `«`.
+ */
+const STREAM_PLACEHOLDER_LOOKAHEAD = 64;
+
+function makeStreamingDeltaWrapper(
+  callback: (delta: string) => void,
+  mappings: ConfidentialPlaceholderMap,
+): (delta: string) => void {
+  // A placeholder may straddle two delta chunks — e.g. one delta ends
+  // with `«CONF:CLIENT_` and the next begins with `001»`. If we
+  // rehydrated each delta independently the user would see broken
+  // halves. We hold back any characters from the latest unmatched `«`
+  // so the placeholder is only emitted once it is whole.
+  let pending = '';
+  return (delta: string) => {
+    pending += delta;
+    const lastOpen = pending.lastIndexOf('«');
+    let flushUpTo: number;
+    if (lastOpen === -1) {
+      flushUpTo = pending.length;
+    } else {
+      const closeAfter = pending.indexOf('»', lastOpen);
+      if (closeAfter !== -1) {
+        flushUpTo = pending.length;
+      } else if (pending.length - lastOpen > STREAM_PLACEHOLDER_LOOKAHEAD) {
+        // Tail is too long to still be a placeholder — release it so the
+        // user does not stall on an orphan `«` in legitimate prose.
+        flushUpTo = pending.length;
+      } else {
+        flushUpTo = lastOpen;
+      }
+    }
+    if (flushUpTo === 0) return;
+    const ready = pending.slice(0, flushUpTo);
+    pending = pending.slice(flushUpTo);
+    callback(rehydrateConfidential(ready, mappings));
+  };
+}
+
 export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
   if (!isConfidentialRedactionEnabled()) {
     return NOOP_CONTEXT;
@@ -168,9 +283,7 @@ export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
     },
     wrapDelta(callback) {
       if (!callback) return callback;
-      return (delta: string) => {
-        callback(rehydrateConfidential(delta, mappings));
-      };
+      return makeStreamingDeltaWrapper(callback, mappings);
     },
     rehydrateFields,
     wrapEvent(callback, fields) {
