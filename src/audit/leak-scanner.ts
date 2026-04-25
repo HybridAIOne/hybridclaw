@@ -182,6 +182,63 @@ const SEVERITY_RANK: Record<ConfidentialFinding['sensitivity'], number> = {
   critical: 3,
 };
 
+export const SEVERITY_LEVELS: ReadonlyArray<
+  ConfidentialFinding['sensitivity']
+> = ['low', 'medium', 'high', 'critical'];
+
+export interface LeakReportFilter {
+  /** Floor severity — keep only records whose severity is at or above this. */
+  minSeverity?: ConfidentialFinding['sensitivity'];
+  /** Allow-list of categories — keep only records bucketed in one of these. */
+  categories?: ReadonlySet<PromptCategory>;
+}
+
+/**
+ * Apply post-scan filters to reports without re-scanning the wire log.
+ * Records that fail the filter are removed; per-session totals (matches,
+ * raw score, score, severity) are recomputed against the surviving set.
+ */
+export function applyLeakReportFilter(
+  reports: LeakScanReport[],
+  filter: LeakReportFilter,
+): LeakScanReport[] {
+  const minRank = filter.minSeverity ? SEVERITY_RANK[filter.minSeverity] : null;
+  const categories = filter.categories;
+  if (minRank == null && !categories) return reports;
+
+  return reports.map((report) => {
+    const survivors = report.matchedRecords.filter((record) => {
+      if (minRank != null && SEVERITY_RANK[record.severity] < minRank) {
+        return false;
+      }
+      if (categories && !categories.has(record.category)) return false;
+      return true;
+    });
+    if (survivors.length === report.matchedRecords.length) return report;
+
+    let totalMatches = 0;
+    let aggregateRaw = 0;
+    let severity: ConfidentialFinding['sensitivity'] = 'low';
+    for (const record of survivors) {
+      totalMatches += record.totalMatches;
+      aggregateRaw += record.rawScore;
+      severity = rankSeverity(severity, record.severity);
+    }
+    const aggregate = bucketScore(aggregateRaw);
+    return {
+      ...report,
+      matchedRecords: survivors,
+      totalMatches,
+      rawScore: aggregate.rawScore,
+      score: aggregate.score,
+      severity:
+        SEVERITY_RANK[aggregate.severity] > SEVERITY_RANK[severity]
+          ? aggregate.severity
+          : severity,
+    };
+  });
+}
+
 function rankSeverity(
   current: ConfidentialFinding['sensitivity'],
   next: ConfidentialFinding['sensitivity'],

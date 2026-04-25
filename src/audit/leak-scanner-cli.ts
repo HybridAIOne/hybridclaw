@@ -6,12 +6,124 @@ import {
 import type { ConfidentialFinding } from '../security/confidential-redact.js';
 import { loadConfidentialRules } from '../security/confidential-rules.js';
 import {
+  applyLeakReportFilter,
   type LeakScanReport,
   type PromptCategory,
+  SEVERITY_LEVELS,
   scanAllAuditSessionsForLeaks,
   scanAuditSessionForLeaks,
   summarizeLeakReports,
 } from './leak-scanner.js';
+
+const VALID_CATEGORIES: ReadonlySet<PromptCategory> = new Set([
+  'in',
+  'out',
+  'tool',
+  'url',
+]);
+
+interface ParsedScanFlags {
+  remaining: string[];
+  level: ConfidentialFinding['sensitivity'] | null;
+  categories: Set<PromptCategory> | null;
+  error: string | null;
+}
+
+function parseValueFlag(
+  args: string[],
+  index: number,
+  name: string,
+): { value: string | null; consumed: number } {
+  const arg = args[index];
+  const eqIdx = arg.indexOf('=');
+  if (eqIdx >= 0) {
+    return { value: arg.slice(eqIdx + 1), consumed: 1 };
+  }
+  if (arg === name) {
+    const next = args[index + 1];
+    if (next == null || next.startsWith('--')) {
+      return { value: null, consumed: 1 };
+    }
+    return { value: next, consumed: 2 };
+  }
+  return { value: null, consumed: 0 };
+}
+
+function parseScanFlags(args: string[]): ParsedScanFlags {
+  let level: ConfidentialFinding['sensitivity'] | null = null;
+  let categories: Set<PromptCategory> | null = null;
+  const remaining: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg === '--level' || arg.startsWith('--level=')) {
+      const { value, consumed } = parseValueFlag(args, i, '--level');
+      if (!value) {
+        return {
+          remaining,
+          level,
+          categories,
+          error: '--level requires a value (critical, high, medium, low)',
+        };
+      }
+      const normalized = value.trim().toLowerCase();
+      if (
+        !SEVERITY_LEVELS.includes(
+          normalized as ConfidentialFinding['sensitivity'],
+        )
+      ) {
+        return {
+          remaining,
+          level,
+          categories,
+          error: `--level must be one of ${SEVERITY_LEVELS.join(', ')} (got "${value}")`,
+        };
+      }
+      level = normalized as ConfidentialFinding['sensitivity'];
+      i += consumed;
+      continue;
+    }
+    if (arg === '--type' || arg.startsWith('--type=')) {
+      const { value, consumed } = parseValueFlag(args, i, '--type');
+      if (!value) {
+        return {
+          remaining,
+          level,
+          categories,
+          error: '--type requires a value (in,out,tool,url)',
+        };
+      }
+      const next = new Set<PromptCategory>();
+      for (const raw of value.split(',')) {
+        const normalized = raw.trim().toLowerCase();
+        if (!normalized) continue;
+        if (!VALID_CATEGORIES.has(normalized as PromptCategory)) {
+          return {
+            remaining,
+            level,
+            categories,
+            error: `--type values must be one of in, out, tool, url (got "${raw}")`,
+          };
+        }
+        next.add(normalized as PromptCategory);
+      }
+      if (next.size === 0) {
+        return {
+          remaining,
+          level,
+          categories,
+          error: '--type requires at least one category',
+        };
+      }
+      categories = next;
+      i += consumed;
+      continue;
+    }
+    remaining.push(arg);
+    i += 1;
+  }
+  return { remaining, level, categories, error: null };
+}
 
 const ANSI_RED = '\x1b[31m';
 const ANSI_YELLOW = '\x1b[33m';
@@ -127,10 +239,12 @@ function printRunHeader(
   rulesLoaded: number,
   rulesPath: string | null,
   scope: string,
+  filters: string | null,
 ): void {
   printBanner('Audit Leak Scanner');
   console.log(`Rules: ${rulesLoaded} from ${rulesPath ?? 'embedded'}`);
   console.log(`Scope: ${scope}`);
+  if (filters) console.log(`Filter: ${filters}`);
 }
 
 function pluralize(value: number, singular: string, plural: string): string {
@@ -178,8 +292,14 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
 export async function runLeakScanCli(args: string[]): Promise<void> {
   const useJson = args.includes('--json');
   const verbosity: OutputVerbosity = parseOutputVerbosity(args);
-  const remaining = stripVerbosityFlags(args);
-  const positional = remaining.filter((arg) => !arg.startsWith('--'));
+  const afterVerbosity = stripVerbosityFlags(args);
+  const flags = parseScanFlags(afterVerbosity);
+  if (flags.error) {
+    console.error(flags.error);
+    process.exitCode = 1;
+    return;
+  }
+  const positional = flags.remaining.filter((arg) => !arg.startsWith('--'));
   const sessionId = positional[0];
   // Asking for one specific session implies "show me everything about it",
   // including clean and the per-session detail block.
@@ -201,9 +321,16 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     return;
   }
 
-  const reports = sessionId
+  const rawReports = sessionId
     ? [scanAuditSessionForLeaks(sessionId, ruleSet)]
     : scanAllAuditSessionsForLeaks(ruleSet);
+  const reports =
+    flags.level || flags.categories
+      ? applyLeakReportFilter(rawReports, {
+          minSeverity: flags.level ?? undefined,
+          categories: flags.categories ?? undefined,
+        })
+      : rawReports;
 
   if (useJson) {
     const serialized = reports.map((report) => ({
@@ -235,12 +362,18 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     return;
   }
 
+  const filterParts: string[] = [];
+  if (flags.level) filterParts.push(`level≥${flags.level}`);
+  if (flags.categories) {
+    filterParts.push(`type=${[...flags.categories].sort().join(',')}`);
+  }
   printRunHeader(
     ruleSet.rules.length,
     ruleSet.sourcePath,
     sessionId
       ? `session ${sessionId}`
       : `${reports.length} session${reports.length === 1 ? '' : 's'}`,
+    filterParts.length > 0 ? filterParts.join('  ') : null,
   );
 
   if (reports.length === 0) {

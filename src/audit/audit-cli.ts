@@ -69,11 +69,14 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
-  scan-leaks [sessionId] [--quiet|--all] [--json]
+  scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
                                      Scan audit logs for leaked confidential info. Verbosity:
                                        --quiet  → summary block only
                                        (default) → matched sessions + summary (clean sessions hidden)
                                        --all    → every session, including clean
+                                     Filters (applied after scan):
+                                       --level critical|high|medium|low      keep records at or above this severity
+                                       --type  in,out,tool,url               keep records in any of the listed buckets
                                      Rules loaded from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }

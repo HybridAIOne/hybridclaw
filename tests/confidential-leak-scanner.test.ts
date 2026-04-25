@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  applyLeakReportFilter,
   directionForEventType,
   listAuditedSessions,
   PROMPT_BEARING_EVENT_TYPES,
@@ -371,6 +372,122 @@ describe('audit log leak scanner', () => {
     expect(summary.byCategory.url.records).toBe(2);
     expect(summary.byCategory.in.records).toBe(1);
     expect(summary.byCategory.tool.records).toBe(0);
+  });
+
+  test('applyLeakReportFilter drops records below the severity floor', () => {
+    writeWireLines('mixed_sev', [
+      // Project Falcon = critical
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'mixed_sev',
+        event: { type: 'turn.start', userInput: 'About Project Falcon' },
+      },
+      // Serviceplan = high
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'mixed_sev',
+        event: { type: 'turn.start', userInput: 'and Serviceplan too' },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('mixed_sev', RULES, tempDir)];
+    expect(reports[0].matchedRecords).toHaveLength(2);
+
+    const critOnly = applyLeakReportFilter(reports, {
+      minSeverity: 'critical',
+    });
+    expect(critOnly[0].matchedRecords).toHaveLength(1);
+    expect(critOnly[0].matchedRecords[0].severity).toBe('critical');
+    expect(critOnly[0].totalMatches).toBe(1);
+
+    const highAndUp = applyLeakReportFilter(reports, { minSeverity: 'high' });
+    expect(highAndUp[0].matchedRecords).toHaveLength(2);
+
+    const mediumAndUp = applyLeakReportFilter(reports, {
+      minSeverity: 'medium',
+    });
+    expect(mediumAndUp[0].matchedRecords).toHaveLength(2);
+  });
+
+  test('applyLeakReportFilter drops records outside the category allowlist', () => {
+    writeWireLines('mixed_cat', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'mixed_cat',
+        event: { type: 'turn.start', userInput: 'About Project Falcon' },
+      },
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'mixed_cat',
+        // Use Serviceplan in the URL so the literal match falls inside
+        // the URL span (URLs can't contain spaces, so multi-word rules
+        // like "Project Falcon" never bucket as URL on their own).
+        event: {
+          type: 'tool.result',
+          resultSummary: 'See https://news.example.com/Serviceplan/',
+        },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('mixed_cat', RULES, tempDir)];
+    expect(reports[0].matchedRecords).toHaveLength(2);
+
+    const inOnly = applyLeakReportFilter(reports, {
+      categories: new Set(['in']),
+    });
+    expect(inOnly[0].matchedRecords).toHaveLength(1);
+    expect(inOnly[0].matchedRecords[0].category).toBe('in');
+
+    const urlOnly = applyLeakReportFilter(reports, {
+      categories: new Set(['url']),
+    });
+    expect(urlOnly[0].matchedRecords).toHaveLength(1);
+    expect(urlOnly[0].matchedRecords[0].category).toBe('url');
+
+    const inAndUrl = applyLeakReportFilter(reports, {
+      categories: new Set(['in', 'url']),
+    });
+    expect(inAndUrl[0].matchedRecords).toHaveLength(2);
+  });
+
+  test('applyLeakReportFilter recomputes per-session totals after filtering', () => {
+    writeWireLines('totals', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'totals',
+        event: { type: 'turn.start', userInput: 'About Project Falcon' },
+      },
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'totals',
+        event: { type: 'turn.start', userInput: 'and Serviceplan too' },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('totals', RULES, tempDir)];
+    const before = reports[0];
+    const after = applyLeakReportFilter(reports, {
+      minSeverity: 'critical',
+    })[0];
+
+    expect(after.totalMatches).toBeLessThan(before.totalMatches);
+    expect(after.rawScore).toBeLessThan(before.rawScore);
+    expect(after.severity).toBe('critical');
   });
 
   test('only scans whitelisted fields per event type — ignores metadata fields', () => {
