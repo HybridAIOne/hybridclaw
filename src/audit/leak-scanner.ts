@@ -7,7 +7,10 @@ import {
   type ConfidentialScanResult,
   scanForLeaks,
 } from '../security/confidential-redact.js';
-import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
+import type {
+  ConfidentialKind,
+  ConfidentialRuleSet,
+} from '../security/confidential-rules.js';
 
 const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
@@ -523,6 +526,17 @@ export interface CategoryTotals {
   sessions: number;
 }
 
+export interface KindTotals {
+  /** Sum of finding.matches across all findings of this kind. */
+  matches: number;
+  /** Number of records that contain at least one finding of this kind. */
+  records: number;
+  /** Number of distinct sessions in which this kind appeared. */
+  sessions: number;
+  /** Number of distinct rule labels (e.g. distinct client names) hit. */
+  distinctLabels: number;
+}
+
 const CATEGORY_KEYS: ReadonlyArray<PromptCategory> = [
   'in',
   'out',
@@ -530,9 +544,18 @@ const CATEGORY_KEYS: ReadonlyArray<PromptCategory> = [
   'url',
 ];
 
+export const KIND_KEYS: ReadonlyArray<ConfidentialKind> = [
+  'client',
+  'project',
+  'person',
+  'keyword',
+  'pattern',
+];
+
 export function summarizeLeakReports(reports: LeakScanReport[]): {
   bySeverity: Record<ConfidentialFinding['sensitivity'], number>;
   byCategory: Record<PromptCategory, CategoryTotals>;
+  byKind: Record<ConfidentialKind, KindTotals>;
   /** @deprecated alias for {@link byCategory}; remove after callers migrate. */
   byDirection: Record<PromptCategory, CategoryTotals>;
   totalMatches: number;
@@ -557,6 +580,27 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
     tool: new Set(),
     url: new Set(),
   };
+  const byKind: Record<ConfidentialKind, KindTotals> = {
+    client: { matches: 0, records: 0, sessions: 0, distinctLabels: 0 },
+    project: { matches: 0, records: 0, sessions: 0, distinctLabels: 0 },
+    person: { matches: 0, records: 0, sessions: 0, distinctLabels: 0 },
+    keyword: { matches: 0, records: 0, sessions: 0, distinctLabels: 0 },
+    pattern: { matches: 0, records: 0, sessions: 0, distinctLabels: 0 },
+  };
+  const sessionsSeenByKind: Record<ConfidentialKind, Set<string>> = {
+    client: new Set(),
+    project: new Set(),
+    person: new Set(),
+    keyword: new Set(),
+    pattern: new Set(),
+  };
+  const labelsSeenByKind: Record<ConfidentialKind, Set<string>> = {
+    client: new Set(),
+    project: new Set(),
+    person: new Set(),
+    keyword: new Set(),
+    pattern: new Set(),
+  };
   let totalMatches = 0;
   let affectedSessions = 0;
   for (const report of reports) {
@@ -570,14 +614,34 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
       byCategory[bucket].records += 1;
       byCategory[bucket].matches += record.totalMatches;
       sessionsSeenByCategory[bucket].add(report.sessionId);
+
+      const kindsInRecord = new Set<ConfidentialKind>();
+      for (const finding of record.findings) {
+        const kind = finding.kind as ConfidentialKind;
+        byKind[kind].matches += finding.matches;
+        kindsInRecord.add(kind);
+        sessionsSeenByKind[kind].add(report.sessionId);
+        labelsSeenByKind[kind].add(finding.label);
+      }
+      // A record contributes to byKind[k].records once per distinct
+      // kind it touches, regardless of how many findings of that kind
+      // it carries.
+      for (const kind of kindsInRecord) {
+        byKind[kind].records += 1;
+      }
     }
   }
   for (const key of CATEGORY_KEYS) {
     byCategory[key].sessions = sessionsSeenByCategory[key].size;
   }
+  for (const key of KIND_KEYS) {
+    byKind[key].sessions = sessionsSeenByKind[key].size;
+    byKind[key].distinctLabels = labelsSeenByKind[key].size;
+  }
   return {
     bySeverity,
     byCategory,
+    byKind,
     byDirection: byCategory,
     totalMatches,
     totalSessions: reports.length,

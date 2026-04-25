@@ -331,6 +331,54 @@ describe('audit log leak scanner', () => {
     expect(summary.byCategory.tool.sessions).toBe(1);
   });
 
+  test('summarizeLeakReports buckets matches by rule kind', () => {
+    const richRules = parseConfidentialYaml(`
+clients:
+  - name: Serviceplan
+    sensitivity: high
+projects:
+  - name: Project Falcon
+    sensitivity: critical
+people:
+  - name: Jane Doe
+    sensitivity: medium
+keywords:
+  - term: Q4 2026 budget
+    sensitivity: critical
+patterns:
+  - name: internal-doc
+    regex: "INT-\\\\d{6}"
+    sensitivity: high
+`);
+    writeWireLines('kinds', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'kinds',
+        event: {
+          type: 'turn.start',
+          userInput:
+            'Brief from Serviceplan about Project Falcon, Q4 2026 budget for Jane Doe, doc INT-123456',
+        },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('kinds', richRules, tempDir)];
+    const summary = summarizeLeakReports(reports);
+    expect(summary.byKind.client.matches).toBe(1);
+    expect(summary.byKind.project.matches).toBe(1);
+    expect(summary.byKind.person.matches).toBe(1);
+    expect(summary.byKind.keyword.matches).toBe(1);
+    expect(summary.byKind.pattern.matches).toBe(1);
+    // All five kinds touched the same single record / session.
+    expect(summary.byKind.client.records).toBe(1);
+    expect(summary.byKind.client.sessions).toBe(1);
+    // distinctLabels counts unique rule labels per kind.
+    expect(summary.byKind.client.distinctLabels).toBe(1);
+    expect(summary.byKind.pattern.distinctLabels).toBe(1);
+  });
+
   test('classifies matches inside URLs into the url bucket', () => {
     writeWireLines('urls', [
       {

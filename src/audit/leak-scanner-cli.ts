@@ -4,9 +4,11 @@ import {
   stripVerbosityFlags,
 } from '../cli/verbosity.js';
 import type { ConfidentialFinding } from '../security/confidential-redact.js';
+import type { ConfidentialKind } from '../security/confidential-rules.js';
 import { loadConfidentialRules } from '../security/confidential-rules.js';
 import {
   applyLeakReportFilter,
+  KIND_KEYS,
   type LeakScanReport,
   type PromptCategory,
   SEVERITY_LEVELS,
@@ -171,6 +173,14 @@ const CATEGORY_LABEL: Record<PromptCategory, string> = {
   url: 'url  (URLs)',
 };
 
+const KIND_LABEL: Record<ConfidentialKind, string> = {
+  client: 'client ',
+  project: 'project',
+  person: 'person ',
+  keyword: 'keyword',
+  pattern: 'pattern',
+};
+
 function summarizeReport(report: LeakScanReport): string {
   const tag = color(
     report.severity.toUpperCase().padEnd(8),
@@ -241,7 +251,7 @@ function printRunHeader(
   scope: string,
   filters: string | null,
 ): void {
-  printBanner('Audit Leak Scanner');
+  printBanner('Leak Scanner');
   console.log(`Rules: ${rulesLoaded} from ${rulesPath ?? 'embedded'}`);
   console.log(`Scope: ${scope}`);
   if (filters) console.log(`Filter: ${filters}`);
@@ -284,6 +294,15 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
     const label = CATEGORY_LABEL[cat].padEnd(13);
     console.log(
       `  ${label} ${pluralize(totals.matches, 'match', 'matches')} in ${pluralize(totals.records, 'record', 'records')} in ${pluralize(totals.sessions, 'session', 'sessions')}`,
+    );
+  }
+  console.log('');
+  console.log('By rule kind:');
+  for (const kind of KIND_KEYS) {
+    const totals = summary.byKind[kind];
+    if (totals.matches === 0) continue;
+    console.log(
+      `  ${KIND_LABEL[kind]} ${pluralize(totals.matches, 'match', 'matches')} (${pluralize(totals.distinctLabels, 'rule', 'rules')}) in ${pluralize(totals.sessions, 'session', 'sessions')}`,
     );
   }
   console.log(SUMMARY_RULE);
