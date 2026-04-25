@@ -102,6 +102,8 @@ function printReportDetail(report: LeakScanReport): void {
   }
 }
 
+const SUMMARY_RULE = '*'.repeat(60);
+
 function printSummaryFooter(reports: LeakScanReport[]): void {
   const summary = summarizeLeakReports(reports);
   const sevOrder: ConfidentialFinding['sensitivity'][] = [
@@ -111,33 +113,41 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
     'low',
   ];
   const dirOrder: PromptDirection[] = ['in', 'out', 'tool'];
+  // ASCII rule + asterisks survive copy/paste into Slack, email, PR
+  // comments and pagers that strip ANSI styling.
   console.log('');
+  console.log(SUMMARY_RULE);
+  console.log('***                     SUMMARY                          ***');
+  console.log(SUMMARY_RULE);
   console.log(
-    `${color('Summary', ANSI_BOLD)} — ${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
+    `${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
   );
-  console.log('  By session severity:');
+  console.log('');
+  console.log('By session severity:');
   for (const severity of sevOrder) {
     const count = summary.bySeverity[severity];
     const label = color(
       severity.toUpperCase().padEnd(8),
       severityColor(severity),
     );
-    console.log(`    ${label} ${count} session${count === 1 ? '' : 's'}`);
+    console.log(`  ${label} ${count} session${count === 1 ? '' : 's'}`);
   }
-  console.log('  By prompt direction:');
+  console.log('');
+  console.log('By prompt direction:');
   for (const dir of dirOrder) {
     const totals = summary.byDirection[dir];
     const label = DIRECTION_LABEL[dir].padEnd(13);
     console.log(
-      `    ${label} ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
+      `  ${label} ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
     );
   }
   if (summary.byDirection.other.matches > 0) {
     const totals = summary.byDirection.other;
     console.log(
-      `    other         ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
+      `  other         ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
     );
   }
+  console.log(SUMMARY_RULE);
 }
 
 export async function runLeakScanCli(args: string[]): Promise<void> {
