@@ -1,7 +1,11 @@
+import {
+  type OutputVerbosity,
+  parseOutputVerbosity,
+  stripVerbosityFlags,
+} from '../cli/verbosity.js';
 import type { ConfidentialFinding } from '../security/confidential-redact.js';
 import { loadConfidentialRules } from '../security/confidential-rules.js';
 import {
-  directionForEventType,
   type LeakScanReport,
   type PromptDirection,
   scanAllAuditSessionsForLeaks,
@@ -87,22 +91,48 @@ function printReportDetail(report: LeakScanReport): void {
       severityColor(record.severity),
     );
     const placeholder = record.hadPlaceholder ? ' (post-dehydrate)' : '';
-    const direction = directionForEventType(record.eventType);
-    const dirTag = direction ? ` [${direction}]` : '';
+    // Direction is redundant on the record header — the event type
+    // (`tool.result`, `turn.start`, …) already implies it. The summary
+    // footer aggregates by direction where the rollup actually helps.
     console.log(
-      `  #${record.seq} ${formatTimestamp(record.timestamp)} ${record.eventType}${dirTag} ${sevTag} score=${record.score}${placeholder}`,
+      `  #${record.seq} ${formatTimestamp(record.timestamp)} ${record.eventType} ${sevTag} score=${record.score}${placeholder}`,
     );
     for (const finding of record.findings) {
-      // Print match=... explicitly so it stays visible when ANSI styling is
-      // stripped (e.g. when copying terminal output or piping through less).
+      // Severity is shown on the record header above. Match text is shown
+      // verbatim in the excerpt wrapped in »…« (and ANSI-bold-red on TTY),
+      // so an explicit `match="..."` would just repeat it.
+      const sevHint =
+        finding.sensitivity !== record.severity
+          ? `[${finding.sensitivity}] `
+          : '';
       console.log(
-        `    - [${finding.sensitivity}] ${finding.kind}:${finding.label} ×${finding.matches} match="${finding.match}"  ${highlightExcerpt(finding.excerpt)}`,
+        `    - ${sevHint}${finding.kind}:${finding.label} ×${finding.matches}  ${highlightExcerpt(finding.excerpt)}`,
       );
     }
   }
 }
 
 const SUMMARY_RULE = '*'.repeat(60);
+
+function printBanner(title: string): void {
+  console.log(SUMMARY_RULE);
+  const inner = title.toUpperCase();
+  const padded = inner.padStart((54 + inner.length) / 2).padEnd(54);
+  console.log(`***${padded}***`);
+  console.log(SUMMARY_RULE);
+}
+
+function printRunHeader(
+  rulesLoaded: number,
+  rulesPath: string | null,
+  scope: string,
+): void {
+  printBanner('Audit Leak Scanner');
+  console.log(
+    `Rules: ${rulesLoaded} from ${rulesPath ?? 'embedded'}    Scope: ${scope}`,
+  );
+  console.log('');
+}
 
 function printSummaryFooter(reports: LeakScanReport[]): void {
   const summary = summarizeLeakReports(reports);
@@ -116,9 +146,7 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
   // ASCII rule + asterisks survive copy/paste into Slack, email, PR
   // comments and pagers that strip ANSI styling.
   console.log('');
-  console.log(SUMMARY_RULE);
-  console.log('***                     SUMMARY                          ***');
-  console.log(SUMMARY_RULE);
+  printBanner('Summary');
   console.log(
     `${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
   );
@@ -152,9 +180,14 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
 
 export async function runLeakScanCli(args: string[]): Promise<void> {
   const useJson = args.includes('--json');
-  const showAll = args.includes('--all');
-  const positional = args.filter((arg) => !arg.startsWith('--'));
+  const verbosity: OutputVerbosity = parseOutputVerbosity(args);
+  const remaining = stripVerbosityFlags(args);
+  const positional = remaining.filter((arg) => !arg.startsWith('--'));
   const sessionId = positional[0];
+  // Asking for one specific session implies "show me everything about it",
+  // including clean and the per-session detail block.
+  const effectiveVerbosity: OutputVerbosity =
+    sessionId && verbosity === 'standard' ? 'all' : verbosity;
 
   const ruleSet = loadConfidentialRules();
   if (ruleSet.rules.length === 0) {
@@ -205,8 +238,12 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     return;
   }
 
-  console.log(
-    `Scanning audit logs (${ruleSet.rules.length} rule${ruleSet.rules.length === 1 ? '' : 's'} from ${ruleSet.sourcePath ?? 'embedded'})`,
+  printRunHeader(
+    ruleSet.rules.length,
+    ruleSet.sourcePath,
+    sessionId
+      ? `session ${sessionId}`
+      : `${reports.length} session${reports.length === 1 ? '' : 's'}`,
   );
 
   if (reports.length === 0) {
@@ -214,30 +251,31 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     return;
   }
 
-  let leaksFound = false;
-  let cleanHidden = 0;
-  for (const report of reports) {
-    if (report.totalMatches > 0) leaksFound = true;
-    // By default, suppress sessions with zero matches — most workspaces
-    // have many short clean sessions and the noise drowns the signal.
-    // `--all` (or asking for one specific session) restores them.
-    if (
-      report.totalMatches === 0 &&
-      report.errors.length === 0 &&
-      !showAll &&
-      !sessionId
-    ) {
-      cleanHidden += 1;
-      continue;
-    }
-    console.log(summarizeReport(report));
-    printReportDetail(report);
-  }
+  const leaksFound = reports.some((report) => report.totalMatches > 0);
 
-  if (cleanHidden > 0) {
-    console.log(
-      `(${cleanHidden} clean session${cleanHidden === 1 ? '' : 's'} hidden — pass --all to show)`,
-    );
+  if (effectiveVerbosity !== 'quiet') {
+    let cleanHidden = 0;
+    for (const report of reports) {
+      // `standard` suppresses sessions with zero matches — most workspaces
+      // have many short clean sessions and the noise drowns the signal.
+      // `all` restores them.
+      if (
+        effectiveVerbosity === 'standard' &&
+        report.totalMatches === 0 &&
+        report.errors.length === 0
+      ) {
+        cleanHidden += 1;
+        continue;
+      }
+      console.log(summarizeReport(report));
+      printReportDetail(report);
+    }
+
+    if (cleanHidden > 0) {
+      console.log(
+        `(${cleanHidden} clean session${cleanHidden === 1 ? '' : 's'} hidden — pass --all to show)`,
+      );
+    }
   }
 
   printSummaryFooter(reports);
