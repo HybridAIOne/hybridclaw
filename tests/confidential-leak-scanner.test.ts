@@ -142,7 +142,9 @@ describe('audit log leak scanner', () => {
   test('listAuditedSessions discovers all sessions', () => {
     writeWireLines('alpha', []);
     writeWireLines('beta', []);
-    const sessions = listAuditedSessions(tempDir).map((entry) => entry.sessionId);
+    const sessions = listAuditedSessions(tempDir).map(
+      (entry) => entry.sessionId,
+    );
     expect(sessions).toEqual(['alpha', 'beta']);
   });
 

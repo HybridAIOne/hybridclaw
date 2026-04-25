@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-
+import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 import {
   createConfidentialRuntimeContext,
   resetConfidentialRuleSetCache,
   setConfidentialRuleSetForTesting,
 } from '../src/security/confidential-runtime.js';
-import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 
 const RULES = parseConfidentialYaml(
   `clients:\n  - name: Serviceplan\n    sensitivity: high\n`,

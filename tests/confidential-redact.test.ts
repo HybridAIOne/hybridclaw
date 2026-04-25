@@ -58,10 +58,11 @@ describe('dehydrate / rehydrate', () => {
   test('replaces literal hits with stable placeholders', () => {
     const text =
       'Serviceplan briefed us on Project Falcon. SP wants the Q4 2026 budget by Friday.';
-    const { text: dehydrated, mappings, hits } = dehydrateConfidential(
-      text,
-      ruleSet,
-    );
+    const {
+      text: dehydrated,
+      mappings,
+      hits,
+    } = dehydrateConfidential(text, ruleSet);
     expect(hits).toBeGreaterThanOrEqual(4);
     expect(dehydrated).not.toMatch(/Serviceplan/);
     expect(dehydrated).not.toMatch(/Project Falcon/);
@@ -78,16 +79,21 @@ describe('dehydrate / rehydrate', () => {
   test('placeholders are stable across calls when reusing mappings', () => {
     const mappings = createPlaceholderMap();
     const first = dehydrateConfidential('Serviceplan again', ruleSet, mappings);
-    const second = dehydrateConfidential('Serviceplan again', ruleSet, mappings);
+    const second = dehydrateConfidential(
+      'Serviceplan again',
+      ruleSet,
+      mappings,
+    );
     expect(first.text).toBe(second.text);
   });
 
   test('regex patterns are matched and rehydrated', () => {
     const text = 'See doc INT-123456 attached.';
-    const { text: dehydrated, mappings, hits } = dehydrateConfidential(
-      text,
-      ruleSet,
-    );
+    const {
+      text: dehydrated,
+      mappings,
+      hits,
+    } = dehydrateConfidential(text, ruleSet);
     expect(hits).toBe(1);
     expect(dehydrated).not.toContain('INT-123456');
     expect(rehydrateConfidential(dehydrated, mappings)).toContain('INT-123456');
@@ -106,7 +112,10 @@ describe('dehydrate / rehydrate', () => {
   });
 
   test('rehydrate with unknown placeholder is left intact', () => {
-    const out = rehydrateConfidential('See «CONF:UNKNOWN_001» here.', createPlaceholderMap());
+    const out = rehydrateConfidential(
+      'See «CONF:UNKNOWN_001» here.',
+      createPlaceholderMap(),
+    );
     expect(out).toBe('See «CONF:UNKNOWN_001» here.');
   });
 });
