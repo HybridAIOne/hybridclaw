@@ -14,6 +14,34 @@ const WIRE_FILE_NAME = 'wire.jsonl';
 const PLACEHOLDER_RE = /«CONF:[A-Z0-9_-]+»/;
 
 /**
+ * Direction of the text relative to the LLM:
+ *  - `in`   → user input that travels TO the LLM
+ *  - `out`  → text the LLM emitted (or a system prompt sent on its behalf)
+ *  - `tool` → tool I/O (call args + tool results, including skill steps)
+ *
+ * Tool I/O is its own bucket rather than being lumped under in/out because
+ * it is the most common leak surface (tool results from web fetches,
+ * memory lookups, etc. often carry confidential strings) and because the
+ * mitigation differs (tighter tool-result redaction vs. user-prompt
+ * coaching).
+ */
+export type PromptDirection = 'in' | 'out' | 'tool';
+
+const EVENT_TYPE_DIRECTIONS: Record<string, PromptDirection> = {
+  'turn.start': 'in',
+  prompt: 'in',
+  message: 'in',
+  'turn.end': 'out',
+  text: 'out',
+  thinking: 'out',
+  'approval.request': 'out',
+  'tool.call': 'tool',
+  'tool.result': 'tool',
+  'skill.execution': 'tool',
+  'skill.inspection': 'tool',
+};
+
+/**
  * Event types whose payload contains text that travels to or from the LLM,
  * and is therefore worth scanning for confidential-info leaks.
  *
@@ -22,19 +50,15 @@ const PLACEHOLDER_RE = /«CONF:[A-Z0-9_-]+»/;
  * values, which would generate noisy false positives against a rule that
  * names HybridAI as a confidential client.
  */
-export const PROMPT_BEARING_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'turn.start',
-  'turn.end',
-  'tool.call',
-  'tool.result',
-  'approval.request',
-  'prompt',
-  'message',
-  'text',
-  'thinking',
-  'skill.execution',
-  'skill.inspection',
-]);
+export const PROMPT_BEARING_EVENT_TYPES: ReadonlySet<string> = new Set(
+  Object.keys(EVENT_TYPE_DIRECTIONS),
+);
+
+export function directionForEventType(
+  eventType: string,
+): PromptDirection | null {
+  return EVENT_TYPE_DIRECTIONS[eventType] ?? null;
+}
 
 function resolveScanEventTypes(): ReadonlySet<string> {
   const override = (process.env.HYBRIDCLAW_LEAK_SCAN_EVENT_TYPES || '').trim();
@@ -304,8 +328,18 @@ export function scanAllAuditSessionsForLeaks(
   );
 }
 
+export interface DirectionTotals {
+  /** Number of matched audit records bucketed in this direction. */
+  records: number;
+  /** Sum of matches inside those records. */
+  matches: number;
+}
+
 export function summarizeLeakReports(reports: LeakScanReport[]): {
   bySeverity: Record<ConfidentialFinding['sensitivity'], number>;
+  byDirection: Record<PromptDirection, DirectionTotals> & {
+    other: DirectionTotals;
+  };
   totalMatches: number;
   totalSessions: number;
   affectedSessions: number;
@@ -316,6 +350,14 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
     medium: 0,
     low: 0,
   };
+  const byDirection: Record<PromptDirection, DirectionTotals> & {
+    other: DirectionTotals;
+  } = {
+    in: { records: 0, matches: 0 },
+    out: { records: 0, matches: 0 },
+    tool: { records: 0, matches: 0 },
+    other: { records: 0, matches: 0 },
+  };
   let totalMatches = 0;
   let affectedSessions = 0;
   for (const report of reports) {
@@ -324,9 +366,15 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
       affectedSessions += 1;
       bySeverity[report.severity] += 1;
     }
+    for (const record of report.matchedRecords) {
+      const bucket = directionForEventType(record.eventType) ?? 'other';
+      byDirection[bucket].records += 1;
+      byDirection[bucket].matches += record.totalMatches;
+    }
   }
   return {
     bySeverity,
+    byDirection,
     totalMatches,
     totalSessions: reports.length,
     affectedSessions,

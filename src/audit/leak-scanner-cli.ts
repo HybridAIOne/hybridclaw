@@ -1,7 +1,9 @@
 import type { ConfidentialFinding } from '../security/confidential-redact.js';
 import { loadConfidentialRules } from '../security/confidential-rules.js';
 import {
+  directionForEventType,
   type LeakScanReport,
+  type PromptDirection,
   scanAllAuditSessionsForLeaks,
   scanAuditSessionForLeaks,
   summarizeLeakReports,
@@ -32,6 +34,25 @@ function highlightExcerpt(excerpt: string): string {
     `${ANSI_BOLD}${ANSI_RED}$1${ANSI_RESET}`,
   );
 }
+
+/**
+ * Format an ISO timestamp as `YYYY-MM-DD HH:MM:SS` (drop millis + `Z`).
+ * Seconds are precise enough for human review and the result lines up in
+ * fixed-width columns.
+ */
+function formatTimestamp(iso: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+const DIRECTION_LABEL: Record<PromptDirection, string> = {
+  in: 'in   (→ LLM)',
+  out: 'out  (← LLM)',
+  tool: 'tool (I/O)',
+};
 
 function summarizeReport(report: LeakScanReport): string {
   const tag = color(
@@ -66,12 +87,16 @@ function printReportDetail(report: LeakScanReport): void {
       severityColor(record.severity),
     );
     const placeholder = record.hadPlaceholder ? ' (post-dehydrate)' : '';
+    const direction = directionForEventType(record.eventType);
+    const dirTag = direction ? ` [${direction}]` : '';
     console.log(
-      `  #${record.seq} ${record.timestamp} ${record.eventType} ${sevTag} score=${record.score}${placeholder}`,
+      `  #${record.seq} ${formatTimestamp(record.timestamp)} ${record.eventType}${dirTag} ${sevTag} score=${record.score}${placeholder}`,
     );
     for (const finding of record.findings) {
+      // Print match=... explicitly so it stays visible when ANSI styling is
+      // stripped (e.g. when copying terminal output or piping through less).
       console.log(
-        `    - [${finding.sensitivity}] ${finding.kind}:${finding.label} ×${finding.matches}  ${highlightExcerpt(finding.excerpt)}`,
+        `    - [${finding.sensitivity}] ${finding.kind}:${finding.label} ×${finding.matches} match="${finding.match}"  ${highlightExcerpt(finding.excerpt)}`,
       );
     }
   }
@@ -79,24 +104,39 @@ function printReportDetail(report: LeakScanReport): void {
 
 function printSummaryFooter(reports: LeakScanReport[]): void {
   const summary = summarizeLeakReports(reports);
-  const order: ConfidentialFinding['sensitivity'][] = [
+  const sevOrder: ConfidentialFinding['sensitivity'][] = [
     'critical',
     'high',
     'medium',
     'low',
   ];
+  const dirOrder: PromptDirection[] = ['in', 'out', 'tool'];
   console.log('');
   console.log(
-    color('Summary', ANSI_BOLD) +
-      ` — ${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
+    `${color('Summary', ANSI_BOLD)} — ${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
   );
-  for (const severity of order) {
+  console.log('  By session severity:');
+  for (const severity of sevOrder) {
     const count = summary.bySeverity[severity];
     const label = color(
       severity.toUpperCase().padEnd(8),
       severityColor(severity),
     );
-    console.log(`  ${label} ${count} session${count === 1 ? '' : 's'}`);
+    console.log(`    ${label} ${count} session${count === 1 ? '' : 's'}`);
+  }
+  console.log('  By prompt direction:');
+  for (const dir of dirOrder) {
+    const totals = summary.byDirection[dir];
+    const label = DIRECTION_LABEL[dir].padEnd(13);
+    console.log(
+      `    ${label} ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
+    );
+  }
+  if (summary.byDirection.other.matches > 0) {
+    const totals = summary.byDirection.other;
+    console.log(
+      `    other         ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
+    );
   }
 }
 

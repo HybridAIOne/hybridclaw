@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  directionForEventType,
   listAuditedSessions,
   PROMPT_BEARING_EVENT_TYPES,
   scanAllAuditSessionsForLeaks,
@@ -266,6 +267,62 @@ describe('audit log leak scanner', () => {
     expect(summary.bySeverity.high).toBe(1);
     expect(summary.bySeverity.medium).toBe(0);
     expect(summary.bySeverity.low).toBe(0);
+    // Empty matchedRecords on all inputs → direction buckets stay zero.
+    expect(summary.byDirection.in.matches).toBe(0);
+    expect(summary.byDirection.out.matches).toBe(0);
+    expect(summary.byDirection.tool.matches).toBe(0);
+  });
+
+  test('directionForEventType classifies the canonical event types', () => {
+    expect(directionForEventType('turn.start')).toBe('in');
+    expect(directionForEventType('prompt')).toBe('in');
+    expect(directionForEventType('message')).toBe('in');
+    expect(directionForEventType('turn.end')).toBe('out');
+    expect(directionForEventType('text')).toBe('out');
+    expect(directionForEventType('thinking')).toBe('out');
+    expect(directionForEventType('approval.request')).toBe('out');
+    expect(directionForEventType('tool.call')).toBe('tool');
+    expect(directionForEventType('tool.result')).toBe('tool');
+    expect(directionForEventType('skill.execution')).toBe('tool');
+    expect(directionForEventType('model.usage')).toBeNull();
+    expect(directionForEventType('unknown.weird')).toBeNull();
+  });
+
+  test('summarizeLeakReports splits matched records by direction', () => {
+    writeWireLines('directional', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'directional',
+        event: { type: 'turn.start', content: 'About Serviceplan' },
+      },
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'directional',
+        event: { type: 'turn.end', content: 'Reply about Project Falcon' },
+      },
+      {
+        version: '2.0',
+        seq: 3,
+        timestamp: '2025-01-01T00:00:00.003Z',
+        runId: 'run_1',
+        sessionId: 'directional',
+        event: { type: 'tool.result', summary: 'Project Falcon launched' },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('directional', RULES, tempDir)];
+    const summary = summarizeLeakReports(reports);
+    expect(summary.byDirection.in.records).toBe(1);
+    expect(summary.byDirection.out.records).toBe(1);
+    expect(summary.byDirection.tool.records).toBe(1);
+    expect(summary.byDirection.in.matches).toBeGreaterThanOrEqual(1);
+    expect(summary.byDirection.out.matches).toBeGreaterThanOrEqual(1);
+    expect(summary.byDirection.tool.matches).toBeGreaterThanOrEqual(1);
   });
 
   test('scanAllAuditSessionsForLeaks scans every session', () => {
