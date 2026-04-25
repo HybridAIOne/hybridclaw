@@ -2,6 +2,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
+import { createConfidentialRuntimeContext } from '../security/confidential-runtime.js';
 import type { ContainerOutput } from '../types/container.js';
 import { getExecutor } from './executor.js';
 import type { ExecutorRequest } from './executor-types.js';
@@ -40,10 +41,12 @@ async function runAgentInner(
     workspaceRoot,
     media,
   });
-  return executor.exec({
+  const confidential = createConfidentialRuntimeContext();
+  const dehydratedMessages = confidential.dehydrate(preparedMessages);
+  const output = await executor.exec({
     ...params,
     sessionId,
-    messages: preparedMessages,
+    messages: dehydratedMessages,
     chatbotId,
     model,
     agentId,
@@ -57,5 +60,18 @@ async function runAgentInner(
     channelId,
     media,
     blockedTools,
+    onTextDelta: confidential.wrapDelta(params.onTextDelta),
+    onThinkingDelta: confidential.wrapDelta(params.onThinkingDelta),
   });
+  if (!confidential.enabled) return output;
+  return {
+    ...output,
+    result: output.result
+      ? confidential.rehydrate(output.result)
+      : output.result,
+    error: output.error ? confidential.rehydrate(output.error) : output.error,
+    effectiveUserPrompt: output.effectiveUserPrompt
+      ? confidential.rehydrate(output.effectiveUserPrompt)
+      : output.effectiveUserPrompt,
+  };
 }

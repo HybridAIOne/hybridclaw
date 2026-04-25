@@ -1,0 +1,39 @@
+# Example .confidential.yml for the HybridClaw NDA / secret-leak filter.
+#
+# Place a copy at ~/.hybridclaw/.confidential.yml (chmod 600) to enable the
+# pre-LLM dehydration filter and to seed the `hybridclaw audit scan-leaks`
+# scanner. The file is git-ignored by default.
+#
+# Sensitivity levels (used for risk scoring): low | medium | high | critical
+# Default = high.
+#
+# All literal matches are case-insensitive and respect word boundaries
+# (so "Acme" will not match "AcmeWidget"). Pattern entries take a
+# JavaScript-style regex string.
+
+version: 1
+
+clients:
+  - name: Serviceplan
+    aliases: ["SP", "Serviceplan AG"]
+    sensitivity: high
+  - name: Acme Corp
+    aliases: ["Acme"]
+    sensitivity: medium
+
+projects:
+  - name: Project Falcon
+    sensitivity: critical
+
+people:
+  - name: Jane Doe
+    sensitivity: medium
+
+keywords:
+  - term: "Q4 2026 budget"
+    sensitivity: critical
+
+patterns:
+  - name: internal-doc-id
+    regex: "INT-\\d{6}"
+    sensitivity: high
