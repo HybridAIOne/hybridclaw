@@ -10,8 +10,7 @@ vi.mock('../src/observability/otel.js', async (importOriginal) => {
     await importOriginal<typeof import('../src/observability/otel.js')>();
   return {
     ...actual,
-    withSpan: <T,>(_name: string, _attrs: unknown, fn: () => Promise<T>) =>
-      fn(),
+    withSpan: <T>(_name: string, _attrs: unknown, fn: () => Promise<T>) => fn(),
   };
 });
 

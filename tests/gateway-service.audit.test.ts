@@ -510,7 +510,8 @@ test('handleGatewayMessage warns once and disables request logs for invalid env 
   });
 
   const requestLogWarnings = logger.warn.mock.calls.filter(
-    ([, message]) => message === 'Ignoring invalid gateway request logging env value',
+    ([, message]) =>
+      message === 'Ignoring invalid gateway request logging env value',
   );
   expect(requestLogWarnings).toHaveLength(1);
   expect(requestLogWarnings[0]).toEqual([
