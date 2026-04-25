@@ -78,6 +78,7 @@ import type {
   ForkSessionBranchResult,
   Session,
   SessionShowMode,
+  SessionTitleSource,
   StoredMessage,
 } from '../types/session.js';
 import type {
@@ -106,7 +107,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 19;
+export const DATABASE_SCHEMA_VERSION = 20;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -1713,6 +1714,28 @@ function migrateV19(database: Database.Database): void {
   );
 }
 
+function migrateV20(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title',
+    ddl: 'title TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title_source',
+    ddl: 'title_source TEXT',
+    quiet,
+  });
+  recordMigration(database, 20, 'Persist per-session AI-generated titles');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1753,6 +1776,7 @@ function runMigrations(
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
+  if (currentVersion < 20) migrateV20(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3834,6 +3858,16 @@ function countSessionMessages(sessionId: string): number {
   return row?.count ?? 0;
 }
 
+export function countUserMessagesForSession(sessionId: string): number {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const row = queryOne<{ count: number }, [string]>(
+    db,
+    "SELECT COUNT(*) AS count FROM messages WHERE session_id = ? AND role = 'user'",
+    resolvedSessionId,
+  );
+  return row?.count ?? 0;
+}
+
 function copySessionKvStore(
   previousSessionId: string,
   nextSessionId: string,
@@ -4169,6 +4203,41 @@ export function updateSessionShowMode(
   );
 }
 
+export function getSessionTitle(sessionId: string): {
+  title: string | null;
+  source: SessionTitleSource | null;
+} {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const row = queryOne<{ title: string | null; title_source: string | null }>(
+    db,
+    'SELECT title, title_source FROM sessions WHERE id = ?',
+    resolvedSessionId,
+  );
+  if (!row) return { title: null, source: null };
+  const source =
+    row.title_source === 'auto' || row.title_source === 'user'
+      ? row.title_source
+      : null;
+  return { title: row.title, source };
+}
+
+export function setSessionTitle(
+  sessionId: string,
+  title: string,
+  source: SessionTitleSource,
+): void {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  if (source === 'auto') {
+    db.prepare(
+      'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
+    ).run(title, source, resolvedSessionId);
+    return;
+  }
+  db.prepare(
+    'UPDATE sessions SET title = ?, title_source = ? WHERE id = ?',
+  ).run(title, source, resolvedSessionId);
+}
+
 export function getAllSessions(options?: {
   limit?: number;
   warnLabel?: string;
@@ -4207,7 +4276,7 @@ export interface RecentUserSessionSummary {
 
 type RecentUserSessionRow = Pick<
   Session,
-  'id' | 'last_active' | 'message_count'
+  'id' | 'last_active' | 'message_count' | 'title'
 >;
 
 interface RecentSessionBoundaryRow {
@@ -4339,7 +4408,7 @@ export function getRecentSessionsForUser(params: {
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT DISTINCT s.id, s.last_active, s.message_count, s.title
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
@@ -4350,7 +4419,7 @@ export function getRecentSessionsForUser(params: {
       )
     : queryAll<RecentUserSessionRow, [string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT DISTINCT s.id, s.last_active, s.message_count, s.title
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
@@ -4397,11 +4466,14 @@ export function getRecentSessionsForUser(params: {
       boundary?.last_content && !shouldHideApprovalPrompt
         ? boundary.last_content
         : null;
-    const title = buildSessionBoundaryPreview({
-      firstMessage,
-      lastMessage,
-      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-    });
+    const storedTitle = (row.title || '').trim();
+    const title =
+      storedTitle ||
+      buildSessionBoundaryPreview({
+        firstMessage,
+        lastMessage,
+        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+      });
     const rawSearchSnippet = searchQuery
       ? buildSessionSearchSnippet(
           contentMatchesBySessionId.get(row.id) || null,

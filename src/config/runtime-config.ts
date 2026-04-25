@@ -661,6 +661,7 @@ export interface RuntimeConfig {
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    session_title: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -1254,6 +1255,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     flush_memories: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    session_title: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -3983,6 +3989,11 @@ function normalizeRuntimeConfig(
   )
     ? rawAuxiliaryModels.flush_memories
     : {};
+  const rawSessionTitleAuxiliaryModel = isRecord(
+    rawAuxiliaryModels.session_title,
+  )
+    ? rawAuxiliaryModels.session_title
+    : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
     ? rawLocalBackends.ollama
@@ -4852,6 +4863,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      session_title: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawSessionTitleAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.provider,
+        ),
+        model: normalizeString(
+          rawSessionTitleAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawSessionTitleAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

@@ -8,6 +8,7 @@ import {
   addKnowledgeEntity,
   addKnowledgeRelation,
   appendCanonicalMessages,
+  countUserMessagesForSession,
   DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
@@ -19,6 +20,7 @@ import {
   getOrCreateSession,
   getRecentSessionsForUser,
   getSessionById,
+  getSessionTitle,
   getUsageTotals,
   initDatabase,
   listMemoryValues,
@@ -29,6 +31,7 @@ import {
   recallSemanticMemories,
   recordUsageEvent,
   setMemoryValue,
+  setSessionTitle,
   storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
@@ -89,6 +92,10 @@ function makeSession(partial?: Partial<Session>): Session {
     show_mode: 'all',
     created_at: new Date().toISOString(),
     last_active: new Date().toISOString(),
+    reset_count: 0,
+    reset_at: null,
+    title: null,
+    title_source: null,
     ...(partial || {}),
   };
 }
@@ -1156,6 +1163,100 @@ describe.sequential('schema migrations', () => {
         query: 'deploy',
       }),
     ).toEqual([]);
+  });
+
+  test('setSessionTitle persists and round-trips with getSessionTitle', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', 'Deploy Plan', 'auto');
+
+    expect(getSessionTitle('title-session')).toEqual({
+      title: 'Deploy Plan',
+      source: 'auto',
+    });
+  });
+
+  test('setSessionTitle with auto source does not overwrite an existing title', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', 'First Pick', 'auto');
+    setSessionTitle('title-session', 'Second Pick', 'auto');
+
+    expect(getSessionTitle('title-session').title).toBe('First Pick');
+  });
+
+  test('setSessionTitle with user source overrides an existing auto title', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', 'Auto Pick', 'auto');
+    setSessionTitle('title-session', 'User Pick', 'user');
+
+    expect(getSessionTitle('title-session')).toEqual({
+      title: 'User Pick',
+      source: 'user',
+    });
+  });
+
+  test('countUserMessagesForSession reports only user-role rows', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('count-session', null, 'web');
+    storeMessage('count-session', 'web-user-a', 'web', 'user', 'first');
+    storeMessage('count-session', 'assistant', null, 'assistant', 'reply');
+    storeMessage('count-session', 'web-user-a', 'web', 'user', 'second');
+
+    expect(countUserMessagesForSession('count-session')).toBe(2);
+  });
+
+  test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('stored-title-session', null, 'web');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'stored-title-session',
+        'web-user-a',
+        'web',
+        'user',
+        'Boring derived first message',
+        '2026-04-25T10:00:00.000Z',
+      );
+    inspect
+      .prepare(
+        'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+      )
+      .run(1, '2026-04-25T10:00:00.000Z', 'stored-title-session');
+    inspect.close();
+
+    setSessionTitle('stored-title-session', 'Custom Stored Title', 'auto');
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'stored-title-session',
+        lastActive: '2026-04-25T10:00:00.000Z',
+        messageCount: 1,
+        title: 'Custom Stored Title',
+      },
+    ]);
   });
 
   test('forkSessionBranch copies the prefix into a new sibling session', () => {

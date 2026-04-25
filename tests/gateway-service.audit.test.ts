@@ -509,15 +509,18 @@ test('handleGatewayMessage warns once and disables request logs for invalid env 
     chatbotId: 'bot-1',
   });
 
-  expect(logger.warn).toHaveBeenCalledTimes(1);
-  expect(logger.warn).toHaveBeenCalledWith(
+  const requestLogWarnings = logger.warn.mock.calls.filter(
+    ([, message]) => message === 'Ignoring invalid gateway request logging env value',
+  );
+  expect(requestLogWarnings).toHaveLength(1);
+  expect(requestLogWarnings[0]).toEqual([
     {
       envVar: 'HYBRIDCLAW_LOG_REQUESTS',
       expectedValue: '1',
       value: 'true',
     },
     'Ignoring invalid gateway request logging env value',
-  );
+  ]);
 
   const inspect = new Database(DB_PATH, { readonly: true });
   const rowCount = inspect

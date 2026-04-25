@@ -38,6 +38,7 @@ export const TASK_MODEL_KEYS = [
   'skills_hub',
   'mcp',
   'flush_memories',
+  'session_title',
 ] as const;
 
 export type TaskModelKey = (typeof TASK_MODEL_KEYS)[number];

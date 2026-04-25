@@ -37,6 +37,7 @@ import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
+  countUserMessagesForSession,
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
@@ -53,6 +54,7 @@ import {
 } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
+import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
@@ -493,6 +495,10 @@ async function handleGatewayMessageInner(
   });
   let conciergeExecutionProfile: ConciergeProfile | null = null;
   if (conciergeTurn.kind === 'respond') {
+    const conciergeUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -506,11 +512,21 @@ async function handleGatewayMessageInner(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      userContent: conciergeUserContent,
       resultText: conciergeTurn.resultText,
       toolCallCount: 0,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+    });
+    maybeAutoTitleSession({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      userContent: conciergeUserContent,
+      assistantContent: conciergeTurn.resultText,
+      userMessageCount: countUserMessagesForSession(req.sessionId),
     });
     return attachSessionIdentity({
       status: 'success',
@@ -690,6 +706,16 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      userContent: req.content,
+      assistantContent: resultText,
+      userMessageCount: countUserMessagesForSession(req.sessionId),
+    });
     return attachSessionIdentity(result);
   }
 
@@ -1347,6 +1373,16 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      userContent: storedUserContent,
+      assistantContent: resultText,
+      userMessageCount: countUserMessagesForSession(req.sessionId),
+    });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,

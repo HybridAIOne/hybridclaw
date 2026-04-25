@@ -366,6 +366,11 @@
       "provider": "auto",
       "model": "",
       "maxTokens": 0
+    },
+    "session_title": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
     }
   },
   "container": {
