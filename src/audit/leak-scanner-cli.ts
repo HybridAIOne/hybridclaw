@@ -102,6 +102,7 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
 
 export async function runLeakScanCli(args: string[]): Promise<void> {
   const useJson = args.includes('--json');
+  const showAll = args.includes('--all');
   const positional = args.filter((arg) => !arg.startsWith('--'));
   const sessionId = positional[0];
 
@@ -164,10 +165,29 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
   }
 
   let leaksFound = false;
+  let cleanHidden = 0;
   for (const report of reports) {
-    console.log(summarizeReport(report));
     if (report.totalMatches > 0) leaksFound = true;
+    // By default, suppress sessions with zero matches — most workspaces
+    // have many short clean sessions and the noise drowns the signal.
+    // `--all` (or asking for one specific session) restores them.
+    if (
+      report.totalMatches === 0 &&
+      report.errors.length === 0 &&
+      !showAll &&
+      !sessionId
+    ) {
+      cleanHidden += 1;
+      continue;
+    }
+    console.log(summarizeReport(report));
     printReportDetail(report);
+  }
+
+  if (cleanHidden > 0) {
+    console.log(
+      `(${cleanHidden} clean session${cleanHidden === 1 ? '' : 's'} hidden — pass --all to show)`,
+    );
   }
 
   printSummaryFooter(reports);

@@ -537,7 +537,9 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
-  scan-leaks [sessionId] [--json]    Scan audit logs for confidential-info leaks (rules from ./.confidential.yml or ~/.hybridclaw/.confidential.yml)
+  scan-leaks [sessionId] [--all] [--json]
+                                     Scan audit logs for confidential-info leaks. Clean sessions hidden unless --all.
+                                     Rules from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
