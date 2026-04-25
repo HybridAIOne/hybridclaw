@@ -69,8 +69,10 @@ describe('dehydrate / rehydrate', () => {
     expect(dehydrated).not.toMatch(/Q4 2026 budget/);
 
     const rehydrated = rehydrateConfidential(dehydrated, mappings);
-    // Aliases collapse to the primary spelling on rehydrate (last-write-wins
-    // through the placeholder); the canonical name remains intact.
+    // All variants of a rule (primary + aliases) share one placeholder, and
+    // the placeholder maps to the FIRST spelling that matched (first-write-
+    // wins). Here "Serviceplan" appears before "SP", so both rehydrate to
+    // "Serviceplan".
     expect(rehydrated).toContain('Serviceplan');
     expect(rehydrated).toContain('Project Falcon');
     expect(rehydrated).toContain('Q4 2026 budget');

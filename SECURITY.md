@@ -106,8 +106,11 @@ Implementation: [src/session/session-key.ts](./src/session/session-key.ts),
 Optional, opt-in filter that prevents NDA-class business data from leaving the
 host:
 
-- Define rules in `~/.hybridclaw/.confidential.yml` (clients, projects, people,
-  keywords, regex patterns, each tagged with a sensitivity level).
+- Define rules in `.confidential.yml`. The loader checks the current working
+  directory first (`./.confidential.yml`) and then
+  `~/.hybridclaw/.confidential.yml`; first hit wins. The file holds clients,
+  projects, people, keywords, and regex patterns, each tagged with a
+  sensitivity level.
 - Before every prompt is sent to a model, matches are replaced with stable
   placeholders (`«CONF:CLIENT_001»`); the mapping is held in process memory and
   forgotten when the request ends.

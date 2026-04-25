@@ -1,8 +1,11 @@
 # Example .confidential.yml for the HybridClaw NDA / secret-leak filter.
 #
-# Place a copy at ~/.hybridclaw/.confidential.yml (chmod 600) to enable the
-# pre-LLM dehydration filter and to seed the `hybridclaw audit scan-leaks`
-# scanner. The file is git-ignored by default.
+# Place a copy at one of:
+#   - ./.confidential.yml              (project-local, checked first)
+#   - ~/.hybridclaw/.confidential.yml  (user-global fallback)
+# Lock it down with `chmod 600 <file>`. The file is git-ignored by default.
+# Activates the pre-LLM dehydration filter and seeds the
+# `hybridclaw audit scan-leaks` scanner; first file found wins.
 #
 # Sensitivity levels (used for risk scoring): low | medium | high | critical
 # Default = high.

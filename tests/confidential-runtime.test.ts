@@ -62,4 +62,38 @@ describe('confidential runtime context', () => {
     wrapped?.('Replying about «CONF:CLIENT_001»');
     expect(seen[0]).toBe('Replying about Serviceplan');
   });
+
+  test('rehydrateFields restores listed string fields and leaves others alone', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
+
+    const execution = {
+      name: 'noop',
+      arguments: 'See «CONF:CLIENT_001»',
+      result: 'Reply: «CONF:CLIENT_001»',
+      durationMs: 4,
+    };
+    const next = ctx.rehydrateFields(execution, [
+      'arguments',
+      'result',
+    ] as const);
+    expect(next?.arguments).toBe('See Serviceplan');
+    expect(next?.result).toBe('Reply: Serviceplan');
+    expect(next?.durationMs).toBe(4);
+  });
+
+  test('wrapEvent rehydrates listed string fields on each event', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    const ctx = createConfidentialRuntimeContext();
+    ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
+
+    const seen: { preview?: string }[] = [];
+    const wrapped = ctx.wrapEvent(
+      (event: { preview?: string }) => seen.push(event),
+      ['preview'] as const,
+    );
+    wrapped?.({ preview: 'tool starting on «CONF:CLIENT_001»' });
+    expect(seen[0]?.preview).toBe('tool starting on Serviceplan');
+  });
 });

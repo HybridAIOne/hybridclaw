@@ -4,9 +4,29 @@ import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
 import { createConfidentialRuntimeContext } from '../security/confidential-runtime.js';
 import type { ContainerOutput } from '../types/container.js';
+import type {
+  PendingApproval,
+  ToolExecution,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import { getExecutor } from './executor.js';
 import type { ExecutorRequest } from './executor-types.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
+
+const TOOL_EXECUTION_REHYDRATE_FIELDS: ReadonlyArray<keyof ToolExecution> = [
+  'arguments',
+  'result',
+  'blockedReason',
+  'approvalIntent',
+  'approvalReason',
+];
+
+const PENDING_APPROVAL_REHYDRATE_FIELDS: ReadonlyArray<keyof PendingApproval> =
+  ['prompt', 'intent', 'reason'];
+
+const TOOL_PROGRESS_REHYDRATE_FIELDS: ReadonlyArray<keyof ToolProgressEvent> = [
+  'preview',
+];
 
 export async function runAgent(
   params: ExecutorRequest,
@@ -62,8 +82,27 @@ async function runAgentInner(
     blockedTools,
     onTextDelta: confidential.wrapDelta(params.onTextDelta),
     onThinkingDelta: confidential.wrapDelta(params.onThinkingDelta),
+    onToolProgress: confidential.wrapEvent(
+      params.onToolProgress,
+      TOOL_PROGRESS_REHYDRATE_FIELDS,
+    ),
+    onApprovalProgress: confidential.wrapEvent(
+      params.onApprovalProgress,
+      PENDING_APPROVAL_REHYDRATE_FIELDS,
+    ),
   });
   if (!confidential.enabled) return output;
+  const rehydratedToolExecutions = output.toolExecutions?.map(
+    (execution) =>
+      confidential.rehydrateFields(
+        execution,
+        TOOL_EXECUTION_REHYDRATE_FIELDS,
+      ) ?? execution,
+  );
+  const rehydratedPendingApproval = confidential.rehydrateFields(
+    output.pendingApproval,
+    PENDING_APPROVAL_REHYDRATE_FIELDS,
+  );
   return {
     ...output,
     result: output.result
@@ -73,5 +112,7 @@ async function runAgentInner(
     effectiveUserPrompt: output.effectiveUserPrompt
       ? confidential.rehydrate(output.effectiveUserPrompt)
       : output.effectiveUserPrompt,
+    toolExecutions: rehydratedToolExecutions ?? output.toolExecutions,
+    pendingApproval: rehydratedPendingApproval ?? output.pendingApproval,
   };
 }

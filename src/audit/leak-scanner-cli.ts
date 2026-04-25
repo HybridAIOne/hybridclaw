@@ -70,7 +70,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     const message =
       ruleSet.sourcePath != null
         ? `No usable rules found in ${ruleSet.sourcePath}.`
-        : 'No .confidential.yml found. Create ~/.hybridclaw/.confidential.yml to enable leak scanning.';
+        : 'No .confidential.yml found. Create ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global) to enable leak scanning.';
     if (useJson) {
       console.log(JSON.stringify({ ok: false, reason: message }, null, 2));
     } else {

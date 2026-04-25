@@ -183,6 +183,11 @@ export function parseConfidentialYaml(
   return { rules: parseRuleSet(raw), sourcePath };
 }
 
+/**
+ * Search order, first hit wins:
+ *   1. ./.confidential.yml (project-local, e.g. per-workspace overrides)
+ *   2. ~/.hybridclaw/.confidential.yml (user-global default)
+ */
 export function defaultConfidentialConfigPaths(
   cwd: string = process.cwd(),
 ): string[] {

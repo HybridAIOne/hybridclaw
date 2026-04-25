@@ -92,6 +92,16 @@ export interface ConfidentialRuntimeContext {
   wrapDelta(
     callback: ((delta: string) => void) | undefined,
   ): ((delta: string) => void) | undefined;
+  /** Rehydrate every listed string field on an object (shallow). */
+  rehydrateFields<T extends object>(
+    value: T | null | undefined,
+    fields: ReadonlyArray<keyof T>,
+  ): T | null | undefined;
+  /** Map a callback that receives an object, rehydrating string fields by name. */
+  wrapEvent<T extends object>(
+    callback: ((event: T) => void) | undefined,
+    fields: ReadonlyArray<keyof T>,
+  ): ((event: T) => void) | undefined;
 }
 
 const NOOP_CONTEXT: ConfidentialRuntimeContext = {
@@ -101,7 +111,23 @@ const NOOP_CONTEXT: ConfidentialRuntimeContext = {
   dehydrate: (messages) => messages,
   rehydrate: (text) => text || '',
   wrapDelta: (callback) => callback,
+  rehydrateFields: (value) => value,
+  wrapEvent: (callback) => callback,
 };
+
+function rehydrateStringField<T extends object>(
+  source: T,
+  key: keyof T,
+  mappings: ConfidentialPlaceholderMap,
+): { value: T[keyof T]; mutated: boolean } {
+  const raw = source[key];
+  if (typeof raw !== 'string') return { value: raw, mutated: false };
+  const next = rehydrateConfidential(raw, mappings);
+  return {
+    value: next as T[keyof T],
+    mutated: next !== raw,
+  };
+}
 
 export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
   if (!isConfidentialRedactionEnabled()) {
@@ -109,6 +135,23 @@ export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
   }
   const ruleSet = getConfidentialRuleSet();
   const mappings = createPlaceholderMap();
+
+  function rehydrateFields<T extends object>(
+    value: T | null | undefined,
+    fields: ReadonlyArray<keyof T>,
+  ): T | null | undefined {
+    if (!value) return value;
+    let mutated = false;
+    const next = { ...value } as T;
+    for (const field of fields) {
+      const result = rehydrateStringField(value, field, mappings);
+      if (result.mutated) {
+        next[field] = result.value;
+        mutated = true;
+      }
+    }
+    return mutated ? next : value;
+  }
 
   return {
     enabled: true,
@@ -127,6 +170,14 @@ export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
       if (!callback) return callback;
       return (delta: string) => {
         callback(rehydrateConfidential(delta, mappings));
+      };
+    },
+    rehydrateFields,
+    wrapEvent(callback, fields) {
+      if (!callback) return callback;
+      return (event) => {
+        const next = rehydrateFields(event, fields);
+        callback((next ?? event) as Parameters<typeof callback>[0]);
       };
     },
   };
