@@ -7,7 +7,7 @@ import type { ConfidentialFinding } from '../security/confidential-redact.js';
 import { loadConfidentialRules } from '../security/confidential-rules.js';
 import {
   type LeakScanReport,
-  type PromptDirection,
+  type PromptCategory,
   scanAllAuditSessionsForLeaks,
   scanAuditSessionForLeaks,
   summarizeLeakReports,
@@ -52,10 +52,11 @@ function formatTimestamp(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-const DIRECTION_LABEL: Record<PromptDirection, string> = {
+const CATEGORY_LABEL: Record<PromptCategory, string> = {
   in: 'in   (→ LLM)',
   out: 'out  (← LLM)',
   tool: 'tool (I/O)',
+  url: 'url  (URLs)',
 };
 
 function summarizeReport(report: LeakScanReport): string {
@@ -128,10 +129,12 @@ function printRunHeader(
   scope: string,
 ): void {
   printBanner('Audit Leak Scanner');
-  console.log(
-    `Rules: ${rulesLoaded} from ${rulesPath ?? 'embedded'}    Scope: ${scope}`,
-  );
-  console.log('');
+  console.log(`Rules: ${rulesLoaded} from ${rulesPath ?? 'embedded'}`);
+  console.log(`Scope: ${scope}`);
+}
+
+function pluralize(value: number, singular: string, plural: string): string {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 function printSummaryFooter(reports: LeakScanReport[]): void {
@@ -142,13 +145,13 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
     'medium',
     'low',
   ];
-  const dirOrder: PromptDirection[] = ['in', 'out', 'tool'];
-  // ASCII rule + asterisks survive copy/paste into Slack, email, PR
-  // comments and pagers that strip ANSI styling.
+  const catOrder: PromptCategory[] = ['in', 'out', 'tool', 'url'];
+  // No second banner — the AUDIT LEAK SCANNER block at the top already
+  // brackets the report. Keep blocks visually separated by single blank
+  // lines and close with one rule for copy-paste delimiting.
   console.log('');
-  printBanner('Summary');
   console.log(
-    `${summary.affectedSessions}/${summary.totalSessions} session${summary.totalSessions === 1 ? '' : 's'} affected, ${summary.totalMatches} match${summary.totalMatches === 1 ? '' : 'es'} total`,
+    `${summary.affectedSessions}/${summary.totalSessions} ${summary.totalSessions === 1 ? 'session' : 'sessions'} affected, ${pluralize(summary.totalMatches, 'match', 'matches')} total`,
   );
   console.log('');
   console.log('By session severity:');
@@ -158,21 +161,15 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
       severity.toUpperCase().padEnd(8),
       severityColor(severity),
     );
-    console.log(`  ${label} ${count} session${count === 1 ? '' : 's'}`);
+    console.log(`  ${label} ${pluralize(count, 'session', 'sessions')}`);
   }
   console.log('');
-  console.log('By prompt direction:');
-  for (const dir of dirOrder) {
-    const totals = summary.byDirection[dir];
-    const label = DIRECTION_LABEL[dir].padEnd(13);
+  console.log('By type:');
+  for (const cat of catOrder) {
+    const totals = summary.byCategory[cat];
+    const label = CATEGORY_LABEL[cat].padEnd(13);
     console.log(
-      `  ${label} ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
-    );
-  }
-  if (summary.byDirection.other.matches > 0) {
-    const totals = summary.byDirection.other;
-    console.log(
-      `  other         ${totals.matches} match${totals.matches === 1 ? '' : 'es'} in ${totals.records} record${totals.records === 1 ? '' : 's'}`,
+      `  ${label} ${pluralize(totals.matches, 'match', 'matches')} in ${pluralize(totals.records, 'record', 'records')} in ${pluralize(totals.sessions, 'session', 'sessions')}`,
     );
   }
   console.log(SUMMARY_RULE);
@@ -254,6 +251,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
   const leaksFound = reports.some((report) => report.totalMatches > 0);
 
   if (effectiveVerbosity !== 'quiet') {
+    console.log('');
     let cleanHidden = 0;
     for (const report of reports) {
       // `standard` suppresses sessions with zero matches — most workspaces

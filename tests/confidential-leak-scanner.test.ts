@@ -317,12 +317,83 @@ describe('audit log leak scanner', () => {
     ]);
     const reports = [scanAuditSessionForLeaks('directional', RULES, tempDir)];
     const summary = summarizeLeakReports(reports);
-    expect(summary.byDirection.in.records).toBe(1);
-    expect(summary.byDirection.out.records).toBe(1);
-    expect(summary.byDirection.tool.records).toBe(1);
-    expect(summary.byDirection.in.matches).toBeGreaterThanOrEqual(1);
-    expect(summary.byDirection.out.matches).toBeGreaterThanOrEqual(1);
-    expect(summary.byDirection.tool.matches).toBeGreaterThanOrEqual(1);
+    expect(summary.byCategory.in.records).toBe(1);
+    expect(summary.byCategory.out.records).toBe(1);
+    expect(summary.byCategory.tool.records).toBe(1);
+    expect(summary.byCategory.in.matches).toBeGreaterThanOrEqual(1);
+    expect(summary.byCategory.out.matches).toBeGreaterThanOrEqual(1);
+    expect(summary.byCategory.tool.matches).toBeGreaterThanOrEqual(1);
+    // All three records came from the same session — the per-bucket
+    // session count should report 1 (deduped), not 3.
+    expect(summary.byCategory.in.sessions).toBe(1);
+    expect(summary.byCategory.out.sessions).toBe(1);
+    expect(summary.byCategory.tool.sessions).toBe(1);
+  });
+
+  test('classifies matches inside URLs into the url bucket', () => {
+    writeWireLines('urls', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'urls',
+        event: {
+          type: 'tool.result',
+          resultSummary:
+            'Found article at https://news.example.com/Serviceplan/2026',
+        },
+      },
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'urls',
+        event: {
+          type: 'tool.result',
+          resultSummary:
+            'See [Spendenseite](/unterstuetzung#Serviceplan) for details',
+        },
+      },
+      {
+        version: '2.0',
+        seq: 3,
+        timestamp: '2025-01-01T00:00:00.003Z',
+        runId: 'run_1',
+        sessionId: 'urls',
+        event: { type: 'turn.start', userInput: 'Tell me about Serviceplan' },
+      },
+    ]);
+    const reports = [scanAuditSessionForLeaks('urls', RULES, tempDir)];
+    const summary = summarizeLeakReports(reports);
+    // Two URL-bucketed records (https + markdown), one prose record.
+    expect(summary.byCategory.url.records).toBe(2);
+    expect(summary.byCategory.in.records).toBe(1);
+    expect(summary.byCategory.tool.records).toBe(0);
+  });
+
+  test('only scans whitelisted fields per event type — ignores metadata fields', () => {
+    writeWireLines('targeted', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'targeted',
+        // `provider` and `model` are metadata; only `userInput` should be
+        // scanned for turn.start. A confidential value placed in `provider`
+        // must NOT be flagged.
+        event: {
+          type: 'turn.start',
+          provider: 'Serviceplan',
+          model: 'gpt-5.1',
+          userInput: 'all clear here',
+        },
+      },
+    ]);
+    const report = scanAuditSessionForLeaks('targeted', RULES, tempDir);
+    expect(report.totalMatches).toBe(0);
   });
 
   test('scanAllAuditSessionsForLeaks scans every session', () => {

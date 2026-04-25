@@ -14,20 +14,28 @@ const WIRE_FILE_NAME = 'wire.jsonl';
 const PLACEHOLDER_RE = /«CONF:[A-Z0-9_-]+»/;
 
 /**
- * Direction of the text relative to the LLM:
+ * Where the leaking text lives relative to the LLM. Used to bucket the
+ * summary so reviewers can tell at a glance whether their leaks are user
+ * input, model output, tool I/O, or URL-shaped strings (which are easy
+ * to fix by sanitising the URL builder).
+ *
  *  - `in`   → user input that travels TO the LLM
  *  - `out`  → text the LLM emitted (or a system prompt sent on its behalf)
  *  - `tool` → tool I/O (call args + tool results, including skill steps)
+ *  - `url`  → match falls inside a URL/markdown link, regardless of event
  *
- * Tool I/O is its own bucket rather than being lumped under in/out because
- * it is the most common leak surface (tool results from web fetches,
- * memory lookups, etc. often carry confidential strings) and because the
- * mitigation differs (tighter tool-result redaction vs. user-prompt
- * coaching).
+ * URL is its own bucket because URLs are the most common leak surface in
+ * tool output (search results, fetched pages) and the cheapest mitigation
+ * is "redact URL paths" rather than "rewrite the prompt".
  */
-export type PromptDirection = 'in' | 'out' | 'tool';
+export type PromptCategory = 'in' | 'out' | 'tool' | 'url';
 
-const EVENT_TYPE_DIRECTIONS: Record<string, PromptDirection> = {
+/**
+ * @deprecated kept as an alias during migration; prefer {@link PromptCategory}.
+ */
+export type PromptDirection = PromptCategory;
+
+const EVENT_TYPE_DIRECTIONS: Record<string, Exclude<PromptCategory, 'url'>> = {
   'turn.start': 'in',
   prompt: 'in',
   message: 'in',
@@ -40,6 +48,44 @@ const EVENT_TYPE_DIRECTIONS: Record<string, PromptDirection> = {
   'skill.execution': 'tool',
   'skill.inspection': 'tool',
 };
+
+/**
+ * Per event type, the set of fields whose values carry actual prompt
+ * content. Only these fields are scanned, which avoids false positives
+ * from metadata fields like `provider`, `toolName`, `username`, etc.
+ *
+ * For `arguments` (a nested object on `tool.call`), we recurse into all
+ * string values within — the schema is open-ended.
+ */
+const PROMPT_TEXT_FIELDS_BY_TYPE: Record<string, ReadonlyArray<string>> = {
+  'turn.start': ['userInput', 'rawUserInput', 'content', 'text'],
+  'turn.end': ['text', 'output', 'result', 'summary', 'response', 'content'],
+  'tool.call': ['arguments'],
+  'tool.result': [
+    'resultSummary',
+    'output',
+    'result',
+    'content',
+    'summary',
+    'text',
+  ],
+  'approval.request': ['description', 'reason'],
+  prompt: ['content', 'text', 'system', 'systemPrompt'],
+  message: ['content', 'text'],
+  text: ['text', 'content'],
+  thinking: ['text', 'content'],
+  'skill.execution': ['prompt', 'result', 'output', 'text'],
+  'skill.inspection': ['prompt', 'result', 'output', 'text'],
+};
+
+/**
+ * Detects URLs and markdown link targets in scanned text. Catches:
+ *  - bare URLs:                 `https://example.com/path?q=1`
+ *  - markdown relative links:   `[label](/path/to/thing#anchor)`
+ *  - markdown absolute links:   `[label](https://example.com)`
+ */
+const URL_SPAN_RE =
+  /(?:https?:\/\/[^\s<>"'`]+|\]\(([^)]+)\)|\((\/[^()\s]+)\))/g;
 
 /**
  * Event types whose payload contains text that travels to or from the LLM,
@@ -56,8 +102,30 @@ export const PROMPT_BEARING_EVENT_TYPES: ReadonlySet<string> = new Set(
 
 export function directionForEventType(
   eventType: string,
-): PromptDirection | null {
+): Exclude<PromptCategory, 'url'> | null {
   return EVENT_TYPE_DIRECTIONS[eventType] ?? null;
+}
+
+function findUrlSpans(text: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  URL_SPAN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null = URL_SPAN_RE.exec(text);
+  while (match) {
+    spans.push({ start: match.index, end: match.index + match[0].length });
+    if (URL_SPAN_RE.lastIndex === match.index) URL_SPAN_RE.lastIndex += 1;
+    match = URL_SPAN_RE.exec(text);
+  }
+  return spans;
+}
+
+function indexFallsInsideAnySpan(
+  index: number,
+  spans: { start: number; end: number }[],
+): boolean {
+  for (const span of spans) {
+    if (index >= span.start && index < span.end) return true;
+  }
+  return false;
 }
 
 function resolveScanEventTypes(): ReadonlySet<string> {
@@ -83,6 +151,8 @@ export interface LeakScanRecord {
   severity: ConfidentialFinding['sensitivity'];
   /** True when the source text already contained a confidential placeholder (i.e. dehydration had run). */
   hadPlaceholder: boolean;
+  /** Bucket for the summary footer: in/out/tool by event direction, or url when the match falls inside a URL/markdown link. */
+  category: PromptCategory;
 }
 
 export interface LeakScanReport {
@@ -150,6 +220,19 @@ function collectStringValues(value: unknown, into: string[]): void {
   }
 }
 
+function collectPromptText(
+  event: Record<string, unknown>,
+  fields: ReadonlyArray<string>,
+): string[] {
+  const out: string[] = [];
+  for (const field of fields) {
+    if (field in event) {
+      collectStringValues(event[field], out);
+    }
+  }
+  return out;
+}
+
 interface WireRecord {
   seq?: number;
   timestamp?: string;
@@ -171,17 +254,58 @@ function parseWireLine(line: string): WireRecord | null {
 function scanRecordForLeaks(
   record: WireRecord,
   ruleSet: ConfidentialRuleSet,
-): { result: ConfidentialScanResult; hadPlaceholder: boolean } | null {
+): {
+  result: ConfidentialScanResult;
+  hadPlaceholder: boolean;
+  combinedText: string;
+} | null {
   const event = record.event;
   if (!event || typeof event !== 'object') return null;
-  const strings: string[] = [];
-  collectStringValues(event, strings);
+  const eventType = typeof event.type === 'string' ? event.type : '';
+  const fields = PROMPT_TEXT_FIELDS_BY_TYPE[eventType];
+  // Unknown event types fall back to the field whitelist union, which
+  // catches the common content-bearing field names without dragging in
+  // metadata like `provider`, `username`, `toolName`.
+  const fallbackFields = [
+    'content',
+    'text',
+    'output',
+    'result',
+    'summary',
+    'description',
+    'reason',
+    'prompt',
+    'userInput',
+    'rawUserInput',
+  ];
+  const strings = collectPromptText(
+    event as Record<string, unknown>,
+    fields ?? fallbackFields,
+  );
   if (strings.length === 0) return null;
-  const combined = strings.join('\n');
-  const hadPlaceholder = PLACEHOLDER_RE.test(combined);
-  const result = scanForLeaks(combined, ruleSet);
+  const combinedText = strings.join('\n');
+  const hadPlaceholder = PLACEHOLDER_RE.test(combinedText);
+  const result = scanForLeaks(combinedText, ruleSet);
   if (result.totalMatches === 0) return null;
-  return { result, hadPlaceholder };
+  return { result, hadPlaceholder, combinedText };
+}
+
+function categoryForRecord(
+  eventType: string,
+  combinedText: string,
+  findings: ConfidentialFinding[],
+): PromptCategory {
+  const urlSpans = findUrlSpans(combinedText);
+  if (urlSpans.length > 0) {
+    for (const finding of findings) {
+      if (!finding.match) continue;
+      const idx = combinedText.indexOf(finding.match);
+      if (idx >= 0 && indexFallsInsideAnySpan(idx, urlSpans)) {
+        return 'url';
+      }
+    }
+  }
+  return directionForEventType(eventType) ?? 'tool';
 }
 
 function listAuditSessionIds(auditRoot: string): string[] {
@@ -294,6 +418,11 @@ export function scanAuditSessionForLeaks(
       score: scan.result.score,
       severity: scan.result.severity,
       hadPlaceholder: scan.hadPlaceholder,
+      category: categoryForRecord(
+        eventType,
+        scan.combinedText,
+        scan.result.findings,
+      ),
     });
     totalMatches += scan.result.totalMatches;
     aggregateRaw += scan.result.rawScore;
@@ -328,18 +457,27 @@ export function scanAllAuditSessionsForLeaks(
   );
 }
 
-export interface DirectionTotals {
-  /** Number of matched audit records bucketed in this direction. */
+export interface CategoryTotals {
+  /** Number of matched audit records bucketed in this category. */
   records: number;
   /** Sum of matches inside those records. */
   matches: number;
+  /** Number of distinct sessions in which this category appeared. */
+  sessions: number;
 }
+
+const CATEGORY_KEYS: ReadonlyArray<PromptCategory> = [
+  'in',
+  'out',
+  'tool',
+  'url',
+];
 
 export function summarizeLeakReports(reports: LeakScanReport[]): {
   bySeverity: Record<ConfidentialFinding['sensitivity'], number>;
-  byDirection: Record<PromptDirection, DirectionTotals> & {
-    other: DirectionTotals;
-  };
+  byCategory: Record<PromptCategory, CategoryTotals>;
+  /** @deprecated alias for {@link byCategory}; remove after callers migrate. */
+  byDirection: Record<PromptCategory, CategoryTotals>;
   totalMatches: number;
   totalSessions: number;
   affectedSessions: number;
@@ -350,13 +488,17 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
     medium: 0,
     low: 0,
   };
-  const byDirection: Record<PromptDirection, DirectionTotals> & {
-    other: DirectionTotals;
-  } = {
-    in: { records: 0, matches: 0 },
-    out: { records: 0, matches: 0 },
-    tool: { records: 0, matches: 0 },
-    other: { records: 0, matches: 0 },
+  const byCategory: Record<PromptCategory, CategoryTotals> = {
+    in: { records: 0, matches: 0, sessions: 0 },
+    out: { records: 0, matches: 0, sessions: 0 },
+    tool: { records: 0, matches: 0, sessions: 0 },
+    url: { records: 0, matches: 0, sessions: 0 },
+  };
+  const sessionsSeenByCategory: Record<PromptCategory, Set<string>> = {
+    in: new Set(),
+    out: new Set(),
+    tool: new Set(),
+    url: new Set(),
   };
   let totalMatches = 0;
   let affectedSessions = 0;
@@ -367,14 +509,19 @@ export function summarizeLeakReports(reports: LeakScanReport[]): {
       bySeverity[report.severity] += 1;
     }
     for (const record of report.matchedRecords) {
-      const bucket = directionForEventType(record.eventType) ?? 'other';
-      byDirection[bucket].records += 1;
-      byDirection[bucket].matches += record.totalMatches;
+      const bucket = record.category;
+      byCategory[bucket].records += 1;
+      byCategory[bucket].matches += record.totalMatches;
+      sessionsSeenByCategory[bucket].add(report.sessionId);
     }
+  }
+  for (const key of CATEGORY_KEYS) {
+    byCategory[key].sessions = sessionsSeenByCategory[key].size;
   }
   return {
     bySeverity,
-    byDirection,
+    byCategory,
+    byDirection: byCategory,
     totalMatches,
     totalSessions: reports.length,
     affectedSessions,
