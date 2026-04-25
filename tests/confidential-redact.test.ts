@@ -153,12 +153,22 @@ describe('scanForLeaks', () => {
     expect(result.severity).toBe('critical');
   });
 
-  test('excerpt is short and includes redaction marker', () => {
+  test('excerpt shows the matched span verbatim, wrapped in »…« markers', () => {
     const result = scanForLeaks('Notes: Serviceplan brief follows.', ruleSet);
     const finding = result.findings.find(
       (entry) => entry.label === 'Serviceplan',
     );
-    expect(finding?.excerpt).toContain('***');
+    expect(finding?.match).toBe('Serviceplan');
+    expect(finding?.excerpt).toContain('»Serviceplan«');
+    expect(finding?.excerpt).not.toContain('***');
     expect(finding?.excerpt.length).toBeLessThan(180);
+  });
+
+  test('match field carries the original casing of the first hit', () => {
+    const result = scanForLeaks('SERVICEPLAN told us.', ruleSet);
+    const finding = result.findings.find(
+      (entry) => entry.label === 'Serviceplan',
+    );
+    expect(finding?.match).toBe('SERVICEPLAN');
   });
 });

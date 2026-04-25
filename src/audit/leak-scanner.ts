@@ -13,6 +13,39 @@ const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
 const PLACEHOLDER_RE = /«CONF:[A-Z0-9_-]+»/;
 
+/**
+ * Event types whose payload contains text that travels to or from the LLM,
+ * and is therefore worth scanning for confidential-info leaks.
+ *
+ * Telemetry/lifecycle/auth events are intentionally excluded — e.g.
+ * `model.usage` payloads contain provider names like "HybridAI" as field
+ * values, which would generate noisy false positives against a rule that
+ * names HybridAI as a confidential client.
+ */
+export const PROMPT_BEARING_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'turn.start',
+  'turn.end',
+  'tool.call',
+  'tool.result',
+  'approval.request',
+  'prompt',
+  'message',
+  'text',
+  'thinking',
+  'skill.execution',
+  'skill.inspection',
+]);
+
+function resolveScanEventTypes(): ReadonlySet<string> {
+  const override = (process.env.HYBRIDCLAW_LEAK_SCAN_EVENT_TYPES || '').trim();
+  if (!override) return PROMPT_BEARING_EVENT_TYPES;
+  const types = override
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return types.length > 0 ? new Set(types) : PROMPT_BEARING_EVENT_TYPES;
+}
+
 export interface LeakScanRecord {
   seq: number;
   timestamp: string;
@@ -32,6 +65,8 @@ export interface LeakScanReport {
   sessionId: string;
   filePath: string;
   recordsScanned: number;
+  /** Number of records skipped because their event.type is not prompt-bearing. */
+  recordsSkippedByType: number;
   matchedRecords: LeakScanRecord[];
   totalMatches: number;
   /** sum of per-record raw scores, capped at 1000 then normalized to 0-100 */
@@ -39,6 +74,11 @@ export interface LeakScanReport {
   score: number;
   severity: ConfidentialFinding['sensitivity'];
   errors: string[];
+}
+
+export interface LeakScanOptions {
+  /** Override the default {@link PROMPT_BEARING_EVENT_TYPES} whitelist. */
+  scanEventTypes?: ReadonlySet<string>;
 }
 
 const SEVERITY_RANK: Record<ConfidentialFinding['sensitivity'], number> = {
@@ -150,7 +190,9 @@ export function scanAuditSessionForLeaks(
   sessionId: string,
   ruleSet: ConfidentialRuleSet,
   dataDir: string = DATA_DIR,
+  options: LeakScanOptions = {},
 ): LeakScanReport {
+  const scanTypes = options.scanEventTypes ?? resolveScanEventTypes();
   const safeId = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
   const filePath = path.join(dataDir, AUDIT_DIR_NAME, safeId, WIRE_FILE_NAME);
   const errors: string[] = [];
@@ -160,6 +202,7 @@ export function scanAuditSessionForLeaks(
       sessionId,
       filePath,
       recordsScanned: 0,
+      recordsSkippedByType: 0,
       matchedRecords: [],
       totalMatches: 0,
       rawScore: 0,
@@ -177,6 +220,7 @@ export function scanAuditSessionForLeaks(
       sessionId,
       filePath,
       recordsScanned: 0,
+      recordsSkippedByType: 0,
       matchedRecords: [],
       totalMatches: 0,
       rawScore: 0,
@@ -195,6 +239,7 @@ export function scanAuditSessionForLeaks(
 
   const matched: LeakScanRecord[] = [];
   let recordsScanned = 0;
+  let recordsSkippedByType = 0;
   let totalMatches = 0;
   let aggregateRaw = 0;
   let severity: ConfidentialFinding['sensitivity'] = 'low';
@@ -202,6 +247,12 @@ export function scanAuditSessionForLeaks(
   for (let i = 0; i < lines.length; i++) {
     const parsed = parseWireLine(lines[i]);
     if (!parsed || !parsed.event) continue;
+    const eventType =
+      typeof parsed.event?.type === 'string' ? parsed.event.type : 'unknown';
+    if (!scanTypes.has(eventType)) {
+      recordsSkippedByType += 1;
+      continue;
+    }
     recordsScanned += 1;
     const scan = scanRecordForLeaks(parsed, ruleSet);
     if (!scan) continue;
@@ -212,8 +263,7 @@ export function scanAuditSessionForLeaks(
       runId: typeof parsed.runId === 'string' ? parsed.runId : '',
       parentRunId:
         typeof parsed.parentRunId === 'string' ? parsed.parentRunId : undefined,
-      eventType:
-        typeof parsed.event?.type === 'string' ? parsed.event.type : 'unknown',
+      eventType,
       findings: scan.result.findings,
       totalMatches: scan.result.totalMatches,
       rawScore: scan.result.rawScore,
@@ -231,6 +281,7 @@ export function scanAuditSessionForLeaks(
     sessionId,
     filePath,
     recordsScanned,
+    recordsSkippedByType,
     matchedRecords: matched,
     totalMatches,
     rawScore: aggregate.rawScore,
@@ -246,8 +297,38 @@ export function scanAuditSessionForLeaks(
 export function scanAllAuditSessionsForLeaks(
   ruleSet: ConfidentialRuleSet,
   dataDir: string = DATA_DIR,
+  options: LeakScanOptions = {},
 ): LeakScanReport[] {
   return listAuditedSessions(dataDir).map(({ sessionId }) =>
-    scanAuditSessionForLeaks(sessionId, ruleSet, dataDir),
+    scanAuditSessionForLeaks(sessionId, ruleSet, dataDir, options),
   );
+}
+
+export function summarizeLeakReports(reports: LeakScanReport[]): {
+  bySeverity: Record<ConfidentialFinding['sensitivity'], number>;
+  totalMatches: number;
+  totalSessions: number;
+  affectedSessions: number;
+} {
+  const bySeverity: Record<ConfidentialFinding['sensitivity'], number> = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+  };
+  let totalMatches = 0;
+  let affectedSessions = 0;
+  for (const report of reports) {
+    totalMatches += report.totalMatches;
+    if (report.totalMatches > 0) {
+      affectedSessions += 1;
+      bySeverity[report.severity] += 1;
+    }
+  }
+  return {
+    bySeverity,
+    totalMatches,
+    totalSessions: reports.length,
+    affectedSessions,
+  };
 }

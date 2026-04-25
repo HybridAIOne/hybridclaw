@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   listAuditedSessions,
+  PROMPT_BEARING_EVENT_TYPES,
   scanAllAuditSessionsForLeaks,
   scanAuditSessionForLeaks,
+  summarizeLeakReports,
 } from '../src/audit/leak-scanner.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 
@@ -57,7 +59,7 @@ describe('audit log leak scanner', () => {
         runId: 'run_1',
         sessionId: 'session_a',
         event: {
-          type: 'user.message',
+          type: 'turn.start',
           content: 'Serviceplan brief about Project Falcon',
         },
       },
@@ -79,7 +81,7 @@ describe('audit log leak scanner', () => {
     const report = scanAuditSessionForLeaks('session_a', RULES, tempDir);
     expect(report.recordsScanned).toBe(2);
     expect(report.matchedRecords).toHaveLength(1);
-    expect(report.matchedRecords[0].eventType).toBe('user.message');
+    expect(report.matchedRecords[0].eventType).toBe('turn.start');
     expect(report.totalMatches).toBeGreaterThanOrEqual(2);
     expect(report.score).toBeGreaterThan(0);
     expect(['high', 'critical']).toContain(report.severity);
@@ -99,7 +101,7 @@ describe('audit log leak scanner', () => {
         timestamp: '2025-01-01T00:00:00.001Z',
         runId: 'run_1',
         sessionId: 'clean',
-        event: { type: 'user.message', content: 'Just a hello.' },
+        event: { type: 'turn.start', content: 'Just a hello.' },
       },
     ]);
     const report = scanAuditSessionForLeaks('clean', RULES, tempDir);
@@ -124,7 +126,7 @@ describe('audit log leak scanner', () => {
         runId: 'run_1',
         sessionId: 'placeholders',
         event: {
-          type: 'user.message',
+          type: 'turn.start',
           content: 'Brief from «CONF:CLIENT_001» mentioning Project Falcon.',
         },
       },
@@ -148,6 +150,124 @@ describe('audit log leak scanner', () => {
     expect(sessions).toEqual(['alpha', 'beta']);
   });
 
+  test('skips telemetry/lifecycle event types and counts them as skipped', () => {
+    writeWireLines('mixed', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'mixed',
+        // model.usage payloads contain provider names ("HybridAI"); we must
+        // not flag them as confidential leaks, otherwise every turn shows
+        // a false positive against a HybridAI rule.
+        event: {
+          type: 'model.usage',
+          provider: 'Serviceplan',
+          model: 'gpt-5.1',
+        },
+      },
+      {
+        version: '2.0',
+        seq: 2,
+        timestamp: '2025-01-01T00:00:00.002Z',
+        runId: 'run_1',
+        sessionId: 'mixed',
+        event: { type: 'session.start', userId: 'Serviceplan' },
+      },
+      {
+        version: '2.0',
+        seq: 3,
+        timestamp: '2025-01-01T00:00:00.003Z',
+        runId: 'run_1',
+        sessionId: 'mixed',
+        event: { type: 'turn.start', content: 'About Serviceplan today' },
+      },
+    ]);
+    const report = scanAuditSessionForLeaks('mixed', RULES, tempDir);
+    expect(report.recordsScanned).toBe(1);
+    expect(report.recordsSkippedByType).toBe(2);
+    expect(report.matchedRecords).toHaveLength(1);
+    expect(report.matchedRecords[0].eventType).toBe('turn.start');
+  });
+
+  test('PROMPT_BEARING_EVENT_TYPES contains the expected canonical types', () => {
+    expect(PROMPT_BEARING_EVENT_TYPES.has('turn.start')).toBe(true);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('turn.end')).toBe(true);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('tool.call')).toBe(true);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('tool.result')).toBe(true);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('approval.request')).toBe(true);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('model.usage')).toBe(false);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('session.start')).toBe(false);
+    expect(PROMPT_BEARING_EVENT_TYPES.has('authorization.check')).toBe(false);
+  });
+
+  test('caller can override scanEventTypes', () => {
+    writeWireLines('override', [
+      {
+        version: '2.0',
+        seq: 1,
+        timestamp: '2025-01-01T00:00:00.001Z',
+        runId: 'run_1',
+        sessionId: 'override',
+        event: { type: 'custom.weird', text: 'Project Falcon hidden' },
+      },
+    ]);
+    const report = scanAuditSessionForLeaks('override', RULES, tempDir, {
+      scanEventTypes: new Set(['custom.weird']),
+    });
+    expect(report.matchedRecords).toHaveLength(1);
+  });
+
+  test('summarizeLeakReports buckets by session severity', () => {
+    const reports = [
+      {
+        sessionId: 'a',
+        filePath: 'a',
+        recordsScanned: 1,
+        recordsSkippedByType: 0,
+        matchedRecords: [],
+        totalMatches: 5,
+        rawScore: 200,
+        score: 20,
+        severity: 'critical' as const,
+        errors: [],
+      },
+      {
+        sessionId: 'b',
+        filePath: 'b',
+        recordsScanned: 1,
+        recordsSkippedByType: 0,
+        matchedRecords: [],
+        totalMatches: 2,
+        rawScore: 50,
+        score: 5,
+        severity: 'high' as const,
+        errors: [],
+      },
+      {
+        sessionId: 'c',
+        filePath: 'c',
+        recordsScanned: 1,
+        recordsSkippedByType: 0,
+        matchedRecords: [],
+        totalMatches: 0,
+        rawScore: 0,
+        score: 0,
+        severity: 'low' as const,
+        errors: [],
+      },
+    ];
+    const summary = summarizeLeakReports(reports);
+    expect(summary.totalSessions).toBe(3);
+    expect(summary.affectedSessions).toBe(2);
+    expect(summary.totalMatches).toBe(7);
+    expect(summary.bySeverity.critical).toBe(1);
+    expect(summary.bySeverity.high).toBe(1);
+    expect(summary.bySeverity.medium).toBe(0);
+    expect(summary.bySeverity.low).toBe(0);
+  });
+
   test('scanAllAuditSessionsForLeaks scans every session', () => {
     writeWireLines('alpha', [
       {
@@ -156,7 +276,7 @@ describe('audit log leak scanner', () => {
         timestamp: '2025-01-01T00:00:00.001Z',
         runId: 'run_1',
         sessionId: 'alpha',
-        event: { type: 'user.message', content: 'Project Falcon update' },
+        event: { type: 'turn.start', content: 'Project Falcon update' },
       },
     ]);
     writeWireLines('beta', [
@@ -166,7 +286,7 @@ describe('audit log leak scanner', () => {
         timestamp: '2025-01-01T00:00:00.001Z',
         runId: 'run_1',
         sessionId: 'beta',
-        event: { type: 'user.message', content: 'Hello world' },
+        event: { type: 'turn.start', content: 'Hello world' },
       },
     ]);
     const reports = scanAllAuditSessionsForLeaks(RULES, tempDir);

@@ -46,8 +46,13 @@ export interface ConfidentialFinding {
   label: string;
   sensitivity: ConfidentialSensitivity;
   matches: number;
-  /** A short text excerpt around the first match, redacted. */
+  /**
+   * A short text excerpt around the first match, with the matched span
+   * shown verbatim (so a reviewer can decide whether it is a real leak).
+   */
   excerpt: string;
+  /** The exact substring that matched the rule, in its original casing. */
+  match: string;
 }
 
 export interface ConfidentialScanResult {
@@ -151,10 +156,13 @@ function buildExcerpt(
   const start = Math.max(0, matchIndex - width);
   const end = Math.min(source.length, matchIndex + matchLength + width);
   const before = source.slice(start, matchIndex);
+  const match = source.slice(matchIndex, matchIndex + matchLength);
   const after = source.slice(matchIndex + matchLength, end);
   const prefix = start > 0 ? '...' : '';
   const suffix = end < source.length ? '...' : '';
-  return `${prefix}${before}***${after}${suffix}`.replace(/\s+/g, ' ').trim();
+  return `${prefix}${before}»${match}«${after}${suffix}`
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function scanForLeaks(
@@ -181,12 +189,14 @@ export function scanForLeaks(
     let matches = 0;
     let firstIndex = -1;
     let firstLength = 0;
+    let firstMatchText = '';
     let result: RegExpExecArray | null = regex.exec(text);
     while (result) {
       matches += 1;
       if (firstIndex === -1) {
         firstIndex = result.index;
         firstLength = result[0].length;
+        firstMatchText = result[0];
       }
       if (regex.lastIndex === result.index) regex.lastIndex += 1;
       result = regex.exec(text);
@@ -201,6 +211,7 @@ export function scanForLeaks(
       sensitivity: rule.sensitivity,
       matches,
       excerpt: buildExcerpt(text, firstIndex, firstLength),
+      match: firstMatchText,
     });
   }
 
