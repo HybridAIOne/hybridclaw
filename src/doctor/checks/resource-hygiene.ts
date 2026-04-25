@@ -75,7 +75,7 @@ interface EmptySessionSnapshot {
 }
 
 interface EphemeralEvalSessionSnapshot extends EmptySessionSnapshot {
-  agentId: string;
+  agentId: string | null;
   channelId: string;
 }
 
@@ -245,7 +245,7 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
       )
       .all() as Array<{
       id: string;
-      agent_id: string;
+      agent_id: string | null;
       channel_id: string;
       last_active: string;
     }>;
@@ -355,25 +355,34 @@ function deleteEphemeralEvalSessionData(
           'DELETE FROM session_branches WHERE session_id = ? OR parent_session_id = ?',
         );
         const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?');
+        const deleteCanonicalById = db.prepare(
+          'DELETE FROM canonical_sessions WHERE canonical_id = ?',
+        );
         const deleteCanonicalByAgent = db.prepare(
-          'DELETE FROM canonical_sessions WHERE agent_id = ? OR canonical_id = ? OR canonical_id = ?',
+          'DELETE FROM canonical_sessions WHERE agent_id = ?',
         );
         const deleteMessagesByAgent = db.prepare(
           'DELETE FROM messages WHERE agent_id = ?',
         );
+        const ephemeralAgentIds = new Set<string>();
         let deleted = 0;
         for (const session of rows) {
           for (const statement of deleteBySessionId) {
             statement.run(session.id);
           }
           deleteBranches.run(session.id, session.id);
-          deleteCanonicalByAgent.run(
-            session.agentId,
-            session.agentId,
-            session.id,
-          );
-          deleteMessagesByAgent.run(session.agentId);
+          deleteCanonicalById.run(session.id);
+          if (
+            session.agentId &&
+            EPHEMERAL_EVAL_SESSION_RE.test(session.agentId)
+          ) {
+            ephemeralAgentIds.add(session.agentId);
+          }
           deleted += deleteSession.run(session.id).changes;
+        }
+        for (const agentId of ephemeralAgentIds) {
+          deleteCanonicalByAgent.run(agentId);
+          deleteMessagesByAgent.run(agentId);
         }
         return deleted;
       },
