@@ -3858,16 +3858,6 @@ function countSessionMessages(sessionId: string): number {
   return row?.count ?? 0;
 }
 
-export function countUserMessagesForSession(sessionId: string): number {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const row = queryOne<{ count: number }, [string]>(
-    db,
-    "SELECT COUNT(*) AS count FROM messages WHERE session_id = ? AND role = 'user'",
-    resolvedSessionId,
-  );
-  return row?.count ?? 0;
-}
-
 function copySessionKvStore(
   previousSessionId: string,
   nextSessionId: string,

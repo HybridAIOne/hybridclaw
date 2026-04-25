@@ -2,10 +2,10 @@ import { logger } from '../logger.js';
 import { getSessionTitle, setSessionTitle } from '../memory/db.js';
 import { withSpan } from '../observability/otel.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { trimSessionPreviewText } from './session-preview.js';
 
 export const SESSION_TITLE_MAX_CHARS = 80;
-const TITLE_INPUT_USER_TRUNC = 500;
-const TITLE_INPUT_ASSISTANT_TRUNC = 500;
+const TITLE_INPUT_TRUNC = 500;
 
 const TITLE_SYSTEM_PROMPT = [
   'You generate short titles for chat sessions.',
@@ -34,12 +34,6 @@ export function normalizeSessionTitle(
   return text;
 }
 
-function truncate(value: string, max: number): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max).trimEnd()}…`;
-}
-
 export interface GenerateSessionTitleParams {
   sessionId: string;
   agentId: string;
@@ -53,10 +47,13 @@ export interface GenerateSessionTitleParams {
 export async function generateSessionTitle(
   params: GenerateSessionTitleParams,
 ): Promise<string | null> {
-  const userSnippet = truncate(params.userContent, TITLE_INPUT_USER_TRUNC);
-  const assistantSnippet = truncate(
+  const userSnippet = trimSessionPreviewText(
+    params.userContent,
+    TITLE_INPUT_TRUNC,
+  );
+  const assistantSnippet = trimSessionPreviewText(
     params.assistantContent,
-    TITLE_INPUT_ASSISTANT_TRUNC,
+    TITLE_INPUT_TRUNC,
   );
   if (!userSnippet) return null;
 
@@ -92,16 +89,15 @@ export async function generateSessionTitle(
 
 export interface MaybeAutoTitleSessionParams
   extends GenerateSessionTitleParams {
-  userMessageCount: number;
+  isFirstTurn: boolean;
 }
 
 export function maybeAutoTitleSession(
   params: MaybeAutoTitleSessionParams,
 ): void {
-  if (params.userMessageCount > 1) return;
+  if (!params.isFirstTurn) return;
   if (!params.userContent.trim()) return;
-  const existing = getSessionTitle(params.sessionId);
-  if (existing.title) return;
+  if (getSessionTitle(params.sessionId).title) return;
 
   void (async () => {
     try {

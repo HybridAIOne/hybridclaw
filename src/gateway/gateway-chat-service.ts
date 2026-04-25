@@ -37,7 +37,6 @@ import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
-  countUserMessagesForSession,
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
@@ -526,7 +525,7 @@ async function handleGatewayMessageInner(
       model,
       userContent: conciergeUserContent,
       assistantContent: conciergeTurn.resultText,
-      userMessageCount: countUserMessagesForSession(req.sessionId),
+      isFirstTurn: turnIndex === 1,
     });
     return attachSessionIdentity({
       status: 'success',
@@ -714,7 +713,7 @@ async function handleGatewayMessageInner(
       model,
       userContent: req.content,
       assistantContent: resultText,
-      userMessageCount: countUserMessagesForSession(req.sessionId),
+      isFirstTurn: turnIndex === 1,
     });
     return attachSessionIdentity(result);
   }
@@ -1381,7 +1380,7 @@ async function handleGatewayMessageInner(
       model,
       userContent: storedUserContent,
       assistantContent: resultText,
-      userMessageCount: countUserMessagesForSession(req.sessionId),
+      isFirstTurn: turnIndex === 1,
     });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({

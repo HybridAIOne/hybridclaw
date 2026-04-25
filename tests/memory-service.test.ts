@@ -8,7 +8,6 @@ import {
   addKnowledgeEntity,
   addKnowledgeRelation,
   appendCanonicalMessages,
-  countUserMessagesForSession,
   DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
@@ -1201,18 +1200,6 @@ describe.sequential('schema migrations', () => {
       title: 'User Pick',
       source: 'user',
     });
-  });
-
-  test('countUserMessagesForSession reports only user-role rows', () => {
-    const dbPath = createTempDbPath();
-    initDatabase({ quiet: true, dbPath });
-
-    getOrCreateSession('count-session', null, 'web');
-    storeMessage('count-session', 'web-user-a', 'web', 'user', 'first');
-    storeMessage('count-session', 'assistant', null, 'assistant', 'reply');
-    storeMessage('count-session', 'web-user-a', 'web', 'user', 'second');
-
-    expect(countUserMessagesForSession('count-session')).toBe(2);
   });
 
   test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {

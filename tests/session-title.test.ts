@@ -136,7 +136,7 @@ describe('maybeAutoTitleSession', () => {
     mockedGetTitle.mockReturnValue({ title: null, source: null });
   });
 
-  test('skips when userMessageCount > 1', async () => {
+  test('skips when isFirstTurn is false', async () => {
     maybeAutoTitleSession({
       sessionId: 's1',
       agentId: 'main',
@@ -145,7 +145,7 @@ describe('maybeAutoTitleSession', () => {
       model: 'gpt-5',
       userContent: 'second turn',
       assistantContent: 'reply',
-      userMessageCount: 2,
+      isFirstTurn: false,
     });
     await flushMicrotasks();
 
@@ -164,7 +164,7 @@ describe('maybeAutoTitleSession', () => {
       model: 'gpt-5',
       userContent: 'first',
       assistantContent: 'reply',
-      userMessageCount: 1,
+      isFirstTurn: true,
     });
     await flushMicrotasks();
 
@@ -187,9 +187,8 @@ describe('maybeAutoTitleSession', () => {
       model: 'gpt-5',
       userContent: 'help me deploy',
       assistantContent: 'sure',
-      userMessageCount: 1,
+      isFirstTurn: true,
     });
-    await flushMicrotasks();
     await flushMicrotasks();
 
     expect(mockedAuxiliary).toHaveBeenCalledTimes(1);
@@ -211,9 +210,8 @@ describe('maybeAutoTitleSession', () => {
       model: 'gpt-5',
       userContent: 'help me deploy',
       assistantContent: 'sure',
-      userMessageCount: 1,
+      isFirstTurn: true,
     });
-    await flushMicrotasks();
     await flushMicrotasks();
 
     expect(mockedSetTitle).not.toHaveBeenCalled();
