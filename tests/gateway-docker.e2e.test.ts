@@ -77,7 +77,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'docs/content/getting-started/authentication.md',
     // SPA entry points
     'docs/index.html',
-    'docs/chat.html',
     'docs/agents.html',
     // Admin console
     'console/dist/index.html',
@@ -207,14 +206,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(res.headers.get('location')).toMatch(/login/);
   });
 
-  test('image contains chat SPA with correct title', () => {
-    const result = execSync(
-      `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/chat.html'`,
-      { encoding: 'utf-8', timeout: 10_000 },
-    ).trim();
-    expect(result).toBe('<title>HybridClaw Chat</title>');
-  });
-
   test('image contains agents SPA with correct title', () => {
     const result = execSync(
       `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/agents.html'`,
@@ -231,8 +222,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toMatch(/login/);
   });
-
-  // ── Legacy route redirects ──────────────────────────────────────────
 
   test('/development redirects to /docs', async () => {
     const res = await fetch(`${GATEWAY_URL}/development`, {

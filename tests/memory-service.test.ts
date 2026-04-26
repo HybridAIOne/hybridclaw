@@ -17,6 +17,7 @@ import {
   getCanonicalContext,
   getMemoryValue,
   getOrCreateSession,
+  getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getSessionById,
   getUsageTotals,
@@ -803,6 +804,72 @@ describe.sequential('schema migrations', () => {
         lastActive: '2026-03-24T09:01:00.000Z',
         messageCount: 2,
         title: '"First web question from user A" ... "Assistant reply A1"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForChannel returns recent web sessions across browser users', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-1', null, 'web');
+    getOrCreateSession('web-session-2', null, 'web');
+    getOrCreateSession('discord-session', null, 'discord:123');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-session-1',
+      'web-user-a',
+      'web',
+      'user',
+      'First browser question',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-2',
+      'web-user-b',
+      'web',
+      'user',
+      'Second browser question',
+      '2026-03-24T10:00:00.000Z',
+    );
+    insertMessage.run(
+      'discord-session',
+      'web-user-a',
+      'web',
+      'user',
+      'Discord message should be ignored',
+      '2026-03-24T11:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(1, '2026-03-24T09:00:00.000Z', 'web-session-1');
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'web-session-2');
+    updateSession.run(1, '2026-03-24T11:00:00.000Z', 'discord-session');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForChannel({
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-2',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Second browser question"',
+      },
+      {
+        sessionId: 'web-session-1',
+        lastActive: '2026-03-24T09:00:00.000Z',
+        messageCount: 1,
+        title: '"First browser question"',
       },
     ]);
   });
