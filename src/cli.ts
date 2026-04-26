@@ -1458,6 +1458,11 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
   await cliAgent.handleAgentPackageCommand(args);
 }
 
+async function handleBackupCommand(args: string[]): Promise<void> {
+  const cliBackup = await import('./cli/backup-command.js');
+  await cliBackup.handleBackupCommand(args);
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -1491,6 +1496,9 @@ export async function main(
       break;
     case 'auth':
       await handleAuthCommand(subargs);
+      break;
+    case 'backup':
+      await handleBackupCommand(subargs);
       break;
     case 'config':
       await handleConfigCommand(subargs);
