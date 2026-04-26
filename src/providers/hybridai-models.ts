@@ -18,6 +18,8 @@ const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
   'gpt-5.4-mini',
   'gpt-5.3-codex',
   'gpt-5.4',
+  'gpt-5.5',
+  'gpt-5.5-pro',
 
   'claude-opus-4-6',
   'claude-opus-4.6',
@@ -73,6 +75,9 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5.4': 400_000,
   'gpt-5.3-codex': 400_000,
   'gpt-5.3-codex-spark': 128_000,
+  'gpt-5.5': 1_000_000,
+  'gpt-5.5-chat-latest': 128_000,
+  'gpt-5.5-pro': 1_000_000,
 };
 
 function collectModelLookupCandidates(modelName: string): string[] {
