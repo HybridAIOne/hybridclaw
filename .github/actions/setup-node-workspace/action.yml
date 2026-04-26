@@ -21,6 +21,8 @@ runs:
 
     - name: Install root dependencies
       shell: bash
+      env:
+        ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       run: npm ci --no-audit --fund=false
 
     - name: Install container dependencies

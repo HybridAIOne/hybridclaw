@@ -15,6 +15,10 @@ import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
+  getSignalLinkState,
+  startSignalLink,
+} from '../channels/signal/pairing.js';
+import {
   handleVoiceUpgrade,
   handleVoiceWebhook,
 } from '../channels/voice/runtime.js';
@@ -2531,6 +2535,36 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminSignalLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getSignalLinkState());
+    return;
+  }
+
+  const body = (await readJsonBody(req).catch(() => ({}))) as {
+    cliPath?: unknown;
+    deviceName?: unknown;
+  };
+  try {
+    sendJson(
+      res,
+      200,
+      startSignalLink({
+        cliPath: typeof body.cliPath === 'string' ? body.cliPath : undefined,
+        deviceName:
+          typeof body.deviceName === 'string' ? body.deviceName : undefined,
+      }),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : 'Signal link failed.',
+    });
+  }
+}
+
 function extractUpstreamError(payload: unknown, status: number): string {
   const record = payload as Record<string, unknown> | null;
   const nested = record?.error;
@@ -3583,6 +3617,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/signal/link' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminSignalLink(req, res);
             return;
           }
           if (

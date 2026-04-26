@@ -20,6 +20,7 @@ If you are still in first-run onboarding mode, start with
 | Discord | Private bot DMs, restricted guild commands, slash commands | `hybridclaw channels discord setup ...` | [Discord](./discord.md) |
 | Slack | Workspace app, Socket Mode, optional native Slack slash commands | `hybridclaw auth login slack ...` | [Slack](./slack.md) |
 | Telegram | Fast private DM rollout with BotFather | `hybridclaw channels telegram setup ...` | [Telegram](./telegram.md) |
+| Signal | Private Signal DMs through a signal-cli compatible daemon | `hybridclaw channels signal setup ...` | [Signal](./signal.md) |
 | Email | Mailbox-driven workflows and threaded replies | `hybridclaw channels email setup ...` | [Email](./email.md) |
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
 | Twilio Voice | Phone calls when you already have a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |

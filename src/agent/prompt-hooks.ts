@@ -301,6 +301,11 @@ function buildMessageToolPromptLines(
       'Example: "Send this to Telegram" -> `message` {"action":"send","to":"telegram:<chatId>","content":"message text"}',
     );
   }
+  if (activeChannels.includes('signal')) {
+    examples.push(
+      'Example: "Send this on Signal" -> `message` {"action":"send","to":"signal:+15551234567","content":"message text"}',
+    );
+  }
   if (activeChannels.includes('whatsapp')) {
     examples.push(
       'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
@@ -626,6 +631,7 @@ function isChannelInstructionKind(
   return (
     kind === 'discord' ||
     kind === 'msteams' ||
+    kind === 'signal' ||
     kind === 'slack' ||
     kind === 'telegram' ||
     kind === 'voice' ||

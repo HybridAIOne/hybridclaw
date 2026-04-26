@@ -20,6 +20,8 @@ const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
   imessage: 'iMessage: send messages to explicit iMessage handles.',
   msteams:
     'Microsoft Teams: send/read known Teams conversations, upload files, and inspect members/channels.',
+  signal:
+    'Signal: send messages to explicit Signal recipients (phone numbers, UUIDs, or `group:<id>`).',
   slack:
     'Slack: send/read known Slack conversations, upload files, and inspect members/channels.',
   telegram:
