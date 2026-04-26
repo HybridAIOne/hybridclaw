@@ -336,34 +336,34 @@ function deleteEphemeralEvalSessionData(
   if (sessions.length === 0) return 0;
   const db = openWritableDatabase();
   try {
+    const deleteBySessionId = [
+      'approvals',
+      'audit_events',
+      'audit_log',
+      'messages',
+      'request_log',
+      'semantic_memories',
+      'skill_observations',
+      'tasks',
+      'usage_events',
+    ].map((tableName) =>
+      db.prepare(`DELETE FROM ${tableName} WHERE session_id = ?`),
+    );
+    const deleteBranches = db.prepare(
+      'DELETE FROM session_branches WHERE session_id = ? OR parent_session_id = ?',
+    );
+    const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?');
+    const deleteCanonicalById = db.prepare(
+      'DELETE FROM canonical_sessions WHERE canonical_id = ?',
+    );
+    const deleteCanonicalByAgent = db.prepare(
+      'DELETE FROM canonical_sessions WHERE agent_id = ?',
+    );
+    const deleteMessagesByAgent = db.prepare(
+      'DELETE FROM messages WHERE agent_id = ?',
+    );
     const transaction = db.transaction(
       (rows: EphemeralEvalSessionSnapshot[]) => {
-        const deleteBySessionId = [
-          'approvals',
-          'audit_events',
-          'audit_log',
-          'messages',
-          'request_log',
-          'semantic_memories',
-          'skill_observations',
-          'tasks',
-          'usage_events',
-        ].map((tableName) =>
-          db.prepare(`DELETE FROM ${tableName} WHERE session_id = ?`),
-        );
-        const deleteBranches = db.prepare(
-          'DELETE FROM session_branches WHERE session_id = ? OR parent_session_id = ?',
-        );
-        const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?');
-        const deleteCanonicalById = db.prepare(
-          'DELETE FROM canonical_sessions WHERE canonical_id = ?',
-        );
-        const deleteCanonicalByAgent = db.prepare(
-          'DELETE FROM canonical_sessions WHERE agent_id = ?',
-        );
-        const deleteMessagesByAgent = db.prepare(
-          'DELETE FROM messages WHERE agent_id = ?',
-        );
         const ephemeralAgentIds = new Set<string>();
         let deleted = 0;
         for (const session of rows) {
