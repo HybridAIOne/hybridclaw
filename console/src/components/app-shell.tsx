@@ -7,17 +7,12 @@ import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
   getSidebarStyleVars,
+  MobileTopbarTrigger,
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 import { ViewSwitchNav } from './view-switch';
-
-// The /admin/chat route renders its own full layout (chat sidebar + right
-// column with topbar). AppShell just provides the outer full-height shell so
-// the admin sidebar and page title don't appear.
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
@@ -31,10 +26,6 @@ const AppShellConfigContext = createContext<AppShellConfigContextValue>({
   emailEnabled: false,
 });
 
-function isChatRoute(pathname: string): boolean {
-  return pathname === '/admin/chat' || pathname.startsWith('/admin/chat/');
-}
-
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
   const pathname = useRouterState({
@@ -46,22 +37,6 @@ export function AppShell(props: { children: ReactNode }) {
   });
   const configReady = Boolean(configQuery.data);
   const emailEnabled = configQuery.data?.config.email.enabled === true;
-  const onChatRoute = isChatRoute(pathname);
-
-  const configContextValue = { configReady, emailEnabled };
-
-  if (onChatRoute) {
-    // Chat has its own full layout (sidebar + right column with an inline
-    // topbar). AppShell only provides the outer full-height shell; the
-    // topbar (ContextRing + ViewSwitchNav) is rendered inside ChatPage so
-    // the sidebar can span the entire page height as in static /chat.
-    return (
-      <AppShellConfigContext.Provider value={configContextValue}>
-        <div className="chat-shell">{props.children}</div>
-      </AppShellConfigContext.Provider>
-    );
-  }
-
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
@@ -71,7 +46,7 @@ export function AppShell(props: { children: ReactNode }) {
   const currentNavItem = resolveCurrentAdminNavItem(pathname);
 
   return (
-    <AppShellConfigContext.Provider value={configContextValue}>
+    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
       <SidebarProvider style={SIDEBAR_STYLE}>
         <AppSidebar
           groups={sidebarGroups}
@@ -94,12 +69,6 @@ export function AppShell(props: { children: ReactNode }) {
       </SidebarProvider>
     </AppShellConfigContext.Provider>
   );
-}
-
-function MobileTopbarTrigger() {
-  const { isMobile } = useSidebar();
-  if (!isMobile) return null;
-  return <SidebarTrigger />;
 }
 
 export function useAppShellConfig(): AppShellConfigContextValue {

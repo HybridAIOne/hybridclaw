@@ -114,6 +114,16 @@ describe('gateway docs HTTP integration', () => {
     expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
+  it('GET /docs/guides/tutorials returns a marked legacy redirect to /docs/tutorials', async () => {
+    const res = await fetch(`${baseUrl}/docs/guides/tutorials`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    const location = res.headers.get('location') || '';
+    expect(location).toBe('/docs/tutorials');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
+  });
+
   it('docs with missing file returns 404 (not a crash)', async () => {
     const res = await fetch(
       `${baseUrl}/docs/this-section-does-not-exist-at-all`,
@@ -169,6 +179,8 @@ describe('gateway docs HTTP integration', () => {
       'getting-started',
       'channels',
       'guides',
+      'guides/skills',
+      'tutorials',
       'reference',
       'extensibility',
       'developer-guide',
@@ -178,6 +190,11 @@ describe('gateway docs HTTP integration', () => {
         `/docs/${section}`,
       );
     }
+    expect(html).toContain('<summary>Tutorials</summary>');
+    expect(html).toContain('<summary>Skills</summary>');
+    expect(html.indexOf('<summary>Skills</summary>')).toBeLessThan(
+      html.indexOf('<summary>Tutorials</summary>'),
+    );
   });
 
   it('all internal /docs/ links on the index page resolve to 200', async () => {

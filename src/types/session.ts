@@ -34,6 +34,7 @@ export interface StoredMessage {
   username: string | null;
   role: string;
   content: string;
+  agent_id?: string | null;
   created_at: string;
 }
 

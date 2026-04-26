@@ -1976,6 +1976,139 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
 });
 
+test('status shows delegate model, delegate token totals, and local token share', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+    config.proactive.delegation.model = 'llamacpp/liquidai/lfm';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-delegate-tokens',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 12_000,
+      completionTokens: 300,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-a',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'llamacpp',
+      model: 'llamacpp/liquidai/lfm',
+      promptTokens: 4_000,
+      completionTokens: 100,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-b',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'llamacpp',
+      model: 'llamacpp/liquidai/lfm',
+      promptTokens: 2_000,
+      completionTokens: 50,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-delegate-tokens',
+    guildId: null,
+    channelId: 'channel-status-delegate-tokens',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧠 Model: openrouter/hunter-alpha (delegate: llamacpp/liquidai/lfm)',
+  );
+  expect(result.text).toContain(
+    '🧮 Tokens: 12k in / 300 out (delegate: 6k in / 150 out) · 33% local',
+  );
+});
+
+test('status reports input, output, and total tokens per second with stddev', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-tps',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 1_000,
+      completionTokens: 100,
+      durationMs: 2_000,
+      performanceSamples: [
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 2_000,
+          firstTextDeltaMs: 1_000,
+        },
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 1_000,
+          firstTextDeltaMs: 500,
+        },
+      ],
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-tps',
+    guildId: null,
+    channelId: 'channel-status-tps',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '⚡ Performance: Output 150 tok/s (± 70.7) · Input 1500 tok/s (± 707) · Total 825 tok/s (± 389)',
+  );
+});
+
 test('agent create warns when model validation is skipped because no models are available', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

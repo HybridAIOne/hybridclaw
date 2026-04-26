@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import type { PromptMode } from './agent/prompt-hooks.js';
+import type { PromptPartName } from './agent/prompt-parts.js';
 import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
@@ -25,6 +27,7 @@ import {
 import { ensureOnboardingApi } from './cli/onboarding-api.js';
 import {
   findUnsupportedGatewayLifecycleFlag,
+  type GatewayToolsMode,
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './config/cli-flags.js';
@@ -49,10 +52,14 @@ import { checkConfigFile } from './doctor/checks/config.js';
 import { summarizeCounts } from './doctor/utils.js';
 import {
   ensureGatewayRunDir,
+  GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_LOG_FILE_ENV,
   GATEWAY_LOG_PATH,
   GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_STDIO_TO_LOG_ENV,
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
   type GatewayPidState,
   isPidRunning,
   readGatewayPid,
@@ -64,12 +71,18 @@ import { sleep } from './utils/sleep.js';
 
 const GATEWAY_LOG_REQUESTS_WARNING =
   'Gateway request logging enabled. request_log stores best-effort redacted prompts, responses, and tool payloads for debugging. Treat this log as potentially sensitive.';
+const GATEWAY_DEBUG_MODEL_RESPONSES_WARNING =
+  'Gateway model response debug logging enabled. Complete upstream model responses, including streamed content and tool-call arguments, may be written to debug logs. Treat logs as sensitive.';
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
 let foregroundGatewaySigintHandler: (() => void) | null = null;
 let foregroundGatewaySigtermHandler: (() => void) | null = null;
 type ConfigApi = typeof import('./config/config.js');
+
+function serializePromptParts(parts: PromptPartName[]): string {
+  return parts.join(',');
+}
 
 let cachedAppVersion: string | null = null;
 const configApiState = makeLazyApi<ConfigApi>(
@@ -690,6 +703,10 @@ async function runGatewayForeground(
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
   logRequests = false,
+  debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
@@ -700,23 +717,37 @@ async function runGatewayForeground(
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
-  if (logRequests) {
-    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
-    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
-  }
-  if (debug) {
-    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
-    const { forceLoggerLevel } = await import('./logger.js');
-    forceLoggerLevel('debug');
-    console.log(`${commandName}: forcing gateway log level to debug.`);
-  }
   ensureGatewayRunDir();
-  const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
   } else {
     process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
   }
+  if (logRequests) {
+    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
+  }
+  if (debugModelResponses) {
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] = '1';
+    console.warn(GATEWAY_DEBUG_MODEL_RESPONSES_WARNING);
+  }
+  if (systemPromptMode) {
+    process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] = systemPromptMode;
+  }
+  if (systemPromptParts.length > 0) {
+    process.env[GATEWAY_SYSTEM_PROMPT_PARTS_ENV] =
+      serializePromptParts(systemPromptParts);
+  }
+  if (toolsMode) {
+    process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
+  }
+  if (debug || debugModelResponses) {
+    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    const { forceLoggerLevel } = await import('./logger.js');
+    forceLoggerLevel('debug');
+    console.log(`${commandName}: forcing gateway log level to debug.`);
+  }
+  const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   try {
     await import('./gateway/gateway.js');
@@ -733,6 +764,10 @@ async function startGatewayBackend(
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
   logRequests = false,
+  debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   await ensureConfigApi();
   if (await isGatewayReachable()) {
@@ -791,6 +826,9 @@ async function startGatewayBackend(
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);
   }
+  if (debugModelResponses) {
+    console.warn(GATEWAY_DEBUG_MODEL_RESPONSES_WARNING);
+  }
 
   ensureGatewayRunDir();
   const logFd = fs.openSync(GATEWAY_LOG_PATH, 'a');
@@ -802,6 +840,12 @@ async function startGatewayBackend(
     '--foreground',
     ...(debug ? ['--debug'] : []),
     ...(logRequests ? ['--log-requests'] : []),
+    ...(debugModelResponses ? ['--debug-model-responses'] : []),
+    ...(systemPromptMode ? [`--system-prompt=${systemPromptMode}`] : []),
+    ...(systemPromptParts.length > 0
+      ? [`--system-prompt=${serializePromptParts(systemPromptParts)}`]
+      : []),
+    ...(toolsMode ? [`--tools=${toolsMode}`] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
@@ -1041,6 +1085,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.sandboxMode,
         flags.debug,
         flags.logRequests,
+        flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1050,6 +1098,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.sandboxMode,
       flags.debug,
       flags.logRequests,
+      flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.toolsMode,
     );
     return;
   }
@@ -1068,6 +1120,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.sandboxMode,
         flags.debug,
         flags.logRequests,
+        flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1077,6 +1133,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.sandboxMode,
       flags.debug,
       flags.logRequests,
+      flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.toolsMode,
     );
     return;
   }

@@ -1,6 +1,6 @@
 ---
 name: himalaya
-description: Manage email with the Himalaya CLI: configure accounts, list folders, read or search messages, draft replies, send mail, or download attachments from the terminal.
+description: "Manage email with the Himalaya CLI: configure accounts, list folders, read or search messages, draft replies, send mail, or download attachments from the terminal."
 user-invocable: true
 metadata:
   hybridclaw:

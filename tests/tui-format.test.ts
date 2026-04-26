@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiTitledCommandBlock,
+  nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
 } from '../src/tui.ts';
@@ -45,4 +46,32 @@ test('reflows locomo variant tables to the live tui width without splitting rows
   expect(joined).toContain('0.8630*');
   expect(joined).toContain('0.8640*');
   expect(dataLine).toBeTruthy();
+});
+
+test('delegate text suppression only remains active while delegate tools are in flight', () => {
+  let activeCount = 0;
+
+  activeCount = nextActiveDelegateToolCount(activeCount, {
+    toolName: 'delegate',
+    phase: 'start',
+  });
+  expect(activeCount).toBe(1);
+
+  activeCount = nextActiveDelegateToolCount(activeCount, {
+    toolName: 'bash',
+    phase: 'start',
+  });
+  expect(activeCount).toBe(1);
+
+  activeCount = nextActiveDelegateToolCount(activeCount, {
+    toolName: 'delegate',
+    phase: 'finish',
+  });
+  expect(activeCount).toBe(0);
+
+  activeCount = nextActiveDelegateToolCount(activeCount, {
+    toolName: 'delegate',
+    phase: 'finish',
+  });
+  expect(activeCount).toBe(0);
 });

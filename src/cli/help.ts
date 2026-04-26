@@ -6,7 +6,7 @@ export function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
-  agent      Export, inspect, install, or uninstall portable agent archives
+  agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
@@ -36,8 +36,8 @@ export function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]
@@ -537,6 +537,11 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
+  scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
+                                     Scan audit logs for confidential-info leaks. Verbosity: --quiet | (default) | --all.
+                                     Filters: --level critical|high|medium|low (≥ floor),
+                                              --type in,out,tool,url (allowlist).
+                                     Rules from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
@@ -729,6 +734,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -737,6 +743,10 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
+  - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
+  - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
+  - Use \`--activate\` with \`config\` to make the configured agent the default for new requests.
   - \`export\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
   - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during export.
   - Use \`--dry-run\` to preview the generated manifest path and archive entries without writing a file.

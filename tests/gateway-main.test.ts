@@ -179,6 +179,7 @@ function createGatewayMainTestState(options?: {
       toolsUsed: ['search'],
       artifacts: [],
     })),
+    validateGatewayPromptEnvDefaults: vi.fn(),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
     initEmail: vi.fn(),
@@ -204,6 +205,7 @@ function createGatewayMainTestState(options?: {
     shutdownEmail: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
+    shutdownWhatsApp: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       dailyFilesCompiled: 0,
@@ -238,6 +240,7 @@ function createGatewayMainTestState(options?: {
     resolveAgentWorkspaceId: vi.fn((agentId: string) => agentId),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     runManagedMediaCleanup: vi.fn(async () => {}),
+    setDiscordMaintenancePresence: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
     setTimeout: vi.fn(() => ({ timer: true })),
@@ -403,7 +406,7 @@ async function importFreshGatewayMain(options?: {
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
     shutdownDiscord: state.shutdownDiscord,
-    setDiscordMaintenancePresence: vi.fn(async () => {}),
+    setDiscordMaintenancePresence: state.setDiscordMaintenancePresence,
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsArtifactAttachments: state.buildTeamsArtifactAttachments,
@@ -448,7 +451,7 @@ async function importFreshGatewayMain(options?: {
     initWhatsApp: state.initWhatsApp,
     sendToWhatsAppChat: vi.fn(async () => {}),
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
-    shutdownWhatsApp: vi.fn(async () => {}),
+    shutdownWhatsApp: state.shutdownWhatsApp,
   }));
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
     WhatsAppAuthLockError: MockWhatsAppAuthLockError,
@@ -549,6 +552,7 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage: state.handleGatewayMessage,
+    validateGatewayPromptEnvDefaults: state.validateGatewayPromptEnvDefaults,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     runGatewayScheduledTask: state.runGatewayScheduledTask,
@@ -2378,6 +2382,45 @@ describe('gateway bootstrap', () => {
     expect(
       state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  test('shutdown continues when a cleanup step never resolves', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const state = await importFreshGatewayMain({
+      onState: (nextState) => {
+        nextState.setDiscordMaintenancePresence.mockImplementation(
+          () => new Promise<void>(() => undefined),
+        );
+        nextState.setTimeout.mockImplementation((callback: () => void) => {
+          callback();
+          return { timer: true };
+        });
+      },
+    });
+    const sigintHandler = state.processOn.mock.calls.find(
+      ([event]) => event === 'SIGINT',
+    )?.[1] as (() => void) | undefined;
+
+    expect(sigintHandler).toBeTypeOf('function');
+
+    sigintHandler?.();
+    await settle();
+    await settle();
+
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        step: 'set Discord maintenance presence',
+        timeoutMs: 5_000,
+      },
+      'Gateway shutdown step timed out; continuing',
+    );
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {

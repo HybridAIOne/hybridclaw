@@ -173,6 +173,7 @@ export async function runIsolatedScheduledTask(params: {
         assistant: {
           userId: 'assistant',
           username: null,
+          agentId,
           content: output.result,
         },
       });

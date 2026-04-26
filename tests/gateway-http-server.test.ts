@@ -495,11 +495,6 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
-  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
-    agentId: 'charly',
-    displayName: 'Charly',
-    imageUrl: '/api/agent-avatar?agentId=charly',
-  }));
   const getGatewayBootstrapAutostartState = vi.fn(() => null);
   const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
   const getAgentById = vi.fn((agentId: string) =>
@@ -885,6 +880,9 @@ async function importFreshHealth(options?: {
         output: ['tool.result read ok 12ms'],
       },
     ],
+  }));
+  const getGatewayAgentList = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
   }));
   const getGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
@@ -1469,6 +1467,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
     GatewayRequestError,
+    getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
@@ -1490,7 +1489,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
-    getGatewayAssistantPresentationForSession,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -1586,7 +1584,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
-    getGatewayAssistantPresentationForSession,
+    getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -3415,11 +3413,6 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
-      assistantPresentation: {
-        agentId: 'charly',
-        displayName: 'Charly',
-        imageUrl: '/api/agent-avatar?agentId=charly',
-      },
       bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
@@ -4714,6 +4707,22 @@ describe('gateway HTTP server', () => {
           fullAutoEnabled: true,
         },
       ],
+    });
+  });
+
+  test('returns lightweight agent list for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/agents/list' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAgentList).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAgents).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
     });
   });
 

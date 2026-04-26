@@ -310,6 +310,12 @@ export class HonchoRuntime {
 
     const contextEntry = this.contextPrefetch.get(params.sessionId);
     const dialecticEntry = this.dialecticPrefetch.get(params.sessionId);
+    if (contextEntry?.status === 'pending' && contextEntry.promise) {
+      await contextEntry.promise;
+    }
+    if (dialecticEntry?.status === 'pending' && dialecticEntry.promise) {
+      await dialecticEntry.promise;
+    }
     let payload =
       contextEntry?.status === 'fulfilled' ? contextEntry.value : null;
     const dialectic =
@@ -613,9 +619,10 @@ export class HonchoRuntime {
     const entry = {
       status: 'pending',
       value: null,
+      promise: null,
     };
     this.contextPrefetch.set(sessionContext.platformSessionId, entry);
-    void (async () => {
+    entry.promise = (async () => {
       try {
         const payload = await this.fetchPromptContextPayload(sessionContext);
         entry.status = 'fulfilled';
@@ -638,9 +645,10 @@ export class HonchoRuntime {
     const entry = {
       status: 'pending',
       value: '',
+      promise: null,
     };
     this.dialecticPrefetch.set(sessionContext.platformSessionId, entry);
-    void (async () => {
+    entry.promise = (async () => {
       try {
         const value = await this.client.chatWithPeer({
           peerId: sessionContext.agentPeerId,

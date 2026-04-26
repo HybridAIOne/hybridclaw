@@ -35,6 +35,7 @@ vi.mock('../src/agent/prompt-hooks.js', () => ({
 }));
 
 vi.mock('../src/config/config.js', () => ({
+  DATA_DIR: '/tmp/hybridclaw-test-data',
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED: false,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS: 8_000,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES: 100,

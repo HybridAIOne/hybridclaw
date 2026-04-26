@@ -34,6 +34,8 @@ import type {
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AgentListItem,
+  AgentListResponse,
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
@@ -248,6 +250,13 @@ export function adminTerminalSocketUrl(
 
 export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
+}
+
+export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
+  const payload = await requestJson<AgentListResponse>('/api/agents/list', {
+    token,
+  });
+  return payload.agents;
 }
 
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {

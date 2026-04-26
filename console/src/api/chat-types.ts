@@ -14,6 +14,8 @@ export interface ChatHistoryMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   id?: number | string | null;
+  agent_id?: string | null;
+  assistantPresentation?: AssistantPresentation | null;
 }
 
 export interface AssistantPresentation {
@@ -109,6 +111,7 @@ export interface ChatStreamResult {
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
   result?: string;
+  assistantPresentation?: AssistantPresentation | null;
   artifacts?: ChatArtifact[];
   toolsUsed?: string[];
 }

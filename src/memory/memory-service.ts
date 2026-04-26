@@ -171,6 +171,7 @@ export interface MemoryBackend {
     username: string | null,
     role: string,
     content: string,
+    agentId?: string | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -241,6 +242,7 @@ export interface StoreTurnParams {
   assistant: {
     userId?: string;
     username?: string | null;
+    agentId?: string | null;
     content: string;
   };
 }
@@ -721,6 +723,7 @@ export class MemoryService {
     username: string | null;
     role: string;
     content: string;
+    agentId?: string | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -728,6 +731,7 @@ export class MemoryService {
       params.username,
       params.role,
       params.content,
+      params.agentId,
     );
   }
 
@@ -775,6 +779,7 @@ export class MemoryService {
       username: params.assistant.username || null,
       role: 'assistant',
       content: params.assistant.content,
+      agentId: params.assistant.agentId,
     });
 
     const interactionText = this.normalizeSemanticContent(

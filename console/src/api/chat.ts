@@ -12,7 +12,10 @@ import {
   dispatchAuthRequired,
   requestHeaders,
   requestJson,
+  validateToken,
 } from './client';
+
+export { validateToken as fetchAppStatus };
 
 export function fetchChatRecent(
   token: string,
@@ -118,11 +121,15 @@ export function artifactUrl(path: string): string {
   return `/api/artifact?${params.toString()}`;
 }
 
-export async function fetchArtifactBlob(
+export function agentAvatarUrl(imageUrl: string): string {
+  return imageUrl;
+}
+
+async function fetchAuthenticatedBlob(
   token: string,
-  artifactPath: string,
+  url: string,
 ): Promise<Blob> {
-  const response = await fetch(artifactUrl(artifactPath), {
+  const response = await fetch(url, {
     headers: requestHeaders(token),
     cache: 'no-store',
   });
@@ -151,4 +158,18 @@ export async function fetchArtifactBlob(
   }
 
   return response.blob();
+}
+
+export async function fetchArtifactBlob(
+  token: string,
+  artifactPath: string,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(token, artifactUrl(artifactPath));
+}
+
+export function fetchAgentAvatarBlob(
+  token: string,
+  imageUrl: string,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(token, agentAvatarUrl(imageUrl));
 }

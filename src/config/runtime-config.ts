@@ -792,6 +792,7 @@ export interface RuntimeConfig {
     };
     delegation: {
       enabled: boolean;
+      model: string;
       maxConcurrent: number;
       maxDepth: number;
       maxPerTurn: number;
@@ -1390,6 +1391,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     delegation: {
       enabled: true,
+      model: '',
       maxConcurrent: 3,
       maxDepth: 2,
       maxPerTurn: 3,
@@ -5232,6 +5234,11 @@ function normalizeRuntimeConfig(
         enabled: normalizeBoolean(
           rawDelegation.enabled,
           DEFAULT_RUNTIME_CONFIG.proactive.delegation.enabled,
+        ),
+        model: normalizeString(
+          rawDelegation.model,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.model,
+          { allowEmpty: true },
         ),
         maxConcurrent: normalizeInteger(
           rawDelegation.maxConcurrent,

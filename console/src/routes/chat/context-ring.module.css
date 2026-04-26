@@ -71,7 +71,7 @@
   font-weight: 700;
   color: var(--muted-foreground);
   pointer-events: none;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .ringLabelUnknown {

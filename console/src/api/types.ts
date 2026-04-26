@@ -778,6 +778,15 @@ export type AgentsOverview = Pick<
   'agents' | 'sessions'
 >;
 
+export interface AgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface AgentListResponse {
+  agents: AgentListItem[];
+}
+
 export interface JobAgent {
   id: string;
   name: string | null;

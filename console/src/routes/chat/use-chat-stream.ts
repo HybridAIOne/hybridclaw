@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { executeCommand } from '../../api/chat';
 import type {
@@ -8,6 +9,11 @@ import type {
 } from '../../api/chat-types';
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
+import { getErrorMessage } from '../../lib/error-message';
+import {
+  type ChatHistoryUiData,
+  chatHistoryQueryKey,
+} from './chat-history-query';
 import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 
 interface ActiveRequest {
@@ -24,10 +30,9 @@ interface UseChatStreamOptions {
   token: string;
   userId: string;
   getSessionId: () => string;
-  setMessages: React.Dispatch<React.SetStateAction<ChatUiMessage[]>>;
-  setSessionId: (sessionId: string) => void;
-  setError: React.Dispatch<React.SetStateAction<string>>;
+  setError: (err: string) => void;
   refreshRecent: () => void;
+  onSessionIdCorrection: (serverSessionId: string) => void;
 }
 
 export interface UseChatStreamReturn {
@@ -51,15 +56,39 @@ export function useChatStream(
     token,
     userId,
     getSessionId,
-    setMessages,
-    setSessionId,
     setError,
     refreshRecent,
+    onSessionIdCorrection,
   } = options;
 
+  const queryClient = useQueryClient();
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+
+  // Writes must be bound to the sessionId captured when the send started —
+  // reading `getSessionId()` at write time would race with navigation and
+  // clobber a different session's cache entry.
+  const writeMessages = useCallback(
+    (
+      sessionId: string,
+      updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+    ) => {
+      const key = chatHistoryQueryKey(token, sessionId);
+      queryClient.setQueryData<ChatHistoryUiData>(key, (prev) => {
+        const prevMessages = prev?.messages ?? [];
+        const nextMessages =
+          typeof updater === 'function' ? updater(prevMessages) : updater;
+        if (nextMessages === prevMessages) return prev;
+        return {
+          messages: nextMessages,
+          branchFamilies: prev?.branchFamilies ?? new Map(),
+          resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+        };
+      });
+    },
+    [queryClient, token],
+  );
 
   const sendMessage = useCallback(
     async (
@@ -75,6 +104,9 @@ export function useChatStream(
       }
 
       const targetSessionId = getSessionId();
+      const setMessages = (
+        updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
+      ) => writeMessages(targetSessionId, updater);
       const userMsgId = !opts?.hideUser ? nextMsgId() : null;
       setError('');
 
@@ -203,8 +235,8 @@ export function useChatStream(
           throw new Error(result.error ?? 'Unknown error');
         }
 
-        if (result.sessionId) {
-          setSessionId(result.sessionId);
+        if (result.sessionId && result.sessionId !== targetSessionId) {
+          onSessionIdCorrection(result.sessionId);
         }
 
         flushRender();
@@ -212,37 +244,57 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
+        const buildFinalizedMessage = (
+          id: string,
+          sessionId: string,
+          base?: ChatUiMessage,
+        ): ChatUiMessage => ({
+          ...base,
+          id,
+          role: finalApproval ? 'approval' : 'assistant',
+          content: finalText,
+          sessionId,
+          messageId: result.assistantMessageId ?? null,
+          artifacts: finalArtifacts,
+          assistantPresentation: result.assistantPresentation ?? null,
+          pendingApproval: finalApproval,
+          replayRequest: { content, media },
+        });
 
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === streamId
-              ? {
-                  ...m,
-                  role: finalApproval ? 'approval' : 'assistant',
-                  content: finalText,
-                  messageId: result.assistantMessageId ?? null,
-                  artifacts: finalArtifacts,
-                  pendingApproval: finalApproval,
-                  replayRequest: { content, media },
-                }
-              : userMsgId &&
-                  m.id === userMsgId &&
-                  m.role === 'user' &&
-                  !m.messageId
-                ? {
-                    ...m,
-                    messageId: result.userMessageId ?? null,
-                    sessionId: result.sessionId ?? m.sessionId,
-                  }
-                : m,
-          ),
-        );
+        setMessages((prev) => {
+          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          const hasAssistant = withoutThinking.some((m) => m.id === streamId);
+          const finalizeMessage = (m: ChatUiMessage): ChatUiMessage => {
+            if (m.id === streamId) {
+              return buildFinalizedMessage(
+                streamId,
+                result.sessionId ?? m.sessionId,
+                m,
+              );
+            }
+            if (userMsgId && m.id === userMsgId && m.role === 'user') {
+              return {
+                ...m,
+                messageId: m.messageId ?? result.userMessageId ?? null,
+                sessionId: result.sessionId ?? m.sessionId,
+              };
+            }
+            return m;
+          };
+
+          const finalized = withoutThinking.map(finalizeMessage);
+          if (hasAssistant) return finalized;
+
+          return [
+            ...finalized,
+            buildFinalizedMessage(streamId, result.sessionId ?? req.sessionId),
+          ];
+        });
 
         refreshRecent();
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
-        const errorText =
-          !req.stopping && err instanceof Error ? err.message : String(err);
+        const errorText = getErrorMessage(err);
         setMessages((prev) => {
           const withoutThinking = prev.filter((m) => m.id !== thinkingId);
           if (req.stopping) return withoutThinking;
@@ -268,8 +320,8 @@ export function useChatStream(
       token,
       userId,
       getSessionId,
-      setMessages,
-      setSessionId,
+      writeMessages,
+      onSessionIdCorrection,
       setError,
       refreshRecent,
     ],
@@ -282,9 +334,7 @@ export function useChatStream(
     try {
       await executeCommand(token, req.sessionId, userId, ['stop']);
     } catch (err) {
-      setError(
-        `Failed to stop: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      setError(`Failed to stop: ${getErrorMessage(err)}`);
     } finally {
       req.controller.abort();
     }
