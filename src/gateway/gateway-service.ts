@@ -2647,7 +2647,7 @@ export function getGatewayAssistantPresentationForSession(
   );
 }
 
-function getGatewayAssistantPresentationForMessageAgent(
+export function getGatewayAssistantPresentationForMessageAgent(
   agentId?: string | null,
 ): GatewayAssistantPresentation | undefined {
   const normalizedAgentId = String(agentId || '').trim();

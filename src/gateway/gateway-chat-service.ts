@@ -100,7 +100,7 @@ import {
   extractUsageCostUsd,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
-  getGatewayAssistantPresentationForAgent,
+  getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
   isVersionOnlyQuestion,
   maybeRecordGatewayRequestLog,
@@ -124,12 +124,6 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
-
-function getAssistantPresentationForResult(agentId: string) {
-  return agentId === DEFAULT_AGENT_ID
-    ? undefined
-    : getGatewayAssistantPresentationForAgent(agentId);
-}
 
 function readGatewayPromptModeDefault(): PromptMode | undefined {
   const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
@@ -533,7 +527,8 @@ async function handleGatewayMessageInner(
             })
           : undefined,
       toolsUsed: [],
-      assistantPresentation: getAssistantPresentationForResult(agentId),
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     });
@@ -694,7 +689,8 @@ async function handleGatewayMessageInner(
       agentId,
       model,
       provider,
-      assistantPresentation: getAssistantPresentationForResult(agentId),
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
@@ -1352,7 +1348,8 @@ async function handleGatewayMessageInner(
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
-      assistantPresentation: getAssistantPresentationForResult(agentId),
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
