@@ -49,6 +49,11 @@ import type {
   PluginMemoryFlushContext,
   PluginMemoryWriteAction,
   PluginMemoryWriteContext,
+  PluginOutputGuard,
+  PluginOutputGuardContext,
+  PluginOutputGuardDecision,
+  PluginOutputGuardEvent,
+  PluginOutputGuardOutcome,
   PluginPackageDependency,
   PluginPromptBuildContext,
   PluginPromptContextResult,
@@ -114,6 +119,11 @@ type RegisteredPromptHook = {
   hook: PluginPromptHook;
 };
 
+type RegisteredOutputGuard = {
+  pluginId: string;
+  guard: PluginOutputGuard;
+};
+
 type RegisteredTool = {
   pluginId: string;
   tool: PluginToolDefinition;
@@ -165,6 +175,7 @@ type PluginRegistrationSnapshot = {
   plugins: LoadedPlugin[];
   memoryLayers: RegisteredMemoryLayer[];
   promptHooks: RegisteredPromptHook[];
+  outputGuards: RegisteredOutputGuard[];
   services: RegisteredService[];
   inboundWebhooks: Map<string, RegisteredInboundWebhook>;
   providers: RegisteredProvider[];
@@ -786,6 +797,7 @@ export class PluginManager {
   private plugins: LoadedPlugin[] = [];
   private memoryLayers: RegisteredMemoryLayer[] = [];
   private promptHooks: RegisteredPromptHook[] = [];
+  private outputGuards: RegisteredOutputGuard[] = [];
   private tools = new Map<string, RegisteredTool>();
   private services: RegisteredService[] = [];
   private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
@@ -1297,6 +1309,20 @@ export class PluginManager {
     this.promptHooks.push({ pluginId, hook });
   }
 
+  registerOutputGuard(pluginId: string, guard: PluginOutputGuard): void {
+    const guardId = safeString(() => guard.id, '').trim();
+    if (!guardId) {
+      throw new Error('Plugin output guard is missing `id`.');
+    }
+    this.outputGuards.push({
+      pluginId,
+      guard: {
+        ...guard,
+        id: guardId,
+      },
+    });
+  }
+
   registerCommand(pluginId: string, command: PluginCommandDefinition): void {
     if (this.commands.has(command.name)) {
       throw new Error(
@@ -1435,6 +1461,7 @@ export class PluginManager {
       plugins: [...this.plugins],
       memoryLayers: [...this.memoryLayers],
       promptHooks: [...this.promptHooks],
+      outputGuards: [...this.outputGuards],
       services: [...this.services],
       inboundWebhooks: new Map(this.inboundWebhooks),
       providers: [...this.providers],
@@ -1458,6 +1485,7 @@ export class PluginManager {
     this.plugins = [...snapshot.plugins];
     this.memoryLayers = [...snapshot.memoryLayers];
     this.promptHooks = [...snapshot.promptHooks];
+    this.outputGuards = [...snapshot.outputGuards];
     this.services = [...snapshot.services];
     this.inboundWebhooks = new Map(snapshot.inboundWebhooks);
     this.providers = [...snapshot.providers];
@@ -1495,6 +1523,11 @@ export class PluginManager {
       registered.add(entry.hook.id);
     }
 
+    for (const entry of this.outputGuards) {
+      if (entry.pluginId !== pluginId) continue;
+      registered.add(`output-guard:${entry.guard.id}`);
+    }
+
     for (const [name, entries] of this.hooks.entries()) {
       if (entries.some((entry) => entry.pluginId === pluginId)) {
         registered.add(name);
@@ -1525,6 +1558,9 @@ export class PluginManager {
       (entry) => entry.pluginId !== pluginId,
     );
     this.promptHooks = this.promptHooks.filter(
+      (entry) => entry.pluginId !== pluginId,
+    );
+    this.outputGuards = this.outputGuards.filter(
       (entry) => entry.pluginId !== pluginId,
     );
     this.services = this.services.filter(
@@ -1803,6 +1839,111 @@ export class PluginManager {
     await this.ensureInitialized();
     this.rememberSessionUserId(context.sessionId, context.userId);
     await this.dispatchHook('agent_end', context);
+  }
+
+  hasOutputGuards(): boolean {
+    return this.outputGuards.length > 0;
+  }
+
+  async applyOutputGuards(
+    context: PluginOutputGuardContext,
+  ): Promise<PluginOutputGuardOutcome> {
+    await this.ensureInitialized();
+    if (this.outputGuards.length === 0) {
+      return {
+        resultText: context.resultText,
+        blocked: false,
+        events: [],
+      };
+    }
+    const ordered = [...this.outputGuards].sort((left, right) => {
+      const leftPriority = left.guard.priority ?? 0;
+      const rightPriority = right.guard.priority ?? 0;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return left.guard.id.localeCompare(right.guard.id);
+    });
+
+    const events: PluginOutputGuardEvent[] = [];
+    let resultText = context.resultText;
+    let blocked = false;
+
+    for (const entry of ordered) {
+      const guardContext: PluginOutputGuardContext = {
+        ...context,
+        resultText,
+      };
+      let decision: PluginOutputGuardDecision | null = null;
+      try {
+        const value = await entry.guard.inspect(guardContext);
+        if (value && typeof value === 'object' && 'action' in value) {
+          decision = value as PluginOutputGuardDecision;
+        }
+      } catch (error) {
+        this.logger.warn(
+          {
+            pluginId: entry.pluginId,
+            guardId: entry.guard.id,
+            error,
+          },
+          'Plugin output guard failed; allowing original output',
+        );
+        continue;
+      }
+      if (!decision || decision.action === 'allow') {
+        events.push({
+          pluginId: entry.pluginId,
+          guardId: entry.guard.id,
+          action: 'allow',
+        });
+        continue;
+      }
+      if (decision.action === 'rewrite') {
+        const rewritten = String(decision.text ?? '').trim();
+        if (!rewritten) {
+          this.logger.warn(
+            {
+              pluginId: entry.pluginId,
+              guardId: entry.guard.id,
+            },
+            'Plugin output guard returned empty rewrite; allowing original output',
+          );
+          continue;
+        }
+        events.push({
+          pluginId: entry.pluginId,
+          guardId: entry.guard.id,
+          action: 'rewrite',
+          reason: decision.reason,
+          before: resultText,
+          after: rewritten,
+        });
+        resultText = rewritten;
+        continue;
+      }
+      const reason =
+        String(decision.reason || '').trim() ||
+        'Output blocked by plugin guard.';
+      const replacement = String(decision.replacement || '').trim();
+      events.push({
+        pluginId: entry.pluginId,
+        guardId: entry.guard.id,
+        action: 'block',
+        reason,
+        before: resultText,
+        after: replacement || undefined,
+      });
+      resultText = replacement || reason;
+      blocked = true;
+      break;
+    }
+
+    return {
+      resultText,
+      blocked,
+      events,
+    };
   }
 
   async notifyTurnComplete(params: {

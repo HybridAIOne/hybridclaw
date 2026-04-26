@@ -2142,3 +2142,152 @@ test('plugin manager rolls back partial registration when register throws', asyn
     }),
   ]);
 });
+
+function writeOutputGuardPlugin(
+  rootDir: string,
+  pluginId: string,
+  options: {
+    priority?: number;
+    behavior: 'allow' | 'rewrite' | 'block' | 'throw';
+    rewriteText?: string;
+    blockReason?: string;
+    blockReplacement?: string;
+  },
+): void {
+  const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', pluginId);
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [`id: ${pluginId}`, `name: ${pluginId}`, 'kind: output-guard', ''].join(
+      '\n',
+    ),
+    'utf-8',
+  );
+  const decisionLiteral =
+    options.behavior === 'allow'
+      ? "{ action: 'allow' }"
+      : options.behavior === 'rewrite'
+        ? `{ action: 'rewrite', text: ${JSON.stringify(options.rewriteText || 'rewritten')} }`
+        : options.behavior === 'block'
+          ? `{ action: 'block', reason: ${JSON.stringify(options.blockReason || 'blocked')}, replacement: ${JSON.stringify(options.blockReplacement || 'BLOCKED')} }`
+          : "(() => { throw new Error('boom'); })()";
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      `  id: '${pluginId}',`,
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      `      id: '${pluginId}-guard',`,
+      `      priority: ${options.priority ?? 0},`,
+      '      inspect() {',
+      `        return ${decisionLiteral};`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+test('plugin manager applies output guards in priority order and short-circuits on block', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeOutputGuardPlugin(cwd, 'guard-allow', {
+    priority: 10,
+    behavior: 'allow',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-rewrite', {
+    priority: 20,
+    behavior: 'rewrite',
+    rewriteText: 'cleaned-up output',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-block', {
+    priority: 30,
+    behavior: 'block',
+    blockReason: 'unsafe',
+    blockReplacement: 'BLOCKED',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-after-block', {
+    priority: 40,
+    behavior: 'rewrite',
+    rewriteText: 'should-not-run',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  expect(manager.hasOutputGuards()).toBe(true);
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(true);
+  expect(outcome.resultText).toBe('BLOCKED');
+  expect(outcome.events.map((event) => event.action)).toEqual([
+    'allow',
+    'rewrite',
+    'block',
+  ]);
+  expect(outcome.events[1]).toMatchObject({
+    pluginId: 'guard-rewrite',
+    before: 'original draft',
+    after: 'cleaned-up output',
+  });
+  expect(outcome.events[2]).toMatchObject({
+    pluginId: 'guard-block',
+    before: 'cleaned-up output',
+    after: 'BLOCKED',
+    reason: 'unsafe',
+  });
+});
+
+test('plugin manager swallows errors from output guards and keeps original output', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeOutputGuardPlugin(cwd, 'guard-throws', {
+    priority: 10,
+    behavior: 'throw',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('original draft');
+  expect(outcome.events).toEqual([]);
+});
