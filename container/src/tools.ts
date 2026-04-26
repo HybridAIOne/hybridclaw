@@ -1192,6 +1192,108 @@ async function callGatewayHttpRequest(
   return rawText;
 }
 
+function resolveGatewayPeerProxyUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/peer/proxy`;
+}
+
+async function callGatewayPeerProxy(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const url = resolveGatewayPeerProxyUrl();
+  if (!url) {
+    return failTool(
+      'Error: delegate_to_peer is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  const body: Record<string, unknown> = { ...args };
+  if (currentSessionId && typeof body.parentSessionId !== 'string') {
+    body.parentSessionId = currentSessionId;
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: peer delegation request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    return failTool(`Error: ${errorText}`);
+  }
+  if (!parsed) {
+    return failTool('Error: peer returned an empty response body.');
+  }
+  return formatPeerDelegateResponse(parsed);
+}
+
+function formatPeerDelegateResponse(parsed: Record<string, unknown>): string {
+  const status = typeof parsed.status === 'string' ? parsed.status : 'unknown';
+  const result = typeof parsed.result === 'string' ? parsed.result : null;
+  const peerInstanceId =
+    typeof parsed.peerInstanceId === 'string' ? parsed.peerInstanceId : '';
+  const peerRunId =
+    typeof parsed.peerRunId === 'string' ? parsed.peerRunId : '';
+  const taskId = typeof parsed.taskId === 'string' ? parsed.taskId : '';
+  const errorText = typeof parsed.error === 'string' ? parsed.error : '';
+  const pendingApprovalSummary =
+    typeof parsed.pendingApprovalSummary === 'string'
+      ? parsed.pendingApprovalSummary
+      : '';
+
+  if (status === 'error' || status === 'rejected') {
+    const detail = errorText || pendingApprovalSummary || 'no detail';
+    return failTool(
+      `Peer delegation ${status}${peerInstanceId ? ` on ${peerInstanceId}` : ''}: ${detail}`,
+    );
+  }
+
+  if (pendingApprovalSummary) {
+    return `Peer ${peerInstanceId || 'delegation'} paused for approval (${pendingApprovalSummary}). Surface this to the operator; the peer cannot prompt our user.`;
+  }
+
+  if (!result) {
+    return JSON.stringify(parsed, null, 2);
+  }
+
+  const header = [
+    `Peer delegation succeeded (${peerInstanceId || 'unknown peer'})`,
+    taskId ? `task ${taskId}` : '',
+    peerRunId ? `peerRun ${peerRunId}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return `${header}\n\n${result}`;
+}
+
 function normalizeDelegationTask(
   raw: unknown,
   fallbackModel?: string,
@@ -3262,6 +3364,34 @@ async function executeToolInternal(
       return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
     }
 
+    case 'delegate_to_peer': {
+      const peerId = typeof args.peerId === 'string' ? args.peerId.trim() : '';
+      const content =
+        typeof args.content === 'string' ? args.content.trim() : '';
+      if (!peerId) return failTool('Error: peerId is required.');
+      if (!content) return failTool('Error: content is required.');
+      const proxyArgs: Record<string, unknown> = {
+        peerId,
+        content,
+      };
+      if (typeof args.agentId === 'string' && args.agentId.trim()) {
+        proxyArgs.agentId = args.agentId.trim();
+      }
+      if (typeof args.model === 'string' && args.model.trim()) {
+        proxyArgs.model = args.model.trim();
+      }
+      if (
+        typeof args.timeoutMs === 'number' &&
+        Number.isFinite(args.timeoutMs)
+      ) {
+        proxyArgs.timeoutMs = Math.trunc(args.timeoutMs);
+      }
+      if (typeof args.taskId === 'string' && args.taskId.trim()) {
+        proxyArgs.taskId = args.taskId.trim();
+      }
+      return callGatewayPeerProxy(proxyArgs);
+    }
+
     default:
       return failTool(`Unknown tool: ${name}`);
   }
@@ -4000,6 +4130,49 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delegate_to_peer',
+      description:
+        "Delegate a self-contained task to a peer HybridClaw instance over HTTP (cross-instance / hierarchical swarm). Use when the work belongs to another agency tier or client tenant — never for ordinary local sub-tasks (use `delegate` for those). Returns synchronously with the peer's final answer; the peer cannot prompt our user for approvals, so any approval-gated work returns as a failure for you to surface back. Provide `peerId` (matches a configured outbound peer) and a self-contained `content` brief (goal, constraints, expected output). Optionally pin `agentId` on the peer side.",
+      parameters: {
+        type: 'object',
+        properties: {
+          peerId: {
+            type: 'string',
+            description:
+              'Local label of the configured outbound peer (e.g. "hc-client-acme").',
+          },
+          content: {
+            type: 'string',
+            description:
+              'Self-contained task brief sent to the peer agent. Must include the full context the peer needs — they cannot see our session.',
+          },
+          agentId: {
+            type: 'string',
+            description:
+              "Optional agent id on the peer to address the task to. Defaults to the peer's default agent.",
+          },
+          model: {
+            type: 'string',
+            description: 'Optional model override on the peer side.',
+          },
+          timeoutMs: {
+            type: 'number',
+            description:
+              'Optional per-call timeout in milliseconds. Capped at 600000 (10 minutes).',
+          },
+          taskId: {
+            type: 'string',
+            description:
+              'Optional client-supplied idempotency / correlation id. A UUID is generated when omitted.',
+          },
+        },
+        required: ['peerId', 'content'],
       },
     },
   },

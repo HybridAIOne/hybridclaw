@@ -56,6 +56,12 @@ import {
 } from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import {
+  buildPeerAgentCard,
+  handlePeerAgentCard,
+  handlePeerInboundDelegate,
+  handlePeerOutboundProxy,
+} from '../peers/peer-handlers.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
@@ -3349,6 +3355,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/.well-known/hybridclaw-peer.json' && method === 'GET') {
+      handlePeerAgentCard(res);
+      return;
+    }
+
+    if (pathname === '/api/peer/delegate' && method === 'POST') {
+      void handlePeerInboundDelegate(req, res).catch((err) => {
+        logger.error({ err }, 'Peer inbound delegation handler failed');
+        sendJson(res, 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      return;
+    }
+
     if (pathname === '/') {
       sendRedirect(res, 302, '/chat');
       return;
@@ -3694,6 +3715,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/discord/action' && method === 'POST') {
             await handleApiMessageAction(req, res);
+            return;
+          }
+          if (pathname === '/api/peer/proxy' && method === 'POST') {
+            await handlePeerOutboundProxy(req, res);
+            return;
+          }
+          if (pathname === '/api/peers' && method === 'GET') {
+            sendJson(res, 200, buildPeerAgentCard());
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

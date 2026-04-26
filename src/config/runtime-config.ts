@@ -37,6 +37,12 @@ import {
   normalizeMemoryRecallBackend,
   normalizeMemoryRecallTokenizer,
 } from '../memory/semantic-recall.js';
+import {
+  DEFAULT_PEERS_RUNTIME_CONFIG,
+  type PeerInboundTokenConfig,
+  type PeerOutboundConfig,
+  type PeersRuntimeConfig,
+} from '../peers/peer-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
@@ -810,6 +816,7 @@ export interface RuntimeConfig {
   scheduler: {
     jobs: RuntimeSchedulerJob[];
   };
+  peers: PeersRuntimeConfig;
 }
 
 export interface RuntimeSkillScopeConfigDraft {
@@ -1409,6 +1416,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   scheduler: {
     jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
   },
+  peers: { ...DEFAULT_PEERS_RUNTIME_CONFIG },
 };
 
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
@@ -5291,6 +5299,98 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.scheduler.jobs,
       ),
     },
+    peers: normalizePeersConfig(raw.peers),
+  };
+}
+
+function normalizePeerOutboundEntry(value: unknown): PeerOutboundConfig | null {
+  if (!isRecord(value)) return null;
+  const id = normalizeString(value.id, '', { allowEmpty: false });
+  const baseUrl = normalizeString(value.baseUrl, '', { allowEmpty: false });
+  const token = normalizeString(value.token, '', { allowEmpty: false });
+  if (!id || !baseUrl || !token) return null;
+  const description = normalizeString(value.description, '', {
+    allowEmpty: true,
+  });
+  const allowedAgentIds = Array.isArray(value.allowedAgentIds)
+    ? normalizeStringArray(value.allowedAgentIds, [])
+    : undefined;
+  const timeoutMs = normalizeInteger(value.timeoutMs, 0, {
+    min: 1_000,
+    max: 600_000,
+  });
+  const entry: PeerOutboundConfig = {
+    id,
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    token,
+  };
+  if (description) entry.description = description;
+  if (allowedAgentIds && allowedAgentIds.length > 0) {
+    entry.allowedAgentIds = allowedAgentIds;
+  }
+  if (timeoutMs > 0) entry.timeoutMs = timeoutMs;
+  return entry;
+}
+
+function normalizePeerInboundTokenEntry(
+  value: unknown,
+): PeerInboundTokenConfig | null {
+  if (!isRecord(value)) return null;
+  const id = normalizeString(value.id, '', { allowEmpty: false });
+  const token = normalizeString(value.token, '', { allowEmpty: false });
+  if (!id || !token) return null;
+  const allowedAgentIds = Array.isArray(value.allowedAgentIds)
+    ? normalizeStringArray(value.allowedAgentIds, [])
+    : undefined;
+  const entry: PeerInboundTokenConfig = { id, token };
+  if (allowedAgentIds && allowedAgentIds.length > 0) {
+    entry.allowedAgentIds = allowedAgentIds;
+  }
+  return entry;
+}
+
+function normalizePeersConfig(value: unknown): PeersRuntimeConfig {
+  const defaults = DEFAULT_RUNTIME_CONFIG.peers;
+  const raw = isRecord(value) ? value : {};
+  const outbound = Array.isArray(raw.outbound)
+    ? raw.outbound
+        .map(normalizePeerOutboundEntry)
+        .filter((entry): entry is PeerOutboundConfig => entry !== null)
+    : [];
+  const inboundTokens = Array.isArray(raw.inboundTokens)
+    ? raw.inboundTokens
+        .map(normalizePeerInboundTokenEntry)
+        .filter((entry): entry is PeerInboundTokenConfig => entry !== null)
+    : [];
+
+  // Dedupe outbound entries by id (last wins) and inbound tokens by token value.
+  const dedupedOutbound = Array.from(
+    new Map(outbound.map((entry) => [entry.id, entry])).values(),
+  );
+  const dedupedInbound = Array.from(
+    new Map(inboundTokens.map((entry) => [entry.token, entry])).values(),
+  );
+
+  return {
+    enabled: normalizeBoolean(raw.enabled, defaults.enabled),
+    instanceId: normalizeString(raw.instanceId, defaults.instanceId, {
+      allowEmpty: true,
+    }),
+    instanceName: normalizeString(raw.instanceName, defaults.instanceName, {
+      allowEmpty: true,
+    }),
+    outbound: dedupedOutbound,
+    inboundTokens: dedupedInbound,
+    defaultOutboundTimeoutMs: normalizeInteger(
+      raw.defaultOutboundTimeoutMs,
+      defaults.defaultOutboundTimeoutMs,
+      { min: 1_000, max: 600_000 },
+    ),
+    inboundMaxConcurrent: normalizeInteger(
+      raw.inboundMaxConcurrent,
+      defaults.inboundMaxConcurrent,
+      { min: 1, max: 64 },
+    ),
   };
 }
 

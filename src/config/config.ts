@@ -8,6 +8,10 @@ import {
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
 import { logger } from '../logger.js';
+import {
+  DEFAULT_PEERS_RUNTIME_CONFIG,
+  type PeersRuntimeConfig,
+} from '../peers/peer-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import {
   loadRuntimeSecrets,
@@ -129,6 +133,10 @@ function resolveAppVersion(): string {
 }
 
 export const APP_VERSION = resolveAppVersion();
+
+export let PEERS_CONFIG: PeersRuntimeConfig = {
+  ...DEFAULT_PEERS_RUNTIME_CONFIG,
+};
 
 function readRuntimeSecretValue(
   envKeys: string[],
@@ -1059,6 +1067,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   const rawRalphMax = Math.trunc(config.proactive.ralph.maxIterations);
   PROACTIVE_RALPH_MAX_ITERATIONS =
     rawRalphMax === -1 ? -1 : Math.max(0, rawRalphMax);
+
+  PEERS_CONFIG = structuredClone(config.peers);
 }
 
 applyRuntimeConfig(getRuntimeConfig());
