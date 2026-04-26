@@ -3,7 +3,7 @@ title: Trusted Coworker Roadmap
 description: Internal product roadmap derived from the Trusted Coworker Manifesto. Not linked from the public docs nav.
 ---
 
-> **Internal document.** This page is intentionally not linked from the docs sidebar or the public website. It exists in the repo as the source of truth for roadmap planning and is referenced from GitHub issue bodies. Tracked in the umbrella issue [HybridAIOne/hybridclaw#466](https://github.com/HybridAIOne/hybridclaw/issues/466).
+> **Internal document.** This page is intentionally excluded from the docs sidebar, navigation, and search — but it remains web-accessible by direct URL, which is how GitHub issue bodies reference it. Source of truth for roadmap planning. Tracked in the umbrella issue [HybridAIOne/hybridclaw#466](https://github.com/HybridAIOne/hybridclaw/issues/466).
 
 # Trusted Coworker Roadmap
 
