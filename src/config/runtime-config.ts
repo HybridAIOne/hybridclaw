@@ -872,6 +872,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.5',
   'openai-codex/gpt-5.3-codex-spark',
   'openai-codex/gpt-5.2-codex',
   'openai-codex/gpt-5.1-codex-max',

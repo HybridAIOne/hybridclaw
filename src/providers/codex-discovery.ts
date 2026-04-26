@@ -45,6 +45,14 @@ const CODEX_FORWARD_COMPAT_MODELS = [
       'openai-codex/gpt-5.2-codex',
     ],
   },
+  {
+    model: 'openai-codex/gpt-5.5',
+    templateModels: [
+      'openai-codex/gpt-5.4',
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.2-codex',
+    ],
+  },
 ] as const;
 
 function normalizeCodexModelName(modelId: string): string {
