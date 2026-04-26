@@ -203,6 +203,15 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(html).toContain('<title>HybridClaw Admin</title>');
   });
 
+  test('/chat.html 301-redirects to the React /chat console', async () => {
+    const res = await fetch(`${GATEWAY_URL}/chat.html`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
   test('/admin serves the console (host mode, no container auth)', async () => {
     const res = await fetch(`${GATEWAY_URL}/admin`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

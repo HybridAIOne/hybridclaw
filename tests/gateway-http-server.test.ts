@@ -53,7 +53,6 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
     '<h1>Agents</h1>',
@@ -3056,6 +3055,19 @@ describe('gateway HTTP server', () => {
       expect(aboutRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
       expect(aboutRes.body).toContain('<h1>Docs</h1>');
     }
+  });
+
+  test('301-redirects the legacy /chat.html URL to /chat', async () => {
+    const state = await importFreshHealth();
+
+    const req = makeRequest({ url: '/chat.html' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.Location).toBe('/chat');
+    expect(res.headers['Cache-Control']).toBe('no-store');
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {

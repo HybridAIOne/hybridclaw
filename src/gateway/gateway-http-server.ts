@@ -3357,6 +3357,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/chat.html') {
+      sendRedirect(res, 301, '/chat');
+      return;
+    }
+
     if (pathname === '/auth/callback') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Method Not Allowed' });
