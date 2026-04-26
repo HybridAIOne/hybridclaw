@@ -175,6 +175,69 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   };
 }
 
+function fingerprintString(value: string | undefined): string {
+  if (!value) return '0:0';
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${value.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function fingerprintStringArray(values: string[] | undefined): string {
+  return values?.map(fingerprintString).join(',') ?? '';
+}
+
+function fingerprintModel(model: AgentModelConfig | undefined): string {
+  if (!model) return '';
+  if (typeof model === 'string') return `s:${fingerprintString(model)}`;
+  return `o:${fingerprintString(model.primary)}:${fingerprintStringArray(model.fallbacks)}`;
+}
+
+function fingerprintCv(cv: AgentConfig['cv']): string {
+  if (!cv) return '';
+  return [
+    fingerprintString(cv.summary),
+    fingerprintString(cv.background),
+    fingerprintStringArray(cv.capabilities),
+    fingerprintString(cv.asset),
+  ].join(':');
+}
+
+function fingerprintAgent(agent: AgentConfig): string {
+  return [
+    fingerprintString(agent.id),
+    fingerprintString(agent.name),
+    fingerprintString(agent.displayName),
+    fingerprintString(agent.imageAsset),
+    fingerprintModel(agent.model),
+    fingerprintStringArray(agent.skills),
+    fingerprintString(agent.workspace),
+    fingerprintString(agent.chatbotId),
+    typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
+    fingerprintString(agent.owner),
+    fingerprintString(agent.role),
+    fingerprintCv(agent.cv),
+  ].join('|');
+}
+
+function fingerprintAgentsConfig(params: {
+  defaultAgentId: string;
+  defaults: AgentDefaultsConfig;
+  list: AgentConfig[];
+}): string {
+  return [
+    fingerprintString(params.defaultAgentId),
+    fingerprintModel(params.defaults.model),
+    fingerprintString(params.defaults.chatbotId),
+    typeof params.defaults.enableRag === 'boolean'
+      ? String(params.defaults.enableRag)
+      : '',
+    ...params.list.map(fingerprintAgent),
+  ].join('\n');
+}
+
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
   defaultAgentId: string;
   defaults: AgentDefaultsConfig;
@@ -195,15 +258,16 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     seen.add(DEFAULT_AGENT_ID);
   }
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
+  const fingerprint = fingerprintAgentsConfig({
+    defaultAgentId,
+    defaults,
+    list,
+  });
   return {
     defaultAgentId,
     defaults,
     list,
-    fingerprint: JSON.stringify({
-      defaultAgentId,
-      defaults,
-      list,
-    }),
+    fingerprint,
   };
 }
 
@@ -214,7 +278,6 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
   const enableRag = agent.enableRag ?? configuredDefaults.enableRag;
-  const cv = cloneAgentCv(agent.cv);
   return {
     id: agent.id,
     ...(agent.name ? { name: agent.name } : {}),
@@ -226,7 +289,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
-    ...(cv ? { cv } : {}),
+    ...(agent.cv ? { cv: agent.cv } : {}),
   };
 }
 
@@ -259,24 +322,13 @@ function rebuildRegistryFromDatabase(): void {
 function syncConfiguredAgentsToDatabase(): void {
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
-  ) ?? {
-    id: DEFAULT_AGENT_ID,
-    name: 'Main Agent',
-  };
-  dbUpsertAgent({
-    id: DEFAULT_AGENT_ID,
-    name: mainAgent.name || 'Main Agent',
-    displayName: mainAgent.displayName,
-    imageAsset: mainAgent.imageAsset,
-    model: cloneModelConfig(mainAgent.model),
-    skills: mainAgent.skills,
-    workspace: mainAgent.workspace,
-    chatbotId: mainAgent.chatbotId,
-    enableRag: mainAgent.enableRag,
-    owner: mainAgent.owner,
-    role: mainAgent.role,
-    cv: cloneAgentCv(mainAgent.cv),
-  });
+  );
+  if (!mainAgent) {
+    dbUpsertAgent({
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    });
+  }
 
   for (const agent of configuredAgents) {
     dbUpsertAgent({

@@ -87,15 +87,10 @@ export function normalizeAgentCv(value: unknown): AgentCv | undefined {
 
 export function cloneAgentCv(value: AgentCv | undefined): AgentCv | undefined {
   if (!value) return undefined;
-  const cv: AgentCv = {
-    ...(value.summary ? { summary: value.summary } : {}),
-    ...(value.background ? { background: value.background } : {}),
-    ...(value.capabilities && value.capabilities.length > 0
-      ? { capabilities: [...value.capabilities] }
-      : {}),
-    ...(value.asset ? { asset: value.asset } : {}),
+  return {
+    ...value,
+    ...(value.capabilities ? { capabilities: [...value.capabilities] } : {}),
   };
-  return Object.keys(cv).length > 0 ? cv : undefined;
 }
 
 export function agentCvEquals(a?: AgentCv, b?: AgentCv): boolean {

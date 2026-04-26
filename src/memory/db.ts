@@ -1931,8 +1931,7 @@ function serializeAgentSkillsConfig(skills?: string[]): string | null {
 }
 
 function serializeAgentCv(cv: AgentCv | undefined): string | null {
-  const normalized = normalizeAgentCv(cv);
-  return normalized ? JSON.stringify(normalized) : null;
+  return cv ? JSON.stringify(cv) : null;
 }
 
 function parseAgentCv(rawCv: string | null): AgentCv | undefined {
@@ -1943,7 +1942,7 @@ function parseAgentCv(rawCv: string | null): AgentCv | undefined {
     return normalizeAgentCv(JSON.parse(normalized));
   } catch {
     logger.warn(
-      { rawCvLength: normalized.length },
+      { cvLength: normalized.length },
       'Failed to parse persisted agent CV configuration',
     );
     return undefined;

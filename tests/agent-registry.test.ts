@@ -422,6 +422,59 @@ test('warns and ignores malformed persisted agent skill allowlists', async () =>
   );
 });
 
+test('warns without logging malformed persisted agent CV payloads', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: warnMock,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      child: vi.fn(() => ({
+        warn: warnMock,
+        info: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+        fatal: vi.fn(),
+        trace: vi.fn(),
+      })),
+    },
+  }));
+
+  const dbPath = path.join(homeDir, 'data', 'hybridclaw.db');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+
+  initDatabase({ quiet: true, dbPath });
+  const rawCv = '{"summary":"Benedikt lives at Example Street"';
+  const rawDb = new Database(dbPath);
+  rawDb
+    .prepare(
+      `INSERT INTO agents (id, name, cv, created_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+    )
+    .run('researcher', 'Researcher Agent', rawCv);
+  rawDb.close();
+
+  const agent = getAgentById('researcher');
+  expect(agent).toMatchObject({
+    id: 'researcher',
+    name: 'Researcher Agent',
+  });
+  expect(agent?.cv).toBeUndefined();
+  expect(warnMock).toHaveBeenCalledWith(
+    { cvLength: rawCv.length },
+    'Failed to parse persisted agent CV configuration',
+  );
+  expect(JSON.stringify(warnMock.mock.calls)).not.toContain('Benedikt');
+});
+
 test('initAgentRegistry migrates the first legacy workspace to main', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
