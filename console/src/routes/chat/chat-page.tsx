@@ -335,6 +335,7 @@ export function ChatPage() {
 
   const handleAgentSwitch = useCallback(
     async (agentId: string) => {
+      if (!agentId || /\s/.test(agentId)) return;
       ensureSessionForSend();
       const accepted = await stream.sendMessage(
         `/agent switch ${agentId}`,
