@@ -49,7 +49,9 @@ test('normalizeAgentCv returns undefined for non-object, empty, or noise input',
   expect(normalizeAgentCv(null)).toBeUndefined();
   expect(normalizeAgentCv(['array'])).toBeUndefined();
   expect(normalizeAgentCv({})).toBeUndefined();
-  expect(normalizeAgentCv({ summary: '   ', capabilities: [] })).toBeUndefined();
+  expect(
+    normalizeAgentCv({ summary: '   ', capabilities: [] }),
+  ).toBeUndefined();
 });
 
 test('cloneAgentCv produces an independent copy', () => {
@@ -78,8 +80,6 @@ test('agentCvEquals compares structurally', () => {
       { summary: 'a', capabilities: ['y', 'x'] },
     ),
   ).toBe(false);
-  expect(
-    agentCvEquals({ summary: 'a' }, { summary: 'b' }),
-  ).toBe(false);
+  expect(agentCvEquals({ summary: 'a' }, { summary: 'b' })).toBe(false);
   expect(agentCvEquals({ summary: 'a' }, undefined)).toBe(false);
 });
