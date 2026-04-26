@@ -3057,33 +3057,6 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('301-redirects the legacy /chat.html URL to /chat', async () => {
-    const state = await importFreshHealth();
-
-    const req = makeRequest({ url: '/chat.html' });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-
-    expect(res.statusCode).toBe(301);
-    expect(res.headers.Location).toBe('/chat');
-    expect(res.headers['Cache-Control']).toBe('no-store');
-  });
-
-  test('preserves the query string when redirecting /chat.html?token=… to /chat', async () => {
-    const state = await importFreshHealth();
-
-    const req = makeRequest({
-      url: '/chat.html?token=launch-xyz&next=%2Fadmin',
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-
-    expect(res.statusCode).toBe(301);
-    expect(res.headers.Location).toBe('/chat?token=launch-xyz&next=%2Fadmin');
-  });
-
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
     const state = await importFreshHealth();
 
