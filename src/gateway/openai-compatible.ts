@@ -709,13 +709,13 @@ async function handleOpenAICompatibleStreamingToolChat(
       primaryRuntime: runtime,
       primaryModel: prepared.model,
       chain: loadFallbackChainFromEnv(),
-      invoke: async (activeRuntime, activeModel) => {
-        if (streamStarted) {
-          throw new Error(
-            'Stream already started; cannot retry provider fallback mid-stream.',
-          );
-        }
-        return callOpenAICompatibleModelStream({
+      // Once the SSE stream has emitted bytes we cannot safely switch
+      // providers — a fallback would duplicate or interleave content. Suppress
+      // further retries so the original provider error propagates instead of a
+      // generic "Stream already started" placeholder.
+      shouldFallback: () => !streamStarted,
+      invoke: (activeRuntime, activeModel) =>
+        callOpenAICompatibleModelStream({
           runtime: activeRuntime,
           model: activeModel,
           messages,
@@ -735,8 +735,7 @@ async function handleOpenAICompatibleStreamingToolChat(
               }),
             );
           },
-        });
-      },
+        }),
     });
     if (!isResponseWritable(res)) return;
     const choice = result.choices[0];

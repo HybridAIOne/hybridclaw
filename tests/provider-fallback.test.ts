@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { ResolvedModelRuntimeCredentials } from '../src/providers/types.js';
@@ -244,6 +246,94 @@ describe('callWithProviderFallback', () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke.mock.calls[0]?.[0].provider).toBe('openrouter');
     mod.clearProviderCooldown();
+  });
+
+  test('cooled-down primary does not extend its own deadline on subsequent requests', async () => {
+    const mod = await importModule();
+    mod.clearProviderCooldown();
+    mod.markProviderCooldown('openai', 5_000);
+
+    const cooledUntil = (() => {
+      // Snapshot the deadline by sniffing isProviderCooledDown across times.
+      // We don't have a getter, so probe at now and now+4000ms.
+      return {
+        atStart: mod.isProviderCooledDown('openai'),
+      };
+    })();
+    expect(cooledUntil.atStart).toBe(true);
+
+    resolveModelRuntimeCredentials
+      .mockResolvedValueOnce(runtimeFixture('openrouter'))
+      .mockResolvedValueOnce(runtimeFixture('openrouter'))
+      .mockResolvedValueOnce(runtimeFixture('openrouter'));
+
+    const invoke = vi.fn().mockResolvedValue({ id: 'fb' });
+
+    // Three back-to-back requests while primary is cooled down. Each request
+    // creates a fresh controller that sees `!activated`. If we marked
+    // cooldown, the deadline would be pushed forward on every call and the
+    // primary would never come back.
+    for (let i = 0; i < 3; i += 1) {
+      await mod.callWithProviderFallback({
+        primaryRuntime: runtimeFixture('openai'),
+        primaryModel: 'gpt-4o',
+        chain: [{ model: 'openrouter/a' }],
+        cooldownMs: 5_000,
+        invoke,
+      });
+    }
+
+    // Far enough past the original 5 s deadline to expose any extension.
+    expect(mod.isProviderCooledDown('openai', performance.now() + 6_000)).toBe(
+      false,
+    );
+    mod.clearProviderCooldown();
+  });
+
+  test('shouldFallback=false re-throws the original error without retrying', async () => {
+    const mod = await importModule();
+    mod.clearProviderCooldown();
+    resolveModelRuntimeCredentials.mockResolvedValueOnce(
+      runtimeFixture('openrouter'),
+    );
+
+    const invoke = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('upstream 401 from primary'));
+
+    await expect(
+      mod.callWithProviderFallback({
+        primaryRuntime: runtimeFixture('openai'),
+        primaryModel: 'gpt-4o',
+        chain: [{ model: 'openrouter/a' }],
+        invoke,
+        shouldFallback: () => false,
+      }),
+    ).rejects.toThrow('upstream 401 from primary');
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('shouldFallback=true allows fallback to proceed', async () => {
+    const mod = await importModule();
+    mod.clearProviderCooldown();
+    resolveModelRuntimeCredentials.mockResolvedValueOnce(
+      runtimeFixture('openrouter'),
+    );
+
+    const invoke = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('upstream 401 from primary'))
+      .mockResolvedValueOnce({ id: 'ok' });
+
+    const result = await mod.callWithProviderFallback({
+      primaryRuntime: runtimeFixture('openai'),
+      primaryModel: 'gpt-4o',
+      chain: [{ model: 'openrouter/a' }],
+      invoke,
+      shouldFallback: () => true,
+    });
+    expect(result).toEqual({ id: 'ok' });
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 
   test('exhausted chain re-throws the last error', async () => {

@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export interface FallbackChainEntry {
   model: string;
@@ -22,10 +23,6 @@ export interface FallbackActivation {
 const DEFAULT_COOLDOWN_MS = 60_000;
 
 const cooldownMap = new Map<string, number>();
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
 
 export function loadFallbackChainFromEnv(
   raw: string | undefined = process.env.HYBRIDAI_FALLBACK_CHAIN,
@@ -159,8 +156,10 @@ export class ProviderFallbackController {
   async tryActivate(
     reason: FallbackReason,
     currentProvider: string,
+    options: { markCooldown?: boolean } = {},
   ): Promise<FallbackActivation | null> {
-    if (reason === 'rate_limit' && this.primaryProvider) {
+    const markCooldown = options.markCooldown !== false;
+    if (markCooldown && reason === 'rate_limit' && this.primaryProvider) {
       const current = String(currentProvider || '')
         .trim()
         .toLowerCase();
@@ -193,6 +192,14 @@ export interface CallWithFallbackParams<T> {
     model: string,
   ) => Promise<T>;
   onFallback?: (activation: FallbackActivation, reason: FallbackReason) => void;
+  /**
+   * Optional gate consulted before each fallback retry. Receives the original
+   * error and the classified reason; return `false` to suppress further
+   * fallback attempts and re-throw the original error. Useful for callers that
+   * have begun emitting bytes (e.g. SSE streams) and cannot safely retry on a
+   * different provider mid-response.
+   */
+  shouldFallback?: (err: unknown, reason: FallbackReason) => boolean;
 }
 
 export async function callWithProviderFallback<T>(
@@ -213,9 +220,14 @@ export async function callWithProviderFallback<T>(
     params.chain.length > 0 &&
     isProviderCooledDown(params.primaryRuntime.provider)
   ) {
+    // Primary is already in cooldown from a previous request — skip straight to
+    // the first fallback. Pass `markCooldown: false` so we do NOT extend the
+    // existing deadline; otherwise steady traffic would push the cooldown
+    // forward on every request and the primary would never come back.
     const activation = await controller.tryActivate(
       'rate_limit',
       params.primaryRuntime.provider,
+      { markCooldown: false },
     );
     if (activation) {
       runtime = activation.runtime;
@@ -233,6 +245,9 @@ export async function callWithProviderFallback<T>(
       lastError = err;
       const reason = classifyProviderError(err);
       if (reason === 'other' || !controller.hasRemaining()) throw err;
+      if (params.shouldFallback && !params.shouldFallback(err, reason)) {
+        throw err;
+      }
       const activation = await controller.tryActivate(reason, runtime.provider);
       if (!activation) throw err;
       runtime = activation.runtime;
