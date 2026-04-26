@@ -81,6 +81,11 @@ configSchema:
           default: 8000
           minimum: 1000
           maximum: 60000
+        maxRetries:
+          type: number
+          default: 1
+          minimum: 0
+          maximum: 3
     rewriter:
       type: object
       additionalProperties: false

@@ -2291,3 +2291,65 @@ test('plugin manager swallows errors from output guards and keeps original outpu
   expect(outcome.resultText).toBe('original draft');
   expect(outcome.events).toEqual([]);
 });
+
+test('plugin manager treats unknown output-guard actions as allow', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'guard-bogus');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: guard-bogus\nname: guard-bogus\nkind: output-guard\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'guard-bogus',",
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      "      id: 'guard-bogus-guard',",
+      '      priority: 10,',
+      '      inspect() {',
+      "        return { action: 'shrug' };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('original draft');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'guard-bogus',
+      guardId: 'guard-bogus-guard',
+      action: 'allow',
+    }),
+  ]);
+});

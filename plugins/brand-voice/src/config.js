@@ -132,9 +132,11 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   const bannedPhrases = normalizeStringArray(rawConfig?.bannedPhrases).map(
     (entry) => entry.toLowerCase(),
   );
-  const bannedPatternStrings = normalizeStringArray(rawConfig?.bannedPatterns);
-  const bannedPatterns = bannedPatternStrings
-    .map((entry) => compileRegexEntry(entry, errors))
+  const bannedPatternEntries = normalizeStringArray(rawConfig?.bannedPatterns)
+    .map((source) => {
+      const pattern = compileRegexEntry(source, errors);
+      return pattern === null ? null : { source, pattern };
+    })
     .filter((value) => value !== null);
   const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
   const blockMessage =
@@ -164,8 +166,9 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     voice,
     voiceFileText,
     bannedPhrases: Object.freeze(bannedPhrases),
-    bannedPatternStrings: Object.freeze(bannedPatternStrings),
-    bannedPatterns: Object.freeze(bannedPatterns),
+    bannedPatterns: Object.freeze(
+      bannedPatternEntries.map((entry) => Object.freeze(entry)),
+    ),
     requirePhrases: Object.freeze(requirePhrases),
     blockMessage,
     minLength,
@@ -185,11 +188,11 @@ export function buildVoiceBrief(config) {
         .join(', ')}.`,
     );
   }
-  if (config.bannedPatternStrings.length > 0) {
+  if (config.bannedPatterns.length > 0) {
     sections.push(
-      `Avoid output that matches these patterns: ${config.bannedPatternStrings.join(
-        ', ',
-      )}.`,
+      `Avoid output that matches these patterns: ${config.bannedPatterns
+        .map((entry) => entry.source)
+        .join(', ')}.`,
     );
   }
   if (config.requirePhrases.length > 0) {

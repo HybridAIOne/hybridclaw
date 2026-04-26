@@ -7,13 +7,12 @@ export function detectRuleViolations(text, config) {
       violations.push({ kind: 'banned_phrase', detail: phrase });
     }
   }
-  for (let index = 0; index < config.bannedPatterns.length; index++) {
-    const pattern = config.bannedPatterns[index];
-    if (!pattern) continue;
-    if (pattern.test(text)) {
+  for (const entry of config.bannedPatterns) {
+    if (!entry?.pattern) continue;
+    if (entry.pattern.test(text)) {
       violations.push({
         kind: 'banned_pattern',
-        detail: config.bannedPatternStrings[index] || pattern.source,
+        detail: entry.source || entry.pattern.source,
       });
     }
   }

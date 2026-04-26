@@ -1878,7 +1878,23 @@ export class PluginManager {
       try {
         const value = await entry.guard.inspect(guardContext);
         if (value && typeof value === 'object' && 'action' in value) {
-          decision = value as PluginOutputGuardDecision;
+          const action = (value as { action?: unknown }).action;
+          if (
+            action === 'allow' ||
+            action === 'rewrite' ||
+            action === 'block'
+          ) {
+            decision = value as PluginOutputGuardDecision;
+          } else {
+            this.logger.warn(
+              {
+                pluginId: entry.pluginId,
+                guardId: entry.guard.id,
+                action,
+              },
+              'Plugin output guard returned unknown action; treating as allow',
+            );
+          }
         }
       } catch (error) {
         this.logger.warn(
