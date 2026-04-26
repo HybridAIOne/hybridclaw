@@ -232,6 +232,9 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
           WHERE COALESCE(message_count, 0) = 0`,
       )
       .all() as Array<{ id: string; last_active: string }>;
+    // Candidate selection is intentionally broader than the token regex used
+    // for agent-wide cleanup so stale session-scoped rows are still pruned
+    // without treating names like "evaluation-helper" as disposable agents.
     const ephemeralEvalRows = db
       .prepare(
         `SELECT id, agent_id, channel_id, last_active
