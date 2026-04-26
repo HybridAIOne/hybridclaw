@@ -155,7 +155,11 @@ function writeZipArchive(
       if (settled) return;
       settled = true;
       output.destroy();
-      fs.rmSync(outputPath, { force: true });
+      try {
+        fs.rmSync(outputPath, { force: true });
+      } catch {
+        // Best-effort cleanup: preserve the original archive/stream failure.
+      }
       reject(error);
     };
 
@@ -288,14 +292,24 @@ function readBackupManifestText(zipFile: yauzl.ZipFile): Promise<string> {
     let settled = false;
     let found = false;
 
+    const closeQuietly = (): void => {
+      try {
+        zipFile.close();
+      } catch {
+        // Best-effort: the zip file may already be closed.
+      }
+    };
+
     const finish = (value: string) => {
       if (settled) return;
       settled = true;
+      closeQuietly();
       resolve(value);
     };
     const fail = (error: unknown) => {
       if (settled) return;
       settled = true;
+      closeQuietly();
       reject(error);
     };
 
@@ -326,11 +340,6 @@ function readBackupManifestText(zipFile: yauzl.ZipFile): Promise<string> {
         });
         stream.on('error', fail);
         stream.on('end', () => {
-          try {
-            zipFile.close();
-          } catch {
-            // best effort
-          }
           finish(Buffer.concat(chunks).toString('utf-8'));
         });
       });
@@ -393,10 +402,32 @@ export async function restoreBackupArchive(
   const manifest = parseBackupManifest(manifestText);
 
   const targetExists = fs.existsSync(targetDir);
-  const existingEntries = targetExists
-    ? fs.readdirSync(targetDir).filter((name) => !name.startsWith('.tmp-'))
-        .length
-    : 0;
+  let existingEntries = 0;
+  if (targetExists) {
+    const targetStats = fs.lstatSync(targetDir);
+    if (targetStats.isSymbolicLink()) {
+      let resolvedTargetStats: fs.Stats;
+      try {
+        resolvedTargetStats = fs.statSync(targetDir);
+      } catch {
+        throw new Error(
+          `Restore target exists but is a broken symlink, not a directory: ${targetDir}`,
+        );
+      }
+      if (!resolvedTargetStats.isDirectory()) {
+        throw new Error(
+          `Restore target exists but is not a directory: ${targetDir}`,
+        );
+      }
+    } else if (!targetStats.isDirectory()) {
+      throw new Error(
+        `Restore target exists but is not a directory: ${targetDir}`,
+      );
+    }
+    existingEntries = fs
+      .readdirSync(targetDir)
+      .filter((name) => !name.startsWith('.tmp-')).length;
+  }
 
   const willOverwrite = targetExists && existingEntries > 0;
   if (willOverwrite && !options.force) {
