@@ -2,8 +2,12 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import type {
+  AgentConfig,
+  AgentCv,
+  AgentModelConfig,
+} from '../agents/agent-types.js';
+import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
@@ -106,7 +110,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 21;
+export const DATABASE_SCHEMA_VERSION = 22;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -148,6 +152,9 @@ type AgentRow = {
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
+  owner: string | null;
+  role: string | null;
+  cv: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -1729,7 +1736,40 @@ function migrateV20(
   recordMigration(database, 20, 'Persist assistant message agent identity');
 }
 
-function migrateV21(database: Database.Database): void {
+function migrateV21(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'owner',
+    ddl: 'owner TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'role',
+    ddl: 'role TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'cv',
+    ddl: 'cv TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    21,
+    'Persist agent owner, role, and CV profile for stable coworker identity',
+  );
+}
+
+function migrateV22(database: Database.Database): void {
   // Some legacy databases — and a couple of migration tests — start partway
   // through the schema with only the tables (and columns) they care about.
   // Guard each CREATE INDEX behind table+column existence so this migration
@@ -1769,7 +1809,7 @@ function migrateV21(database: Database.Database): void {
   }
   recordMigration(
     database,
-    21,
+    22,
     'Index timestamp columns for admin statistics aggregations',
   );
 }
@@ -1815,7 +1855,8 @@ function runMigrations(
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
   if (currentVersion < 20) migrateV20(database, opts);
-  if (currentVersion < 21) migrateV21(database);
+  if (currentVersion < 21) migrateV21(database, opts);
+  if (currentVersion < 22) migrateV22(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1935,6 +1976,25 @@ function serializeAgentSkillsConfig(skills?: string[]): string | null {
   return JSON.stringify(normalizeTrimmedUniqueStringArray(skills));
 }
 
+function serializeAgentCv(cv: AgentCv | undefined): string | null {
+  return cv ? JSON.stringify(cv) : null;
+}
+
+function parseAgentCv(rawCv: string | null): AgentCv | undefined {
+  const normalized = rawCv?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentCv(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { cvLength: normalized.length },
+      'Failed to parse persisted agent CV configuration',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -1943,6 +2003,9 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
+  const owner = row.owner?.trim() || '';
+  const role = row.role?.trim() || '';
+  const cv = parseAgentCv(row.cv);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -1955,15 +2018,21 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(typeof row.enable_rag === 'number'
       ? { enableRag: row.enable_rag !== 0 }
       : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(cv ? { cv } : {}),
   };
 }
+
+const AGENT_SELECT_COLUMNS =
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
   const row = queryOne<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      WHERE id = ?`,
     normalizedAgentId,
@@ -1974,7 +2043,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
 export function listAgents(): AgentConfig[] {
   const rows = queryAll<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
     DEFAULT_AGENT_ID,
@@ -1994,6 +2063,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
+  const normalizedOwner = agent.owner?.trim() || null;
+  const normalizedRole = agent.role?.trim() || null;
+  const normalizedCv = serializeAgentCv(agent.cv);
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -2007,9 +2079,12 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id,
        enable_rag,
        workspace,
+       owner,
+       role,
+       cv,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2019,6 +2094,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
        workspace = excluded.workspace,
+       owner = excluded.owner,
+       role = excluded.role,
+       cv = excluded.cv,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -2030,6 +2108,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedChatbotId,
     enableRag,
     normalizedWorkspace,
+    normalizedOwner,
+    normalizedRole,
+    normalizedCv,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
@@ -4524,7 +4605,7 @@ function batchQueryAllBySessionIds<Row>(
 
 function getRecentSessionBoundaryRows(
   sessionIds: string[],
-  userId: string,
+  userId: string | null,
 ): RecentSessionBoundaryRow[] {
   return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
     queryAll<RecentSessionBoundaryRow>(
@@ -4534,11 +4615,11 @@ function getRecentSessionBoundaryRows(
            session_id,
            role,
            content,
-           CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+           CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END AS is_target_user,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
            ROW_NUMBER() OVER (
-             PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+             PARTITION BY session_id, CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END
              ORDER BY id ASC
            ) AS rn_target_group
          FROM messages
@@ -4552,6 +4633,8 @@ function getRecentSessionBoundaryRows(
          MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
        FROM ranked
        GROUP BY session_id`,
+      userId,
+      userId,
       userId,
       userId,
       ...batch,
@@ -4597,6 +4680,86 @@ function getRecentSessionContentMatches(
   );
 }
 
+function buildRecentSessionSummaries(params: {
+  rows: RecentUserSessionRow[];
+  boundaryUserId: string | null;
+  searchQuery: string;
+  limit: number;
+}): RecentUserSessionSummary[] {
+  const sortedRows = [...params.rows].sort((left, right) => {
+    const rightTimestamp = parseTimestamp(right.last_active);
+    const leftTimestamp = parseTimestamp(left.last_active);
+    if (rightTimestamp !== leftTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+    return right.id.localeCompare(left.id);
+  });
+  const targetRows = params.searchQuery
+    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
+    : sortedRows.slice(0, params.limit);
+  if (targetRows.length === 0) return [];
+
+  const sessionIds = targetRows.map((row) => row.id);
+  const boundaryRows = getRecentSessionBoundaryRows(
+    sessionIds,
+    params.boundaryUserId,
+  );
+  const contentMatchesBySessionId = getRecentSessionContentMatches(
+    sessionIds,
+    params.searchQuery,
+  );
+  const boundariesBySessionId = new Map(
+    boundaryRows.map((row) => [row.session_id, row] as const),
+  );
+
+  const sessions = targetRows.map((row) => {
+    const boundary = boundariesBySessionId.get(row.id);
+    const firstMessage =
+      boundary?.first_user_content || boundary?.first_content || null;
+    const shouldHideApprovalPrompt =
+      boundary?.last_role === 'assistant' &&
+      Boolean(
+        boundary?.last_content &&
+          isApprovalHistoryMessage(boundary.last_content),
+      );
+    const lastMessage =
+      boundary?.last_content && !shouldHideApprovalPrompt
+        ? boundary.last_content
+        : null;
+    const title = buildSessionBoundaryPreview({
+      firstMessage,
+      lastMessage,
+      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+    });
+    const rawSearchSnippet = params.searchQuery
+      ? buildSessionSearchSnippet(
+          contentMatchesBySessionId.get(row.id) || null,
+          params.searchQuery,
+        )
+      : null;
+
+    return {
+      sessionId: row.id,
+      lastActive: row.last_active,
+      messageCount: normalizeUsageNumber(row.message_count),
+      title,
+      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
+        ? { searchSnippet: rawSearchSnippet }
+        : {}),
+    };
+  });
+
+  if (!params.searchQuery) return sessions;
+  return sessions
+    .filter((session) => {
+      const titleMatches = String(session.title || '')
+        .toLowerCase()
+        .includes(params.searchQuery);
+      return titleMatches || Boolean(session.searchSnippet);
+    })
+    .slice(0, params.limit);
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
@@ -4633,77 +4796,49 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const sortedRows = rows.sort((left, right) => {
-    const rightTimestamp = parseTimestamp(right.last_active);
-    const leftTimestamp = parseTimestamp(left.last_active);
-    if (rightTimestamp !== leftTimestamp) {
-      return rightTimestamp - leftTimestamp;
-    }
-    return right.id.localeCompare(left.id);
-  });
-  const targetRows = searchQuery
-    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
-    : sortedRows.slice(0, limit);
-  if (targetRows.length === 0) return [];
-
-  const boundaryRows = getRecentSessionBoundaryRows(
-    targetRows.map((row) => row.id),
-    userId,
-  );
-  const contentMatchesBySessionId = getRecentSessionContentMatches(
-    targetRows.map((row) => row.id),
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: userId,
     searchQuery,
-  );
-  const boundariesBySessionId = new Map(
-    boundaryRows.map((row) => [row.session_id, row] as const),
-  );
-
-  const sessions = targetRows.map((row) => {
-    const boundary = boundariesBySessionId.get(row.id);
-    const firstMessage =
-      boundary?.first_user_content || boundary?.first_content || null;
-    const shouldHideApprovalPrompt =
-      boundary?.last_role === 'assistant' &&
-      Boolean(
-        boundary?.last_content &&
-          isApprovalHistoryMessage(boundary.last_content),
-      );
-    const lastMessage =
-      boundary?.last_content && !shouldHideApprovalPrompt
-        ? boundary.last_content
-        : null;
-    const title = buildSessionBoundaryPreview({
-      firstMessage,
-      lastMessage,
-      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-    });
-    const rawSearchSnippet = searchQuery
-      ? buildSessionSearchSnippet(
-          contentMatchesBySessionId.get(row.id) || null,
-          searchQuery,
-        )
-      : null;
-
-    return {
-      sessionId: row.id,
-      lastActive: row.last_active,
-      messageCount: normalizeUsageNumber(row.message_count),
-      title,
-      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
-        ? { searchSnippet: rawSearchSnippet }
-        : {}),
-    };
+    limit,
   });
+}
 
-  if (!searchQuery) return sessions;
-  return sessions
-    .filter((session) => {
-      const titleMatches = String(session.title || '')
-        .toLowerCase()
-        .includes(searchQuery);
-      return titleMatches || Boolean(session.searchSnippet);
-    })
-    .slice(0, limit);
+export function getRecentSessionsForChannel(params: {
+  channelId: string;
+  limit?: number;
+  query?: string | null;
+}): RecentUserSessionSummary[] {
+  const channelId = params.channelId.trim();
+  if (!channelId) return [];
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+  const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
+
+  const rows = queryAll<RecentUserSessionRow, [string, number]>(
+    db,
+    `SELECT s.id, s.last_active, s.message_count
+       FROM sessions s
+      WHERE s.channel_id = ?
+        AND EXISTS (
+          SELECT 1
+            FROM messages m
+           WHERE m.session_id = s.id
+        )
+      ORDER BY s.last_active DESC
+      LIMIT ?`,
+    channelId,
+    sqlLimit,
+  );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: null,
+    searchQuery,
+    limit,
+  });
 }
 
 export function getFullAutoSessionCount(): number {

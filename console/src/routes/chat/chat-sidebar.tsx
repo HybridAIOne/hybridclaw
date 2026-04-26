@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
 import {
@@ -10,6 +11,7 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarTrigger,
+  useSidebar,
 } from '../../components/sidebar/index';
 import sidebarStyles from '../../components/sidebar/index.module.css';
 import { ThemeToggle } from '../../components/theme-toggle';
@@ -29,11 +31,19 @@ export interface ChatSidebarProps {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   isLoading: boolean;
+  onRefreshRecent?: () => void;
 }
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
+  const sidebar = useSidebar();
   const isSearching = props.searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    if (!sidebar.openMobile) return;
+    props.onRefreshRecent?.();
+  }, [props.onRefreshRecent, sidebar.openMobile]);
+
   return (
     <Sidebar side="left" collapsible="icon">
       <SidebarHeader>

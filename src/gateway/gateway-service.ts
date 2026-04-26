@@ -155,6 +155,7 @@ import {
   getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentMessages,
+  getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -6212,13 +6213,31 @@ export function getGatewayRecentChatSessions(params: {
   channelId?: string | null;
   limit?: number;
   query?: string | null;
+  fallbackToChannelRecent?: boolean;
 }): GatewayRecentChatSession[] {
-  return getRecentSessionsForUser({
+  const sessions = getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
   });
+  if (!params.fallbackToChannelRecent) {
+    return sessions;
+  }
+  const channelSessions = getRecentSessionsForChannel({
+    channelId: params.channelId || 'web',
+    limit: params.limit,
+    query: params.query,
+  });
+  const merged = new Map<string, GatewayRecentChatSession>();
+  for (const session of [...channelSessions, ...sessions]) {
+    merged.set(session.sessionId, session);
+  }
+  return [...merged.values()]
+    .sort(
+      (a, b) => Date.parse(b.lastActive || '') - Date.parse(a.lastActive || ''),
+    )
+    .slice(0, params.limit ?? 20);
 }
 
 function resolveHistorySummarySinceMs(
