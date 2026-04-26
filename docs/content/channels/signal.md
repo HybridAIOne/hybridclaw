@@ -158,8 +158,15 @@ Optional tuning:
 hybridclaw channels signal setup \
   --account +14155550123 \
   --text-chunk-limit 4000 \
-  --reconnect-interval-ms 5000
+  --reconnect-interval-ms 5000 \
+  --outbound-delay-ms 350
 ```
+
+| Key | CLI flag | Default | Range | Purpose |
+| --- | --- | --- | --- | --- |
+| `signal.textChunkLimit` | `--text-chunk-limit` | `4000` | `200`-`8000` | Maximum characters per outbound text chunk |
+| `signal.reconnectIntervalMs` | `--reconnect-interval-ms` | `5000` | `500`-`60000` | Base delay before reconnecting the Signal event stream |
+| `signal.outboundDelayMs` | `--outbound-delay-ms` | `350` | `0`-`10000` | Delay between split outbound text chunks |
 
 Notes:
 

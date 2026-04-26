@@ -91,9 +91,9 @@ export function normalizeSignalDaemonUrl(value: string): string {
 export async function callSignalRpc<T>(
   daemonUrl: string,
   method: string,
-  params?: Record<string, unknown>,
+  params?: object,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<T | null> {
   const baseUrl = normalizeSignalDaemonUrl(daemonUrl);
   const id = randomUUID();
   const body = JSON.stringify({ jsonrpc: '2.0', method, params, id });
@@ -112,7 +112,7 @@ export async function callSignalRpc<T>(
   }
 
   if (response.status === 201) {
-    return undefined as T;
+    return null;
   }
 
   const text = await response.text().catch(() => '');

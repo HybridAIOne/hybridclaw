@@ -6,7 +6,6 @@ import { withTransportRetry } from '../../utils/transport-retry.js';
 import { callSignalRpc, SignalRpcError } from './api.js';
 import { parseSignalTarget } from './target.js';
 
-const OUTBOUND_DELAY_MS = 350;
 const SIGNAL_RETRY_MAX_ATTEMPTS = 6;
 const SIGNAL_RETRY_BASE_DELAY_MS = 500;
 const SIGNAL_RETRY_MAX_DELAY_MS = 10_000;
@@ -23,6 +22,16 @@ function resolveTextChunkLimit(): number {
     Math.min(
       8_000,
       Math.floor(getConfigSnapshot().signal?.textChunkLimit ?? 4_000),
+    ),
+  );
+}
+
+function resolveOutboundDelayMs(): number {
+  return Math.max(
+    0,
+    Math.min(
+      10_000,
+      Math.floor(getConfigSnapshot().signal?.outboundDelayMs ?? 350),
     ),
   );
 }
@@ -97,6 +106,10 @@ interface SignalSendRpcParams {
   groupId?: string[];
 }
 
+function stripSignalGroupPrefix(recipient: string): string {
+  return recipient.replace(/^group:/i, '');
+}
+
 function buildSendParams(params: {
   account: string;
   text: string;
@@ -108,7 +121,7 @@ function buildSendParams(params: {
     message: params.text,
   };
   if (params.recipientKind === 'group') {
-    const groupId = params.recipient.replace(/^group:/i, '');
+    const groupId = stripSignalGroupPrefix(params.recipient);
     return { ...base, groupId: [groupId] };
   }
   return { ...base, recipient: [params.recipient] };
@@ -129,14 +142,14 @@ export async function sendSignalTyping(params: {
     rpcParams.stop = true;
   }
   if (target.kind === 'group') {
-    rpcParams.groupId = [target.recipient.replace(/^group:/i, '')];
+    rpcParams.groupId = [stripSignalGroupPrefix(target.recipient)];
   } else {
     rpcParams.recipient = [target.recipient];
   }
   await withSignalTransportRetry(
     'signal.sendTyping',
-    async () => await callSignalRpc(params.daemonUrl, 'sendTyping', rpcParams),
-    { maxAttempts: 2, baseDelayMs: 400, maxDelayMs: 2_000 },
+    () => callSignalRpc(params.daemonUrl, 'sendTyping', rpcParams),
+    { maxAttempts: 1 },
   );
   return true;
 }
@@ -155,6 +168,7 @@ export async function sendChunkedSignalText(params: {
     `signal:${target.recipient}`,
     async () => {
       const chunks = prepareSignalTextChunks(params.text);
+      const outboundDelayMs = resolveOutboundDelayMs();
       const refs: SignalOutboundMessageRef[] = [];
       for (let index = 0; index < chunks.length; index += 1) {
         const sendParams = buildSendParams({
@@ -165,11 +179,11 @@ export async function sendChunkedSignalText(params: {
         });
         const result = await withSignalTransportRetry(
           'signal.sendChunkedText',
-          async () =>
-            await callSignalRpc<{ timestamp?: number }>(
+          () =>
+            callSignalRpc<{ timestamp?: number }>(
               params.daemonUrl,
               'send',
-              sendParams as unknown as Record<string, unknown>,
+              sendParams,
             ),
         );
         refs.push({
@@ -177,7 +191,7 @@ export async function sendChunkedSignalText(params: {
           timestamp: Number(result?.timestamp || Date.now()),
         });
         if (index < chunks.length - 1) {
-          await sleep(OUTBOUND_DELAY_MS);
+          await sleep(outboundDelayMs);
         }
       }
       return refs;

@@ -247,7 +247,8 @@ function hasSignalConfigChanged(
     !equalStringSets(next.allowFrom, prev.allowFrom) ||
     !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
     next.textChunkLimit !== prev.textChunkLimit ||
-    next.reconnectIntervalMs !== prev.reconnectIntervalMs
+    next.reconnectIntervalMs !== prev.reconnectIntervalMs ||
+    next.outboundDelayMs !== prev.outboundDelayMs
   );
 }
 

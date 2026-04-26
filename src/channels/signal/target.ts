@@ -54,7 +54,7 @@ export function normalizeSignalChannelId(value: string): string | undefined {
 export function isSignalChannelId(value: string): boolean {
   const trimmed = String(value || '').trim();
   if (!trimmed || !SIGNAL_PREFIX_RE.test(trimmed)) return false;
-  return Boolean(normalizeSignalChannelId(trimmed));
+  return Boolean(parseSignalTarget(trimmed));
 }
 
 export function resolveSignalTargetChatType(

@@ -153,7 +153,9 @@ saved revision history directly.
 - `signal.*` for the Signal transport through a separately managed
   `signal-cli` compatible daemon; use `hybridclaw channels signal setup` to
   configure `signal.daemonUrl`, `signal.account`, and private-by-default DM or
-  group policies before enabling inbound traffic. HybridClaw Cloud gateway
+  group policies before enabling inbound traffic. `signal.reconnectIntervalMs`
+  controls event stream reconnect backoff, and `signal.outboundDelayMs`
+  controls pacing between split outbound text chunks. HybridClaw Cloud gateway
   images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
   custom hosts can use an external daemon or sidecar
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as

@@ -18,6 +18,7 @@ other users.
 | Discord | `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` |
 | Slack | `hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]` |
 | Telegram | `hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id\|@username\|*>]... [--group-allow-from <user-id\|@username\|*>]... [--dm-policy <open\|allowlist\|disabled>] [--group-policy <open\|allowlist\|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention\|--no-require-mention]` |
+| Signal | `hybridclaw channels signal setup [--daemon-url <url>] --account <+E164\|uuid> [--allow-from <+E164\|uuid\|*>]... [--group-allow-from <+E164\|uuid\|*>]... [--dm-policy <open\|allowlist\|disabled>] [--group-policy <open\|allowlist\|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]` |
 | Email | `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure\|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure\|--no-smtp-secure] [--folder <name>]... [--allow-from <email\|*@domain\|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` |
 | WhatsApp | `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` |
 | Twilio Voice | `/admin/channels` plus `hybridclaw gateway voice info` |

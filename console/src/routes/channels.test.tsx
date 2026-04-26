@@ -160,6 +160,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       groupAllowFrom: [],
       textChunkLimit: 4000,
       reconnectIntervalMs: 5000,
+      outboundDelayMs: 350,
     },
     voice: {
       enabled: false,

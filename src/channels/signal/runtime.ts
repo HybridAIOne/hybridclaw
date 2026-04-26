@@ -1,6 +1,9 @@
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { getConfigSnapshot } from '../../config/config.js';
-import type { RuntimeSignalConfig } from '../../config/runtime-config.js';
+import {
+  DEFAULT_RUNTIME_CONFIG,
+  type RuntimeSignalConfig,
+} from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import { memoryService } from '../../memory/memory-service.js';
 import { parseSessionKey } from '../../session/session-key.js';
@@ -19,7 +22,6 @@ export type SignalReplyFn = (content: string) => Promise<void>;
 
 export interface SignalMessageContext {
   abortSignal: AbortSignal;
-  event: SignalReceiveEvent;
   account: string;
 }
 
@@ -59,19 +61,7 @@ function abortInFlightHandlers(): void {
 }
 
 function resolveSignalConfig(): RuntimeSignalConfig {
-  return (
-    getConfigSnapshot().signal || {
-      enabled: false,
-      daemonUrl: '',
-      account: '',
-      dmPolicy: 'disabled',
-      groupPolicy: 'disabled',
-      allowFrom: [],
-      groupAllowFrom: [],
-      textChunkLimit: 4_000,
-      reconnectIntervalMs: 5_000,
-    }
-  );
+  return getConfigSnapshot().signal || DEFAULT_RUNTIME_CONFIG.signal;
 }
 
 function resolveActiveSignalConfig(): RuntimeSignalConfig {
@@ -179,7 +169,6 @@ async function dispatchEvent(
       reply,
       {
         abortSignal: controller.signal,
-        event,
         account,
       },
     );

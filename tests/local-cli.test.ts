@@ -727,6 +727,8 @@ test('channels signal setup configures allowlisted DMs', async () => {
     '3500',
     '--reconnect-interval-ms',
     '2500',
+    '--outbound-delay-ms',
+    '125',
   ]);
 
   const config = readRuntimeConfig(homeDir);
@@ -739,6 +741,7 @@ test('channels signal setup configures allowlisted DMs', async () => {
   expect(config.signal.groupAllowFrom).toEqual([]);
   expect(config.signal.textChunkLimit).toBe(3500);
   expect(config.signal.reconnectIntervalMs).toBe(2500);
+  expect(config.signal.outboundDelayMs).toBe(125);
   expect(logSpy).toHaveBeenCalledWith('Signal mode: enabled');
 });
 

@@ -336,6 +336,7 @@ function parseSignalSetupArgs(args: string[]): {
   groupPolicy: 'open' | 'allowlist' | 'disabled' | null;
   textChunkLimit: number | null;
   reconnectIntervalMs: number | null;
+  outboundDelayMs: number | null;
 } {
   let daemonUrl: string | null = null;
   let account: string | null = null;
@@ -343,6 +344,7 @@ function parseSignalSetupArgs(args: string[]): {
   let groupPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
   let textChunkLimit: number | null = null;
   let reconnectIntervalMs: number | null = null;
+  let outboundDelayMs: number | null = null;
   const allowFrom: string[] = [];
   const groupAllowFrom: string[] = [];
 
@@ -507,6 +509,29 @@ function parseSignalSetupArgs(args: string[]): {
       );
       continue;
     }
+    if (arg === '--outbound-delay-ms') {
+      const next = args[index + 1];
+      if (!next) {
+        throw new Error('Missing value for `--outbound-delay-ms`.');
+      }
+      outboundDelayMs = parseIntegerFlagValue('--outbound-delay-ms', next, {
+        min: 0,
+        max: 10_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--outbound-delay-ms=')) {
+      outboundDelayMs = parseIntegerFlagValue(
+        '--outbound-delay-ms',
+        arg.slice('--outbound-delay-ms='.length),
+        {
+          min: 0,
+          max: 10_000,
+        },
+      );
+      continue;
+    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -524,6 +549,7 @@ function parseSignalSetupArgs(args: string[]): {
     groupPolicy,
     textChunkLimit,
     reconnectIntervalMs,
+    outboundDelayMs,
   };
 }
 
@@ -1714,6 +1740,9 @@ async function configureSignalChannel(args: string[]): Promise<void> {
     if (parsed.reconnectIntervalMs != null) {
       draft.signal.reconnectIntervalMs = parsed.reconnectIntervalMs;
     }
+    if (parsed.outboundDelayMs != null) {
+      draft.signal.outboundDelayMs = parsed.outboundDelayMs;
+    }
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
@@ -1738,6 +1767,7 @@ async function configureSignalChannel(args: string[]): Promise<void> {
   }
   console.log(`Text chunk limit: ${nextConfig.signal.textChunkLimit}`);
   console.log(`Reconnect interval: ${nextConfig.signal.reconnectIntervalMs}ms`);
+  console.log(`Outbound delay: ${nextConfig.signal.outboundDelayMs}ms`);
   console.log('Next:');
   console.log('  Restart the gateway to pick up Signal settings:');
   console.log('    hybridclaw gateway restart --foreground');

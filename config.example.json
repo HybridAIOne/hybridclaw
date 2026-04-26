@@ -168,7 +168,8 @@
     "allowFrom": [],
     "groupAllowFrom": [],
     "textChunkLimit": 4000,
-    "reconnectIntervalMs": 5000
+    "reconnectIntervalMs": 5000,
+    "outboundDelayMs": 350
   },
   "whatsapp": {
     "dmPolicy": "pairing",

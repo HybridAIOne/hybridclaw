@@ -497,6 +497,7 @@ export interface AdminConfig {
     groupAllowFrom: string[];
     textChunkLimit: number;
     reconnectIntervalMs: number;
+    outboundDelayMs: number;
   };
   voice: {
     enabled: boolean;

@@ -11,6 +11,7 @@ function createSignalConfig(reconnectIntervalMs: number) {
     groupAllowFrom: [],
     textChunkLimit: 4_000,
     reconnectIntervalMs,
+    outboundDelayMs: 350,
   };
 }
 

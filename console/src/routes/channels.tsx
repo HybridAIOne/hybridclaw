@@ -1276,6 +1276,22 @@ function SignalChannelEditor(props: {
             }
           />
         </label>
+        <label className="field">
+          <span>Outbound delay ms</span>
+          <input
+            type="number"
+            value={String(props.draft.signal.outboundDelayMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  outboundDelayMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
       </div>
 
       <p className="muted-copy">

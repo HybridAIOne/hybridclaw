@@ -440,6 +440,7 @@ export interface RuntimeSignalConfig {
   groupAllowFrom: string[];
   textChunkLimit: number;
   reconnectIntervalMs: number;
+  outboundDelayMs: number;
 }
 
 export interface RuntimeIMessageConfig {
@@ -902,7 +903,7 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
-const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   security: {
     trustModelAccepted: false,
@@ -1073,6 +1074,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     groupAllowFrom: [],
     textChunkLimit: 4_000,
     reconnectIntervalMs: 5_000,
+    outboundDelayMs: 350,
   },
   whatsapp: {
     dmPolicy: 'pairing',
@@ -2215,6 +2217,14 @@ function normalizeSignalConfig(
       {
         min: 500,
         max: 60_000,
+      },
+    ),
+    outboundDelayMs: normalizeInteger(
+      raw.outboundDelayMs,
+      fallback.outboundDelayMs,
+      {
+        min: 0,
+        max: 10_000,
       },
     ),
   };

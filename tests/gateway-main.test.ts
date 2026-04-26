@@ -95,6 +95,7 @@ function createGatewayMainTestState(options?: {
         groupAllowFrom: [] as string[],
         textChunkLimit: 4_000,
         reconnectIntervalMs: 5_000,
+        outboundDelayMs: 350,
       },
       telegram: {
         enabled: false,
