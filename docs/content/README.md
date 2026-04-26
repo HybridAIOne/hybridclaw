@@ -49,6 +49,8 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Browse By Section
 
+- [The Trusted Coworker Manifesto](./manifesto.md) — the product principles
+  HybridClaw is built around: what we will and will not ship
 - [Getting Started](./getting-started/README.md) for installation,
   onboarding, provider authentication, and connecting the first transport
 - [Channels](./channels/README.md) for the full supported channel catalog and
