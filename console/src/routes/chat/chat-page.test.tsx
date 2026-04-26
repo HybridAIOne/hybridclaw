@@ -783,5 +783,14 @@ describe('ChatPage', () => {
     );
     expect(await screen.findByText('Open on mobile')).not.toBeNull();
     expect(screen.getByText('Open link')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Close mobile QR code' })).toBe(
+      document.activeElement,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() =>
+      expect(screen.queryByText('Open on mobile')).toBeNull(),
+    );
   });
 });

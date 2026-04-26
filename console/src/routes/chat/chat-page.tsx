@@ -95,6 +95,8 @@ export function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
+  const mobileQrDialogRef = useRef<HTMLDivElement>(null);
+  const mobileQrCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const setVisualViewportHeight = () => {
@@ -236,6 +238,49 @@ export function ChatPage() {
     if (!historyQuery.error) return;
     setError(getErrorMessage(historyQuery.error));
   }, [historyQuery.error]);
+
+  useEffect(() => {
+    if (!mobileQr) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousActiveElement = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    mobileQrCloseRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileQr(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        mobileQrDialogRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not(:disabled)',
+        ) ?? [],
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previousActiveElement instanceof HTMLElement) {
+        previousActiveElement.focus();
+      }
+    };
+  }, [mobileQr]);
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
@@ -497,6 +542,7 @@ export function ChatPage() {
           {mobileQr ? (
             <div className={css.mobileQrOverlay}>
               <div
+                ref={mobileQrDialogRef}
                 className={css.mobileQrDialog}
                 role="dialog"
                 aria-modal="true"
@@ -505,6 +551,7 @@ export function ChatPage() {
                 <div className={css.mobileQrHeader}>
                   <h2 id="mobile-qr-title">Open on mobile</h2>
                   <button
+                    ref={mobileQrCloseRef}
                     type="button"
                     className={css.mobileQrClose}
                     onClick={() => setMobileQr(null)}

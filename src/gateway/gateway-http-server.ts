@@ -342,10 +342,13 @@ type ApiChatMobileQrRequestBody = {
 };
 
 const MOBILE_LAUNCH_TTL_MS = 10 * 60 * 1000;
-const mobileLaunchTokens = new Map<
-  string,
-  { userId: string; sessionId: string; expiresAt: number }
->();
+const MOBILE_LAUNCH_TOKEN_MAX_ENTRIES = 10_000;
+type MobileLaunchTokenEntry = {
+  userId: string;
+  sessionId: string;
+  expiresAt: number;
+};
+const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -735,11 +738,20 @@ function cleanupExpiredMobileLaunchTokens(now = Date.now()): void {
   }
 }
 
+function evictOldestMobileLaunchTokens(): void {
+  while (mobileLaunchTokens.size >= MOBILE_LAUNCH_TOKEN_MAX_ENTRIES) {
+    const oldestToken = mobileLaunchTokens.keys().next().value;
+    if (!oldestToken) return;
+    mobileLaunchTokens.delete(oldestToken);
+  }
+}
+
 function createMobileLaunchToken(params: {
   userId: string;
   sessionId: string;
 }): string {
   cleanupExpiredMobileLaunchTokens();
+  evictOldestMobileLaunchTokens();
   const token = randomUUID();
   mobileLaunchTokens.set(token, {
     userId: params.userId,
@@ -756,8 +768,14 @@ function resolveMobileLaunchToken(token: string):
     }
   | undefined {
   cleanupExpiredMobileLaunchTokens();
-  const entry = mobileLaunchTokens.get(token.trim());
+  const normalizedToken = token.trim();
+  const entry = mobileLaunchTokens.get(normalizedToken);
   if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    mobileLaunchTokens.delete(normalizedToken);
+    return undefined;
+  }
+  mobileLaunchTokens.delete(normalizedToken);
   return {
     userId: entry.userId,
     sessionId: entry.sessionId,

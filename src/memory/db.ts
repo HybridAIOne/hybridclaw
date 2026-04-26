@@ -4347,7 +4347,7 @@ function buildRecentSessionSummaries(params: {
   searchQuery: string;
   limit: number;
 }): RecentUserSessionSummary[] {
-  const sortedRows = params.rows.sort((left, right) => {
+  const sortedRows = [...params.rows].sort((left, right) => {
     const rightTimestamp = parseTimestamp(right.last_active);
     const leftTimestamp = parseTimestamp(left.last_active);
     if (rightTimestamp !== leftTimestamp) {
@@ -4476,15 +4476,22 @@ export function getRecentSessionsForChannel(params: {
     params.query,
   ).toLowerCase();
   const limit = normalizeRecentChatSessionLimit(params.limit);
+  const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
 
-  const rows = queryAll<RecentUserSessionRow, [string]>(
+  const rows = queryAll<RecentUserSessionRow, [string, number]>(
     db,
-    `SELECT DISTINCT s.id, s.last_active, s.message_count
+    `SELECT s.id, s.last_active, s.message_count
        FROM sessions s
-       INNER JOIN messages m
-         ON m.session_id = s.id
-      WHERE s.channel_id = ?`,
+      WHERE s.channel_id = ?
+        AND EXISTS (
+          SELECT 1
+            FROM messages m
+           WHERE m.session_id = s.id
+        )
+      ORDER BY s.last_active DESC
+      LIMIT ?`,
     channelId,
+    sqlLimit,
   );
 
   return buildRecentSessionSummaries({
