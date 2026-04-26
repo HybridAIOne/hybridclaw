@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
+  createChatMobileQr,
   fetchAppStatus,
   fetchChatRecent,
   uploadMedia,
@@ -9,6 +10,7 @@ import {
 import type {
   BranchVariant,
   ChatMessage,
+  ChatMobileQrResponse,
   MediaItem,
 } from '../../api/chat-types';
 import { fetchAgentList } from '../../api/client';
@@ -78,6 +80,8 @@ export function ChatPage() {
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
+  const [mobileQrBusy, setMobileQrBusy] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(
     defaultAgentIdRef.current,
   );
@@ -91,6 +95,40 @@ export function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const setVisualViewportHeight = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      if (!Number.isFinite(height) || height <= 0) return;
+      document.documentElement.style.setProperty(
+        '--chat-visual-viewport-height',
+        `${Math.round(height)}px`,
+      );
+      document.scrollingElement?.scrollTo({ left: 0 });
+      document.body.scrollLeft = 0;
+      document.documentElement.scrollLeft = 0;
+    };
+    setVisualViewportHeight();
+    window.addEventListener('resize', setVisualViewportHeight);
+    window.addEventListener('orientationchange', setVisualViewportHeight);
+    window.visualViewport?.addEventListener('resize', setVisualViewportHeight);
+    window.visualViewport?.addEventListener('scroll', setVisualViewportHeight);
+    return () => {
+      window.removeEventListener('resize', setVisualViewportHeight);
+      window.removeEventListener('orientationchange', setVisualViewportHeight);
+      window.visualViewport?.removeEventListener(
+        'resize',
+        setVisualViewportHeight,
+      );
+      window.visualViewport?.removeEventListener(
+        'scroll',
+        setVisualViewportHeight,
+      );
+      document.documentElement.style.removeProperty(
+        '--chat-visual-viewport-height',
+      );
+    };
+  }, []);
 
   const getDefaultAgentId = useCallback(() => defaultAgentIdRef.current, []);
   const {
@@ -364,6 +402,34 @@ export function ChatPage() {
     [queryClient, auth.token, getSessionId],
   );
 
+  const handleRefreshRecent = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    });
+  }, [queryClient, auth.token, userId, trimmedSessionSearchQuery]);
+
+  const handleOpenMobileQr = useCallback(async () => {
+    const activeSessionId = getSessionId();
+    if (!activeSessionId) {
+      setError('Open or send a chat before creating a mobile QR code.');
+      return;
+    }
+    setMobileQrBusy(true);
+    try {
+      setMobileQr(
+        await createChatMobileQr(auth.token, {
+          userId,
+          sessionId: activeSessionId,
+          baseUrl: window.location.origin,
+        }),
+      );
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setMobileQrBusy(false);
+    }
+  }, [auth.token, getSessionId, userId]);
+
   const handleEditOpen = useCallback((m: ChatMessage) => {
     setEditingId(m.id);
   }, []);
@@ -400,6 +466,7 @@ export function ChatPage() {
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
     isLoading: recentQuery.isFetching,
+    onRefreshRecent: handleRefreshRecent,
   } as const;
 
   return (
@@ -410,8 +477,54 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
+            <button
+              type="button"
+              className={css.mobileQrButton}
+              onClick={() => void handleOpenMobileQr()}
+              disabled={mobileQrBusy}
+              aria-label="Show mobile QR code"
+              title="Show mobile QR code"
+            >
+              <span aria-hidden="true" className={css.mobileQrIcon}>
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+            </button>
             <ViewSwitchNav />
           </div>
+          {mobileQr ? (
+            <div className={css.mobileQrOverlay}>
+              <div
+                className={css.mobileQrDialog}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mobile-qr-title"
+              >
+                <div className={css.mobileQrHeader}>
+                  <h2 id="mobile-qr-title">Open on mobile</h2>
+                  <button
+                    type="button"
+                    className={css.mobileQrClose}
+                    onClick={() => setMobileQr(null)}
+                    aria-label="Close mobile QR code"
+                  >
+                    x
+                  </button>
+                </div>
+                <div className={css.mobileQrImage}>
+                  <img
+                    src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(mobileQr.qrSvg)}`}
+                    alt="Mobile session QR code"
+                  />
+                </div>
+                <a className={css.mobileQrLink} href={mobileQr.launchUrl}>
+                  Open link
+                </a>
+              </div>
+            </div>
+          ) : null}
           {isEmpty ? (
             <div className={css.emptyState}>
               <h1 className={css.greeting}>

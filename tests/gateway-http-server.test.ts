@@ -3770,6 +3770,7 @@ describe('gateway HTTP server', () => {
       userId: 'web-user-a',
       channelId: 'web',
       limit: 10,
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -3902,6 +3903,7 @@ describe('gateway HTTP server', () => {
       channelId: 'web',
       limit: 25,
       query: 'deploy',
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
   });

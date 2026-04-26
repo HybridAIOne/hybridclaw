@@ -186,6 +186,7 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -333,6 +334,18 @@ type ApiPluginToolRequestBody = {
   sessionId?: unknown;
   channelId?: unknown;
 };
+
+type ApiChatMobileQrRequestBody = {
+  userId?: unknown;
+  sessionId?: unknown;
+  baseUrl?: unknown;
+};
+
+const MOBILE_LAUNCH_TTL_MS = 10 * 60 * 1000;
+const mobileLaunchTokens = new Map<
+  string,
+  { userId: string; sessionId: string; expiresAt: number }
+>();
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -710,6 +723,87 @@ function sendRedirect(
     Location: location,
   });
   res.end();
+}
+
+function escapeInlineScriptValue(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function cleanupExpiredMobileLaunchTokens(now = Date.now()): void {
+  for (const [token, entry] of mobileLaunchTokens) {
+    if (entry.expiresAt <= now) mobileLaunchTokens.delete(token);
+  }
+}
+
+function createMobileLaunchToken(params: {
+  userId: string;
+  sessionId: string;
+}): string {
+  cleanupExpiredMobileLaunchTokens();
+  const token = randomUUID();
+  mobileLaunchTokens.set(token, {
+    userId: params.userId,
+    sessionId: params.sessionId,
+    expiresAt: Date.now() + MOBILE_LAUNCH_TTL_MS,
+  });
+  return token;
+}
+
+function resolveMobileLaunchToken(token: string):
+  | {
+      userId: string;
+      sessionId: string;
+    }
+  | undefined {
+  cleanupExpiredMobileLaunchTokens();
+  const entry = mobileLaunchTokens.get(token.trim());
+  if (!entry) return undefined;
+  return {
+    userId: entry.userId,
+    sessionId: entry.sessionId,
+  };
+}
+
+function normalizePublicBaseUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRequestOrigin(
+  req: IncomingMessage,
+  bodyBaseUrl?: unknown,
+): string {
+  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  if (explicitBaseUrl) return explicitBaseUrl;
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    ?.trim();
+  const proto = forwardedProto || 'http';
+  const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
+  return `${proto}://${host}`;
+}
+
+function buildMobileLaunchUrl(params: {
+  origin: string;
+  token: string;
+}): string {
+  const url = new URL('/chat/continue', params.origin);
+  url.searchParams.set('token', params.token);
+  return url.toString();
 }
 
 function resolveHybridAILoginUrl(): string | null {
@@ -1816,6 +1910,9 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const hasWebSessionUser =
+    channelId.toLowerCase() === 'web' &&
+    Boolean(resolveSessionAuthenticatedUserId(req));
   const userId = resolveGatewayRequestUserId({
     req,
     channelId,
@@ -1835,8 +1932,71 @@ function handleApiChatRecent(
       channelId,
       limit,
       ...(query ? { query } : {}),
+      ...(channelId.toLowerCase() === 'web' && !hasWebSessionUser
+        ? { fallbackToChannelRecent: true }
+        : {}),
     }),
   });
+}
+
+async function handleApiChatMobileQr(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatMobileQrRequestBody;
+  const userId = normalizeOptionalString(body.userId);
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing `userId` in request body.' });
+    return;
+  }
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+
+  const token = createMobileLaunchToken({ userId, sessionId });
+  const launchUrl = buildMobileLaunchUrl({
+    origin: resolveRequestOrigin(req, body.baseUrl),
+    token,
+  });
+  sendJson(res, 200, {
+    launchUrl,
+    expiresAt: new Date(Date.now() + MOBILE_LAUNCH_TTL_MS).toISOString(),
+    qrSvg: renderQrSvg(launchUrl),
+  });
+}
+
+function handleChatMobileContinue(res: ServerResponse, url: URL): void {
+  const token = normalizeOptionalString(url.searchParams.get('token'));
+  const launch = token ? resolveMobileLaunchToken(token) : undefined;
+  if (!launch) {
+    sendText(res, 401, 'Mobile launch QR code is invalid or expired.');
+    return;
+  }
+
+  const escapedUserId = escapeInlineScriptValue(launch.userId);
+  const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
+  const escapedRedirect = escapeInlineScriptValue(
+    `/chat/${encodeURIComponent(launch.sessionId)}`,
+  );
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!DOCTYPE html><html><body><script>` +
+      `localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `localStorage.setItem('hybridclaw_session',${escapedSessionId});` +
+      `window.location.replace(${escapedRedirect});` +
+      `</script></body></html>`,
+  );
 }
 
 let cachedSlashMenuEntries: ReturnType<typeof buildTuiSlashMenuEntries> | null =
@@ -3399,6 +3559,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/chat/continue') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+      handleChatMobileContinue(res, url);
+      return;
+    }
+
     if (pathname === '/auth/callback') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Method Not Allowed' });
@@ -3689,6 +3858,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
             handleApiChatRecent(req, res, url);
+            return;
+          }
+          if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
+            await handleApiChatMobileQr(req, res);
             return;
           }
           if (pathname === '/api/chat/commands' && method === 'GET') {

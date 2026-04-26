@@ -4266,7 +4266,7 @@ function batchQueryAllBySessionIds<Row>(
 
 function getRecentSessionBoundaryRows(
   sessionIds: string[],
-  userId: string,
+  userId: string | null,
 ): RecentSessionBoundaryRow[] {
   return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
     queryAll<RecentSessionBoundaryRow>(
@@ -4276,11 +4276,11 @@ function getRecentSessionBoundaryRows(
            session_id,
            role,
            content,
-           CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+           CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END AS is_target_user,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
            ROW_NUMBER() OVER (
-             PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+             PARTITION BY session_id, CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END
              ORDER BY id ASC
            ) AS rn_target_group
          FROM messages
@@ -4294,6 +4294,8 @@ function getRecentSessionBoundaryRows(
          MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
        FROM ranked
        GROUP BY session_id`,
+      userId,
+      userId,
       userId,
       userId,
       ...batch,
@@ -4339,6 +4341,86 @@ function getRecentSessionContentMatches(
   );
 }
 
+function buildRecentSessionSummaries(params: {
+  rows: RecentUserSessionRow[];
+  boundaryUserId: string | null;
+  searchQuery: string;
+  limit: number;
+}): RecentUserSessionSummary[] {
+  const sortedRows = params.rows.sort((left, right) => {
+    const rightTimestamp = parseTimestamp(right.last_active);
+    const leftTimestamp = parseTimestamp(left.last_active);
+    if (rightTimestamp !== leftTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+    return right.id.localeCompare(left.id);
+  });
+  const targetRows = params.searchQuery
+    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
+    : sortedRows.slice(0, params.limit);
+  if (targetRows.length === 0) return [];
+
+  const sessionIds = targetRows.map((row) => row.id);
+  const boundaryRows = getRecentSessionBoundaryRows(
+    sessionIds,
+    params.boundaryUserId,
+  );
+  const contentMatchesBySessionId = getRecentSessionContentMatches(
+    sessionIds,
+    params.searchQuery,
+  );
+  const boundariesBySessionId = new Map(
+    boundaryRows.map((row) => [row.session_id, row] as const),
+  );
+
+  const sessions = targetRows.map((row) => {
+    const boundary = boundariesBySessionId.get(row.id);
+    const firstMessage =
+      boundary?.first_user_content || boundary?.first_content || null;
+    const shouldHideApprovalPrompt =
+      boundary?.last_role === 'assistant' &&
+      Boolean(
+        boundary?.last_content &&
+          isApprovalHistoryMessage(boundary.last_content),
+      );
+    const lastMessage =
+      boundary?.last_content && !shouldHideApprovalPrompt
+        ? boundary.last_content
+        : null;
+    const title = buildSessionBoundaryPreview({
+      firstMessage,
+      lastMessage,
+      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+    });
+    const rawSearchSnippet = params.searchQuery
+      ? buildSessionSearchSnippet(
+          contentMatchesBySessionId.get(row.id) || null,
+          params.searchQuery,
+        )
+      : null;
+
+    return {
+      sessionId: row.id,
+      lastActive: row.last_active,
+      messageCount: normalizeUsageNumber(row.message_count),
+      title,
+      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
+        ? { searchSnippet: rawSearchSnippet }
+        : {}),
+    };
+  });
+
+  if (!params.searchQuery) return sessions;
+  return sessions
+    .filter((session) => {
+      const titleMatches = String(session.title || '')
+        .toLowerCase()
+        .includes(params.searchQuery);
+      return titleMatches || Boolean(session.searchSnippet);
+    })
+    .slice(0, params.limit);
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
@@ -4375,77 +4457,42 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const sortedRows = rows.sort((left, right) => {
-    const rightTimestamp = parseTimestamp(right.last_active);
-    const leftTimestamp = parseTimestamp(left.last_active);
-    if (rightTimestamp !== leftTimestamp) {
-      return rightTimestamp - leftTimestamp;
-    }
-    return right.id.localeCompare(left.id);
-  });
-  const targetRows = searchQuery
-    ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
-    : sortedRows.slice(0, limit);
-  if (targetRows.length === 0) return [];
-
-  const boundaryRows = getRecentSessionBoundaryRows(
-    targetRows.map((row) => row.id),
-    userId,
-  );
-  const contentMatchesBySessionId = getRecentSessionContentMatches(
-    targetRows.map((row) => row.id),
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: userId,
     searchQuery,
-  );
-  const boundariesBySessionId = new Map(
-    boundaryRows.map((row) => [row.session_id, row] as const),
-  );
-
-  const sessions = targetRows.map((row) => {
-    const boundary = boundariesBySessionId.get(row.id);
-    const firstMessage =
-      boundary?.first_user_content || boundary?.first_content || null;
-    const shouldHideApprovalPrompt =
-      boundary?.last_role === 'assistant' &&
-      Boolean(
-        boundary?.last_content &&
-          isApprovalHistoryMessage(boundary.last_content),
-      );
-    const lastMessage =
-      boundary?.last_content && !shouldHideApprovalPrompt
-        ? boundary.last_content
-        : null;
-    const title = buildSessionBoundaryPreview({
-      firstMessage,
-      lastMessage,
-      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-    });
-    const rawSearchSnippet = searchQuery
-      ? buildSessionSearchSnippet(
-          contentMatchesBySessionId.get(row.id) || null,
-          searchQuery,
-        )
-      : null;
-
-    return {
-      sessionId: row.id,
-      lastActive: row.last_active,
-      messageCount: normalizeUsageNumber(row.message_count),
-      title,
-      ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
-        ? { searchSnippet: rawSearchSnippet }
-        : {}),
-    };
+    limit,
   });
+}
 
-  if (!searchQuery) return sessions;
-  return sessions
-    .filter((session) => {
-      const titleMatches = String(session.title || '')
-        .toLowerCase()
-        .includes(searchQuery);
-      return titleMatches || Boolean(session.searchSnippet);
-    })
-    .slice(0, limit);
+export function getRecentSessionsForChannel(params: {
+  channelId: string;
+  limit?: number;
+  query?: string | null;
+}): RecentUserSessionSummary[] {
+  const channelId = params.channelId.trim();
+  if (!channelId) return [];
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+
+  const rows = queryAll<RecentUserSessionRow, [string]>(
+    db,
+    `SELECT DISTINCT s.id, s.last_active, s.message_count
+       FROM sessions s
+       INNER JOIN messages m
+         ON m.session_id = s.id
+      WHERE s.channel_id = ?`,
+    channelId,
+  );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: null,
+    searchQuery,
+    limit,
+  });
 }
 
 export function getFullAutoSessionCount(): number {
