@@ -102,6 +102,7 @@ let gatewayChannelId = '';
 let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -115,6 +116,7 @@ let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
+let currentModelDebugResponses = false;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -718,6 +720,7 @@ export function setModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -726,12 +729,14 @@ export function setModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
@@ -743,14 +748,17 @@ export function setModelContext(
     typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
       ? Math.floor(maxTokens)
       : undefined;
+  currentModelDebugResponses = debugModelResponses;
   setBrowserModelContext(
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    debugModelResponses,
   );
 }
 
@@ -818,9 +826,6 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// Duplicated on purpose instead of importing the gateway helper. The container
-// runtime is packaged independently and should keep its input normalization
-// self-contained at the sandbox boundary.
 function readStringListValue(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -1919,6 +1924,7 @@ function currentAuxiliaryFallbackContext() {
     chatbotId: currentChatbotId,
     requestHeaders: { ...currentModelHeaders },
     maxTokens: currentModelMaxTokens,
+    debugModelResponses: currentModelDebugResponses,
   };
 }
 
@@ -2175,7 +2181,8 @@ async function executeToolInternal(
   }
   const args =
     parsedArgs && typeof parsedArgs === 'object'
-      ? (parsedArgs as Record<string, any>)
+      ? // biome-ignore lint/suspicious/noExplicitAny: args is passed through a wide range of tool handlers that each narrow property types at the use site; a single shared Record<string, unknown> would require narrowing at every call site.
+        (parsedArgs as Record<string, any>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
@@ -3252,7 +3259,7 @@ async function executeToolInternal(
 
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';
-      return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
+      return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
     }
 
     default:
@@ -3713,7 +3720,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_extract',
       description:
-        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost, Hermes-style companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
+        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
       parameters: {
         type: 'object',
         properties: {
@@ -3922,7 +3929,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). Completion is push-delivered automatically; do not poll/sleep.',
+        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). The gateway collects delegated results and uses them for final synthesis; after spawning delegates, acknowledge start only and do not present final findings or poll/sleep.',
       parameters: {
         type: 'object',
         properties: {

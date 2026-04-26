@@ -19,9 +19,9 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email,
-Twilio voice, or the web. Run it locally, deploy it for business workflows,
-and keep your agents, secrets, and data under your control.
+Connect it to Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams,
+email, Twilio voice, or the web. Run it locally, deploy it for business
+workflows, and keep your agents, secrets, and data under your control.
 
 [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
 [Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
@@ -101,7 +101,7 @@ Once the gateway is running, open HybridClaw locally:
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+- or connect Slack, Signal, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## Operator workflows
 
@@ -114,6 +114,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
+- `hybridclaw agent config` accepts generated JSON payloads to upsert agent
+  metadata, write bootstrap markdown, import profile images into the agent
+  workspace, and optionally activate the agent.
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Twilio voice settings, and per-channel instructions that are injected into
   prompts at runtime.
@@ -121,13 +124,17 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser without tearing down the enclosing workspace container; keep
   `hybridclaw gateway restart` for local/manual full restarts.
+- `proactive.delegation.model` can pin delegated work to a different model
+  from the parent turn; `/status` shows delegate token totals and local-token
+  share when that split is configured.
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active
   runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
 - Generated artifacts remain downloadable and attachable even when the sandbox
   exposes a custom workspace display root such as `/app`.
-- `hybridclaw tui` includes a keyboard-driven approval picker and prints a
-  ready-to-run `hybridclaw tui --resume <sessionId>` command on exit.
+- `hybridclaw tui` includes live delegate progress, pulsing tool rows,
+  completion checkmarks, a keyboard-driven approval picker, and a ready-to-run
+  `hybridclaw tui --resume <sessionId>` command on exit.
 - `hybridclaw doctor` checks runtime health including resource hygiene
   maintenance for stale gateway artifacts.
 - `hybridclaw onboarding` and related local setup flows can restore the last
@@ -135,6 +142,9 @@ Once the gateway is running, open HybridClaw locally:
   `config.json` becomes invalid.
 - `hybridclaw skill import` supports community sources, local directories,
   and `.zip` archives.
+- The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
+  invoicing, webinar, and release-launch workflows that can run from the TUI,
+  web chat, or connected channels.
 - `hybridclaw eval hybridai-skills` turns the bundled skills pages' "Try it
   yourself" prompts into a local eval suite, and live summaries surface the
   observed skill, artifact presence, and counted tool-call totals.
@@ -146,14 +156,25 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Models, Skills, and Memory
 
-- `hybridclaw auth login` and `/model list` cover HybridAI, Codex, OpenRouter,
-  Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
-  DashScope, Xiaomi, Kilo Code, and local backends such as Ollama, LM Studio,
-  llama.cpp, and vLLM. Remote OpenAI-compatible providers can merge
-  runtime-discovered model catalogs with operator-pinned lists.
+- `hybridclaw auth login` and `/model list` cover HybridAI, Codex,
+  Anthropic, OpenRouter, Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI,
+  Kimi, MiniMax, DashScope, Xiaomi, Kilo Code, and local backends such as
+  Ollama, LM Studio, llama.cpp, and vLLM. Remote OpenAI-compatible providers
+  can merge runtime-discovered model catalogs with operator-pinned lists.
+- Anthropic can run through the direct Messages API with `ANTHROPIC_API_KEY`
+  or through the official Claude CLI transport in host sandbox mode.
+- Brave, Perplexity, and Tavily web-search credentials can live in the
+  encrypted runtime secret store and are passed into host or container agent
+  runtimes from the active config.
+- Google OAuth credentials for Workspace skills live in the encrypted runtime
+  secret store; agent runtimes receive short-lived access tokens for `gog` and
+  `gws` instead of long-lived refresh tokens.
 - Skills can be enabled or disabled globally or per channel from
   `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
   `Skills` page.
+- Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
+  GitHub issue queue processing (`gh-issues`), and editable Excalidraw diagram
+  creation.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
   PDF creator wraps long lines, honors explicit `\n`, and adds pages
   automatically when reports or invoices spill past the first page.
@@ -212,11 +233,12 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Signal, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
-  chatbot context before the first prompt, an interactive approval picker for
-  pending approvals, and an exit summary with a ready-to-run resume command
+  chatbot context before the first prompt, live delegate status/progress,
+  an interactive approval picker for pending approvals, and an exit summary
+  with a ready-to-run resume command
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
@@ -246,10 +268,15 @@ Browse the full manual at
   [Discord](https://www.hybridclaw.io/docs/channels/discord),
   [Slack](https://www.hybridclaw.io/docs/channels/slack),
   [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
+  [Signal](https://www.hybridclaw.io/docs/channels/signal),
   [Email](https://www.hybridclaw.io/docs/channels/email),
   [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
   [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
   [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
+- Tutorials:
+  [Practical Workflows](https://www.hybridclaw.io/docs/tutorials) for owner,
+  GTM, marketing, sales, DevRel, content, invoicing, webinar, and release
+  launch workflows
 - Skills and plugins:
   [Extensibility](https://www.hybridclaw.io/docs/extensibility),
   [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),

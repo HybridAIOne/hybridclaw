@@ -170,6 +170,7 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 
 ```bash
 hybridclaw auth login [provider] ...
+hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
@@ -178,6 +179,7 @@ hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw help auth
+hybridclaw help anthropic
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
@@ -192,17 +194,21 @@ hybridclaw help xiaomi
 hybridclaw help kilo
 ```
 
-`auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
-`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
+`auth status` supports `hybridai`, `codex`, `anthropic`, `openrouter`,
+`mistral`, `huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`,
+`minimax`, `dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
+Anthropic supports `--method api-key` for direct Messages API calls and
+`--method claude-cli` for the official Claude CLI transport in host sandbox
+mode.
 
 ## Channel Setup
 
 ```bash
 hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
+hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -227,6 +233,7 @@ examples and current CLI-only limitations such as WhatsApp pairing.
 
 ```bash
 hybridclaw agent list
+hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -238,6 +245,19 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
+
+`agent config` is the JSON provisioning path for generated agents. It upserts
+agent metadata directly, can overwrite top-level workspace markdown files, and
+imports `imageAsset` URLs or local file paths into the agent workspace:
+
+```bash
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
+```
+
+Use `agent config` for metadata plus bootstrap markdown. Use `agent install`
+when you need a portable `.claw` archive with arbitrary workspace files,
+bundled skills, bundled plugins, or install-time imports.
+
 For archive flags such as `--description`, `--author`, skill/plugin bundling,
 and GitHub install sources, see
 [Agent Packages](../extensibility/agent-packages.md).
@@ -348,7 +368,8 @@ the same gateway command surface used by TUI and web chat.
   for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
-  `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
+  `/concierge`, `/auth status <provider>`, and
+  `/secret list|set|unset|show|route`
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs
@@ -373,7 +394,9 @@ the same gateway command surface used by TUI and web chat.
   workspace reset flow
 - `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
   servers
-- `/auth status hybridai` shows local HybridAI auth and config state
+- `/auth status <provider>` shows local auth and config state for the
+  supported local-session providers, including Anthropic and the
+  OpenAI-compatible remote providers
 - Typing `/` in the TUI opens the slash-command menu with inline filtering and
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,

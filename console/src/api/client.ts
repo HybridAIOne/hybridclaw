@@ -35,10 +35,13 @@ import type {
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AgentListItem,
+  AgentListResponse,
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
+  SignalLinkResponse,
 } from './types';
 
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
@@ -265,6 +268,13 @@ export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
 }
 
+export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
+  const payload = await requestJson<AgentListResponse>('/api/agents/list', {
+    token,
+  });
+  return payload.agents;
+}
+
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
   const payload = await requestJson<AdminAgentsResponse>('/api/admin/agents', {
     token,
@@ -485,6 +495,21 @@ export function saveConfig(
     method: 'PUT',
     body: { config },
   });
+}
+
+export function startSignalLink(
+  token: string,
+  options: { cliPath?: string; deviceName?: string },
+): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', {
+    token,
+    method: 'POST',
+    body: options,
+  });
+}
+
+export function fetchSignalLink(token: string): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', { token });
 }
 
 function runAdminCommand(

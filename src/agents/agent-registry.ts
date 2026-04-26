@@ -520,7 +520,6 @@ export function migrateWorkspaceDirs(): void {
   }
 }
 
-// Tree-shakeable test helper for suites that intentionally reuse a module instance.
 export function resetAgentRegistryForTesting(): void {
   resetRegistryState();
 }

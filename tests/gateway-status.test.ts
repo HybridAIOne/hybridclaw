@@ -10,6 +10,7 @@ const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
@@ -63,6 +64,7 @@ afterEach(() => {
   vi.doUnmock('../src/providers/hybridai-discovery.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
+  vi.doUnmock('../src/auth/anthropic-auth.js');
   vi.doUnmock('../src/providers/hybridai-health.js');
   vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/infra/container-setup.js');
@@ -72,6 +74,7 @@ afterEach(() => {
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
+  restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
   restoreEnvVar('MSTEAMS_APP_ID', ORIGINAL_MSTEAMS_APP_ID);
@@ -1973,6 +1976,139 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
 });
 
+test('status shows delegate model, delegate token totals, and local token share', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+    config.proactive.delegation.model = 'llamacpp/liquidai/lfm';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-delegate-tokens',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 12_000,
+      completionTokens: 300,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-a',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'llamacpp',
+      model: 'llamacpp/liquidai/lfm',
+      promptTokens: 4_000,
+      completionTokens: 100,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'delegate:d1:session-status-delegate-tokens:child-b',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'llamacpp',
+      model: 'llamacpp/liquidai/lfm',
+      promptTokens: 2_000,
+      completionTokens: 50,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-delegate-tokens',
+    guildId: null,
+    channelId: 'channel-status-delegate-tokens',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧠 Model: openrouter/hunter-alpha (delegate: llamacpp/liquidai/lfm)',
+  );
+  expect(result.text).toContain(
+    '🧮 Tokens: 12k in / 300 out (delegate: 6k in / 150 out) · 33% local',
+  );
+});
+
+test('status reports input, output, and total tokens per second with stddev', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-tps',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 1_000,
+      completionTokens: 100,
+      durationMs: 2_000,
+      performanceSamples: [
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 2_000,
+          firstTextDeltaMs: 1_000,
+        },
+        {
+          promptTokens: 1_000,
+          completionTokens: 100,
+          totalTokens: 1_100,
+          durationMs: 1_000,
+          firstTextDeltaMs: 500,
+        },
+      ],
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-tps',
+    guildId: null,
+    channelId: 'channel-status-tps',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '⚡ Performance: Output 150 tok/s (± 70.7) · Input 1500 tok/s (± 707) · Total 825 tok/s (± 389)',
+  );
+});
+
 test('agent create warns when model validation is skipped because no models are available', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -2138,6 +2274,120 @@ test('model list openrouter asks for authorization before reporting no models', 
   expect(result.text).toContain('Authorize it first from a terminal:');
   expect(result.text).toContain('hybridclaw auth login openrouter');
   expect(result.text).toContain('Then rerun `model list openrouter`.');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
+test('model list anthropic falls back to configured models when discovery fails', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.HYBRIDAI_API_KEY;
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-gateway-status-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-anthropic-discovery-fallback',
+    guildId: null,
+    channelId: 'channel-model-list-anthropic-discovery-fallback',
+    args: ['model', 'list', 'anthropic'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (anthropic)');
+  expect(result.text).toContain('anthropic/claude-sonnet-4-6');
+  expect(result.text).toContain('1 model');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
+test('model list anthropic reports unauthorized when detected auth does not match configured method', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    getAnthropicAuthStatus: vi.fn(() => ({
+      authenticated: true,
+      method: 'claude-cli',
+      source: 'claude-cli-keychain',
+      path: 'macOS Keychain (Claude Code-credentials)',
+      maskedValue: 'sk-ant-oat-...test',
+      expiresAt: Date.now() + 60_000,
+      isOauthToken: true,
+    })),
+    isAnthropicAuthReadyForMethod: vi.fn(
+      (
+        status: { method: string | null; authenticated: boolean },
+        method: 'api-key' | 'claude-cli',
+      ) => status.authenticated === true && status.method === method,
+    ),
+    requireAnthropicApiKey: vi.fn(() => {
+      throw new Error('api key missing');
+    }),
+    requireAnthropicClaudeCliCredential: vi.fn(),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-anthropic-method-mismatch',
+    guildId: null,
+    channelId: 'channel-model-list-anthropic-method-mismatch',
+    args: ['model', 'list', 'anthropic'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (anthropic)');
+  expect(result.text).toContain('Anthropic is not authorized.');
+  expect(result.text).toContain('hybridclaw auth login anthropic');
   expect(result.text).not.toContain('No models available for provider');
 });
 

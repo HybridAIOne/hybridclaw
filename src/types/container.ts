@@ -57,6 +57,7 @@ export interface ContainerInput {
   apiKey: string;
   baseUrl: string;
   provider?: ProviderKind;
+  providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
@@ -69,6 +70,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];

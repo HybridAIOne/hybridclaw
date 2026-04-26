@@ -106,7 +106,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 20;
+export const DATABASE_SCHEMA_VERSION = 21;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -160,6 +160,7 @@ interface ConversationHistoryPageRow {
   user_id: string | null;
   username: string | null;
   role: string | null;
+  agent_id: string | null;
   content: string | null;
   created_at: string | null;
 }
@@ -473,6 +474,7 @@ function migrateV1(database: Database.Database): void {
       user_id TEXT NOT NULL,
       username TEXT,
       role TEXT NOT NULL,
+      agent_id TEXT,
       content TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -1713,7 +1715,21 @@ function migrateV19(database: Database.Database): void {
   );
 }
 
-function migrateV20(database: Database.Database): void {
+function migrateV20(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'agent_id',
+    ddl: 'agent_id TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 20, 'Persist assistant message agent identity');
+}
+
+function migrateV21(database: Database.Database): void {
   // Some legacy databases — and a couple of migration tests — start partway
   // through the schema with only the tables (and columns) they care about.
   // Guard each CREATE INDEX behind table+column existence so this migration
@@ -1753,7 +1769,7 @@ function migrateV20(database: Database.Database): void {
   }
   recordMigration(
     database,
-    20,
+    21,
     'Index timestamp columns for admin statistics aggregations',
   );
 }
@@ -1798,7 +1814,8 @@ function runMigrations(
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
-  if (currentVersion < 20) migrateV20(database);
+  if (currentVersion < 20) migrateV20(database, opts);
+  if (currentVersion < 21) migrateV21(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -4217,8 +4234,8 @@ export function forkSessionBranch(
     ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
-      `INSERT INTO messages (session_id, user_id, username, role, content, created_at)
-       SELECT ?, user_id, username, role, content, created_at
+      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?
@@ -4804,13 +4821,15 @@ export function storeMessage(
   username: string | null,
   role: string,
   content: string,
+  agentId?: string | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const normalizedAgentId = agentId?.trim() || null;
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, content) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content) VALUES (?, ?, ?, ?, ?, ?)',
     )
-    .run(resolvedSessionId, userId, username, role, content);
+    .run(resolvedSessionId, userId, username, role, normalizedAgentId, content);
 
   db.prepare(
     "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
@@ -4956,6 +4975,7 @@ export function getConversationHistoryPage(
          m.user_id,
          m.username,
          m.role,
+         m.agent_id,
          m.content,
          m.created_at
        FROM sessions s
@@ -5002,6 +5022,7 @@ export function getConversationHistoryPage(
       user_id: row.user_id,
       username: row.username,
       role: row.role,
+      agent_id: row.agent_id,
       content: row.content,
       created_at: row.created_at,
     });
@@ -7071,6 +7092,28 @@ export function getRecentStructuredAuditForSession(
     orderBy: 'seq',
     sortDirection: 'DESC',
   });
+}
+
+export function listStructuredAuditSessionIdsByPrefix(
+  prefix: string,
+  limit = 64,
+): string[] {
+  ensureDatabaseReady();
+  const normalizedPrefix = String(prefix || '').trim();
+  if (!normalizedPrefix) return [];
+  const normalizedLimit = Math.max(1, Math.min(512, Math.trunc(limit || 64)));
+  const rows = queryAll<{ sessionId: string }, [string, number]>(
+    db,
+    `SELECT session_id AS sessionId
+     FROM audit_events
+     WHERE session_id LIKE ? || '%'
+     GROUP BY session_id
+     ORDER BY MAX(id) DESC
+     LIMIT ?`,
+    normalizedPrefix,
+    normalizedLimit,
+  );
+  return rows.map((row) => String(row.sessionId || '').trim()).filter(Boolean);
 }
 
 export function getStructuredAuditForSession(

@@ -170,6 +170,7 @@ type BrowserModelContext = {
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -177,12 +178,14 @@ type BrowserModelContext = {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   requestHeaders: Record<string, string>;
   maxTokens?: number;
+  debugModelResponses?: boolean;
 };
 
 type BrowserRunner = {
@@ -238,6 +241,7 @@ export function setBrowserModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -246,15 +250,18 @@ export function setBrowserModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
+    providerMethod,
     baseUrl: String(baseUrl || '')
       .trim()
       .replace(/\/+$/, ''),
@@ -268,6 +275,7 @@ export function setBrowserModelContext(
       maxTokens > 0
         ? Math.floor(maxTokens)
         : undefined,
+    debugModelResponses,
   };
 }
 

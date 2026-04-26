@@ -102,6 +102,10 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `anthropic.*` for first-class Anthropic provider enablement, base URL,
+  auth method (`api-key` or `claude-cli`), and pinned `anthropic/...` model
+  list. Store direct API keys as `ANTHROPIC_API_KEY` in the encrypted runtime
+  secret store; Claude CLI credentials are managed by the `claude` CLI.
 - `mcpServers.*` for Model Context Protocol servers; HybridClaw connects to
   them per session and exposes their tools as namespaced functions such as
   `server__tool`
@@ -135,6 +139,9 @@ saved revision history directly.
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
   edits
+- `proactive.delegation.model` for pinning delegated subagent work to a
+  dedicated model while the parent turn keeps its own session or agent model;
+  leave it empty to use the parent model
 - `adaptiveSkills.*` for skill observation, amendment staging, and rollback
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
@@ -143,6 +150,14 @@ saved revision history directly.
   as `TELEGRAM_BOT_TOKEN` or `telegram.botToken` via SecretRef instead of
   plaintext config; a running gateway usually hot-reloads Telegram config
   changes by restarting the integration in place
+- `signal.*` for the Signal transport through a separately managed
+  `signal-cli` compatible daemon; use `hybridclaw channels signal setup` to
+  configure `signal.daemonUrl`, `signal.account`, and private-by-default DM or
+  group policies before enabling inbound traffic. `signal.reconnectIntervalMs`
+  controls event stream reconnect backoff, and `signal.outboundDelayMs`
+  controls pacing between split outbound text chunks. HybridClaw Cloud gateway
+  images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
+  custom hosts can use an external daemon or sidecar
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
@@ -162,6 +177,10 @@ saved revision history directly.
   injection used by the `http_request` tool, for example mapping a URL prefix
   such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
   stored secret ref
+- Web-search API keys for Brave, Perplexity, and Tavily can be stored as
+  encrypted runtime secrets named `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, and
+  `TAVILY_API_KEY`; process environment variables with the same names are
+  fallback values when no encrypted secret is present
 - `media.audio` for inbound audio transcription backend selection
 
 Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,
@@ -208,14 +227,14 @@ For the local speech and fallback workflow, see
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
-`MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
-`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`,
-`XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
-`DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`, `VLLM_API_KEY`,
-`BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
-`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
-`TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
-`GATEWAY_API_TOKEN`.
+`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`,
+`GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+`DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
+`MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`,
+`VLLM_API_KEY`, `BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`,
+`SLACK_APP_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
+`IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
+`WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
 
 Local TUI/web sessions and the local CLI manage this store through:
 

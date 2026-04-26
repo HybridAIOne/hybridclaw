@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { fetchArtifactBlob } from '../../api/chat';
+import { fetchAgentAvatarBlob, fetchArtifactBlob } from '../../api/chat';
 import type { ChatArtifact, ChatMessage } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';
@@ -178,6 +178,44 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   );
 }
 
+function useAuthenticatedImageUrl(params: {
+  token: string;
+  imageUrl?: string | null;
+}): string | null {
+  const objectUrlRef = useRef<string | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const previousUrl = objectUrlRef.current;
+    objectUrlRef.current = null;
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    setObjectUrl(null);
+
+    if (!params.imageUrl) return;
+
+    let cancelled = false;
+    void fetchAgentAvatarBlob(params.token, params.imageUrl)
+      .then((blob) => {
+        if (cancelled) return;
+        const nextUrl = URL.createObjectURL(blob);
+        objectUrlRef.current = nextUrl;
+        setObjectUrl(nextUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      const nextUrl = objectUrlRef.current;
+      objectUrlRef.current = null;
+      if (nextUrl) URL.revokeObjectURL(nextUrl);
+    };
+  }, [params.imageUrl, params.token]);
+
+  return objectUrl;
+}
+
 export const MessageBlock = memo(function MessageBlock(props: {
   message: ChatUiMessage;
   token: string;
@@ -188,7 +226,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   onApprovalAction: (action: ApprovalAction, approvalId: string) => void;
   approvalBusy: boolean;
   branchInfo: { current: number; total: number } | null;
-  onBranchNav: (direction: -1 | 1) => void;
+  onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -227,6 +265,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     isMarkdownMessage,
     props.isStreaming,
   );
+  const presentation = msg.assistantPresentation;
+  const displayName = presentation?.displayName ?? 'Assistant';
+  const avatarUrl = useAuthenticatedImageUrl({
+    token,
+    imageUrl: presentation?.imageUrl,
+  });
 
   if (msg.role === 'thinking') {
     return (
@@ -256,19 +300,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     msg.role === 'system' && css.bubbleSystem,
   );
 
-  const presentation = msg.assistantPresentation;
-  const displayName = presentation?.displayName ?? 'Assistant';
-
   return (
     <div className={blockClass}>
       {isAssistant ? (
         <div className={css.agentLabel}>
-          {presentation?.imageUrl ? (
-            <img
-              className={css.agentAvatar}
-              src={presentation.imageUrl}
-              alt=""
-            />
+          {avatarUrl ? (
+            <img className={css.agentAvatar} src={avatarUrl} alt="" />
           ) : (
             <span className={css.agentInitial}>
               {displayName.charAt(0).toUpperCase()}
@@ -331,6 +368,18 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {!props.isStreaming ? (
         <div className={css.messageActions}>
+          {isAssistant && msg.replayRequest ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={css.actionButton}
+              title="Regenerate"
+              aria-label="Regenerate response"
+              onClick={() => props.onRegenerate(msg)}
+            >
+              ↻
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -353,18 +402,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
               ✎
             </Button>
           ) : null}
-          {isAssistant && msg.replayRequest ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={css.actionButton}
-              title="Regenerate"
-              aria-label="Regenerate response"
-              onClick={() => props.onRegenerate(msg)}
-            >
-              ↻
-            </Button>
-          ) : null}
           {props.branchInfo && props.branchInfo.total > 1 ? (
             <div className={css.branchSwitcher}>
               <Button
@@ -373,7 +410,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 className={css.branchButton}
                 aria-label="Previous branch"
                 disabled={props.branchInfo.current <= 1}
-                onClick={() => props.onBranchNav(-1)}
+                onClick={() => props.onBranchNav(msg, -1)}
               >
                 ‹
               </Button>
@@ -386,7 +423,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 className={css.branchButton}
                 aria-label="Next branch"
                 disabled={props.branchInfo.current >= props.branchInfo.total}
-                onClick={() => props.onBranchNav(1)}
+                onClick={() => props.onBranchNav(msg, 1)}
               >
                 ›
               </Button>

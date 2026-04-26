@@ -34,13 +34,6 @@ export interface MemoryConsolidationReport {
 const DAILY_MEMORY_BLOCK_START = '<!-- BEGIN DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_BLOCK_END = '<!-- END DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
-// Size budget hierarchy:
-// - Each daily source file is truncated before summarization so one oversized
-//   note cannot dominate the digest.
-// - The digest itself is capped below the full MEMORY.md budget so existing
-//   curated sections still have room to survive prompt injection.
-// - Individual bullet lines and item counts keep the auto-generated digest
-//   scannable and deterministic across reruns.
 const DAILY_MEMORY_DIGEST_MAX_CHARS = 6_000;
 const DAILY_MEMORY_FILE_MAX_CHARS = 4_000;
 const DAILY_MEMORY_SUMMARY_MAX_ITEMS = 6;
@@ -48,7 +41,6 @@ const DAILY_MEMORY_LINE_MAX_CHARS = 220;
 const MEMORY_FILE_MAX_CHARS = 12_000;
 const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
 const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
-// Keep this aligned with DEFAULT_MEMORY_TEMPLATE and templates/MEMORY.md.
 const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
 const DEFAULT_MEMORY_TEMPLATE = `# MEMORY.md - Session Memory
 

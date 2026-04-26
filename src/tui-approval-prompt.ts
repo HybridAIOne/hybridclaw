@@ -23,8 +23,6 @@ const TERMINAL_ESCAPE_PATTERN = new RegExp(
 );
 // biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
 const ALLOWED_SGR_PATTERN = new RegExp('^\\u001B\\[[0-9;]*m$', 'u');
-// Keep tabs/newlines alone here; the render path only needs to strip control
-// bytes that can mutate the terminal state or cursor position.
 // biome-ignore lint/complexity/useRegexLiterals: the literal form trips noControlCharactersInRegex for these ANSI escape-code ranges.
 const DISALLOWED_TERMINAL_CONTROL_PATTERN = new RegExp(
   '[\\u0000-\\u0008\\u000B-\\u001A\\u001C-\\u001F\\u007F\\u009B]',

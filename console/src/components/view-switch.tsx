@@ -5,14 +5,11 @@ import { Admin, Agents, Chat, Docs, Github } from './icons';
 type ViewSwitchItem = {
   label: string;
   icon: ComponentType;
-} & (
-  | { href: string; external: true }
-  | { to: string; external?: false }
-);
+} & ({ href: string; external?: boolean } | { to: string; external?: false });
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { to: '/chat', label: 'Chat', icon: Chat },
-  { to: '/agents', label: 'Agents', icon: Agents },
+  { href: '/agents', label: 'Agents', icon: Agents },
   { to: '/admin', label: 'Admin', icon: Admin },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -20,7 +17,7 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
     icon: Github,
     external: true,
   },
-  { to: '/development', label: 'Docs', icon: Docs },
+  { href: '/development', label: 'Docs', icon: Docs },
 ];
 
 function isActive(pathname: string, path: string): boolean {
@@ -43,14 +40,18 @@ export function ViewSwitchNav() {
             <span>{item.label}</span>
           </>
         );
-        if (item.external) {
+        if ('href' in item) {
+          const active = !item.external && isActive(pathname, item.href);
           return (
             <a
               key={item.href}
-              className="view-switch-link"
+              className={
+                active ? 'view-switch-link active' : 'view-switch-link'
+              }
               href={item.href}
-              target="_blank"
-              rel="noopener noreferrer"
+              aria-current={active ? 'page' : undefined}
+              target={item.external ? '_blank' : undefined}
+              rel={item.external ? 'noopener noreferrer' : undefined}
             >
               {inner}
             </a>

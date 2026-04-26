@@ -13,16 +13,20 @@ import { ChannelsPage } from './channels';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
+const fetchSignalLinkMock = vi.fn();
 const saveConfigMock = vi.fn();
 const setRuntimeSecretMock = vi.fn();
+const startSignalLinkMock = vi.fn();
 const validateTokenMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
+  fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   setRuntimeSecret: (...args: unknown[]) => setRuntimeSecretMock(...args),
+  startSignalLink: (...args: unknown[]) => startSignalLinkMock(...args),
   validateToken: (...args: unknown[]) => validateTokenMock(...args),
 }));
 
@@ -45,6 +49,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       discord: '',
       msteams: '',
       slack: '',
+      signal: '',
       telegram: '',
       voice:
         'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
@@ -144,6 +149,18 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    signal: {
+      enabled: false,
+      daemonUrl: 'http://127.0.0.1:8080',
+      account: '',
+      dmPolicy: 'allowlist',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      textChunkLimit: 4000,
+      reconnectIntervalMs: 5000,
+      outboundDelayMs: 350,
     },
     voice: {
       enabled: false,
@@ -257,8 +274,10 @@ describe('ChannelsPage', () => {
   beforeEach(() => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
+    fetchSignalLinkMock.mockReset();
     saveConfigMock.mockReset();
     setRuntimeSecretMock.mockReset();
+    startSignalLinkMock.mockReset();
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     const gatewayStatus = {
@@ -279,6 +298,20 @@ describe('ChannelsPage', () => {
       telegram: {
         tokenConfigured: false,
         tokenSource: null,
+      },
+      signal: {
+        enabled: false,
+        daemonUrlConfigured: true,
+        accountConfigured: false,
+        pairingStatus: 'idle',
+        pairingQrText: null,
+        pairingUri: null,
+        pairingUpdatedAt: null,
+        pairingError: null,
+        cliAvailable: true,
+        cliPath: 'signal-cli',
+        cliVersion: 'signal-cli 0.14.2',
+        cliError: null,
       },
       voice: {
         enabled: false,
@@ -320,6 +353,13 @@ describe('ChannelsPage', () => {
       ragDefault: true,
       timestamp: new Date().toISOString(),
       ...gatewayStatus,
+    });
+    fetchSignalLinkMock.mockResolvedValue({
+      status: 'idle',
+      pairingQrText: null,
+      pairingUri: null,
+      updatedAt: null,
+      error: null,
     });
   });
 
@@ -533,6 +573,216 @@ describe('ChannelsPage', () => {
     });
     expect(telegramButton.textContent || '').toContain('configured');
     expect(telegramButton.textContent || '').not.toContain('active');
+  });
+
+  it('shows Signal as active when enabled with daemon and account configured', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        signal: {
+          ...makeConfig().signal,
+          enabled: true,
+          account: '+14155550123',
+          dmPolicy: 'allowlist',
+          allowFrom: ['+14155551212'],
+        },
+      }),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      signal: {
+        enabled: true,
+        daemonUrlConfigured: true,
+        accountConfigured: true,
+        pairingStatus: 'idle',
+        pairingQrText: null,
+        pairingUri: null,
+        pairingUpdatedAt: null,
+        pairingError: null,
+        cliAvailable: true,
+        cliPath: 'signal-cli',
+        cliVersion: 'signal-cli 0.14.2',
+        cliError: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const signalButton = await screen.findByRole('button', { name: /Signal/i });
+    expect(signalButton.textContent || '').toContain('active');
+    fireEvent.click(signalButton);
+    expect(
+      screen.getByRole('heading', { name: 'Signal settings' }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Daemon URL')).toBeTruthy();
+    expect(screen.getByLabelText('Account')).toBeTruthy();
+    expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
+  });
+
+  it('saves Signal setup through the config endpoint', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: {
+        ...config,
+        signal: {
+          ...config.signal,
+          enabled: true,
+          daemonUrl: 'http://127.0.0.1:8080',
+          account: '+14155550123',
+          dmPolicy: 'allowlist',
+          allowFrom: ['+14155551212'],
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Signal/i });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+
+    const panel = screen
+      .getByRole('heading', { name: 'Signal settings' })
+      .closest('section');
+    expect(panel).not.toBeNull();
+
+    fireEvent.click(
+      within(
+        within(panel as HTMLElement).getByRole('group', { name: 'Enabled' }),
+      ).getByRole('button', { name: 'on' }),
+    );
+    fireEvent.change(screen.getByLabelText('Daemon URL'), {
+      target: { value: 'http://127.0.0.1:8080' },
+    });
+    fireEvent.change(screen.getByLabelText('Account'), {
+      target: { value: '+14155550123' },
+    });
+    fireEvent.change(screen.getByLabelText('DM policy'), {
+      target: { value: 'allowlist' },
+    });
+    fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
+      target: { value: '+14155551212' },
+    });
+    fireEvent.click(
+      within(panel as HTMLElement).getByRole('button', {
+        name: 'Save channel settings',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          signal: expect.objectContaining({
+            enabled: true,
+            daemonUrl: 'http://127.0.0.1:8080',
+            account: '+14155550123',
+            dmPolicy: 'allowlist',
+            allowFrom: ['+14155551212'],
+          }),
+        }),
+      );
+    });
+  });
+
+  it('starts Signal linked-device setup and renders the QR', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    startSignalLinkMock.mockResolvedValue({
+      status: 'qr',
+      pairingQrText: '▄▄\n██',
+      pairingUri: 'sgnl://linkdevice?uuid=abc&pub_key=def',
+      updatedAt: new Date().toISOString(),
+      error: null,
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Signal/i });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+
+    fireEvent.change(screen.getByLabelText('signal-cli path'), {
+      target: { value: '/usr/local/bin/signal-cli' },
+    });
+    fireEvent.change(screen.getByLabelText('Device name'), {
+      target: { value: 'HybridClaw Cloud' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start QR link' }));
+
+    await waitFor(() => {
+      expect(startSignalLinkMock).toHaveBeenCalledWith('test-token', {
+        cliPath: '/usr/local/bin/signal-cli',
+        deviceName: 'HybridClaw Cloud',
+      });
+    });
+    expect(
+      (await screen.findByRole('img', { name: 'Signal linked-device QR' }))
+        .textContent,
+    ).toBe('▄▄\n██');
+  });
+
+  it('disables Signal linked-device setup when signal-cli is unavailable', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      signal: {
+        enabled: false,
+        daemonUrlConfigured: false,
+        accountConfigured: false,
+        pairingStatus: 'idle',
+        pairingQrText: null,
+        pairingUri: null,
+        pairingUpdatedAt: null,
+        pairingError: null,
+        cliAvailable: false,
+        cliPath: 'signal-cli',
+        cliVersion: null,
+        cliError: 'spawn signal-cli ENOENT',
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Signal/i });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Start QR link',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.getByText(/signal-cli is not available on this gateway host/i),
+    ).toBeTruthy();
   });
 
   it('shows Voice in the catalog and opens the Twilio voice editor', async () => {

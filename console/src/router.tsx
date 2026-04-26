@@ -172,9 +172,15 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
-const chatRoute = createRoute({
+const chatIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
+  component: ChatRouteComponent,
+});
+
+const chatSessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat/$sessionId',
   component: ChatRouteComponent,
 });
 
@@ -199,7 +205,8 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
-  chatRoute,
+  chatIndexRoute,
+  chatSessionRoute,
 ]);
 
 export const router = createRouter({

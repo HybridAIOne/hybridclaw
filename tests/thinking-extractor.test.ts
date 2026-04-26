@@ -89,4 +89,35 @@ describe('thinking extractor', () => {
     expect(emitter.getRawContent()).toBe('<think>plan</think>Hello world');
     expect(emitter.getVisibleContent()).toBe('Hello world');
   });
+
+  test('can emit thinking inline for providers that stream structured reasoning', () => {
+    const deltas: string[] = [];
+    const emitter = createThinkingStreamEmitter((delta) => deltas.push(delta), {
+      inlineThinking: true,
+    });
+
+    emitter.pushThinking('plan');
+    emitter.pushVisible('Hello');
+
+    expect(deltas).toEqual(['plan', 'Hello']);
+    expect(emitter.getRawContent()).toBe('planHello');
+    expect(emitter.getVisibleContent()).toBe('planHello');
+  });
+
+  test('can emit structured thinking out of band', () => {
+    const deltas: string[] = [];
+    const thinkingDeltas: string[] = [];
+    const emitter = createThinkingStreamEmitter((delta) => deltas.push(delta), {
+      onThinkingDelta: (delta) => thinkingDeltas.push(delta),
+    });
+
+    emitter.pushThinking('plan');
+    emitter.pushThinking(' more');
+    emitter.pushVisible('Hello');
+
+    expect(deltas).toEqual(['Hello']);
+    expect(thinkingDeltas).toEqual(['plan', ' more']);
+    expect(emitter.getRawContent()).toBe('<think>plan more</think>Hello');
+    expect(emitter.getVisibleContent()).toBe('Hello');
+  });
 });

@@ -60,7 +60,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
-import type { McpServerConfig } from '../types/models.js';
+import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
@@ -98,6 +98,7 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
   msteams: '',
+  signal: '',
   slack: '',
   telegram: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
@@ -203,6 +204,8 @@ export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackReplyStyle = 'thread' | 'top-level';
 export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -427,6 +430,19 @@ export interface RuntimeTelegramConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSignalConfig {
+  enabled: boolean;
+  daemonUrl: string;
+  account: string;
+  dmPolicy: SignalDmPolicy;
+  groupPolicy: SignalGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  reconnectIntervalMs: number;
+  outboundDelayMs: number;
+}
+
 export interface RuntimeIMessageConfig {
   enabled: boolean;
   backend: IMessageBackend;
@@ -466,6 +482,7 @@ export interface RuntimeEmailConfig {
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
   msteams: string;
+  signal: string;
   slack: string;
   telegram: string;
   voice: string;
@@ -568,6 +585,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -584,6 +602,13 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    models: string[];
+  };
+  anthropic: {
+    enabled: boolean;
+    baseUrl: string;
+    method: AnthropicMethod;
+    models: string[];
   };
   openrouter: {
     enabled: boolean;
@@ -785,6 +810,7 @@ export interface RuntimeConfig {
     };
     delegation: {
       enabled: boolean;
+      model: string;
       maxConcurrent: number;
       maxDepth: number;
       maxPerTurn: number;
@@ -841,6 +867,19 @@ export type RuntimeConfigChangeListener = (
   prev: RuntimeConfig,
 ) => void;
 
+const LEGACY_SINGLE_CODEX_MODEL_LIST = ['openai-codex/gpt-5-codex'];
+const DEFAULT_CODEX_MODEL_LIST = [
+  'openai-codex/gpt-5-codex',
+  'openai-codex/gpt-5.3-codex',
+  'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.3-codex-spark',
+  'openai-codex/gpt-5.2-codex',
+  'openai-codex/gpt-5.1-codex-max',
+  'openai-codex/gpt-5.2',
+  'openai-codex/gpt-5.1-codex-mini',
+] as const;
+const DEFAULT_ANTHROPIC_MODEL_LIST = ['anthropic/claude-sonnet-4-6'] as const;
+const DEFAULT_ANTHROPIC_METHOD: AnthropicMethod = 'api-key';
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -864,7 +903,7 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
-const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   security: {
     trustModelAccepted: false,
@@ -1025,6 +1064,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     textChunkLimit: 4_000,
     mediaMaxMb: 20,
   },
+  signal: {
+    enabled: false,
+    daemonUrl: '',
+    account: '',
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    reconnectIntervalMs: 5_000,
+    outboundDelayMs: 350,
+  },
   whatsapp: {
     dmPolicy: 'pairing',
     groupPolicy: 'disabled',
@@ -1099,6 +1150,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    models: [...DEFAULT_CODEX_MODEL_LIST],
+  },
+  anthropic: {
+    enabled: false,
+    baseUrl: 'https://api.anthropic.com/v1',
+    method: DEFAULT_ANTHROPIC_METHOD,
+    models: [...DEFAULT_ANTHROPIC_MODEL_LIST],
   },
   openrouter: {
     enabled: false,
@@ -1363,6 +1421,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     delegation: {
       enabled: true,
+      model: '',
       maxConcurrent: 3,
       maxDepth: 2,
       maxPerTurn: 3,
@@ -1919,6 +1978,22 @@ function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
   return normalized;
 }
 
+function normalizeCodexModelArray(
+  value: unknown,
+  fallback: string[],
+): string[] {
+  const normalized = normalizeStringArray(value, fallback);
+  if (
+    normalized.length === LEGACY_SINGLE_CODEX_MODEL_LIST.length &&
+    normalized.every(
+      (model, index) => model === LEGACY_SINGLE_CODEX_MODEL_LIST[index],
+    )
+  ) {
+    return [...DEFAULT_CODEX_MODEL_LIST];
+  }
+  return normalized;
+}
+
 function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
 }
@@ -2082,6 +2157,77 @@ function normalizeTelegramPolicy(
     return normalized;
   }
   return fallback;
+}
+
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy,
+): SignalDmPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalGroupPolicy,
+): SignalGroupPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy | SignalGroupPolicy,
+): SignalDmPolicy | SignalGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSignalConfig(
+  value: unknown,
+  fallback: RuntimeSignalConfig,
+): RuntimeSignalConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    daemonUrl: normalizeString(raw.daemonUrl, fallback.daemonUrl, {
+      allowEmpty: true,
+    }),
+    account: normalizeString(raw.account, fallback.account, {
+      allowEmpty: true,
+    }),
+    dmPolicy: normalizeSignalPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeSignalPolicy(raw.groupPolicy, fallback.groupPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 8_000,
+      },
+    ),
+    reconnectIntervalMs: normalizeInteger(
+      raw.reconnectIntervalMs,
+      fallback.reconnectIntervalMs,
+      {
+        min: 500,
+        max: 60_000,
+      },
+    ),
+    outboundDelayMs: normalizeInteger(
+      raw.outboundDelayMs,
+      fallback.outboundDelayMs,
+      {
+        min: 0,
+        max: 10_000,
+      },
+    ),
+  };
 }
 
 function normalizeSlackGroupPolicy(
@@ -2426,6 +2572,7 @@ function normalizeChannelInstructionsConfig(
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
+    signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
       allowEmpty: true,
@@ -3849,6 +3996,31 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
 function normalizeRuntimeConfig(
   patch?: DeepPartial<RuntimeConfig>,
 ): RuntimeConfig {
+  const normalizeAnthropicMethodValue = (
+    value: unknown,
+    fallback: AnthropicMethod,
+  ): AnthropicMethod => {
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (
+      normalized === 'claude-cli' ||
+      normalized === 'claude_cli' ||
+      normalized === 'claudecli'
+    ) {
+      return 'claude-cli';
+    }
+    if (
+      normalized === 'api-key' ||
+      normalized === 'apikey' ||
+      normalized === 'api_key' ||
+      normalized === 'token'
+    ) {
+      return 'api-key';
+    }
+    return fallback;
+  };
+
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
@@ -3863,6 +4035,7 @@ function normalizeRuntimeConfig(
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -3871,6 +4044,7 @@ function normalizeRuntimeConfig(
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
+  const rawAnthropic = isRecord(raw.anthropic) ? raw.anthropic : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
@@ -4092,6 +4266,14 @@ function normalizeRuntimeConfig(
   const modelList = normalizeStringArray(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
+  );
+  const codexModelList = normalizeCodexModelArray(
+    rawCodex.models,
+    DEFAULT_RUNTIME_CONFIG.codex.models,
+  );
+  const anthropicModelList = normalizeStringArray(
+    rawAnthropic.models,
+    DEFAULT_RUNTIME_CONFIG.anthropic.models,
   );
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
@@ -4374,6 +4556,7 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
     telegram: normalizeTelegramConfig(
       rawTelegram,
@@ -4423,6 +4606,22 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      models: codexModelList,
+    },
+    anthropic: {
+      enabled: normalizeBoolean(
+        rawAnthropic.enabled,
+        DEFAULT_RUNTIME_CONFIG.anthropic.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawAnthropic.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.anthropic.baseUrl,
+      ),
+      method: normalizeAnthropicMethodValue(
+        rawAnthropic.method,
+        DEFAULT_RUNTIME_CONFIG.anthropic.method,
+      ),
+      models: anthropicModelList,
     },
     openrouter: {
       enabled: normalizeBoolean(
@@ -5140,6 +5339,11 @@ function normalizeRuntimeConfig(
           rawDelegation.enabled,
           DEFAULT_RUNTIME_CONFIG.proactive.delegation.enabled,
         ),
+        model: normalizeString(
+          rawDelegation.model,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.model,
+          { allowEmpty: true },
+        ),
         maxConcurrent: normalizeInteger(
           rawDelegation.maxConcurrent,
           DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxConcurrent,
@@ -5232,6 +5436,12 @@ function buildSerializableConfig(
     unknown
   >;
   preserveSecretInputs(serializable, sourceConfig ?? {});
+  const serializableCodex = isRecord(serializable.codex)
+    ? serializable.codex
+    : null;
+  if (serializableCodex) {
+    delete (serializableCodex as { models?: string[] }).models;
+  }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container
     : null;

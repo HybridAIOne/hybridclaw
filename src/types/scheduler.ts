@@ -13,7 +13,6 @@ export interface ScheduledTask {
   created_at: string;
 }
 
-// CamelCase projection of ScheduledTask passed over the container IPC boundary.
 export interface ScheduledTaskInput {
   id: number;
   channelId: string;

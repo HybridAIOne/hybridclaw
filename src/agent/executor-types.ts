@@ -36,6 +36,7 @@ export interface ExecutorRequest {
   allowedTools?: string[];
   blockedTools?: string[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   abortSignal?: AbortSignal;

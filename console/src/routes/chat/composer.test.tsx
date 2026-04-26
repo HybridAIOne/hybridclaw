@@ -42,4 +42,30 @@ describe('Composer', () => {
       ),
     );
   });
+
+  it('renders a compact agent switcher beside the attach button', () => {
+    const onAgentSwitch = vi.fn();
+
+    render(
+      <Composer
+        isStreaming={false}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
+        token="test-token"
+        agents={[
+          { id: 'main', name: 'Assistant' },
+          { id: 'charly', name: 'Charly' },
+        ]}
+        selectedAgentId="main"
+        onAgentSwitch={onAgentSwitch}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    expect(onAgentSwitch).toHaveBeenCalledWith('charly');
+  });
 });

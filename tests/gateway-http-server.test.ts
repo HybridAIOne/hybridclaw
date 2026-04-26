@@ -53,7 +53,6 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
     '<h1>Agents</h1>',
@@ -495,11 +494,6 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
-  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
-    agentId: 'charly',
-    displayName: 'Charly',
-    imageUrl: '/api/agent-avatar?agentId=charly',
-  }));
   const getGatewayBootstrapAutostartState = vi.fn(() => null);
   const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
   const getAgentById = vi.fn((agentId: string) =>
@@ -927,6 +921,9 @@ async function importFreshHealth(options?: {
         output: ['tool.result read ok 12ms'],
       },
     ],
+  }));
+  const getGatewayAgentList = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
   }));
   const getGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
@@ -1511,6 +1508,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
     GatewayRequestError,
+    getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
@@ -1533,7 +1531,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminStatistics,
     getGatewayAdminTools,
-    getGatewayAssistantPresentationForSession,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -1629,7 +1626,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
-    getGatewayAssistantPresentationForSession,
+    getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -3099,11 +3096,36 @@ describe('gateway HTTP server', () => {
       state.handler(aboutReq as never, aboutRes as never);
 
       expect(aboutRes.statusCode).toBe(200);
-      expect(aboutRes.headers['Content-Type']).toBe(
-        'text/html; charset=utf-8',
-      );
+      expect(aboutRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
       expect(aboutRes.body).toContain('<h1>Docs</h1>');
     }
+  });
+
+  test('301-redirects the legacy /chat.html URL to /chat', async () => {
+    const state = await importFreshHealth();
+
+    const req = makeRequest({ url: '/chat.html' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.Location).toBe('/chat');
+    expect(res.headers['Cache-Control']).toBe('no-store');
+  });
+
+  test('preserves the query string when redirecting /chat.html?token=… to /chat', async () => {
+    const state = await importFreshHealth();
+
+    const req = makeRequest({
+      url: '/chat.html?token=launch-xyz&next=%2Fadmin',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(301);
+    expect(res.headers.Location).toBe('/chat?token=launch-xyz&next=%2Fadmin');
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
@@ -3461,11 +3483,6 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
-      assistantPresentation: {
-        agentId: 'charly',
-        displayName: 'Charly',
-        imageUrl: '/api/agent-avatar?agentId=charly',
-      },
       bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
@@ -4812,6 +4829,22 @@ describe('gateway HTTP server', () => {
           fullAutoEnabled: true,
         },
       ],
+    });
+  });
+
+  test('returns lightweight agent list for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/agents/list' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAgentList).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAgents).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
     });
   });
 

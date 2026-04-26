@@ -1,6 +1,7 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { SKILL_CONFIG_CHANNEL_KINDS } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { normalizeArg, parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   getRuntimeSkillScopeDisabledNames,
   setRuntimeSkillScopeEnabled,
@@ -149,7 +150,7 @@ function formatSkillObservationRun(observation: SkillObservation): string {
 export async function handleSkillCommand(
   context: SkillCommandContext,
 ): Promise<GatewayCommandResult> {
-  const sub = (context.args[1] || '').trim().toLowerCase();
+  const sub = parseLowerArg(context.args, 1);
   if (!sub) {
     return context.badCommand('Usage', SKILL_COMMAND_USAGE);
   }
@@ -220,9 +221,9 @@ export async function handleSkillCommand(
     };
 
     for (let i = 0; i < rest.length; i += 1) {
-      const arg = String(rest[i] || '').trim();
+      const arg = normalizeArg(rest[i], { trim: true });
       if (arg === '--channel') {
-        const next = String(rest[i + 1] || '').trim();
+        const next = normalizeArg(rest[i + 1], { trim: true });
         if (!next) {
           return context.badCommand(
             'Usage',
@@ -290,7 +291,7 @@ export async function handleSkillCommand(
 
   if (sub === 'inspect') {
     const inspectionModule = await import('../skills/skills-inspection.js');
-    const target = String(context.args[2] || '').trim();
+    const target = parseIdArg(context.args, 2);
     if (!target) {
       return context.badCommand(
         'Usage',
@@ -321,7 +322,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'learn') {
-    const skillName = String(context.args[2] || '').trim();
+    const skillName = parseIdArg(context.args, 2);
     if (!skillName) {
       return context.badCommand(
         'Usage',
@@ -332,11 +333,7 @@ export async function handleSkillCommand(
     const actions = new Set(
       context.args
         .slice(3)
-        .map((entry) =>
-          String(entry || '')
-            .trim()
-            .toLowerCase(),
-        )
+        .map((entry) => normalizeArg(entry, { trim: true, lower: true }))
         .filter(Boolean),
     );
     const hasApply = actions.has('--apply') || actions.has('apply');
@@ -450,7 +447,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'history') {
-    const skillName = String(context.args[2] || '').trim();
+    const skillName = parseIdArg(context.args, 2);
     if (!skillName) {
       return context.badCommand('Usage', 'Usage: `skill history <name>`');
     }
@@ -468,7 +465,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'runs') {
-    const skillName = String(context.args[2] || '').trim();
+    const skillName = parseIdArg(context.args, 2);
     if (!skillName) {
       return context.badCommand('Usage', 'Usage: `skill runs <name>`');
     }
@@ -488,8 +485,8 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'install') {
-    const skillName = String(context.args[2] || '').trim();
-    const installId = String(context.args[3] || '').trim() || undefined;
+    const skillName = parseIdArg(context.args, 2);
+    const installId = parseIdArg(context.args, 3) || undefined;
     if (!isLocalSession(context)) {
       return context.badCommand(
         'Skill Install Restricted',
@@ -520,7 +517,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'setup') {
-    const skillName = String(context.args[2] || '').trim();
+    const skillName = parseIdArg(context.args, 2);
     if (!isLocalSession(context)) {
       return context.badCommand(
         'Skill Setup Restricted',

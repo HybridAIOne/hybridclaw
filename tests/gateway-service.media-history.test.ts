@@ -128,6 +128,60 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
   ]);
 });
 
+test('getGatewayHistory returns assistant presentation per stored message agent', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'web:agent-history';
+  memoryService.getOrCreateSession(sessionId, null, 'web');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'Main answer',
+    agentId: 'main',
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'Charly answer',
+    agentId: 'charly',
+  });
+
+  const history = getGatewayHistory(sessionId, 10).history;
+
+  const mainAnswer = history.find(
+    (message) => message.content === 'Main answer',
+  );
+  const charlyAnswer = history.find(
+    (message) => message.content === 'Charly answer',
+  );
+
+  expect(mainAnswer).toMatchObject({
+    role: 'assistant',
+    agent_id: 'main',
+  });
+  expect(mainAnswer?.assistantPresentation).toBeUndefined();
+  expect(charlyAnswer).toMatchObject({
+    role: 'assistant',
+    agent_id: 'charly',
+    assistantPresentation: {
+      agentId: 'charly',
+      displayName: 'charly',
+    },
+  });
+});
+
 test('getGatewayHistory omits stored approval request messages', async () => {
   setupHome();
 

@@ -468,6 +468,22 @@ code {
   grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
 }
 
+.sticky-detail {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+@media (max-width: 1080px) {
+  .sticky-detail {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
 .usage-grid,
 .field-grid,
 .config-grid,
@@ -632,6 +648,11 @@ code {
 .channel-logo svg {
   width: 32px;
   height: 32px;
+}
+
+.channel-logo-compact svg {
+  width: 28px;
+  height: 28px;
 }
 
 .channel-status-badge {

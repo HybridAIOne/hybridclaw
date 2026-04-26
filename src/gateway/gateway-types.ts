@@ -53,6 +53,7 @@ export interface GatewayChatResult {
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
   memoryCitations?: MemoryCitation[];
@@ -115,6 +116,11 @@ export interface GatewayChatTextDeltaEvent {
   delta: string;
 }
 
+export interface GatewayChatThinkingDeltaEvent {
+  type: 'thinking';
+  delta: string;
+}
+
 export type GatewayMediaItem = MediaContextItem;
 
 export interface GatewayChatApprovalEvent extends PendingApproval {
@@ -130,6 +136,7 @@ export interface GatewayChatStreamResultEvent {
 export type GatewayChatStreamEvent =
   | GatewayChatToolProgressEvent
   | GatewayChatTextDeltaEvent
+  | GatewayChatThinkingDeltaEvent
   | GatewayChatApprovalEvent
   | GatewayChatStreamResultEvent;
 
@@ -181,6 +188,7 @@ export interface GatewayChatRequest {
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {
@@ -224,8 +232,10 @@ export interface GatewayHistoryMessage {
   user_id: string;
   username: string | null;
   role: string;
+  agent_id?: string | null;
   content: string;
   created_at: string;
+  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
@@ -271,7 +281,6 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
-  assistantPresentation?: GatewayAssistantPresentation;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';
@@ -429,10 +438,25 @@ export interface GatewayStatus {
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
   };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+    pairingQrText: string | null;
+    pairingUri: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+    cliAvailable: boolean;
+    cliPath: string;
+    cliVersion: string | null;
+    cliError: string | null;
+  };
   providerHealth?: Partial<
     Record<
       | 'hybridai'
       | 'codex'
+      | 'anthropic'
       | 'openrouter'
       | 'mistral'
       | 'huggingface'
@@ -712,6 +736,15 @@ export interface GatewayAgentsResponse {
   };
   agents: GatewayLogicalAgentCard[];
   sessions: GatewaySessionCard[];
+}
+
+export interface GatewayAgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAgentListResponse {
+  agents: GatewayAgentListItem[];
 }
 
 export interface GatewayAdminJobAgent {

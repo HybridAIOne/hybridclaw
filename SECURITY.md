@@ -101,6 +101,37 @@ Implementation: [src/session/session-key.ts](./src/session/session-key.ts),
 [src/session/session-routing.ts](./src/session/session-routing.ts),
 [src/memory/db.ts](./src/memory/db.ts)
 
+### 4.1) Confidential-Info Filter (NDA / secret-leak detector)
+
+Optional, opt-in filter that prevents NDA-class business data from leaving the
+host:
+
+- Define rules in `.confidential.yml`. The loader checks the current working
+  directory first (`./.confidential.yml`) and then
+  `~/.hybridclaw/.confidential.yml`; first hit wins. The file holds clients,
+  projects, people, keywords, and regex patterns, each tagged with a
+  sensitivity level.
+- Before every prompt is sent to a model, matches are replaced with stable
+  placeholders (`«CONF:CLIENT_001»`); the mapping is held in process memory and
+  forgotten when the request ends.
+- Streaming text deltas and the final response are rehydrated for the user, so
+  the model never sees the original strings but the user sees real names.
+- Disabled via `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` for debugging or dry-runs.
+
+A retroactive scanner walks existing audit logs to surface possible past leaks
+and assigns a 0-100 risk score:
+
+```bash
+hybridclaw audit scan-leaks                # scan every session
+hybridclaw audit scan-leaks <sessionId>    # scan one session
+hybridclaw audit scan-leaks --json         # machine-readable report
+```
+
+Implementation: [src/security/confidential-rules.ts](./src/security/confidential-rules.ts),
+[src/security/confidential-redact.ts](./src/security/confidential-redact.ts),
+[src/security/confidential-runtime.ts](./src/security/confidential-runtime.ts),
+[src/audit/leak-scanner.ts](./src/audit/leak-scanner.ts).
+
 ### 5) Audit & Tamper Evidence
 
 Security-relevant behavior is written to structured audit logs:

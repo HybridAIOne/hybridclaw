@@ -72,6 +72,7 @@ export interface ChatCompletionResponse {
       cached_tokens?: number;
     };
   };
+  timing?: ModelCallTiming;
 }
 
 export interface ToolDefinition {
@@ -115,6 +116,7 @@ export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -122,6 +124,7 @@ export interface TaskModelPolicy {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
   requestHeaders?: Record<string, string>;
@@ -158,7 +161,6 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-// CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
 export interface ScheduledTaskInput {
   id: number;
   channelId: string;
@@ -202,6 +204,7 @@ export interface ContainerInput {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -209,6 +212,7 @@ export interface ContainerInput {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
@@ -221,6 +225,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -302,6 +307,18 @@ export interface TokenUsageStats {
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;
+  performanceSamples?: ModelCallPerformanceSample[];
+}
+
+export interface ModelCallTiming {
+  durationMs: number;
+  firstTextDeltaMs?: number;
+}
+
+export interface ModelCallPerformanceSample extends ModelCallTiming {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export interface ArtifactMetadata {
